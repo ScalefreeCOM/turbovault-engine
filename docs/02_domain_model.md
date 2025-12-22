@@ -88,6 +88,8 @@ Describes a physical source system (database/schema) and a human-readable name.
 | schema_name       | string     | ✓        | Schema name in the source system.                  |
 | database_name     | string     |          | Optional database name (if applicable).            |
 | name              | string     | ✓        | Human-readable name for this source system.        |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 **Relationships**
 
@@ -109,6 +111,8 @@ Represents a physical source table within a source system and includes DV-relate
 | record_source_value           | string     |          | Value/expression used as `record_source` for this table.                   |
 | static_part_of_record_source  | string     |          | Optional static part of `record_source` that is reused.                    |
 | load_date_value               | string     |          | Expression or column name used as load date value.                         |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 **Relationships**
 
@@ -128,6 +132,8 @@ Represents a single column in a source table.
 | source_table_id             | identifier | ✓ (FK)   | FK to `source_table.source_table_id`.                   |
 | source_column_physical_name | string     | ✓        | Physical column name in the source table.               |
 | source_column_datatype      | string     | ✓        | Logical or physical data type of the column.            |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 **Relationships**
 
@@ -159,6 +165,8 @@ Defines a Data Vault hub entity.
 | hub_hashkey_name              | string     |          | Name of the hub hashkey column (used only if `hub_type = standard`).                           |
 | create_record_tracking_satellite | boolean | ✓        | If true, a record-tracking satellite should be generated for this hub.                         |
 | create_effectivity_satellite  | boolean    | ✓        | If true, an effectivity satellite should be generated for this hub.                            |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 **Relationships**
 
@@ -182,6 +190,8 @@ Describes columns within a hub.
 | column_name   | string     | ✓        | Logical/target column name in the hub.                                     |
 | column_type   | string     | ✓        | `business_key` (default for standard hubs), `additional_column`, or `reference_key`. |
 | sort_order    | int        | ✓        | Sorting index to define ordering of hub columns.                           |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 **Relationships**
 
@@ -202,6 +212,8 @@ Maps hub columns to source columns.
 | hub_column_id         | identifier | ✓ (FK)   | FK to `hub_column.hub_column_id`.                                                       |
 | source_column_id      | identifier | ✓ (FK)   | FK to `source_column.source_column_id`.                                                 |
 | is_primary_source     | boolean    | ✓        | Indicates if this mapping is the primary source for the hub (only one per hub allowed). |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 **Relationships**
 
@@ -226,6 +238,8 @@ Defines a Data Vault link entity.
 | link_physical_name | string     | ✓        | Physical name of the link (e.g. `link_customer_order`).                    |
 | link_type          | string     | ✓        | `standard` or `non-historized`.                                            |
 | hub_references     | list[id]   | ✓        | List of hub IDs this link connects; can only point to **standard hubs**.   |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 > In relational/Django terms, `hub_references` will be modeled as a many-to-many relation between `link` and `hub` (restricted to hubs with `hub_type = standard`).
 
@@ -249,6 +263,8 @@ Describes columns in a link (payload or additional).
 | link_id         | identifier | ✓ (FK)   | FK to `link.link_id`.                                       |
 | column_name     | string     | ✓        | Logical/target column name in the link.                      |
 | column_type     | string     | ✓        | `payload` or `additional_column`.                            |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 **Relationships**
 
@@ -266,6 +282,8 @@ Maps link columns to source columns.
 | link_source_mapping_id | identifier | PK       | Unique identifier for a link column mapping.                           |
 | link_column_id         | identifier | ✓ (FK)   | FK to `link_column.link_column_id`.                                    |
 | source_column_id       | identifier | ✓ (FK)   | FK to `source_column.source_column_id`.                                |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 **Relationships**
 
@@ -286,6 +304,8 @@ Defines how link hub keys are derived from source data.
 | standard_hub_column_id          | identifier | ✓ (FK)   | FK to `hub_column.hub_column_id` (must be a hub column of a standard hub).                                                                  |
 | source_column_id                | identifier |          | FK to `source_column.source_column_id` when mapping directly from a source column.                                                          |
 | prejoin_extraction_column_id    | identifier |          | FK to `prejoin_extraction_column.prejoin_extraction_column_id` when mapping from a pre-joined extraction column.                           |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 > **Constraint:** Either `(source_column_id)` must be set **or** `(prejoin_extraction_column_id)` must be set, but **not both**.  
 > This expresses “direct from source” vs. “via pre-join extraction”.
@@ -316,6 +336,8 @@ Defines a pre-join relationship between two source tables.
 | prejoin_target_table_id            | identifier | ✓ (FK)   | Target-side table ID (FK to `source_table.source_table_id`).                                   |
 | prejoin_condition_target_column_id | identifier | ✓ (FK)   | FK to `source_column.source_column_id` for the target-side join column.                         |
 | prejoin_operator                   | string     | ✓        | Logical operator used to combine conditions, e.g. `AND` or `OR`.                                |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 **Relationships**
 
@@ -334,6 +356,8 @@ Defines which columns are extracted from a pre-joined target table.
 | prejoin_extraction_column_id | identifier | PK       | Unique identifier of the pre-join extraction column.                                                                       |
 | prejoin_id                   | identifier | ✓ (FK)   | FK to `prejoin_definition.prejoin_id`.                                                                                      |
 | prejoin_source_column_id     | identifier | ✓ (FK)   | FK to `source_column.source_column_id`; must be a column from `prejoin_definition.prejoin_target_table_id`.                |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 **Relationships**
 
@@ -357,6 +381,8 @@ Represents a Data Vault satellite attached to either a hub or a link.
 | satellite_physical_name | string | ✓        | Physical name of the satellite (e.g. `sat_customer_details`).                                                                                   |
 | parent_entity_id    | identifier | ✓        | Identifier of the parent entity (hub or link).                                                                                                  |
 | satellite_type      | string     | ✓        | `standard` (default for standard hub & link), `reference` (default for reference hub), `non-historized` (default for non-historized link), or `multi-active`. |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 > In implementation, `parent_entity_id` will likely be paired with a `parent_entity_type` field (e.g. `hub` / `link`) or modeled via two separate FKs to `hub` and `link` with constraints.
 
@@ -383,6 +409,8 @@ Maps source columns into a satellite, with extra semantics.
 | include_in_delta_detection      | boolean    | ✓        | If `true`, column is included in hashdiff/delta detection; if `false`, it is excluded (default: `true`).                                                 |
 | target_column_name              | string     |          | Optional target column name for renaming; default is the physical source column name.                                                                    |
 | target_column_transformation    | string     |          | Optional transformation expression used to derive this column (e.g. placeholders, functions, or COALESCE-like expressions).                              |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 **Relationships**
 
@@ -406,6 +434,8 @@ Stores global snapshot configuration.
 | snapshot_start_date      | date       | ✓        | Start date of snapshot range (default: beginning of (year of today - 5 years); format `YYYY-MM-DD`).                            |
 | snapshot_end_date        | date       | ✓        | End date of snapshot range (default: end of (year of today + 5 years); format `YYYY-MM-DD`).                                    |
 | daily_snapshot_time      | time       | ✓        | Daily snapshot time (default: `08:00:00`; format `hh:mm:ss`).                                                                    |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 ---
 
@@ -422,6 +452,8 @@ Defines reusable snapshot logic patterns.
 | snapshot_duration             | int        |          | Duration value for the snapshot window (e.g. 3, 6, 12).                                                                     |
 | snapshot_unit                 | string     |          | Unit for duration: `DAY`, `WEEK`, `MONTH`, `QUARTER`, `YEAR`.                                                                |
 | snapshot_forever              | boolean    | ✓        | If `true`, `snapshot_duration` and `snapshot_unit` must be `NULL` and snapshot is open-ended.                               |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 **Relationships**
 
@@ -445,6 +477,8 @@ Represents a reference table based on a reference hub.
 | historization_type          | string     | ✓        | Historization strategy: `latest`, `full`, or `snapshot_based`.                                                       |
 | snapshot_table_id           | identifier |          | FK to `snapshot_control_table.snapshot_control_table_id` when `historization_type` requires snapshot handling.      |
 | snapshot_control_logic_id   | identifier |          | FK to `snapshot_control_logic.snapshot_control_logic_id` when snapshot-based logic is used.                          |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 **Relationships**
 
@@ -467,6 +501,8 @@ Assigns reference satellites to a reference table and controls column inclusion/
 | reference_satellite_id                  | identifier | ✓ (FK)   | FK to `satellite.satellite_id`; must refer to a satellite of type `reference`.                                  |
 | include_columns                         | list[id]   |          | Optional list of `satellite_column.satellite_column_id` to explicitly include.                                  |
 | exclude_columns                         | list[id]   |          | Optional list of `satellite_column.satellite_column_id` to explicitly exclude.                                  |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 > **Rule of thumb:** If `include_columns` is non-empty, only those columns are included.  
 > If `include_columns` is empty and `exclude_columns` is set, all except the excluded ones are included.
@@ -500,6 +536,8 @@ Defines Point-in-Time structures over satellites for a tracked hub or link.
 | use_snapshot_optimization                  | boolean    | ✓        | If `true`, snapshot optimization techniques are applied (default: `true`).                                                         |
 | include_business_objects_before_appearance | boolean    | ✓        | If `true`, includes business keys before their first appearance in the PIT (default: `false`).                                     |
 | satellite_ids                              | list[id]   | ✓        | List of `satellite.satellite_id` entries included in the PIT structure.                                                            |
+| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 > As with `satellite.parent_entity_id`, `tracked_entity_id` will be implemented with additional type information or separate FKs to `hub` / `link`.
 
