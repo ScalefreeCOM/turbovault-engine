@@ -5,7 +5,13 @@ Register domain models here for data inspection and debugging via the admin UI.
 """
 from django.contrib import admin
 
-from engine.models import Project, Group, SourceSystem, SourceTable, SourceColumn
+from engine.models import (
+    Project, Group,
+    SourceSystem, SourceTable, SourceColumn,
+    ReferenceTable, ReferenceTableSatelliteAssignment,
+    PIT,
+    PrejoinDefinition, PrejoinExtractionColumn
+)
 
 
 @admin.register(Project)
@@ -448,3 +454,305 @@ class LinkSourceMappingAdmin(admin.ModelAdmin):
         """Return the link name for this mapping."""
         return obj.link_column.link.link_physical_name
 
+
+# ==============================================================================
+# Reference Table Admin
+# ==============================================================================
+
+class ReferenceTableSatelliteAssignmentInline(admin.TabularInline):
+    """Inline for managing satellite assignments to reference tables."""
+    model = ReferenceTableSatelliteAssignment
+    extra = 1
+    fields = ["reference_satellite", "include_columns", "exclude_columns"]
+    autocomplete_fields = ["reference_satellite"]
+    filter_horizontal = ["include_columns", "exclude_columns"]
+
+
+@admin.register(ReferenceTable)
+class ReferenceTableAdmin(admin.ModelAdmin):
+    """Admin configuration for ReferenceTable model."""
+    
+    list_display = [
+        "reference_table_physical_name",
+        "reference_hub",
+        "historization_type",
+        "project",
+        "created_at"
+    ]
+    list_filter = ["historization_type", "project"]
+    search_fields = [
+        "reference_table_physical_name",
+        "reference_hub__hub_physical_name"
+    ]
+    readonly_fields = ["reference_table_id", "created_at", "updated_at"]
+    autocomplete_fields = [
+        "project",
+        "reference_hub",
+        "snapshot_control_table",
+        "snapshot_control_logic"
+    ]
+    inlines = [ReferenceTableSatelliteAssignmentInline]
+    
+    fieldsets = [
+        (None, {
+            "fields": [
+                "reference_table_id",
+                "project",
+                "reference_table_physical_name",
+                "reference_hub",
+                "historization_type"
+            ]
+        }),
+        ("Snapshot Configuration", {
+            "fields": [
+                "snapshot_control_table",
+                "snapshot_control_logic"
+            ],
+            "description": "Required only for snapshot-based historization",
+            "classes": ["collapse"]
+        }),
+        ("Timestamps", {
+            "fields": ["created_at", "updated_at"],
+            "classes": ["collapse"]
+        }),
+    ]
+
+
+@admin.register(ReferenceTableSatelliteAssignment)
+class ReferenceTableSatelliteAssignmentAdmin(admin.ModelAdmin):
+    """Admin configuration for ReferenceTableSatelliteAssignment model."""
+    
+    list_display = [
+        "reference_table",
+        "reference_satellite",
+        "created_at"
+    ]
+    list_filter = ["reference_table", "reference_satellite"]
+    search_fields = [
+        "reference_table__reference_table_physical_name",
+        "reference_satellite__satellite_physical_name"
+    ]
+    readonly_fields = ["assignment_id", "created_at", "updated_at"]
+    autocomplete_fields = ["reference_table", "reference_satellite"]
+    filter_horizontal = ["include_columns", "exclude_columns"]
+    
+    fieldsets = [
+        (None, {
+            "fields": [
+                "assignment_id",
+                "reference_table",
+                "reference_satellite"
+            ]
+        }),
+        ("Column Control", {
+            "fields": ["include_columns", "exclude_columns"],
+            "description": "Specify EITHER include OR exclude columns, not both. Leave both empty to include all columns."
+        }),
+        ("Timestamps", {
+            "fields": ["created_at", "updated_at"],
+            "classes": ["collapse"]
+        }),
+    ]
+
+
+# ==============================================================================
+# PIT Admin
+# ==============================================================================
+
+@admin.register(PIT)
+class PITAdmin(admin.ModelAdmin):
+    """Admin configuration for PIT model."""
+    
+    list_display = [
+        "pit_physical_name",
+        "tracked_entity_type",
+        "get_tracked_entity",
+        "get_satellite_count",
+        "project",
+        "created_at"
+    ]
+    list_filter = ["tracked_entity_type", "project", "use_snapshot_optimization"]
+    search_fields = [
+        "pit_physical_name",
+        "tracked_hub__hub_physical_name",
+        "tracked_link__link_physical_name"
+    ]
+    readonly_fields = ["pit_id", "created_at", "updated_at"]
+    autocomplete_fields = [
+        "project",
+        "tracked_hub",
+        "tracked_link",
+        "snapshot_control_table",
+        "snapshot_control_logic"
+    ]
+    filter_horizontal = ["satellites"]
+    
+    fieldsets = [
+        (None, {
+            "fields": [
+                "pit_id",
+                "project",
+                "pit_physical_name"
+            ]
+        }),
+        ("Tracked Entity", {
+            "fields": [
+                "tracked_entity_type",
+                "tracked_hub",
+                "tracked_link"
+            ],
+            "description": "Select EITHER a hub OR a link, not both"
+        }),
+        ("Snapshot Configuration", {
+            "fields": [
+                "snapshot_control_table",
+                "snapshot_control_logic"
+            ]
+        }),
+        ("Satellites", {
+            "fields": ["satellites"],
+            "description": "Satellites to include in this PIT structure"
+        }),
+        ("Options", {
+            "fields": [
+                "dimension_key_column_name",
+                "pit_type",
+                "custom_record_source",
+                "use_snapshot_optimization",
+                "include_business_objects_before_appearance"
+            ],
+            "classes": ["collapse"]
+        }),
+        ("Timestamps", {
+            "fields": ["created_at", "updated_at"],
+            "classes": ["collapse"]
+        }),
+    ]
+    
+    @admin.display(description="Tracked Entity")
+    def get_tracked_entity(self, obj: PIT) -> str:
+        """Return the tracked entity name."""
+        if obj.tracked_hub:
+            return f"Hub: {obj.tracked_hub.hub_physical_name}"
+        elif obj.tracked_link:
+            return f"Link: {obj.tracked_link.link_physical_name}"
+        return "None"
+    
+    @admin.display(description="Satellites")
+    def get_satellite_count(self, obj: PIT) -> int:
+        """Return the number of satellites in this PIT."""
+        return obj.satellites.count()
+
+
+# ==============================================================================
+# Prejoin Admin
+# ==============================================================================
+
+class PrejoinExtractionColumnInline(admin.TabularInline):
+    """Inline for prejoin extraction columns."""
+    model = PrejoinExtractionColumn
+    extra = 1
+    autocomplete_fields = ["source_column"]
+    readonly_fields = ["extraction_id", "created_at", "updated_at"]
+
+
+@admin.register(PrejoinDefinition)
+class PrejoinDefinitionAdmin(admin.ModelAdmin):
+    """Admin configuration for PrejoinDefinition model."""
+    
+    list_display = [
+        "get_prejoin_name",
+        "source_table",
+        "prejoin_target_table",
+        "prejoin_operator",
+        "get_extraction_count",
+        "project",
+        "created_at"
+    ]
+    list_filter = ["project", "prejoin_operator", "source_table__source_system"]
+    search_fields = [
+        "source_table__physical_table_name",
+        "prejoin_target_table__physical_table_name"
+    ]
+    readonly_fields = ["prejoin_id", "created_at", "updated_at"]
+    autocomplete_fields = [
+        "project",
+        "source_table",
+        "prejoin_target_table"
+    ]
+    filter_horizontal = [
+        "prejoin_condition_source_column",
+        "prejoin_condition_target_column"
+    ]
+    inlines = [PrejoinExtractionColumnInline]
+    
+    fieldsets = [
+        (None, {
+            "fields": [
+                "prejoin_id",
+                "project"
+            ]
+        }),
+        ("Join Configuration", {
+            "fields": [
+                "source_table",
+                "prejoin_condition_source_column",
+                "prejoin_target_table",
+                "prejoin_condition_target_column",
+                "prejoin_operator"
+            ],
+            "description": "Define the join between source and target tables"
+        }),
+        ("Timestamps", {
+            "fields": ["created_at", "updated_at"],
+            "classes": ["collapse"]
+        }),
+    ]
+    
+    @admin.display(description="Prejoin")
+    def get_prejoin_name(self, obj: PrejoinDefinition) -> str:
+        """Return a descriptive name for the prejoin."""
+        return f"{obj.source_table.physical_table_name} → {obj.prejoin_target_table.physical_table_name}"
+    
+    @admin.display(description="Extraction Columns")
+    def get_extraction_count(self, obj: PrejoinDefinition) -> int:
+        """Return the number of extraction columns."""
+        return obj.extraction_columns.count()
+
+
+@admin.register(PrejoinExtractionColumn)
+class PrejoinExtractionColumnAdmin(admin.ModelAdmin):
+    """Admin configuration for PrejoinExtractionColumn model."""
+    
+    list_display = [
+        "get_column_name",
+        "prejoin",
+        "source_column",
+        "created_at"
+    ]
+    list_filter = ["prejoin__project", "prejoin__source_table"]
+    search_fields = [
+        "source_column__source_column_physical_name",
+        "prejoin__source_table__physical_table_name"
+    ]
+    readonly_fields = ["extraction_id", "created_at", "updated_at"]
+    autocomplete_fields = ["prejoin", "source_column"]
+    
+    fieldsets = [
+        (None, {
+            "fields": [
+                "extraction_id",
+                "prejoin",
+                "source_column"
+            ]
+        }),
+        ("Timestamps", {
+            "fields": ["created_at", "updated_at"],
+            "classes": ["collapse"]
+        }),
+    ]
+    
+    @admin.display(description="Extraction Column")
+    def get_column_name(self, obj: PrejoinExtractionColumn) -> str:
+        """Return the extraction column name."""
+        return obj.source_column.source_column_physical_name

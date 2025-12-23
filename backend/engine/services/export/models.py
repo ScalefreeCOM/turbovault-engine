@@ -236,6 +236,12 @@ class StageDefinition(BaseModel):
         description="All hashdiffs to compute in this stage"
     )
     
+    # Prejoins applied in this stage
+    prejoins: list[PrejoinDefinitionExport] = Field(
+        default_factory=list,
+        description="Prejoins applied in this stage"
+    )
+    
     # Multi-active configuration (if any multi-active satellite uses this source)
     multi_active_config: Optional[MultiActiveConfig] = Field(
         None,
@@ -322,6 +328,138 @@ class SatelliteDefinition(BaseModel):
 # =============================================================================
 
 
+# ============================================================================
+# REFERENCE TABLE MODELS
+# ============================================================================
+
+class ReferenceTableSatelliteAssignment(BaseModel):
+    """Satellite assignment for a reference table."""
+    
+    satellite_name: str = Field(
+        description="Name of the reference satellite"
+    )
+    include_columns: list[str] = Field(
+        default_factory=list,
+        description="Specific columns to include (if empty, includes all except excluded)"
+    )
+    exclude_columns: list[str] = Field(
+        default_factory=list,
+        description="Specific columns to exclude (only used if include_columns is empty)"
+    )
+
+
+class ReferenceTableDefinition(BaseModel):
+    """Reference table definition."""
+    
+    table_name: str = Field(
+        description="Physical name of the reference table"
+    )
+    reference_hub_name: str = Field(
+        description="Name of the reference hub this table is based on"
+    )
+    historization_type: str = Field(
+        description="Historization strategy: latest, full, or snapshot_based"
+    )
+    snapshot_control_table: Optional[str] = Field(
+        None,
+        description="Snapshot control table name (if snapshot_based)"
+    )
+    snapshot_logic_column: Optional[str] = Field(
+        None,
+        description="Snapshot logic column name (if snapshot_based)"
+    )
+    satellites: list[ReferenceTableSatelliteAssignment] = Field(
+        default_factory=list,
+        description="Reference satellite assignments"
+    )
+
+
+class PITDefinition(BaseModel):
+    """Point-in-Time structure definition."""
+    
+    pit_name: str = Field(
+        description="Physical name of the PIT structure"
+    )
+    tracked_entity_type: str = Field(
+        description="Type of tracked entity: hub or link"
+    )
+    tracked_entity_name: str = Field(
+        description="Name of the tracked hub or link"
+    )
+    satellites: list[str] = Field(
+        default_factory=list,
+        description="List of satellite names included in the PIT"
+    )
+    snapshot_logic_column: str = Field(
+        description="Snapshot logic column name"
+    )
+    dimension_key_column: Optional[str] = Field(
+        None,
+        description="Optional dimension key column name"
+    )
+    pit_type: Optional[str] = Field(
+        None,
+        description="Optional PIT type classification"
+    )
+    use_snapshot_optimization: bool = Field(
+        default=True,
+        description="Whether snapshot optimization is enabled"
+    )
+    include_business_objects_before_appearance: bool = Field(
+        default=False,
+        description="Whether to include business keys before first appearance"
+    )
+
+
+# ============================================================================
+# SNAPSHOT CONTROL MODELS
+# ============================================================================
+
+class SnapshotLogicPattern(BaseModel):
+    """Snapshot logic pattern definition."""
+    
+    column_name: str = Field(
+        description="Column name for this snapshot logic"
+    )
+    component: str = Field(
+        description="Snapshot component (daily, end_of_week, end_of_month, etc.)"
+    )
+    duration: Optional[int] = Field(
+        None,
+        description="Duration value (e.g., 1, 7, 30)"
+    )
+    unit: Optional[str] = Field(
+        None,
+        description="Duration unit (DAY, WEEK, MONTH, QUARTER, YEAR)"
+    )
+    forever: bool = Field(
+        default=False,
+        description="If true, snapshots are kept indefinitely"
+    )
+
+
+class SnapshotControlDefinition(BaseModel):
+    """Snapshot control table definition."""
+    
+    start_date: str = Field(
+        description="Overall snapshot start date (YYYY-MM-DD)"
+    )
+    end_date: str = Field(
+        description="Overall snapshot end date (YYYY-MM-DD)"
+    )
+    daily_time: str = Field(
+        description="Daily snapshot execution time (HH:MM:SS)"
+    )
+    logic_patterns: list[SnapshotLogicPattern] = Field(
+        default_factory=list,
+        description="List of snapshot logic patterns"
+    )
+
+
+# ============================================================================
+# PROJECT EXPORT MODEL
+# ============================================================================
+
 class ProjectExport(BaseModel):
     """
     Complete export of a Data Vault project.
@@ -335,6 +473,11 @@ class ProjectExport(BaseModel):
     # Configuration
     stage_schema: Optional[str] = None
     rdv_schema: Optional[str] = None
+    
+    # Export configuration
+    export_sources: bool = True
+    generate_tests: bool = True
+    generate_dbml: bool = False
     
     # Definitions
     sources: list[SourceSystemDef] = Field(
@@ -358,6 +501,19 @@ class ProjectExport(BaseModel):
         description="Link definitions"
     )
     
-    # Future: pits, reference_tables
+    snapshot_controls: list[SnapshotControlDefinition] = Field(
+        default_factory=list,
+        description="Snapshot control definitions"
+    )
+    
+    reference_tables: list[ReferenceTableDefinition] = Field(
+        default_factory=list,
+        description="Reference table definitions"
+    )
+    
+    pits: list[PITDefinition] = Field(
+        default_factory=list,
+        description="PIT structure definitions"
+    )
 
 

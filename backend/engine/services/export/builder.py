@@ -18,9 +18,16 @@ from engine.services.export.models import (
     LinkDefinition,
     LinkSourceInfo,
     MultiActiveConfig,
+    PITDefinition,
+    PrejoinCondition,
+    PrejoinDefinitionExport,
     ProjectExport,
+    ReferenceTableDefinition,
+    ReferenceTableSatelliteAssignment,
     SatelliteColumnDef,
     SatelliteDefinition,
+    SnapshotControlDefinition,
+    SnapshotLogicPattern,
     SourceColumnDef,
     SourceSystemDef,
     SourceTableDef,
@@ -52,9 +59,14 @@ class ModelBuilder:
         """
         self.project = project
     
-    def build(self) -> ProjectExport:
+    def build(self, export_sources: bool = True, generate_tests: bool = True, generate_dbml: bool = False) -> ProjectExport:
         """
         Build complete project export from Django models.
+        
+        Args:
+            export_sources: Whether to include source system definitions
+            generate_tests: Whether tests should be generated (for future dbt generation)
+            generate_dbml: Whether DBML file should be generated (for future use)
         
         Returns:
             ProjectExport with all definitions
@@ -65,11 +77,17 @@ class ModelBuilder:
             generated_at=datetime.now(),
             stage_schema=self.project.config.get("stage_schema") if self.project.config else None,
             rdv_schema=self.project.config.get("rdv_schema") if self.project.config else None,
-            sources=self._build_sources(),
+            export_sources=export_sources,
+            generate_tests=generate_tests,
+            generate_dbml=generate_dbml,
+            sources=self._build_sources() if export_sources else [],
             hubs=self._build_hubs(),
             links=self._build_links(),
             stages=self._build_stages(),
             satellites=self._build_satellites(),
+            snapshot_controls=self._build_snapshot_controls(),
+            reference_tables=self._build_reference_tables(),
+            pits=self._build_pits(),
         )
 
 
@@ -564,6 +582,153 @@ class ModelBuilder:
                 payload_columns=list(payload_cols),
                 additional_columns=list(additional_cols),
                 source_tables=source_tables
+            ))
+        
+        return result
+    
+    def _build_snapshot_controls(self) -> list[SnapshotControlDefinition]:
+        """
+        Build snapshot control definitions from Django models.
+        
+        Returns:
+            List of SnapshotControlDefinition objects
+        """
+        from engine.models import SnapshotControlTable
+        
+        result = []
+        
+        # Get all snapshot control tables for this project
+        snapshot_controls = SnapshotControlTable.objects.filter(
+            project=self.project
+        ).prefetch_related('logic_rules')
+        
+        for control in snapshot_controls:
+            # Build logic patterns
+            logic_patterns = []
+            for logic in control.logic_rules.all():
+                logic_patterns.append(SnapshotLogicPattern(
+                    column_name=logic.snapshot_control_logic_column_name,
+                    component=logic.snapshot_component,
+                    duration=logic.snapshot_duration,
+                    unit=logic.snapshot_unit,
+                    forever=logic.snapshot_forever
+                ))
+            
+            result.append(SnapshotControlDefinition(
+                start_date=control.snapshot_start_date.isoformat(),
+                end_date=control.snapshot_end_date.isoformat(),
+                daily_time=control.daily_snapshot_time.isoformat(),
+                logic_patterns=logic_patterns
+            ))
+        
+        return result
+    
+    def _build_reference_tables(self) -> list[ReferenceTableDefinition]:
+        """
+        Build reference table definitions from Django models.
+        
+        Returns:
+            List of ReferenceTableDefinition objects
+        """
+        from engine.models import ReferenceTable, ReferenceTableSatelliteAssignment
+        
+        result = []
+        
+        # Get all reference tables for this project
+        reference_tables = ReferenceTable.objects.filter(
+            project=self.project
+        ).select_related(
+            'reference_hub',
+            'snapshot_control_table',
+            'snapshot_control_logic'
+        ).prefetch_related(
+            'satellite_assignments__reference_satellite',
+            'satellite_assignments__include_columns',
+            'satellite_assignments__exclude_columns'
+        )
+        
+        for ref_table in reference_tables:
+            # Build satellite assignments
+            satellite_assignments = []
+            for assignment in ref_table.satellite_assignments.all():
+                # Get column names
+                include_cols = [
+                    col.satellite_column_physical_name
+                    for col in assignment.include_columns.all()
+                ]
+                exclude_cols = [
+                    col.satellite_column_physical_name
+                    for col in assignment.exclude_columns.all()
+                ]
+                
+                satellite_assignments.append(ReferenceTableSatelliteAssignment(
+                    satellite_name=assignment.reference_satellite.satellite_physical_name,
+                    include_columns=include_cols,
+                    exclude_columns=exclude_cols
+                ))
+            
+            # Determine snapshot info
+            snapshot_table_name = None
+            snapshot_logic_column = None
+            if ref_table.historization_type == ReferenceTable.HistorizationType.SNAPSHOT_BASED:
+                if ref_table.snapshot_control_logic:
+                    snapshot_logic_column = ref_table.snapshot_control_logic.snapshot_control_logic_column_name
+            
+            result.append(ReferenceTableDefinition(
+                table_name=ref_table.reference_table_physical_name,
+                reference_hub_name=ref_table.reference_hub.hub_physical_name,
+                historization_type=ref_table.historization_type,
+                snapshot_control_table=snapshot_table_name,
+                snapshot_logic_column=snapshot_logic_column,
+                satellites=satellite_assignments
+            ))
+        
+        return result
+    
+    def _build_pits(self) -> list[PITDefinition]:
+        """
+        Build PIT definitions from Django models.
+        
+        Returns:
+            List of PITDefinition objects
+        """
+        from engine.models import PIT
+        
+        result = []
+        
+        # Get all PITs for this project
+        pits = PIT.objects.filter(
+            project=self.project
+        ).select_related(
+            'tracked_hub',
+            'tracked_link',
+            'snapshot_control_logic'
+        ).prefetch_related('satellites')
+        
+        for pit in pits:
+            # Get tracked entity name
+            tracked_entity_name = ""
+            if pit.tracked_hub:
+                tracked_entity_name = pit.tracked_hub.hub_physical_name
+            elif pit.tracked_link:
+                tracked_entity_name = pit.tracked_link.link_physical_name
+            
+            # Get satellite names
+            satellite_names = [
+                sat.satellite_physical_name
+                for sat in pit.satellites.all()
+            ]
+            
+            result.append(PITDefinition(
+                pit_name=pit.pit_physical_name,
+                tracked_entity_type=pit.tracked_entity_type,
+                tracked_entity_name=tracked_entity_name,
+                satellites=satellite_names,
+                snapshot_logic_column=pit.snapshot_control_logic.snapshot_control_logic_column_name,
+                dimension_key_column=pit.dimension_key_column_name,
+                pit_type=pit.pit_type,
+                use_snapshot_optimization=pit.use_snapshot_optimization,
+                include_business_objects_before_appearance=pit.include_business_objects_before_appearance
             ))
         
         return result
