@@ -473,6 +473,9 @@ class SnapshotLogicPattern(BaseModel):
 class SnapshotControlDefinition(BaseModel):
     """Snapshot control table definition."""
     
+    name: str = Field(
+        description="Name of the snapshot control table (e.g., control_snap_v0)"
+    )
     start_date: str = Field(
         description="Overall snapshot start date (YYYY-MM-DD)"
     )

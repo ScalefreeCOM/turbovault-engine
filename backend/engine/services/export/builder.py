@@ -255,6 +255,9 @@ class ModelBuilder:
             # Get multi-active config if any multi-active satellite uses this table
             multi_active_config = self._get_multi_active_config_for_source_table(table)
             
+            # Get prejoins that use this source table
+            prejoins = self._get_prejoins_for_source_table(table)
+            
             # Get columns
             columns = [
                 SourceColumnDef(
@@ -276,6 +279,7 @@ class ModelBuilder:
                 load_date=table.load_date_value,
                 hashkeys=hashkeys,
                 hashdiffs=hashdiffs,
+                prejoins=prejoins,
                 multi_active_config=multi_active_config,
                 columns=columns
             ))
@@ -358,6 +362,64 @@ class ModelBuilder:
             )
         
         return None
+
+    
+    def _get_prejoins_for_source_table(self, source_table: "SourceTable") -> list[PrejoinDefinitionExport]:
+        """
+        Get prejoin definitions for a source table.
+        
+        Queries prejoins where this source table is the main table being joined from,
+        and builds the export representation with join conditions and extraction columns.
+        
+        Args:
+            source_table: The source table to get prejoins for
+            
+        Returns:
+            List of prejoin export definitions
+        """
+        from engine.models import PrejoinDefinition
+        
+        # Find all prejoins where this is the source table
+        prejoins = PrejoinDefinition.objects.filter(
+            source_table=source_table
+        ).prefetch_related(
+            'prejoin_condition_source_column',
+            'prejoin_condition_target_column',
+            'prejoin_target_table',
+            'extraction_columns__source_column'
+        )
+        
+        result = []
+        for prejoin in prejoins:
+            # Build join conditions
+            source_columns = [
+                col.source_column_physical_name
+                for col in prejoin.prejoin_condition_source_column.all()
+            ]
+            target_columns = [
+                col.source_column_physical_name
+                for col in prejoin.prejoin_condition_target_column.all()
+            ]
+            
+            join_conditions = PrejoinCondition(
+                source_columns=source_columns,
+                target_columns=target_columns,
+                operator=prejoin.prejoin_operator
+            )
+            
+            # Get extraction column names
+            extraction_columns = [
+                ext.source_column.source_column_physical_name
+                for ext in prejoin.extraction_columns.all()
+            ]
+            
+            result.append(PrejoinDefinitionExport(
+                target_table=prejoin.prejoin_target_table.physical_table_name,
+                join_conditions=join_conditions,
+                extraction_columns=extraction_columns
+            ))
+        
+        return result
 
     
     def _get_hashkeys_for_source_table(self, source_table: "SourceTable") -> list[StageHashkeyDef]:
@@ -536,7 +598,19 @@ class ModelBuilder:
             
             for column in link.columns.all():
                 for mapping in column.source_mappings.all():
-                    table = mapping.source_column.source_table
+                    # Handle both direct source columns and prejoin extraction columns
+                    if mapping.source_column:
+                        # Direct source column mapping
+                        table = mapping.source_column.source_table
+                        source_col_name = mapping.source_column.source_column_physical_name
+                    elif mapping.prejoin_extraction_column:
+                        # Prejoin extraction column mapping
+                        table = mapping.prejoin_extraction_column.source_column.source_table
+                        source_col_name = mapping.prejoin_extraction_column.source_column.source_column_physical_name
+                    else:
+                        # Skip invalid mappings (should not happen due to validation)
+                        continue
+                    
                     table_key = table.physical_table_name
                     
                     if table_key not in source_table_map:
@@ -551,7 +625,7 @@ class ModelBuilder:
                         LinkColumnMapping(
                             link_column_name=column.column_name,
                             link_column_type=column.column_type,
-                            source_column_name=mapping.source_column.source_column_physical_name
+                            source_column_name=source_col_name
                         )
                     )
             
@@ -615,6 +689,7 @@ class ModelBuilder:
                 ))
             
             result.append(SnapshotControlDefinition(
+                name=control.name,
                 start_date=control.snapshot_start_date.isoformat(),
                 end_date=control.snapshot_end_date.isoformat(),
                 daily_time=control.daily_snapshot_time.isoformat(),
@@ -630,7 +705,7 @@ class ModelBuilder:
         Returns:
             List of ReferenceTableDefinition objects
         """
-        from engine.models import ReferenceTable, ReferenceTableSatelliteAssignment
+        from engine.models import ReferenceTable
         
         result = []
         
