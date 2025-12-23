@@ -14,18 +14,12 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 console = Console()
 
 
-def _create_default_snapshot_controls(project_id: str = None) -> None:
+def create_default_snapshot_controls(project_or_name: 'Project | str') -> None:
     """
-    Create default snapshot control entries if they don't exist.
-    
-    This creates:
-    1. A global snapshot control table with sensible defaults
-    2. Common snapshot logic patterns (Daily, Weekly, Monthly, etc.)
-    
-    Can be disabled via TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS environment variable.
+    Create default snapshot control table and logic patterns for a project.
     
     Args:
-        project_id: Optional project ID. If not provided, checks all projects.
+        project_or_name: Either a Project object or project name string
     """
     from engine.models import SnapshotControlTable, SnapshotControlLogic, Project
     from datetime import datetime, time
@@ -34,29 +28,26 @@ def _create_default_snapshot_controls(project_id: str = None) -> None:
     if os.environ.get('TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS', '').lower() in ('1', 'true', 'yes'):
         return
     
-    # Check if snapshot controls already exist
-    if SnapshotControlTable.objects.exists():
+    # Get project
+    if isinstance(project_or_name, str):
+        try:
+            project = Project.objects.get(project_name=project_or_name)
+        except Project.DoesNotExist:
+            return
+    else:
+        project = project_or_name
+    
+    # Check if snapshot controls already exist for this project
+    if project.snapshot_controls.exists():
         return
     
-    # If no project exists yet, skip (will be created when projects are created)
-    if not Project.objects.exists():
-        return
-    
-    console.print("\n[cyan]ℹ️  Creating default snapshot controls...[/cyan]")
+    console.print(f"\n[cyan]ℹ️  Creating default snapshot controls for project '{project.name}'...[/cyan]")
     
     try:
-        # Get the first project (or specified project)
-        if project_id:
-            project = Project.objects.get(project_id=project_id)
-        else:
-            project = Project.objects.first()
-        
-        if not project:
-            return
-        
-        # Create global snapshot control table (only fields that exist)
+        # Create snapshot control table with default name
         snapshot_control = SnapshotControlTable.objects.create(
             project=project,
+            name="control_snap_v0",  # Default name
             snapshot_start_date=datetime(2020, 1, 1).date(),
             snapshot_end_date=datetime(2099, 12, 31).date(),
             daily_snapshot_time=time(23, 59, 59)  # End of day
@@ -149,8 +140,6 @@ def ensure_database_ready() -> None:
             console.print("[green]✓ Database initialized successfully[/green]\n")
             # Check for superuser after initial setup
             _ensure_superuser_exists()
-            # Create default snapshot controls
-            _create_default_snapshot_controls()
             return
     
     # Check for pending migrations
@@ -174,9 +163,6 @@ def ensure_database_ready() -> None:
     
     # Always check for superuser
     _ensure_superuser_exists()
-    
-    # Create default snapshot controls
-    _create_default_snapshot_controls()
 
 
 def _run_migrations(initial: bool = False) -> None:

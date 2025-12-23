@@ -95,6 +95,38 @@ class HubDefinition(BaseModel):
 # Link Layer Models
 # =============================================================================
 
+class PrejoinCondition(BaseModel):
+    """Prejoin join condition for staging."""
+    
+    source_columns: list[str] = Field(
+        default_factory=list,
+        description="Join column names from source table"
+    )
+    target_columns: list[str] = Field(
+        default_factory=list,
+        description="Join column names from target table"
+    )
+    operator: str = Field(
+        default="AND",
+        description="Operator for multiple conditions: AND or OR"
+    )
+
+
+class PrejoinDefinitionExport(BaseModel):
+    """Prejoin definition exported to stage."""
+    
+    target_table: str = Field(
+        description="Target table physical name to join"
+    )
+    join_conditions: PrejoinCondition = Field(
+        description="Join conditions between source and target"
+    )
+    extraction_columns: list[str] = Field(
+        default_factory=list,
+        description="Columns extracted from target table"
+    )
+
+
 class LinkColumnMapping(BaseModel):
     """Mapping of link column to source column."""
     link_column_name: str
