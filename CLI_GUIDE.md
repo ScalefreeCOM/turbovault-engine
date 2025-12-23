@@ -10,6 +10,8 @@ pip install -e .
 
 This makes the `turbovault` command available in your terminal.
 
+> **Automatic Database Setup:** TurboVault automatically detects if the database is not initialized and runs all necessary migrations on first use. You don't need to manually run `migrate` commands!
+
 ## Commands Overview
 
 TurboVault CLI provides three main commands:

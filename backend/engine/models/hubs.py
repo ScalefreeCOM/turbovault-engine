@@ -214,7 +214,7 @@ class HubSourceMapping(models.Model):
     
     source_column = models.ForeignKey(
         SourceColumn,
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="hub_mappings",
         help_text="Source column providing the data"
     )

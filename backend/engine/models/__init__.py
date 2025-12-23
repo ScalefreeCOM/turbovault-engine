@@ -10,6 +10,9 @@ from engine.models.hubs import Hub, HubColumn, HubSourceMapping
 from engine.models.links import Link, LinkColumn, LinkSourceMapping
 from engine.models.snapshot_control import SnapshotControlTable, SnapshotControlLogic
 from engine.models.satellites import Satellite, SatelliteColumn
+from engine.models.reference_table import ReferenceTable, ReferenceTableSatelliteAssignment
+from engine.models.pit import PIT
+from engine.models.prejoin import PrejoinDefinition, PrejoinExtractionColumn
 
 __all__ = [
     "Project",
@@ -27,5 +30,10 @@ __all__ = [
     "SnapshotControlLogic",
     "Satellite",
     "SatelliteColumn",
+    "ReferenceTable",
+    "ReferenceTableSatelliteAssignment",
+    "PIT",
+    "PrejoinDefinition",
+    "PrejoinExtractionColumn",
 ]
 

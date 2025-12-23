@@ -118,6 +118,22 @@ class OutputConfiguration(BaseModel):
         description="Whether to create a ZIP archive of the generated project"
     )
     
+    # Export control options
+    export_sources: bool = Field(
+        True,
+        description="Whether to include source system definitions in export"
+    )
+    
+    generate_tests: bool = Field(
+        True,
+        description="Whether to generate dbt tests (for future use)"
+    )
+    
+    generate_dbml: bool = Field(
+        False,
+        description="Whether to generate DBML file alongside dbt project (for future use)"
+    )
+    
     @field_validator('dbt_project_dir')
     @classmethod
     def normalize_path(cls, v: Path) -> Path:

@@ -163,10 +163,10 @@ class LinkColumn(models.Model):
 
 class LinkSourceMapping(models.Model):
     """
-    Maps link columns to source columns.
+    Maps link columns to source columns OR prejoin extraction columns.
     
-    This defines where the data for a link column comes from in the source.
-    Similar to HubSourceMapping, allows multiple source mappings per column.
+    Enables links to use either direct source columns or columns
+    extracted from prejoin target tables.
     """
     
     link_source_mapping_id = models.UUIDField(
@@ -185,9 +185,20 @@ class LinkSourceMapping(models.Model):
     
     source_column = models.ForeignKey(
         SourceColumn,
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="link_column_mappings",
-        help_text="Source column providing the data"
+        blank=True,
+        null=True,
+        help_text="Direct source column (XOR with prejoin_extraction_column)"
+    )
+    
+    prejoin_extraction_column = models.ForeignKey(
+        'PrejoinExtractionColumn',
+        on_delete=models.CASCADE,
+        related_name="link_mappings",
+        blank=True,
+        null=True,
+        help_text="Prejoin extraction column (XOR with source_column)"
     )
     
     is_primary_source = models.BooleanField(
@@ -210,5 +221,26 @@ class LinkSourceMapping(models.Model):
         unique_together = [["link_column", "source_column"]]
         ordering = ["link_column"]
     
+    def clean(self) -> None:
+        """Validate XOR: exactly one of source_column or prejoin_extraction_column."""
+        super().clean()
+        
+        has_source = self.source_column is not None
+        has_prejoin = self.prejoin_extraction_column is not None
+        
+        if not (has_source or has_prejoin):
+            raise ValidationError({
+                'source_column': 'Either source_column or prejoin_extraction_column must be specified.'
+            })
+        
+        if has_source and has_prejoin:
+            raise ValidationError({
+                'source_column': 'Cannot specify both source_column and prejoin_extraction_column.'
+            })
+    
     def __str__(self) -> str:
-        return f"{self.link_column} <- {self.source_column}"
+        if self.source_column:
+            return f"{self.link_column} <- {self.source_column}"
+        elif self.prejoin_extraction_column:
+            return f"{self.link_column} <- [prejoin] {self.prejoin_extraction_column.source_column.source_column_physical_name}"
+        return f"{self.link_column} <- (no source)"

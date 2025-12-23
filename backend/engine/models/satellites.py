@@ -87,7 +87,7 @@ class Satellite(models.Model):
     
     source_table = models.ForeignKey(
         'SourceTable',
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="satellites",
         blank=True,
         null=True,
@@ -150,7 +150,7 @@ class SatelliteColumn(models.Model):
     
     source_column = models.ForeignKey(
         SourceColumn,
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="satellite_columns",
         help_text="Source column providing the data"
     )
