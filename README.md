@@ -78,6 +78,8 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -e .
 ```
 
+> **Note:** The database and admin user will be automatically set up the first time you run any TurboVault command. No manual setup required!
+
 ### Initialize Your First Project
 
 ```bash
@@ -87,6 +89,11 @@ turbovault init --interactive
 # Or use a config file
 turbovault init --config config.example.yml
 ```
+
+**On first run, TurboVault will:**
+1. ✅ Create the database
+2. ✅ Run all migrations
+3. ✅ Prompt you to create an admin user (optional)
 
 ### Explore via Django Admin
 

@@ -37,6 +37,11 @@ output:
   
   # Whether to create a ZIP archive of the generated project
   create_zip: false
+  
+  # Export control options
+  export_sources: true      # Include source system definitions in export
+  generate_tests: true      # Generate dbt tests (for future dbt generation)
+  generate_dbml: false      # Generate DBML file (for future use)
 
 
 # Example: Minimal config (start from scratch, no Excel import)
@@ -46,3 +51,7 @@ output:
 # 
 # output:
 #   dbt_project_dir: "./dbt_output"
+
+# Note: TurboVault automatically creates default snapshot controls on first database initialization
+# including common patterns (Daily, Weekly, Monthly, Quarterly, Yearly).
+# To disable this, set environment variable: TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS=true

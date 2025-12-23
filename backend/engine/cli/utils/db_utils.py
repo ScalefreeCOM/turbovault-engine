@@ -1,0 +1,379 @@
+"""
+Database utilities for TurboVault CLI.
+
+Handles database initialization, migration checks, and automatic migration execution.
+"""
+import os
+import sys
+from pathlib import Path
+
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
+
+
+console = Console()
+
+
+def _create_default_snapshot_controls(project_id: str = None) -> None:
+    """
+    Create default snapshot control entries if they don't exist.
+    
+    This creates:
+    1. A global snapshot control table with sensible defaults
+    2. Common snapshot logic patterns (Daily, Weekly, Monthly, etc.)
+    
+    Can be disabled via TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS environment variable.
+    
+    Args:
+        project_id: Optional project ID. If not provided, checks all projects.
+    """
+    from engine.models import SnapshotControlTable, SnapshotControlLogic, Project
+    from datetime import datetime, time
+    
+    # Check if we should skip default snapshot creation
+    if os.environ.get('TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS', '').lower() in ('1', 'true', 'yes'):
+        return
+    
+    # Check if snapshot controls already exist
+    if SnapshotControlTable.objects.exists():
+        return
+    
+    # If no project exists yet, skip (will be created when projects are created)
+    if not Project.objects.exists():
+        return
+    
+    console.print("\n[cyan]ℹ️  Creating default snapshot controls...[/cyan]")
+    
+    try:
+        # Get the first project (or specified project)
+        if project_id:
+            project = Project.objects.get(project_id=project_id)
+        else:
+            project = Project.objects.first()
+        
+        if not project:
+            return
+        
+        # Create global snapshot control table (only fields that exist)
+        snapshot_control = SnapshotControlTable.objects.create(
+            project=project,
+            snapshot_start_date=datetime(2020, 1, 1).date(),
+            snapshot_end_date=datetime(2099, 12, 31).date(),
+            daily_snapshot_time=time(23, 59, 59)  # End of day
+        )
+        
+        # Create common snapshot logic patterns
+        snapshot_patterns = [
+            {
+                "snapshot_control_logic_column_name": "snap_daily",
+                "snapshot_component": SnapshotControlLogic.SnapshotComponent.DAILY,
+                "snapshot_duration": 1,
+                "snapshot_unit": SnapshotControlLogic.SnapshotUnit.DAY,
+                "snapshot_forever": False
+            },
+            {
+                "snapshot_control_logic_column_name": "snap_weekly",
+                "snapshot_component": SnapshotControlLogic.SnapshotComponent.END_OF_WEEK,
+                "snapshot_duration": 7,
+                "snapshot_unit": SnapshotControlLogic.SnapshotUnit.DAY,
+                "snapshot_forever": False
+            },
+            {
+                "snapshot_control_logic_column_name": "snap_monthly",
+                "snapshot_component": SnapshotControlLogic.SnapshotComponent.END_OF_MONTH,
+                "snapshot_duration": 1,
+                "snapshot_unit": SnapshotControlLogic.SnapshotUnit.MONTH,
+                "snapshot_forever": False
+            },
+            {
+                "snapshot_control_logic_column_name": "snap_quarterly",
+                "snapshot_component": SnapshotControlLogic.SnapshotComponent.END_OF_QUARTER,
+                "snapshot_duration": 3,
+                "snapshot_unit": SnapshotControlLogic.SnapshotUnit.MONTH,
+                "snapshot_forever": False
+            },
+            {
+                "snapshot_control_logic_column_name": "snap_yearly",
+                "snapshot_component": SnapshotControlLogic.SnapshotComponent.END_OF_YEAR,
+                "snapshot_duration": 1,
+                "snapshot_unit": SnapshotControlLogic.SnapshotUnit.YEAR,
+                "snapshot_forever": False
+            }
+        ]
+        
+        created_count = 0
+        for pattern in snapshot_patterns:
+            SnapshotControlLogic.objects.create(
+                snapshot_control_table=snapshot_control,
+                **pattern
+            )
+            created_count += 1
+        
+        console.print(f"[dim]  Created snapshot control for project '{project.name}' with {created_count} logic patterns[/dim]")
+        console.print("[green]✓ Default snapshot controls ready[/green]\n")
+    
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Failed to create default snapshots: {e}[/yellow]")
+        console.print("[dim]You can create them manually in the admin interface[/dim]\n")
+
+
+def ensure_database_ready() -> None:
+    """
+    Ensure the database is initialized and all migrations are applied.
+    
+    This function:
+    1. Checks if the database file exists (for SQLite)
+    2. Checks if there are unapplied migrations
+    3. Automatically runs migrations if needed
+    4. Checks if a superuser exists and prompts to create one if not
+    
+    Raises:
+        SystemExit: If migrations fail to apply
+    """
+    from django.conf import settings
+    from django.core.management import call_command
+    from django.db import connection
+    from django.db.migrations.executor import MigrationExecutor
+    
+    # For SQLite, check if database file exists
+    db_config = settings.DATABASES['default']
+    is_sqlite = db_config['ENGINE'] == 'django.db.backends.sqlite3'
+    
+    if is_sqlite:
+        db_path = Path(db_config['NAME'])
+        db_exists = db_path.exists()
+        
+        if not db_exists:
+            console.print("\n[yellow]⚠️  Database not found. Initializing...[/yellow]")
+            _run_migrations(initial=True)
+            console.print("[green]✓ Database initialized successfully[/green]\n")
+            # Check for superuser after initial setup
+            _ensure_superuser_exists()
+            # Create default snapshot controls
+            _create_default_snapshot_controls()
+            return
+    
+    # Check for pending migrations
+    try:
+        executor = MigrationExecutor(connection)
+        plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+        
+        if plan:
+            # There are unapplied migrations
+            migration_count = len(plan)
+            console.print(f"\n[yellow]⚠️  Found {migration_count} unapplied migration(s)[/yellow]")
+            _run_migrations(initial=False)
+            console.print("[green]✓ Migrations applied successfully[/green]\n")
+    
+    except Exception as e:
+        # If we can't check migrations, assume database needs setup
+        console.print(f"\n[yellow]⚠️  Unable to check migrations: {e}[/yellow]")
+        console.print("[yellow]Attempting to initialize database...[/yellow]")
+        _run_migrations(initial=True)
+        console.print("[green]✓ Database setup complete[/green]\n")
+    
+    # Always check for superuser
+    _ensure_superuser_exists()
+    
+    # Create default snapshot controls
+    _create_default_snapshot_controls()
+
+
+def _run_migrations(initial: bool = False) -> None:
+    """
+    Run Django migrations.
+    
+    Args:
+        initial: If True, this is the first-time database setup
+        
+    Raises:
+        SystemExit: If migrations fail
+    """
+    from django.core.management import call_command
+    from io import StringIO
+    
+    try:
+        # Capture output to avoid cluttering the console
+        output = StringIO()
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            transient=True
+        ) as progress:
+            task = progress.add_task(
+                "Applying migrations..." if not initial else "Creating database tables...",
+                total=None
+            )
+            
+            # Run migrations with minimal output
+            call_command(
+                'migrate',
+                verbosity=0,
+                interactive=False,
+                stdout=output,
+                stderr=output
+            )
+            
+            progress.update(task, completed=True)
+        
+        if initial:
+            console.print("[dim]  Created all database tables[/dim]")
+        else:
+            console.print("[dim]  Applied all pending migrations[/dim]")
+    
+    except Exception as e:
+        console.print(f"\n[red]✗ Migration failed: {e}[/red]")
+        console.print("\n[yellow]Try running manually:[/yellow]")
+        console.print("  cd backend")
+        console.print("  python manage.py migrate")
+        sys.exit(1)
+
+
+def _ensure_superuser_exists() -> None:
+    """
+    Check if a superuser exists, and prompt to create one if not.
+    
+    This can be disabled via TURBOVAULT_SKIP_SUPERUSER_PROMPT environment variable.
+    """
+    from django.contrib.auth import get_user_model
+    import questionary
+    
+    # Check if we should skip superuser creation
+    if os.environ.get('TURBOVAULT_SKIP_SUPERUSER_PROMPT', '').lower() in ('1', 'true', 'yes'):
+        return
+    
+    User = get_user_model()
+    
+    # Check if any superuser exists
+    if User.objects.filter(is_superuser=True).exists():
+        return
+    
+    console.print("\n[yellow]⚠️  No admin user found[/yellow]")
+    
+    create_superuser = questionary.confirm(
+        "Would you like to create an admin user now?",
+        default=True
+    ).ask()
+    
+    if not create_superuser:
+        console.print("[dim]You can create an admin user later with:[/dim]")
+        console.print("  cd backend")
+        console.print("  python manage.py createsuperuser\n")
+        return
+    
+    _create_superuser_interactive()
+
+
+def _create_superuser_interactive() -> None:
+    """
+    Interactively create a superuser account.
+    """
+    from django.contrib.auth import get_user_model
+    from django.core.exceptions import ValidationError
+    from django.core import validators
+    import questionary
+    
+    User = get_user_model()
+    
+    console.print("\n[bold cyan]Create Admin User[/bold cyan]\n")
+    
+    # Username
+    username = None
+    while not username:
+        username = questionary.text(
+            "Username:",
+            default="admin"
+        ).ask()
+        
+        if not username:
+            console.print("[red]Username cannot be empty[/red]")
+            continue
+        
+        # Check if username already exists
+        if User.objects.filter(username=username).exists():
+            console.print(f"[red]User '{username}' already exists[/red]")
+            username = None
+    
+    # Email
+    email = None
+    while not email:
+        email = questionary.text(
+            "Email address:",
+            default=""
+        ).ask()
+        
+        if email:
+            # Validate email
+            try:
+                validators.validate_email(email)
+            except ValidationError:
+                console.print("[red]Invalid email address[/red]")
+                email = None
+        else:
+            # Email is optional, but we'll use a placeholder
+            email = ""
+            break
+    
+    # Password
+    password = None
+    while not password:
+        password = questionary.password(
+            "Password:",
+            validate=lambda x: len(x) >= 3 or "Password must be at least 3 characters"
+        ).ask()
+        
+        if not password:
+            continue
+        
+        # Confirm password
+        password_confirm = questionary.password(
+            "Password (again):"
+        ).ask()
+        
+        if password != password_confirm:
+            console.print("[red]Passwords don't match. Try again.[/red]")
+            password = None
+    
+    # Create the superuser
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            transient=True
+        ) as progress:
+            task = progress.add_task("Creating admin user...", total=None)
+            
+            user = User.objects.create_superuser(
+                username=username,
+                email=email or '',
+                password=password
+            )
+            
+            progress.update(task, completed=True)
+        
+        console.print(f"[green]✓ Admin user '{username}' created successfully[/green]")
+        console.print("\n[dim]You can now log in to the admin interface at:[/dim]")
+        console.print("  http://127.0.0.1:8000/admin/\n")
+    
+    except Exception as e:
+        console.print(f"[red]✗ Failed to create admin user: {e}[/red]")
+
+
+def check_database_connection() -> bool:
+    """
+    Check if database connection is working.
+    
+    Returns:
+        True if connection is successful, False otherwise
+    """
+    from django.db import connection
+    
+    try:
+        connection.ensure_connection()
+        return True
+    except Exception as e:
+        console.print(f"[red]Database connection failed: {e}[/red]")
+        return False

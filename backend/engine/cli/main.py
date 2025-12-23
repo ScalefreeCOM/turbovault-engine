@@ -62,6 +62,11 @@ def _setup_django() -> None:
     try:
         import django
         django.setup()
+        
+        # Check and run migrations if needed
+        from engine.cli.utils.db_utils import ensure_database_ready
+        ensure_database_ready()
+        
     except Exception as e:
         console.print(f"[error]Failed to initialize Django: {e}[/error]")
         console.print("\n[warning]Make sure you're running from the correct directory[/warning]")

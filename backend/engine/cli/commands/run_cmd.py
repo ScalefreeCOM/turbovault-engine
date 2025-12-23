@@ -101,9 +101,28 @@ def run(
     # Build export
     print_step(1, 3, f"Building export for project: {selected_project.name}")
     
+    # Load config if provided to get export options
+    export_sources = True
+    generate_tests = True
+    generate_dbml = False
+    
+    if config:
+        from engine.services.config_loader import load_config_from_path
+        try:
+            config_obj = load_config_from_path(config)
+            export_sources = config_obj.output.export_sources
+            generate_tests = config_obj.output.generate_tests
+            generate_dbml = config_obj.output.generate_dbml
+        except Exception as e:
+            print_warning(f"Could not load config: {e}. Using defaults.")
+    
     try:
         builder = ModelBuilder(selected_project)
-        project_export = builder.build()
+        project_export = builder.build(
+            export_sources=export_sources,
+            generate_tests=generate_tests,
+            generate_dbml=generate_dbml
+        )
     except Exception as e:
         print_error(f"Failed to build export: {e}")
         raise typer.Exit(1)
