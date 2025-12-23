@@ -5,7 +5,446 @@ Register domain models here for data inspection and debugging via the admin UI.
 """
 from django.contrib import admin
 
-# Register your models here.
-# Example:
-# from engine.models.project import Project
-# admin.site.register(Project)
+from engine.models import Project, Group, SourceSystem, SourceTable, SourceColumn
+
+
+@admin.register(Project)
+class ProjectAdmin(admin.ModelAdmin):
+    """Admin configuration for Project model."""
+    
+    list_display = ["name", "created_at", "updated_at"]
+    search_fields = ["name", "description"]
+    readonly_fields = ["project_id", "created_at", "updated_at"]
+    fieldsets = [
+        (None, {
+            "fields": ["project_id", "name", "description"]
+        }),
+        ("Configuration", {
+            "fields": ["config"],
+            "classes": ["collapse"]
+        }),
+        ("Timestamps", {
+            "fields": ["created_at", "updated_at"],
+            "classes": ["collapse"]
+        }),
+    ]
+
+
+@admin.register(Group)
+class GroupAdmin(admin.ModelAdmin):
+    """Admin configuration for Group model."""
+    
+    list_display = ["group_name", "project", "created_at"]
+    list_filter = ["project"]
+    search_fields = ["group_name", "description"]
+    readonly_fields = ["group_id", "created_at", "updated_at"]
+    autocomplete_fields = ["project"]
+    fieldsets = [
+        (None, {
+            "fields": ["group_id", "project", "group_name", "description"]
+        }),
+        ("Timestamps", {
+            "fields": ["created_at", "updated_at"],
+            "classes": ["collapse"]
+        }),
+    ]
+
+
+@admin.register(SourceSystem)
+class SourceSystemAdmin(admin.ModelAdmin):
+    """Admin configuration for SourceSystem model."""
+    
+    list_display = ["name", "schema_name", "database_name", "project"]
+    list_filter = ["project"]
+    search_fields = ["name", "schema_name", "database_name"]
+    readonly_fields = ["source_system_id"]
+    autocomplete_fields = ["project"]
+
+
+@admin.register(SourceTable)
+class SourceTableAdmin(admin.ModelAdmin):
+    """Admin configuration for SourceTable model."""
+    
+    list_display = ["physical_table_name", "alias", "source_system", "project"]
+    list_filter = ["source_system", "project"]
+    search_fields = ["physical_table_name", "alias"]
+    readonly_fields = ["source_table_id"]
+    autocomplete_fields = ["project", "source_system"]
+    fieldsets = [
+        (None, {
+            "fields": ["source_table_id", "project", "source_system", "physical_table_name", "alias"]
+        }),
+        ("Data Vault Configuration", {
+            "fields": ["record_source_value", "static_part_of_record_source", "load_date_value"],
+            "classes": ["collapse"]
+        }),
+    ]
+
+
+@admin.register(SourceColumn)
+class SourceColumnAdmin(admin.ModelAdmin):
+    """Admin configuration for SourceColumn model."""
+    
+    list_display = ["source_column_physical_name", "source_column_datatype", "source_table", "get_source_system"]
+    list_filter = ["source_table__source_system", "source_table"]
+    search_fields = ["source_column_physical_name", "source_column_datatype"]
+    readonly_fields = ["source_column_id"]
+    autocomplete_fields = ["source_table"]
+    
+    @admin.display(description="Source System")
+    def get_source_system(self, obj: SourceColumn) -> str:
+        """Return the source system name for this column."""
+        return obj.source_table.source_system.name
+
+
+# Import hub models
+from engine.models import Hub, HubColumn, HubSourceMapping
+
+
+class HubColumnInline(admin.TabularInline):
+    """Inline admin for hub columns."""
+    model = HubColumn
+    extra = 1
+    fields = ["column_name", "column_type", "sort_order"]
+    ordering = ["sort_order"]
+    show_change_link = True  # Allow clicking to edit column details including mappings
+
+
+class HubSourceMappingInline(admin.TabularInline):
+    """Inline admin for hub source mappings."""
+    model = HubSourceMapping
+    extra = 1
+    fields = ["source_column", "is_primary_source"]
+    autocomplete_fields = ["source_column"]
+    verbose_name = "Source Mapping"
+    verbose_name_plural = "Source Mappings"
+
+
+
+@admin.register(Hub)
+class HubAdmin(admin.ModelAdmin):
+    """Admin configuration for Hub model."""
+    
+    list_display = ["hub_physical_name", "hub_type", "hub_hashkey_name", "group", "project", "created_at"]
+    list_filter = ["hub_type", "project", "group", "create_record_tracking_satellite", "create_effectivity_satellite"]
+    search_fields = ["hub_physical_name", "hub_hashkey_name"]
+    readonly_fields = ["hub_id", "created_at", "updated_at"]
+    autocomplete_fields = ["project", "group"]
+    inlines = [HubColumnInline]
+    
+    fieldsets = [
+        (None, {
+            "fields": ["hub_id", "project", "hub_physical_name", "hub_type", "hub_hashkey_name"]
+        }),
+        ("Satellite Options", {
+            "fields": ["create_record_tracking_satellite", "create_effectivity_satellite"],
+            "classes": ["collapse"]
+        }),
+        ("Timestamps", {
+            "fields": ["created_at", "updated_at"],
+            "classes": ["collapse"]
+        }),
+    ]
+
+
+@admin.register(HubColumn)
+class HubColumnAdmin(admin.ModelAdmin):
+    """Admin configuration for HubColumn model."""
+    
+    list_display = ["column_name", "column_type", "hub", "sort_order", "get_mapping_count", "created_at"]
+    list_filter = ["column_type", "hub__hub_type"]
+    search_fields = ["column_name", "hub__hub_physical_name"]
+    readonly_fields = ["hub_column_id", "created_at", "updated_at"]
+    autocomplete_fields = ["hub"]
+    ordering = ["hub", "sort_order"]
+    inlines = [HubSourceMappingInline]
+    
+    @admin.display(description="Source Mappings")
+    def get_mapping_count(self, obj: HubColumn) -> int:
+        """Return the number of source mappings for this column."""
+        return obj.source_mappings.count()
+
+
+
+@admin.register(HubSourceMapping)
+class HubSourceMappingAdmin(admin.ModelAdmin):
+    """Admin configuration for HubSourceMapping model."""
+    
+    list_display = ["hub_column", "source_column", "is_primary_source", "get_hub", "created_at"]
+    list_filter = ["is_primary_source", "hub_column__hub__project"]
+    search_fields = ["hub_column__column_name", "hub_column__hub__hub_physical_name", "source_column__source_column_physical_name"]
+    readonly_fields = ["hub_source_mapping_id", "created_at", "updated_at"]
+    autocomplete_fields = ["hub_column", "source_column"]
+    
+    @admin.display(description="Hub", ordering="hub_column__hub__hub_physical_name")
+    def get_hub(self, obj: HubSourceMapping) -> str:
+        """Return the hub name for this mapping."""
+        return obj.hub_column.hub.hub_physical_name
+
+
+# Import snapshot control models
+from engine.models import SnapshotControlTable, SnapshotControlLogic
+
+
+class SnapshotControlLogicInline(admin.TabularInline):
+    """Inline admin for snapshot control logic rules."""
+    model = SnapshotControlLogic
+    extra = 1
+    fields = ["snapshot_control_logic_column_name", "snapshot_component", "snapshot_duration", "snapshot_unit", "snapshot_forever"]
+    verbose_name = "Logic Rule"
+    verbose_name_plural = "Logic Rules"
+
+
+@admin.register(SnapshotControlTable)
+class SnapshotControlTableAdmin(admin.ModelAdmin):
+    """Admin configuration for SnapshotControlTable model."""
+    
+    list_display = ["project", "snapshot_start_date", "snapshot_end_date", "daily_snapshot_time", "get_logic_count", "created_at"]
+    list_filter = ["project"]
+    search_fields = ["project__name"]
+    readonly_fields = ["snapshot_control_table_id", "created_at", "updated_at"]
+    autocomplete_fields = ["project"]
+    inlines = [SnapshotControlLogicInline]
+    
+    fieldsets = [
+        (None, {
+            "fields": ["snapshot_control_table_id", "project"]
+        }),
+        ("Date Range", {
+            "fields": ["snapshot_start_date", "snapshot_end_date", "daily_snapshot_time"]
+        }),
+        ("Timestamps", {
+            "fields": ["created_at", "updated_at"],
+            "classes": ["collapse"]
+        }),
+    ]
+    
+    @admin.display(description="Logic Rules")
+    def get_logic_count(self, obj: SnapshotControlTable) -> int:
+        """Return the number of logic rules for this snapshot control table."""
+        return obj.logic_rules.count()
+
+
+@admin.register(SnapshotControlLogic)
+class SnapshotControlLogicAdmin(admin.ModelAdmin):
+    """Admin configuration for SnapshotControlLogic model."""
+    
+    list_display = ["snapshot_control_logic_column_name", "snapshot_component", "snapshot_duration", "snapshot_unit", "snapshot_forever", "snapshot_control_table"]
+    list_filter = ["snapshot_component", "snapshot_unit", "snapshot_forever", "snapshot_control_table__project"]
+    search_fields = ["snapshot_control_logic_column_name", "snapshot_control_table__project__name"]
+    readonly_fields = ["snapshot_control_logic_id", "created_at", "updated_at"]
+    autocomplete_fields = ["snapshot_control_table"]
+
+
+# Import satellite models
+from engine.models import Satellite, SatelliteColumn
+
+
+class SatelliteColumnInline(admin.TabularInline):
+    """Inline admin for satellite columns."""
+    model = SatelliteColumn
+    extra = 1
+    fields = [
+        "source_column",
+        "target_column_name",
+        "is_multi_active_key",
+        "include_in_delta_detection",
+        "target_column_transformation"
+    ]
+    autocomplete_fields = ["source_column"]
+    verbose_name = "Satellite Column"
+    verbose_name_plural = "Satellite Columns"
+    
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """Filter source_column choices to only show columns from satellite's source_table."""
+        if db_field.name == "source_column":
+            # Get the satellite being edited
+            if request.resolver_match and request.resolver_match.kwargs.get('object_id'):
+                try:
+                    satellite = Satellite.objects.get(pk=request.resolver_match.kwargs['object_id'])
+                    if satellite.source_table:
+                        # Filter to only columns from this satellite's source table
+                        kwargs["queryset"] = satellite.source_table.columns.all()
+                except Satellite.DoesNotExist:
+                    pass
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+@admin.register(Satellite)
+class SatelliteAdmin(admin.ModelAdmin):
+    """Admin configuration for Satellite model."""
+    
+    list_display = [
+        "satellite_physical_name",
+        "satellite_type",
+        "get_parent",
+        "source_table",
+        "get_column_count",
+        "project",
+        "created_at"
+    ]
+    list_filter = ["satellite_type", "project", "group", "parent_hub", "parent_link", "source_table__source_system"]
+    search_fields = ["satellite_physical_name", "parent_hub__hub_physical_name", "parent_link__link_physical_name", "source_table__physical_table_name"]
+    readonly_fields = ["satellite_id", "created_at", "updated_at"]
+    autocomplete_fields = ["project", "group", "parent_hub", "parent_link", "source_table"]
+    inlines = [SatelliteColumnInline]
+    
+    fieldsets = [
+        (None, {
+            "fields": ["satellite_id", "project", "satellite_physical_name", "satellite_type"]
+        }),
+        ("Parent Entity", {
+            "fields": ["parent_hub", "parent_link"],
+            "description": "Satellite must belong to exactly one parent: either a hub OR a link"
+        }),
+        ("Source Table", {
+            "fields": ["source_table"],
+            "description": "All satellite columns must come from this source table"
+        }),
+        ("Timestamps", {
+            "fields": ["created_at", "updated_at"],
+            "classes": ["collapse"]
+        }),
+    ]
+    
+    @admin.display(description="Parent Entity")
+    def get_parent(self, obj: Satellite) -> str:
+        """Return the parent entity name."""
+        if obj.parent_hub:
+            return f"Hub: {obj.parent_hub.hub_physical_name}"
+        elif obj.parent_link:
+            return f"Link: {obj.parent_link.link_physical_name}"
+        return "No parent"
+    
+    @admin.display(description="Columns")
+    def get_column_count(self, obj: Satellite) -> int:
+        """Return the number of columns in this satellite."""
+        return obj.columns.count()
+
+
+@admin.register(SatelliteColumn)
+class SatelliteColumnAdmin(admin.ModelAdmin):
+    """Admin configuration for SatelliteColumn model."""
+    
+    list_display = [
+        "get_satellite",
+        "get_source_column",
+        "target_column_name",
+        "is_multi_active_key",
+        "include_in_delta_detection"
+    ]
+    list_filter = [
+        "satellite__satellite_type",
+        "is_multi_active_key",
+        "include_in_delta_detection",
+        "satellite__project"
+    ]
+    search_fields = [
+        "satellite__satellite_physical_name",
+        "source_column__source_column_physical_name",
+        "target_column_name"
+    ]
+    readonly_fields = ["satellite_column_id", "created_at", "updated_at"]
+    autocomplete_fields = ["satellite", "source_column"]
+    
+    @admin.display(description="Satellite", ordering="satellite__satellite_physical_name")
+    def get_satellite(self, obj: SatelliteColumn) -> str:
+        """Return the satellite name."""
+        return obj.satellite.satellite_physical_name
+    
+    @admin.display(description="Source Column")
+    def get_source_column(self, obj: SatelliteColumn) -> str:
+        """Return the source column reference."""
+        return str(obj.source_column)
+
+
+# Import link models
+from engine.models import Link, LinkColumn, LinkSourceMapping
+
+
+class LinkColumnInline(admin.TabularInline):
+    """Inline admin for link columns."""
+    model = LinkColumn
+    extra = 1
+    fields = ["column_name", "column_type", "sort_order"]
+    ordering = ["sort_order"]
+    show_change_link = True  # Allow clicking to edit column details including mappings
+    verbose_name = "Link Column"
+    verbose_name_plural = "Link Columns"
+
+
+class LinkSourceMappingInline(admin.TabularInline):
+    """Inline admin for link source mappings."""
+    model = LinkSourceMapping
+    extra = 1
+    fields = ["source_column", "is_primary_source"]
+    autocomplete_fields = ["source_column"]
+    verbose_name = "Source Mapping"
+    verbose_name_plural = "Source Mappings"
+
+
+@admin.register(Link)
+class LinkAdmin(admin.ModelAdmin):
+    """Admin configuration for Link model."""
+    
+    list_display = ["link_physical_name", "link_type", "link_hashkey_name", "get_hub_count", "group", "project", "created_at"]
+    list_filter = ["link_type", "project", "group"]
+    search_fields = ["link_physical_name", "link_hashkey_name"]
+    readonly_fields = ["link_id", "created_at", "updated_at"]
+    autocomplete_fields = ["project", "group"]
+    filter_horizontal = ["hub_references"]
+    inlines = [LinkColumnInline]
+    
+    fieldsets = [
+        (None, {
+            "fields": ["link_id", "project", "link_physical_name", "link_type", "link_hashkey_name"]
+        }),
+        ("Hub References", {
+            "fields": ["hub_references"],
+            "description": "Hubs connected by this link (must be standard hubs)"
+        }),
+        ("Timestamps", {
+            "fields": ["created_at", "updated_at"],
+            "classes": ["collapse"]
+        }),
+    ]
+    
+    @admin.display(description="Hubs")
+    def get_hub_count(self, obj: Link) -> int:
+        """Return the number of hubs connected by this link."""
+        return obj.hub_references.count()
+
+
+@admin.register(LinkColumn)
+class LinkColumnAdmin(admin.ModelAdmin):
+    """Admin configuration for LinkColumn model."""
+    
+    list_display = ["column_name", "column_type", "link", "sort_order", "get_mapping_count", "created_at"]
+    list_filter = ["column_type", "link__project"]
+    search_fields = ["column_name", "link__link_physical_name"]
+    readonly_fields = ["link_column_id", "created_at", "updated_at"]
+    autocomplete_fields = ["link"]
+    ordering = ["link", "sort_order"]
+    inlines = [LinkSourceMappingInline]
+    
+    @admin.display(description="Source Mappings")
+    def get_mapping_count(self, obj: LinkColumn) -> int:
+        """Return the number of source mappings for this column."""
+        return obj.source_mappings.count()
+
+
+@admin.register(LinkSourceMapping)
+class LinkSourceMappingAdmin(admin.ModelAdmin):
+    """Admin configuration for LinkSourceMapping model."""
+    
+    list_display = ["link_column", "source_column", "is_primary_source", "get_link", "created_at"]
+    list_filter = ["is_primary_source", "link_column__link__project"]
+    search_fields = ["link_column__column_name", "source_column__source_column_physical_name"]
+    readonly_fields = ["link_source_mapping_id", "created_at", "updated_at"]
+    autocomplete_fields = ["link_column", "source_column"]
+    
+    @admin.display(description="Link", ordering="link_column__link__link_physical_name")
+    def get_link(self, obj: LinkSourceMapping) -> str:
+        """Return the link name for this mapping."""
+        return obj.link_column.link.link_physical_name
+
