@@ -48,6 +48,10 @@ def create_pizza_delivery_project():
         }
     )
     
+    # Create default snapshot controls for this project
+    from engine.cli.utils.db_utils import create_default_snapshot_controls
+    create_default_snapshot_controls(project)
+    
     # Create logical groups for organization
     print("📁 Creating groups...")
     group_customer = Group.objects.create(
@@ -910,37 +914,15 @@ def create_pizza_delivery_project():
     
     # Step 2: Create REFERENCE SATELLITE for country attributes
     # Reference satellites contain descriptive attributes for reference data
+    # Note: Reference satellites typically don't have source column mappings
+    # as the data comes from reference tables, not operational sources
     sat_country_details = Satellite.objects.create(
         project=project,
         satellite_physical_name="sat_country_details",
         satellite_type=Satellite.SatelliteType.REFERENCE,  # This is a REFERENCE satellite
         parent_hub=hub_country,
-        group=group_customer
-    )
-    
-    # Add country attribute columns
-    SatelliteColumn.objects.create(
-        satellite=sat_country_details,
-        satellite_column_physical_name="country_name",
-        satellite_column_datatype="VARCHAR(100)",
-        is_multi_active_key=False,
-        include_in_delta_detection=True
-    )
-    
-    SatelliteColumn.objects.create(
-        satellite=sat_country_details,
-        satellite_column_physical_name="country_region",
-        satellite_column_datatype="VARCHAR(50)",
-        is_multi_active_key=False,
-        include_in_delta_detection=True
-    )
-    
-    SatelliteColumn.objects.create(
-        satellite=sat_country_details,
-        satellite_column_physical_name="country_currency",
-        satellite_column_datatype="VARCHAR(3)",
-        is_multi_active_key=False,
-        include_in_delta_detection=True
+        group=group_customer,
+        source_table=None  # Reference satellites don't have source tables
     )
     
     # Step 3: Create REFERENCE TABLE
@@ -953,6 +935,7 @@ def create_pizza_delivery_project():
     )
     
     # Step 4: Assign satellite to reference table
+    # Note: Since we don't have satellite columns defined, we skip column selection
     ReferenceTableSatelliteAssignment.objects.create(
         reference_table=ref_country,
         reference_satellite=sat_country_details  # Must be a REFERENCE satellite
@@ -967,27 +950,89 @@ def create_pizza_delivery_project():
     # ============================================================================
     print("⏰ Creating PIT structure...")
     
-    from engine.models import PIT
+    from engine.models import PIT, SnapshotControlTable, SnapshotControlLogic
     
-    # Create PIT for customer hub
-    pit = PIT.objects.create(
+    # Get the auto-created snapshot control table for this project
+    # The create_default_snapshot_controls function creates this automatically with name "control_snap_v0"
+    snapshot_control = SnapshotControlTable.objects.filter(project=project).first()
+    
+    if not snapshot_control:
+        print("   ⚠️  No snapshot control found. Skipping PIT creation.")
+        print("   Run 'turbovault init' to create default snapshot controls.")
+    else:
+        # Get the daily snapshot logic (snap_daily) from the auto-created logic patterns
+        daily_logic = SnapshotControlLogic.objects.filter(
+            snapshot_control_table=snapshot_control,
+            snapshot_component=SnapshotControlLogic.SnapshotComponent.DAILY
+        ).first()
+        
+        if not daily_logic:
+            print("   ⚠️  No daily snapshot logic found. Skipping PIT creation.")
+        else:
+            # Create PIT for customer hub
+            pit = PIT.objects.create(
+                project=project,
+                pit_physical_name="pit_customer_details",
+                tracked_entity_type=PIT.TrackedEntityType.HUB,
+                tracked_hub=hub_customer,
+                snapshot_control_table=snapshot_control,
+                snapshot_control_logic=daily_logic,
+                dimension_key_column_name="customer_key",
+                use_snapshot_optimization=True,
+                include_business_objects_before_appearance=False
+            )
+            
+            # Add satellites to PIT
+            pit.satellites.add(sat_customer_details, sat_customer_addresses)
+            
+            print(f"   ✓ Created PIT: {pit.pit_physical_name}")
+            print(f"     Tracking: {pit.tracked_hub.hub_physical_name}")
+            print(f"     Satellites: {pit.satellites.count()}")
+
+    
+    # ============================================================================
+    # 8. PREJOIN EXAMPLE
+    # ============================================================================
+    print("🔗 Creating prejoin...")
+    
+    from engine.models import PrejoinDefinition, PrejoinExtractionColumn
+    
+    # Create a prejoin from deliveries to orders
+    # This allows us to extract customer_id from orders when we only have order_id in deliveries
+    prejoin = PrejoinDefinition.objects.create(
         project=project,
-        pit_physical_name="pit_customer_details",
-        tracked_entity_type=PIT.TrackedEntityType.HUB,
-        tracked_hub=hub_customer,
-        snapshot_control_table=snapshot_control,
-        snapshot_control_logic=daily_logic,
-        dimension_key_column_name="customer_key",
-        use_snapshot_optimization=True,
-        include_business_objects_before_appearance=False
+        source_table=tbl_deliveries,  # Main table (deliveries)
+        prejoin_target_table=tbl_orders,  # Table to join (orders)
+        prejoin_operator=PrejoinDefinition.JoinOperator.AND
     )
     
-    # Add satellites to PIT
-    pit.satellites.add(sat_customer_details, sat_customer_addresses)
+    # Set join conditions: deliveries.order_id = orders.order_id
+    prejoin.prejoin_condition_source_column.add(col_delivery_order_id)
+    prejoin.prejoin_condition_target_column.add(col_order_id)
     
-    print(f"   ✓ Created PIT: {pit.pit_physical_name}")
-    print(f"     Tracking: {pit.tracked_hub.hub_physical_name}")
-    print(f"     Satellites: {pit.satellites.count()}")
+    # Extract customer_id from orders table
+    extraction_col = PrejoinExtractionColumn.objects.create(
+        prejoin=prejoin,
+        source_column=col_order_customer_id  # Extract customer_id from orders
+    )
+    
+    print(f"   ✓ Created prejoin: {prejoin}")
+    print(f"     Join: deliveries.order_id = orders.order_id")
+    print(f"     Extraction: {extraction_col.source_column.source_column_physical_name}")
+    
+    # Update the delivery link to use the prejoin extraction column
+    # Find the link mapping that currently uses delivery order FK
+    delivery_link_mapping = LinkSourceMapping.objects.filter(
+        link_column__link=link_delivery,
+        link_column__column_name="order_fk"
+    ).first()
+    
+    if delivery_link_mapping:
+        # Update to use prejoin extraction column instead
+        delivery_link_mapping.source_column = None
+        delivery_link_mapping.prejoin_extraction_column = extraction_col
+        delivery_link_mapping.save()
+        print(f"   ✓ Updated link mapping to use prejoin extraction")
     
     # ============================================================================
     # SUMMARY
@@ -1010,6 +1055,7 @@ def create_pizza_delivery_project():
     print(f"      - Reference: {Satellite.objects.filter(project=project, satellite_type='reference').count()}")
     print(f"   Reference Tables: {ReferenceTable.objects.filter(project=project).count()}")
     print(f"   PITs: {PIT.objects.filter(project=project).count()}")
+    print(f"   Prejoins: {PrejoinDefinition.objects.filter(project=project).count()}")
     
     print(f"\n🍕 Sample Entities:")
     print(f"   - Hubs: Customer, Order, Pizza, Driver")

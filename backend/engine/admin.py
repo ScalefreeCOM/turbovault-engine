@@ -203,23 +203,31 @@ class SnapshotControlLogicInline(admin.TabularInline):
 
 @admin.register(SnapshotControlTable)
 class SnapshotControlTableAdmin(admin.ModelAdmin):
-    """Admin configuration for SnapshotControlTable model."""
+    """Admin for snapshot control tables."""
     
-    list_display = ["project", "snapshot_start_date", "snapshot_end_date", "daily_snapshot_time", "get_logic_count", "created_at"]
+    list_display = ["name", "project", "snapshot_start_date", "snapshot_end_date", "daily_snapshot_time"]
     list_filter = ["project"]
-    search_fields = ["project__name"]
+    search_fields = ["name", "project__name"]
     readonly_fields = ["snapshot_control_table_id", "created_at", "updated_at"]
     autocomplete_fields = ["project"]
     inlines = [SnapshotControlLogicInline]
     
     fieldsets = [
         (None, {
-            "fields": ["snapshot_control_table_id", "project"]
+            "fields": [
+                "snapshot_control_table_id",
+                "project",
+                "name"
+            ]
         }),
-        ("Date Range", {
-            "fields": ["snapshot_start_date", "snapshot_end_date", "daily_snapshot_time"]
+        ("Snapshot Configuration", {
+            "fields": [
+                "snapshot_start_date",
+                "snapshot_end_date",
+                "daily_snapshot_time"
+            ]
         }),
-        ("Timestamps", {
+("Timestamps", {
             "fields": ["created_at", "updated_at"],
             "classes": ["collapse"]
         }),
