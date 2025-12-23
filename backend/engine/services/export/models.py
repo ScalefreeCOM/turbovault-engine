@@ -1,0 +1,363 @@
+"""
+Intermediate Pydantic models for Data Vault export.
+
+These models provide a target-agnostic representation of the Data Vault
+that can be serialized to various output formats (JSON, dbt, DBML, etc.).
+"""
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel, Field
+
+
+# =============================================================================
+# Source Layer Models
+# =============================================================================
+
+class SourceColumnDef(BaseModel):
+    """Definition of a source column."""
+    column_name: str
+    datatype: str
+
+
+class SourceTableDef(BaseModel):
+    """Definition of a source table with its columns and metadata."""
+    table_name: str
+    alias: Optional[str] = None
+    record_source: Optional[str] = None
+    load_date: Optional[str] = None
+    columns: list[SourceColumnDef] = Field(default_factory=list)
+
+
+class SourceSystemDef(BaseModel):
+    """Definition of a source system containing multiple tables."""
+    name: str
+    schema_name: str
+    database_name: Optional[str] = None
+    tables: list[SourceTableDef] = Field(default_factory=list)
+
+
+# =============================================================================
+# Hub Layer Models
+# =============================================================================
+
+class HashkeyDefinition(BaseModel):
+    """Definition of a hashkey with its constituent business keys."""
+    hashkey_name: str
+    business_keys: list[str] = Field(
+        default_factory=list,
+        description="Column names that compose this hashkey, in order"
+    )
+
+
+class HubSourceInfo(BaseModel):
+    """Information about a source table feeding a hub."""
+    source_table: str
+    source_system: str
+    stage_name: str = Field(
+        description="Stage model name for this source table"
+    )
+    business_key_columns: list[str] = Field(
+        default_factory=list,
+        description="Source columns mapped to business keys"
+    )
+
+
+class HubDefinition(BaseModel):
+    """
+    Definition of a Data Vault hub.
+    
+    Contains all metadata needed to generate hub-related artifacts.
+    """
+    hub_name: str
+    hub_type: str  # "standard" or "reference"
+    group: Optional[str] = None
+    hashkey: Optional[HashkeyDefinition] = None
+    business_key_columns: list[str] = Field(
+        default_factory=list,
+        description="Target hub column names for business keys"
+    )
+    additional_columns: list[str] = Field(
+        default_factory=list,
+        description="Additional non-key columns in the hub"
+    )
+    source_tables: list[HubSourceInfo] = Field(
+        default_factory=list,
+        description="Source tables that feed this hub"
+    )
+    create_record_tracking_satellite: bool = False
+    create_effectivity_satellite: bool = True
+
+
+# =============================================================================
+# Link Layer Models
+# =============================================================================
+
+class LinkColumnMapping(BaseModel):
+    """Mapping of link column to source column."""
+    link_column_name: str
+    link_column_type: str  # business_key, payload, or additional_column
+    source_column_name: str
+
+
+class LinkSourceInfo(BaseModel):
+    """Information about source tables feeding a link."""
+    source_table: str
+    source_system: str
+    stage_name: str = Field(
+        description="Stage model name for this source table"
+    )
+    columns: list[LinkColumnMapping] = Field(
+        default_factory=list,
+        description="Mapped columns from this source table"
+    )
+
+
+class LinkDefinition(BaseModel):
+    """
+    Definition of a Data Vault link.
+    
+    Contains all metadata needed to generate link-related artifacts.
+    """
+    link_name: str
+    link_type: str  # "standard" or "non_historized"
+    group: Optional[str] = None
+    hashkey: HashkeyDefinition = Field(
+        description="Link hashkey definition"
+    )
+    hub_references: list[str] = Field(
+        default_factory=list,
+        description="Names of hubs connected by this link"
+    )
+    business_key_columns: list[str] = Field(
+        default_factory=list,
+        description="Link column names with type business_key"
+    )
+    payload_columns: list[str] = Field(
+        default_factory=list,
+        description="Payload columns in the link"
+    )
+    additional_columns: list[str] = Field(
+        default_factory=list,
+        description="Additional non-payload columns"
+    )
+    source_tables: list[LinkSourceInfo] = Field(
+        default_factory=list,
+        description="Source tables that feed this link with column mappings"
+    )
+
+
+
+# =============================================================================
+# Stage Layer Models
+# =============================================================================
+
+class StageHashkeyDef(BaseModel):
+    """
+    Hashkey definition within a stage model.
+    
+    Represents a hashkey calculation that must be performed in the stage
+    for a specific hub or link.
+    """
+    target_entity: str = Field(
+        description="Target entity name (e.g., 'hub_customer')"
+    )
+    entity_type: str = Field(
+        default="hub",
+        description="Type of entity: 'hub' or 'link'"
+    )
+    hashkey_name: str = Field(
+        description="Name of the hashkey column"
+    )
+    business_key_columns: list[str] = Field(
+        default_factory=list,
+        description="Source columns used to compute this hashkey"
+    )
+
+
+class StageHashdiffDef(BaseModel):
+    """
+    Hashdiff definition within a stage model.
+    
+    Represents a hashdiff calculation for a satellite.
+    """
+    satellite_name: str = Field(
+        description="Target satellite name"
+    )
+    hashdiff_name: str = Field(
+        description="Name of the hashdiff column (e.g., 'hd_customer_details')"
+    )
+    columns: list[str] = Field(
+        default_factory=list,
+        description="Source columns included in hashdiff calculation"
+    )
+
+
+class MultiActiveConfig(BaseModel):
+    """
+    Multi-active satellite configuration for a stage.
+    
+    Defines the multi-active key columns and associated parent hashkey.
+    """
+    multi_active_key: list[str] = Field(
+        default_factory=list,
+        description="Column(s) that form the multi-active key"
+    )
+    main_hashkey_column: str = Field(
+        description="Parent hub/link hashkey column name"
+    )
+
+
+class StageDefinition(BaseModel):
+    """
+    Definition of a staging model for a source table.
+    
+    Aggregates all hashkeys (from hubs and links) and hashdiffs (from satellites)
+    that must be computed for this source table.
+    """
+    stage_name: str
+    source_table: str
+    source_schema: str
+    source_system: str
+    record_source: Optional[str] = None
+    load_date: Optional[str] = None
+    
+    # Hashkey calculations for hubs
+    hashkeys: list[StageHashkeyDef] = Field(
+        default_factory=list,
+        description="All hashkeys to compute in this stage"
+    )
+    
+    # Hashdiff calculations for satellites
+    hashdiffs: list[StageHashdiffDef] = Field(
+        default_factory=list,
+        description="All hashdiffs to compute in this stage"
+    )
+    
+    # Multi-active configuration (if any multi-active satellite uses this source)
+    multi_active_config: Optional[MultiActiveConfig] = Field(
+        None,
+        description="Multi-active key config if a multi-active satellite uses this source"
+    )
+    
+    # Source columns
+    columns: list[SourceColumnDef] = Field(
+        default_factory=list,
+        description="Source columns available in this stage"
+    )
+    
+    # Future additions
+    # prejoins: list[PrejoinDef] = Field(default_factory=list)
+    # derived_columns: list[DerivedColumnDef] = Field(default_factory=list)
+
+
+
+# =============================================================================
+# Satellite Layer Models
+# =============================================================================
+
+class SatelliteColumnDef(BaseModel):
+    """Definition of a satellite column."""
+    source_column: str = Field(
+        description="Source column physical name"
+    )
+    target_column_name: Optional[str] = Field(
+        None,
+        description="Target column name (if renamed from source)"
+    )
+    is_multi_active_key: bool = Field(
+        default=False,
+        description="Whether this column is part of multi-active key"
+    )
+    include_in_delta_detection: bool = Field(
+        default=True,
+        description="Whether to include in hashdiff calculation"
+    )
+    target_column_transformation: Optional[str] = Field(
+        None,
+        description="Optional transformation expression"
+    )
+
+
+class SatelliteDefinition(BaseModel):
+    """
+    Definition of a Data Vault satellite.
+    
+    Contains all metadata needed to generate satellite-related artifacts.
+    """
+    satellite_name: str
+    satellite_type: str = Field(
+        description="Type: standard, reference, non_historized, or multi_active"
+    )
+    group: Optional[str] = None
+    parent_entity: str = Field(
+        description="Name of parent hub or link"
+    )
+    parent_entity_type: str = Field(
+        description="Type of parent: 'hub' or 'link'"
+    )
+    source_table: str = Field(
+        description="Source table name that feeds this satellite"
+    )
+    source_system: str = Field(
+        description="Source system name"
+    )
+    stage_name: str = Field(
+        description="Stage model name that feeds this satellite"
+    )
+    hashdiff_name: str = Field(
+        description="Hashdiff column name for this satellite"
+    )
+    columns: list[SatelliteColumnDef] = Field(
+        default_factory=list,
+        description="Satellite columns"
+    )
+    # Future: hashdiff definition
+
+
+# =============================================================================
+# Project Export (Root Model)
+# =============================================================================
+
+
+class ProjectExport(BaseModel):
+    """
+    Complete export of a Data Vault project.
+    
+    Contains all definitions needed to generate target artifacts.
+    """
+    project_name: str
+    project_description: Optional[str] = None
+    generated_at: datetime = Field(default_factory=datetime.now)
+    
+    # Configuration
+    stage_schema: Optional[str] = None
+    rdv_schema: Optional[str] = None
+    
+    # Definitions
+    sources: list[SourceSystemDef] = Field(
+        default_factory=list,
+        description="Source system definitions"
+    )
+    hubs: list[HubDefinition] = Field(
+        default_factory=list,
+        description="Hub definitions"
+    )
+    stages: list[StageDefinition] = Field(
+        default_factory=list,
+        description="Stage model definitions"
+    )
+    satellites: list[SatelliteDefinition] = Field(
+        default_factory=list,
+        description="Satellite definitions"
+    )
+    links: list[LinkDefinition] = Field(
+        default_factory=list,
+        description="Link definitions"
+    )
+    
+    # Future: pits, reference_tables
+
+
