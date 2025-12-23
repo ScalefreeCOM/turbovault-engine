@@ -1,0 +1,48 @@
+# TurboVault Engine Configuration
+# This file defines project settings, source metadata, and output options
+
+# Project information
+project:
+  name: "my_datavault_project"
+  description: "My Data Vault implementation"
+
+# Optional: Import metadata from Excel
+# Comment out or remove this section to start from scratch
+source:
+  type: excel
+  path: "./metadata/source_metadata.xlsx"
+
+# Project-level Data Vault configuration
+configuration:
+  # Staging layer schema name
+  stage_schema: "stage"
+  # Optional: Staging database name
+  stage_database: "dv_raw"
+  
+  # Raw Data Vault layer schema name
+  rdv_schema: "rdv"
+  # Optional: RDV database name  
+  rdv_database: "dv_core"
+  
+  # Optional: Hashdiff naming pattern (for future use, not implemented yet)
+  hashdiff_naming_pattern: ""
+
+# dbt project output settings
+output:
+  # Directory where dbt project will be generated (required)
+  dbt_project_dir: "./generated/dbt_project"
+  
+  # Optional: dbt project name (defaults to project.name)
+  dbt_project_name: null
+  
+  # Whether to create a ZIP archive of the generated project
+  create_zip: false
+
+
+# Example: Minimal config (start from scratch, no Excel import)
+# ---
+# project:
+#   name: "minimal_project"
+# 
+# output:
+#   dbt_project_dir: "./dbt_output"
