@@ -56,8 +56,14 @@ class SnapshotControlTable(models.Model):
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
-        related_name="snapshot_control_tables",
+        related_name="snapshot_controls",
         help_text="Project this snapshot control belongs to"
+    )
+    
+    name = models.CharField(
+        max_length=255,
+        default="control_snap_v0",
+        help_text="Name of the snapshot control table (e.g., control_snap_v0)"
     )
     
     snapshot_start_date = models.DateField(

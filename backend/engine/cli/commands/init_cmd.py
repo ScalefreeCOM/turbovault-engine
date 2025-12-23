@@ -4,6 +4,7 @@ Init command for TurboVault CLI.
 Initialize new projects from config or interactively.
 """
 from pathlib import Path
+import os
 from typing import Optional
 
 import questionary
@@ -103,6 +104,12 @@ def _init_from_config(config_path: Path) -> None:
         progress.update(task, completed=True)
     
     print_success(f"Created project: {project.name}")
+
+    # Create default snapshot controls for the new project
+    skip_snapshots = os.getenv('TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS', '').lower() == 'true'
+    if not skip_snapshots:
+        from engine.cli.utils.db_utils import create_default_snapshot_controls
+        create_default_snapshot_controls(project)
     
     print_step(3, 3, "Project initialization complete!")
     
@@ -283,6 +290,12 @@ def _run_interactive_init() -> None:
     )
     
     print_success(f"Created project: {project.name}")
+    
+    # Create default snapshot controls for the new project
+    skip_snapshots = os.getenv('TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS', '').lower() == 'true'
+    if not skip_snapshots:
+        from engine.cli.utils.db_utils import create_default_snapshot_controls
+        create_default_snapshot_controls(project)
     
     print_step(2, 2, "Setup complete!")
     console.print("\n[bold]Next steps:[/bold]")
