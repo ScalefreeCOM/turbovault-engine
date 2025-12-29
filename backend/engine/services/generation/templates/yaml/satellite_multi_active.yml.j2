@@ -1,0 +1,23 @@
+[# Multi-Active Satellite YAML Schema Template #]
+version: 2
+
+models:
+  - name: [[ satellite_name ]]
+    description: "Multi-active satellite for [[ parent_entity ]]"
+    config:
+      tags: ['satellite', 'multi_active', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+    columns:
+      - name: [[ parent_hashkey ]]
+        description: "Parent entity hash key"
+        data_tests:
+          - not_null
+      - name: [[ hashdiff_name ]]
+        description: "Hash diff for change detection"
+[% for column in columns %]
+      - name: [[ column.target_column_name if column.target_column_name else column.source_column ]]
+        description: "Payload column[% if column.is_multi_active_key %] (multi-active key)[% endif %]"
+[% endfor %]
+      - name: ldts
+        description: "Load date timestamp"
+      - name: rsrc
+        description: "Record source"

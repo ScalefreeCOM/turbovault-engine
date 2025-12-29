@@ -110,6 +110,9 @@ class DbtProjectGenerator:
             # 10. Generate snapshot control models
             self._generate_snapshot_controls(project_export.snapshot_controls)
             
+            # 11. Post-generation validation: check for missing YAML files
+            self.report.validate_yaml_files()
+            
             logger.info(f"Generation complete. {self.report.total_files} files created.")
             
         except Exception as e:

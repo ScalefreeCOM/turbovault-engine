@@ -1,0 +1,21 @@
+[# Non-Historized Satellite YAML Schema Template #]
+version: 2
+
+models:
+  - name: [[ satellite_name ]]
+    description: "Non-historized satellite for [[ parent_entity ]]"
+    config:
+      tags: ['satellite', 'non_historized', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+    columns:
+      - name: [[ parent_hashkey ]]
+        description: "Parent entity hash key"
+        data_tests:
+          - not_null
+[% for column in columns %]
+      - name: [[ column.target_column_name if column.target_column_name else column.source_column ]]
+        description: "Payload column"
+[% endfor %]
+      - name: ldts
+        description: "Load date timestamp"
+      - name: rsrc
+        description: "Record source"

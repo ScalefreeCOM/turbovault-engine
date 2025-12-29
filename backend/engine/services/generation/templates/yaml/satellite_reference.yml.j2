@@ -1,0 +1,25 @@
+[# Reference Satellite YAML Schema Template #]
+version: 2
+
+models:
+  - name: [[ satellite_name ]]
+    description: "Reference satellite for [[ parent_entity ]]"
+    config:
+      tags: ['satellite', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+    columns:
+[% for bk in parent_business_keys %]
+      - name: [[ bk ]]
+        description: "Parent reference key"
+        data_tests:
+          - not_null
+[% endfor %]
+      - name: [[ hashdiff_name ]]
+        description: "Hash diff for change detection"
+[% for column in columns %]
+      - name: [[ column.target_column_name if column.target_column_name else column.source_column ]]
+        description: "Payload column"
+[% endfor %]
+      - name: ldts
+        description: "Load date timestamp"
+      - name: rsrc
+        description: "Record source"

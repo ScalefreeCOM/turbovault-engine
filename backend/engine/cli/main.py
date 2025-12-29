@@ -16,7 +16,7 @@ backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from engine.cli.utils.console import console, print_banner
-from engine.cli.commands import init_cmd, run_cmd, serve_cmd, reset_cmd
+from engine.cli.commands import init_cmd, run_cmd, serve_cmd, reset_cmd, generate_cmd
 
 
 # Create Typer app
@@ -75,7 +75,8 @@ def _setup_django() -> None:
 
 # Register commands
 app.command(name="init", help="Initialize a new TurboVault project")(init_cmd.init)
-app.command(name="run", help="Generate dbt project from Data Vault model")(run_cmd.run)
+app.command(name="run", help="Export Data Vault model to JSON")(run_cmd.run)
+app.command(name="generate", help="Generate dbt project from Data Vault model")(generate_cmd.generate)
 app.command(name="serve", help="Start Django admin server")(serve_cmd.serve)
 app.command(name="reset", help="Reset the Django database")(reset_cmd.reset)
 
