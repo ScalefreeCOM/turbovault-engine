@@ -1,0 +1,27 @@
+{# PIT (Point-In-Time) Template #}
+{# Generates a PIT structure for dimensional views #}
+
+{{ config(
+    materialized='incremental',
+    tags=['pit', 'business_vault'],
+    post_hook="{{ datavault4dbt.clean_up_pit('" ~ snapshot_control_name ~ "') }}"
+) }}
+
+{%- set yaml_metadata -%}
+{%- if pit_type %}
+pit_type: '{{ pit_type }}'
+{%- endif %}
+tracked_entity: '{{ tracked_entity_name }}'
+hashkey: '{{ tracked_hashkey }}'
+sat_names:
+{%- for sat in satellites %}
+    - {{ sat }}_v0
+{%- endfor %}
+snapshot_relation: '{{ snapshot_control_name }}'
+snapshot_trigger_column: '{{ snapshot_logic_column }}'
+{%- if dimension_key_column %}
+dimension_key: '{{ dimension_key_column }}'
+{%- endif %}
+{%- endset -%}
+
+{{ datavault4dbt.pit(yaml_metadata=yaml_metadata) }}

@@ -1,0 +1,53 @@
+{# Satellite V1 Template (Load-End-Date View) #}
+{# Creates a view on top of the v0 satellite that adds load_end_date column #}
+{# Handles: standard, effectivity, multi_active, and reference satellite types #}
+
+{{ config(
+    materialized='view',
+    tags=['satellite', 'v1', 'raw_vault'{{ ", '" ~ group ~ "'" if group }}]
+) }}
+
+{#- Determine which macro to use based on satellite_type -#}
+{%- if satellite_type == 'reference' %}
+{#- Reference Satellite V1 -#}
+{%- set yaml_metadata -%}
+ref_sat_v0: '{{ satellite_name }}_v0'
+ref_keys:
+{%- for bk in parent_business_keys %}
+    - {{ bk }}
+{%- endfor %}
+hashdiff: '{{ hashdiff_name }}'
+add_is_current_flag: true
+{%- endset -%}
+
+{{ datavault4dbt.ref_sat_v1(yaml_metadata=yaml_metadata) }}
+
+{%- elif satellite_type == 'multi_active' %}
+{#- Multi-Active Satellite V1 -#}
+{%- set yaml_metadata -%}
+sat_v0: '{{ satellite_name }}_v0'
+hashkey: '{{ parent_hashkey }}'
+hashdiff: '{{ hashdiff_name }}'
+ma_attribute:
+{%- for col in columns if col.is_multi_active_key %}
+    - {{ col.target_column_name if col.target_column_name else col.source_column }}
+{%- endfor %}
+ledts_alias: 'load_end_date'
+add_is_current_flag: true
+{%- endset -%}
+
+{{ datavault4dbt.ma_sat_v1(yaml_metadata=yaml_metadata) }}
+
+{%- else %}
+{#- Standard / Effectivity Satellite V1 -#}
+{%- set yaml_metadata -%}
+sat_v0: '{{ satellite_name }}_v0'
+hashkey: '{{ parent_hashkey }}'
+hashdiff: '{{ hashdiff_name }}'
+ledts_alias: 'load_end_date'
+add_is_current_flag: true
+{%- endset -%}
+
+{{ datavault4dbt.sat_v1(yaml_metadata=yaml_metadata) }}
+
+{%- endif %}

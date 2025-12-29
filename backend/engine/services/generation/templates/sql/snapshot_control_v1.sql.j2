@@ -1,0 +1,23 @@
+{# Snapshot Control V1 Template #}
+{# Generates the snapshot control logic with retention patterns #}
+
+{{ config(
+    materialized='view',
+    tags=['snapshot_control', 'control']
+) }}
+
+{%- set yaml_metadata -%}
+control_snap_v0: '{{ v0_name }}'
+log_logic:
+{%- for pattern in logic_patterns %}
+    {{ pattern.component }}:
+{%- if pattern.forever %}
+        forever: true
+{%- else %}
+        duration: {{ pattern.duration }}
+        unit: '{{ pattern.unit }}'
+{%- endif %}
+{%- endfor %}
+{%- endset -%}
+
+{{ datavault4dbt.control_snap_v1(yaml_metadata=yaml_metadata) }}

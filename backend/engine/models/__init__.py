@@ -13,6 +13,7 @@ from engine.models.satellites import Satellite, SatelliteColumn
 from engine.models.reference_table import ReferenceTable, ReferenceTableSatelliteAssignment
 from engine.models.pit import PIT
 from engine.models.prejoin import PrejoinDefinition, PrejoinExtractionColumn
+from engine.models.templates import TemplateCategory, ModelTemplate
 
 __all__ = [
     "Project",
@@ -35,5 +36,6 @@ __all__ = [
     "PIT",
     "PrejoinDefinition",
     "PrejoinExtractionColumn",
+    "TemplateCategory",
+    "ModelTemplate",
 ]
-

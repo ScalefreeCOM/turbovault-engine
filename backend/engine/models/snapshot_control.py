@@ -62,8 +62,8 @@ class SnapshotControlTable(models.Model):
     
     name = models.CharField(
         max_length=255,
-        default="control_snap_v0",
-        help_text="Name of the snapshot control table (e.g., control_snap_v0)"
+        default="control_snap",
+        help_text="Base name of the snapshot control (e.g., 'control_snap')"
     )
     
     snapshot_start_date = models.DateField(

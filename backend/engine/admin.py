@@ -764,3 +764,87 @@ class PrejoinExtractionColumnAdmin(admin.ModelAdmin):
     def get_column_name(self, obj: PrejoinExtractionColumn) -> str:
         """Return the extraction column name."""
         return obj.source_column.source_column_physical_name
+
+
+# ==============================================================================
+# Template Admin
+# ==============================================================================
+
+from engine.models import TemplateCategory, ModelTemplate
+
+
+@admin.register(TemplateCategory)
+class TemplateCategoryAdmin(admin.ModelAdmin):
+    """Admin configuration for TemplateCategory model."""
+    
+    list_display = ["name", "description", "created_at"]
+    search_fields = ["name", "description"]
+    readonly_fields = ["category_id", "created_at", "updated_at"]
+    
+    fieldsets = [
+        (None, {
+            "fields": ["category_id", "name", "description"]
+        }),
+        ("Timestamps", {
+            "fields": ["created_at", "updated_at"],
+            "classes": ["collapse"]
+        }),
+    ]
+
+
+@admin.register(ModelTemplate)
+class ModelTemplateAdmin(admin.ModelAdmin):
+    """Admin configuration for ModelTemplate model."""
+    
+    list_display = [
+        "name",
+        "entity_type",
+        "category",
+        "priority",
+        "is_active",
+        "has_sql_template",
+        "has_yaml_template",
+        "updated_at"
+    ]
+    list_filter = ["entity_type", "category", "is_active"]
+    search_fields = ["name", "description"]
+    readonly_fields = ["template_id", "created_at", "updated_at"]
+    autocomplete_fields = ["category"]
+    
+    fieldsets = [
+        (None, {
+            "fields": [
+                "template_id",
+                "name",
+                "entity_type",
+                "category",
+                "description"
+            ]
+        }),
+        ("SQL Template", {
+            "fields": ["sql_template_content"],
+            "description": "Jinja2 template for the dbt SQL model"
+        }),
+        ("YAML Template", {
+            "fields": ["yaml_template_content"],
+            "description": "Jinja2 template for the dbt YAML schema"
+        }),
+        ("Configuration", {
+            "fields": ["priority", "is_active"],
+            "classes": ["collapse"]
+        }),
+        ("Timestamps", {
+            "fields": ["created_at", "updated_at"],
+            "classes": ["collapse"]
+        }),
+    ]
+    
+    @admin.display(boolean=True, description="SQL")
+    def has_sql_template(self, obj: ModelTemplate) -> bool:
+        """Check if template has SQL content."""
+        return obj.has_sql_template
+    
+    @admin.display(boolean=True, description="YAML")
+    def has_yaml_template(self, obj: ModelTemplate) -> bool:
+        """Check if template has YAML content."""
+        return obj.has_yaml_template

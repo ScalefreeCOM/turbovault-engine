@@ -1,0 +1,19 @@
+{# Standard Satellite Template #}
+{# Generates a satellite model using datavault4dbt.sat_v0() macro #}
+
+{{ config(
+    materialized='incremental',
+    tags=['satellite', 'raw_vault'{{ ", '" ~ group ~ "'" if group }}]
+) }}
+
+{%- set yaml_metadata -%}
+parent_hashkey: '{{ parent_hashkey }}'
+src_hashdiff: '{{ hashdiff_name }}'
+src_payload:
+{%- for col in columns %}
+    - {{ col.target_column_name if col.target_column_name else col.source_column }}
+{%- endfor %}
+source_model: '{{ stage_name }}'
+{%- endset -%}
+
+{{ datavault4dbt.sat_v0(yaml_metadata=yaml_metadata) }}

@@ -1,0 +1,23 @@
+{# Satellite Model YAML Schema Template #}
+version: 2
+
+models:
+  - name: {{ satellite_name }}{{ suffix | default("") }}
+    description: "{{ satellite_type | title }} satellite for {{ parent_entity }}"
+    config:
+      tags: ['satellite', '{{ satellite_type }}', 'raw_vault'{{ ", '" ~ group ~ "'" if group }}]
+    columns:
+      - name: {{ parent_hashkey }}
+        description: "Parent entity hash key"
+        data_tests:
+          - not_null
+      - name: {{ hashdiff_name }}
+        description: "Hash diff for change detection"
+      {%- for column in columns %}
+      - name: {{ column.column_name }}
+        description: "{{ column.column_name }}"
+      {%- endfor %}
+      - name: ldts
+        description: "Load date timestamp"
+      - name: rsrc
+        description: "Record source"

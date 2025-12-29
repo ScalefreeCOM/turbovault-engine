@@ -1,0 +1,14 @@
+{# Snapshot Control V0 Template #}
+{# Generates the snapshot control table with date ranges #}
+
+{{ config(
+    materialized='incremental',
+    tags=['snapshot_control', 'control']
+) }}
+
+{%- set yaml_metadata -%}
+start_date: '{{ start_date }}'
+daily_snapshot_time: '{{ daily_time }}'
+{%- endset -%}
+
+{{ datavault4dbt.control_snap_v0(yaml_metadata=yaml_metadata) }}

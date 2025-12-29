@@ -509,13 +509,20 @@ class ModelBuilder:
             if not sat.source_table:
                 continue
             
-            # Determine parent entity
+            # Determine parent entity, hashkey, and business keys
+            parent_business_keys: list[str] = []
             if sat.parent_hub:
                 parent_name = sat.parent_hub.hub_physical_name
                 parent_type = "hub"
+                parent_hashkey = sat.parent_hub.hub_hashkey_name or ""
+                # Get business keys from hub columns
+                parent_business_keys = list(
+                    sat.parent_hub.columns.values_list('column_name', flat=True)
+                )
             elif sat.parent_link:
                 parent_name = sat.parent_link.link_physical_name
                 parent_type = "link"
+                parent_hashkey = sat.parent_link.link_hashkey_name or ""
             else:
                 # No valid parent
                 continue
@@ -547,6 +554,8 @@ class ModelBuilder:
                 group=sat.group.group_name if sat.group else None,
                 parent_entity=parent_name,
                 parent_entity_type=parent_type,
+                parent_hashkey=parent_hashkey,
+                parent_business_keys=parent_business_keys,
                 source_table=sat.source_table.physical_table_name,
                 source_system=sat.source_table.source_system.name,
                 stage_name=stage_name,
@@ -574,8 +583,10 @@ class ModelBuilder:
         
         result = []
         for link in links:
-            # Get hub references
-            hub_names = [hub.hub_physical_name for hub in link.hub_references.all()]
+            # Get hub references with their hashkey names
+            hub_refs = link.hub_references.all()
+            hub_names = [hub.hub_physical_name for hub in hub_refs]
+            foreign_hashkeys = [hub.hub_hashkey_name for hub in hub_refs if hub.hub_hashkey_name]
             
             # Get business key columns (ordered by sort_order)
             bk_columns = link.columns.filter(
@@ -652,6 +663,7 @@ class ModelBuilder:
                 group=link.group.group_name if link.group else None,
                 hashkey=hashkey,
                 hub_references=hub_names,
+                foreign_hashkeys=foreign_hashkeys,
                 business_key_columns=business_key_column_names,
                 payload_columns=list(payload_cols),
                 additional_columns=list(additional_cols),
@@ -777,16 +789,20 @@ class ModelBuilder:
         ).select_related(
             'tracked_hub',
             'tracked_link',
-            'snapshot_control_logic'
+            'snapshot_control_logic',
+            'snapshot_control_logic__snapshot_control_table'
         ).prefetch_related('satellites')
         
         for pit in pits:
-            # Get tracked entity name
+            # Get tracked entity name and hashkey
             tracked_entity_name = ""
+            tracked_hashkey = ""
             if pit.tracked_hub:
                 tracked_entity_name = pit.tracked_hub.hub_physical_name
+                tracked_hashkey = pit.tracked_hub.hub_hashkey_name or ""
             elif pit.tracked_link:
                 tracked_entity_name = pit.tracked_link.link_physical_name
+                tracked_hashkey = pit.tracked_link.link_hashkey_name or ""
             
             # Get satellite names
             satellite_names = [
@@ -794,11 +810,20 @@ class ModelBuilder:
                 for sat in pit.satellites.all()
             ]
             
+            # Get snapshot control name (v1)
+            snapshot_control_name = ""
+            if pit.snapshot_control_logic and pit.snapshot_control_logic.snapshot_control_table:
+                base_name = pit.snapshot_control_logic.snapshot_control_table.name
+                # Ensure we get the v1 name
+                snapshot_control_name = base_name.removesuffix("_v0").removesuffix("_v1") + "_v1"
+            
             result.append(PITDefinition(
                 pit_name=pit.pit_physical_name,
                 tracked_entity_type=pit.tracked_entity_type,
                 tracked_entity_name=tracked_entity_name,
+                tracked_hashkey=tracked_hashkey,
                 satellites=satellite_names,
+                snapshot_control_name=snapshot_control_name,
                 snapshot_logic_column=pit.snapshot_control_logic.snapshot_control_logic_column_name,
                 dimension_key_column=pit.dimension_key_column_name,
                 pit_type=pit.pit_type,

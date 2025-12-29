@@ -163,6 +163,10 @@ class LinkDefinition(BaseModel):
         default_factory=list,
         description="Names of hubs connected by this link"
     )
+    foreign_hashkeys: list[str] = Field(
+        default_factory=list,
+        description="Hashkey names from referenced hubs (for datavault4dbt)"
+    )
     business_key_columns: list[str] = Field(
         default_factory=list,
         description="Link column names with type business_key"
@@ -336,6 +340,13 @@ class SatelliteDefinition(BaseModel):
     parent_entity_type: str = Field(
         description="Type of parent: 'hub' or 'link'"
     )
+    parent_hashkey: str = Field(
+        description="Hashkey name of parent hub or link (for datavault4dbt)"
+    )
+    parent_business_keys: list[str] = Field(
+        default_factory=list,
+        description="Business key columns of parent (for reference satellites)"
+    )
     source_table: str = Field(
         description="Source table name that feeds this satellite"
     )
@@ -418,9 +429,15 @@ class PITDefinition(BaseModel):
     tracked_entity_name: str = Field(
         description="Name of the tracked hub or link"
     )
+    tracked_hashkey: str = Field(
+        description="Hashkey name of the tracked hub or link"
+    )
     satellites: list[str] = Field(
         default_factory=list,
         description="List of satellite names included in the PIT"
+    )
+    snapshot_control_name: str = Field(
+        description="Name of the snapshot control table (v1)"
     )
     snapshot_logic_column: str = Field(
         description="Snapshot logic column name"
@@ -471,10 +488,16 @@ class SnapshotLogicPattern(BaseModel):
 
 
 class SnapshotControlDefinition(BaseModel):
-    """Snapshot control table definition."""
+    """
+    Snapshot control table definition.
+    
+    During dbt generation, this produces two models:
+    - `{name}_v0`: The snapshot control table model (base metadata)
+    - `{name}_v1`: The snapshot control logic model (logic patterns)
+    """
     
     name: str = Field(
-        description="Name of the snapshot control table (e.g., control_snap_v0)"
+        description="Base name of the snapshot control (e.g., 'control_snap')"
     )
     start_date: str = Field(
         description="Overall snapshot start date (YYYY-MM-DD)"
@@ -489,6 +512,28 @@ class SnapshotControlDefinition(BaseModel):
         default_factory=list,
         description="List of snapshot logic patterns"
     )
+    
+    @property
+    def v0_name(self) -> str:
+        """
+        Model name for the snapshot control table (_v0 suffix).
+        
+        Used for the base snapshot control model that contains
+        start_date, end_date, and daily_time configuration.
+        """
+        base_name = self.name.removesuffix("_v0").removesuffix("_v1")
+        return f"{base_name}_v0"
+    
+    @property
+    def v1_name(self) -> str:
+        """
+        Model name for the snapshot control logic (_v1 suffix).
+        
+        Used for the model that implements the logic patterns
+        (daily, weekly, monthly, etc. snapshot windows).
+        """
+        base_name = self.name.removesuffix("_v0").removesuffix("_v1")
+        return f"{base_name}_v1"
 
 
 # ============================================================================
