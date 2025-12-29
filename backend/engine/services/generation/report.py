@@ -173,6 +173,37 @@ class GenerationReport:
             reason=reason
         ))
     
+    def validate_yaml_files(self) -> None:
+        """
+        Check that every SQL file has a corresponding YAML file.
+        
+        Adds warnings for any SQL files that don't have YAML counterparts.
+        This should be called after generation is complete.
+        """
+        # Group files by entity name
+        sql_files: dict[str, GeneratedFile] = {}
+        yaml_files: set[str] = set()
+        
+        for file in self.files:
+            if file.file_type == "sql":
+                sql_files[file.entity_name] = file
+            elif file.file_type == "yaml":
+                yaml_files.add(file.entity_name)
+        
+        # Check for missing YAML files
+        for entity_name, sql_file in sql_files.items():
+            # Skip project-level files that don't need YAML
+            if sql_file.entity_type == "project":
+                continue
+            
+            if entity_name not in yaml_files:
+                self.add_warning(
+                    entity_type=sql_file.entity_type,
+                    entity_name=entity_name,
+                    message=f"SQL file generated but YAML file is missing: {sql_file.path.name}",
+                    code="YML_001"
+                )
+    
     def summary(self) -> str:
         """Get a human-readable summary of the generation."""
         lines = [
