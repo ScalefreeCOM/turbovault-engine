@@ -1,0 +1,18 @@
+[# Snapshot Control V1 Model YAML Schema Template #]
+version: 2
+
+models:
+  - name: [[ v1_name ]]
+    description: "Snapshot control logic (retention patterns)"
+    config:
+      tags: ['snapshot_control', 'control']
+    columns:
+      - name: sdts
+        description: "Snapshot date timestamp"
+        data_tests:
+          - unique
+          - not_null
+[% for pattern in logic_patterns %]
+      - name: [[ pattern.column_name ]]
+        description: "[[ pattern.component ]] snapshot flag"
+[% endfor %]

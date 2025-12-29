@@ -1,22 +1,22 @@
-{# sources.yml Template #}
-{# Defines all source systems and tables for the dbt project #}
+[# sources.yml Template #]
+[# Defines all source systems and tables for the dbt project #]
 version: 2
 
 sources:
-{%- for source_system in source_systems %}
-  - name: {{ source_system.name | lower | replace(" ", "_") }}
-    {%- if source_system.database_name %}
-    database: {{ source_system.database_name }}
-    {%- endif %}
-    schema: {{ source_system.schema_name }}
+[% for source in sources %]
+  - name: [[ source.source_system | lower | replace(" ", "_") ]]
+[% if source.database_name %]
+    database: [[ source.database_name ]]
+[% endif %]
+    schema: [[ source.schema_name ]]
     tables:
-    {%- for table in source_system.tables %}
-      - name: {{ table.table_name }}
-        description: "Source table from {{ source_system.name }}"
+[% for table in source.tables %]
+      - name: [[ table.table_name ]]
+        description: "Source table from [[ source.source_system ]]"
         columns:
-        {%- for column in table.columns %}
-          - name: {{ column.column_name }}
-            data_type: {{ column.datatype }}
-        {%- endfor %}
-    {%- endfor %}
-{%- endfor %}
+[% for column in table.columns %]
+          - name: [[ column.column_name ]]
+            data_type: [[ column.datatype ]]
+[% endfor %]
+[% endfor %]
+[% endfor %]

@@ -1,0 +1,25 @@
+[# Satellite V1 (Load End Date View) YAML Schema Template #]
+version: 2
+
+models:
+  - name: [[ satellite_name ]]_v1
+    description: "[[ satellite_type | title ]] satellite v1 (with load_end_date) for [[ parent_entity ]]"
+    config:
+      tags: ['satellite', 'v1', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+    columns:
+      - name: [[ parent_hashkey ]]
+        description: "Parent entity hash key"
+        data_tests:
+          - not_null
+      - name: [[ hashdiff_name ]]
+        description: "Hash diff for change detection"
+[% for column in columns %]
+      - name: [[ column.target_column_name if column.target_column_name else column.source_column ]]
+        description: "Payload column"
+[% endfor %]
+      - name: ldts
+        description: "Load date timestamp"
+      - name: load_end_date
+        description: "Load end date (when this version was superseded)"
+      - name: is_current
+        description: "Flag indicating if this is the current version"

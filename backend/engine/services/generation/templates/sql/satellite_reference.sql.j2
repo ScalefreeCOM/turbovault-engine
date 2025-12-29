@@ -1,22 +1,22 @@
-{# Reference Satellite Template #}
-{# Generates a satellite for reference/lookup data #}
+[# Reference Satellite Template #]
+[# Generates a satellite for reference/lookup data #]
 
 {{ config(
     materialized='incremental',
-    tags=['satellite', 'reference', 'raw_vault'{{ ", '" ~ group ~ "'" if group }}]
+    tags=['satellite', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 
 {%- set yaml_metadata -%}
-source_model: '{{ stage_name }}'
+source_model: '[[ stage_name ]]'
 parent_ref_keys:
-{%- for bk in parent_business_keys %}
-    - {{ bk }}
-{%- endfor %}
-src_hashdiff: '{{ hashdiff_name }}'
+[% for bk in parent_business_keys %]
+    - [[ bk ]]
+[% endfor %]
+src_hashdiff: '[[ hashdiff_name ]]'
 src_payload:
-{%- for col in columns %}
-    - {{ col.target_column_name if col.target_column_name else col.source_column }}
-{%- endfor %}
+[% for col in columns %]
+    - [[ col.target_column_name if col.target_column_name else col.source_column ]]
+[% endfor %]
 {%- endset -%}
 
 {{ datavault4dbt.ref_sat_v0(yaml_metadata=yaml_metadata) }}
