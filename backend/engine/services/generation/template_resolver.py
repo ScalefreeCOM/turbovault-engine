@@ -52,6 +52,10 @@ class TemplateResolver:
         self.use_db_templates = use_db_templates
         
         # Initialize Jinja2 environment for file-based templates
+        # Uses custom delimiters to avoid conflict with dbt Jinja syntax:
+        # - [% %] for block statements (instead of {% %})
+        # - [[ ]] for variable expressions (instead of {{ }})
+        # - [# #] for comments (instead of {# #})
         self._env = Environment(
             loader=FileSystemLoader([
                 str(self.templates_dir / "sql"),
@@ -61,6 +65,13 @@ class TemplateResolver:
             autoescape=select_autoescape(["html", "xml"]),
             trim_blocks=True,
             lstrip_blocks=True,
+            # Custom delimiters to avoid conflict with dbt Jinja
+            block_start_string="[%",
+            block_end_string="%]",
+            variable_start_string="[[",
+            variable_end_string="]]",
+            comment_start_string="[#",
+            comment_end_string="#]",
         )
         
         # Template cache for performance
@@ -179,8 +190,10 @@ class TemplateResolver:
         Returns:
             Template or None if not found.
         """
-        # Map entity type to file name
-        filename = f"{entity_type}.{template_type}.j2"
+        # Map template_type to file extension
+        # Use .yml for YAML files (shorter, more common in dbt)
+        ext = "yml" if template_type == "yaml" else template_type
+        filename = f"{entity_type}.{ext}.j2"
         
         try:
             return self._env.get_template(filename)

@@ -1,0 +1,28 @@
+[# Non-Historized Link Model YAML Schema Template #]
+version: 2
+
+models:
+  - name: [[ link_name ]]
+    description: "Non-Historized link for [[ link_name ]]"
+    config:
+      tags: ['link', 'non_historized', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+    columns:
+      - name: [[ hashkey.hashkey_name ]]
+        description: "Link hash key"
+        data_tests:
+          - unique
+          - not_null
+[% for fk in foreign_hashkeys %]
+      - name: [[ fk ]]
+        description: "Foreign key to hub"
+        data_tests:
+          - not_null
+[% endfor %]
+[% for payload in payload_columns %]
+      - name: [[ payload ]]
+        description: "Payload column"
+[% endfor %]
+      - name: ldts
+        description: "Load date timestamp"
+      - name: rsrc
+        description: "Record source"

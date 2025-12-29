@@ -1,9 +1,9 @@
-{# dbt_project.yml Template #}
-name: '{{ project_name }}'
+[# dbt_project.yml Template #]
+name: '[[ project_name ]]'
 version: '1.0.0'
 config-version: 2
 
-profile: '{{ profile_name }}'
+profile: '[[ profile_name ]]'
 
 model-paths: ["models"]
 analysis-paths: ["analyses"]
@@ -17,7 +17,7 @@ clean-targets:
   - "dbt_packages"
 
 models:
-  {{ project_name }}:
+  [[ project_name ]]:
     staging:
       +schema: stage
       +materialized: view

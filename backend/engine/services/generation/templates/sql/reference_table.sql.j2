@@ -1,5 +1,5 @@
-{# Reference Table Template #}
-{# Generates a reference table that combines a reference hub with its satellites #}
+[# Reference Table Template #]
+[# Generates a reference table that combines a reference hub with its satellites #]
 
 {{ config(
     materialized='view',
@@ -7,11 +7,11 @@
 ) }}
 
 {%- set yaml_metadata -%}
-ref_hub: '{{ reference_hub_name }}'
+ref_hub: '[[ reference_hub_name ]]'
 ref_satellites:
-{%- for sat in satellites %}
-    - {{ sat.satellite_name }}
-{%- endfor %}
+[% for sat in satellites %]
+    - [[ sat.satellite_name ]]
+[% endfor %]
 {%- endset -%}
 
 {{ datavault4dbt.ref_table(yaml_metadata=yaml_metadata) }}

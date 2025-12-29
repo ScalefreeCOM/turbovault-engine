@@ -1,51 +1,51 @@
-{# Stage Model Template #}
-{# Generates a staging model that prepares source data for Data Vault loading #}
-{# Uses datavault4dbt.stage() macro with yaml_metadata format #}
+[# Stage Model Template #]
+[# Generates a staging model that prepares source data for Data Vault loading #]
+[# Uses datavault4dbt.stage() macro with yaml_metadata format #]
 
 {{ config(
     materialized='view',
-    tags=['staging', '{{ source_system | lower | replace(" ", "_") }}']
+    tags=['staging', '[[ source_system | lower | replace(" ", "_") ]]']
 ) }}
 
 {%- set yaml_metadata -%}
-source_model: '{{ source_system | lower | replace(" ", "_") }}.{{ source_table }}'
-ldts: '{{ load_date }}'
-rsrc: '{{ record_source }}'
-{%- if hashkeys or hashdiffs %}
+source_model: '[[ source_system | lower | replace(" ", "_") ]].[[ source_table ]]'
+ldts: '[[ load_date ]]'
+rsrc: '[[ record_source ]]'
+[% if hashkeys or hashdiffs %]
 hashed_columns:
-{%- for hashkey in hashkeys %}
-    {{ hashkey.hashkey_name }}:
-{%- for bk in hashkey.business_key_columns %}
-        - {{ bk }}
-{%- endfor %}
-{%- endfor %}
-{%- for hashdiff in hashdiffs %}
-    {{ hashdiff.hashdiff_name }}:
+[% for hashkey in hashkeys %]
+    [[ hashkey.hashkey_name ]]:
+[% for bk in hashkey.business_key_columns %]
+        - [[ bk ]]
+[% endfor %]
+[% endfor %]
+[% for hashdiff in hashdiffs %]
+    [[ hashdiff.hashdiff_name ]]:
         is_hashdiff: true
         columns:
-{%- for col in hashdiff.columns %}
-            - {{ col }}
-{%- endfor %}
-{%- endfor %}
-{%- endif %}
-{%- if prejoins %}
+[% for col in hashdiff.columns %]
+            - [[ col ]]
+[% endfor %]
+[% endfor %]
+[% endif %]
+[% if prejoins %]
 prejoined_columns:
-{%- for prejoin in prejoins %}
-{%- for extraction_col in prejoin.extraction_columns %}
-    {{ extraction_col }}:
-        src_name: '{{ source_system | lower | replace(" ", "_") }}'
-        src_table: '{{ prejoin.target_table }}'
-        bk: '{{ extraction_col }}'
-        this_column_name: '{{ prejoin.join_conditions.source_columns | first }}'
-        ref_column_name: '{{ prejoin.join_conditions.target_columns | first }}'
-{%- endfor %}
-{%- endfor %}
-{%- endif %}
-{%- if multi_active_config %}
+[% for prejoin in prejoins %]
+[% for extraction_col in prejoin.extraction_columns %]
+    [[ extraction_col ]]:
+        src_name: '[[ source_system | lower | replace(" ", "_") ]]'
+        src_table: '[[ prejoin.target_table ]]'
+        bk: '[[ extraction_col ]]'
+        this_column_name: '[[ prejoin.join_conditions.source_columns[0] ]]'
+        ref_column_name: '[[ prejoin.join_conditions.target_columns[0] ]]'
+[% endfor %]
+[% endfor %]
+[% endif %]
+[% if multi_active_config %]
 multi_active_config:
-    multi_active_key: '{{ multi_active_config.multi_active_key | first }}'
-    main_hashkey_column: '{{ hashkeys[0].hashkey_name if hashkeys else multi_active_config.main_hashkey_column }}'
-{%- endif %}
+    multi_active_key: '[[ multi_active_config.multi_active_key[0] ]]'
+    main_hashkey_column: '[[ hashkeys[0].hashkey_name if hashkeys else multi_active_config.main_hashkey_column ]]'
+[% endif %]
 {%- endset -%}
 
 {{ datavault4dbt.stage(yaml_metadata=yaml_metadata) }}

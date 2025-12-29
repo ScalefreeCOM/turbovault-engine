@@ -1,0 +1,20 @@
+[# Reference Hub Model YAML Schema Template #]
+version: 2
+
+models:
+  - name: [[ hub_name ]]
+    description: "Reference hub for [[ hub_name ]]"
+    config:
+      tags: ['hub', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+    columns:
+[% for bk in business_key_columns %]
+      - name: [[ bk ]]
+        description: "Business key column"
+        data_tests:
+          - unique
+          - not_null
+[% endfor %]
+      - name: ldts
+        description: "Load date timestamp"
+      - name: rsrc
+        description: "Record source"

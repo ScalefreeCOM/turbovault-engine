@@ -1,15 +1,15 @@
-{# Effectivity Satellite Template #}
-{# Tracks the effectivity (active/inactive status) of relationships #}
+[# Effectivity Satellite Template #]
+[# Tracks the effectivity (active/inactive status) of relationships #]
 
 {{ config(
     materialized='incremental',
-    tags=['satellite', 'effectivity', 'raw_vault'{{ ", '" ~ group ~ "'" if group }}]
+    tags=['satellite', 'effectivity', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 
 {%- set yaml_metadata -%}
-tracked_hashkey: '{{ parent_hashkey }}'
+tracked_hashkey: '[[ parent_hashkey ]]'
 is_active_alias: 'is_active'
-source_model: '{{ stage_name }}'
+source_model: '[[ stage_name ]]'
 {%- endset -%}
 
 {{ datavault4dbt.eff_sat_v0(yaml_metadata=yaml_metadata) }}
