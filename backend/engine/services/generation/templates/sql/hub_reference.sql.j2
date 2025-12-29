@@ -1,0 +1,20 @@
+{# Reference Hub Template #}
+{# Generates a reference hub model using datavault4dbt.ref_hub() macro #}
+
+{{ config(
+    materialized='incremental',
+    tags=['hub', 'reference', 'raw_vault'{{ ", '" ~ group ~ "'" if group }}]
+) }}
+
+{%- set yaml_metadata -%}
+source_models:
+{%- for source in source_tables %}
+    - '{{ source.stage_name }}'
+{%- endfor %}
+ref_keys:
+{%- for bk in business_key_columns %}
+    - {{ bk }}
+{%- endfor %}
+{%- endset -%}
+
+{{ datavault4dbt.ref_hub(yaml_metadata=yaml_metadata) }}

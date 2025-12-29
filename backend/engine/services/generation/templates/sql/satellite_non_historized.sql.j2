@@ -1,0 +1,18 @@
+{# Non-Historized Satellite Template #}
+{# Generates a satellite model that only keeps the latest record (no history) #}
+
+{{ config(
+    materialized='incremental',
+    tags=['satellite', 'non_historized', 'raw_vault'{{ ", '" ~ group ~ "'" if group }}]
+) }}
+
+{%- set yaml_metadata -%}
+parent_hashkey: '{{ parent_hashkey }}'
+src_payload:
+{%- for col in columns %}
+    - {{ col.target_column_name if col.target_column_name else col.source_column }}
+{%- endfor %}
+source_model: '{{ stage_name }}'
+{%- endset -%}
+
+{{ datavault4dbt.nh_sat(yaml_metadata=yaml_metadata) }}

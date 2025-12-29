@@ -953,7 +953,7 @@ def create_pizza_delivery_project():
     from engine.models import PIT, SnapshotControlTable, SnapshotControlLogic
     
     # Get the auto-created snapshot control table for this project
-    # The create_default_snapshot_controls function creates this automatically with name "control_snap_v0"
+    # The create_default_snapshot_controls function creates this automatically with name "control_snap"
     snapshot_control = SnapshotControlTable.objects.filter(project=project).first()
     
     if not snapshot_control:
