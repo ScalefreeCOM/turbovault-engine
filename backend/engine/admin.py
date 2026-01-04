@@ -7,16 +7,16 @@ Register domain models here for data inspection and debugging via the admin UI.
 from django.contrib import admin
 
 from engine.models import (
-    Project,
-    Group,
-    SourceSystem,
-    SourceTable,
-    SourceColumn,
-    ReferenceTable,
-    ReferenceTableSatelliteAssignment,
     PIT,
+    Group,
     PrejoinDefinition,
     PrejoinExtractionColumn,
+    Project,
+    ReferenceTable,
+    ReferenceTableSatelliteAssignment,
+    SourceColumn,
+    SourceSystem,
+    SourceTable,
 )
 
 
@@ -254,7 +254,7 @@ class HubSourceMappingAdmin(admin.ModelAdmin):
 
 
 # Import snapshot control models
-from engine.models import SnapshotControlTable, SnapshotControlLogic
+from engine.models import SnapshotControlLogic, SnapshotControlTable
 
 
 class SnapshotControlLogicInline(admin.TabularInline):
@@ -918,7 +918,7 @@ class PrejoinExtractionColumnAdmin(admin.ModelAdmin):
 # Template Admin
 # ==============================================================================
 
-from engine.models import TemplateCategory, ModelTemplate
+from engine.models import ModelTemplate, TemplateCategory
 
 
 @admin.register(TemplateCategory)

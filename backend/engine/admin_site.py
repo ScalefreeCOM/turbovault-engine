@@ -6,8 +6,8 @@ the default admin site's get_app_list method.
 """
 
 from typing import Any
-from django.contrib import admin
 
+from django.contrib import admin
 
 # Store the original get_app_list method
 _original_get_app_list = admin.site.__class__.get_app_list

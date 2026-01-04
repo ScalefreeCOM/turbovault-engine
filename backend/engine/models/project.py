@@ -8,7 +8,6 @@ All domain entities (source metadata, hubs, links, satellites, etc.) are scoped 
 from __future__ import annotations
 
 import uuid
-from typing import Any
 
 from django.db import models
 

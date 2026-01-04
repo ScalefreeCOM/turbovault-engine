@@ -32,7 +32,7 @@ class JSONExporter(BaseExporter):
         """
         self.indent = indent
 
-    def export(self, project_export: "ProjectExport") -> str:
+    def export(self, project_export: ProjectExport) -> str:
         """
         Export project to JSON string.
 

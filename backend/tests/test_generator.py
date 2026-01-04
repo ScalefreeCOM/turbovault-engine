@@ -2,7 +2,6 @@
 Integration tests for dbt project generation.
 """
 
-import pytest
 from pathlib import Path
 
 
@@ -25,7 +24,7 @@ class TestDbtProjectGenerator:
             config=generation_config,
             template_resolver=template_resolver,
         )
-        report = generator.generate(project_export)
+        _report = generator.generate(project_export)
 
         # Check folder structure
         assert (temp_output_dir / "models" / "staging").exists()
@@ -51,7 +50,7 @@ class TestDbtProjectGenerator:
             config=generation_config,
             template_resolver=template_resolver,
         )
-        report = generator.generate(project_export)
+        _report = generator.generate(project_export)
 
         assert (temp_output_dir / "dbt_project.yml").exists()
         assert (temp_output_dir / "packages.yml").exists()
@@ -76,7 +75,7 @@ class TestDbtProjectGenerator:
             config=generation_config,
             template_resolver=template_resolver,
         )
-        report = generator.generate(project_export)
+        _report = generator.generate(project_export)
 
         sources_yml = temp_output_dir / "models" / "staging" / "sources.yml"
         assert sources_yml.exists()
@@ -180,8 +179,9 @@ class TestGenerationReport:
 
     def test_validate_yaml_files_detects_missing(self, django_setup):
         """validate_yaml_files adds warnings for missing YAML files."""
-        from engine.services.generation.report import GenerationReport
         from pathlib import Path
+
+        from engine.services.generation.report import GenerationReport
 
         report = GenerationReport(project_path=Path("/test"))
 
@@ -197,8 +197,9 @@ class TestGenerationReport:
 
     def test_validate_yaml_files_passes_with_pairs(self, django_setup):
         """validate_yaml_files passes when SQL/YAML pairs exist."""
-        from engine.services.generation.report import GenerationReport
         from pathlib import Path
+
+        from engine.services.generation.report import GenerationReport
 
         report = GenerationReport(project_path=Path("/test"))
 
@@ -214,8 +215,9 @@ class TestGenerationReport:
 
     def test_summary_format(self, django_setup):
         """Report summary is properly formatted."""
-        from engine.services.generation.report import GenerationReport
         from pathlib import Path
+
+        from engine.services.generation.report import GenerationReport
 
         report = GenerationReport(project_path=Path("/test"))
         report.stages_generated = 5

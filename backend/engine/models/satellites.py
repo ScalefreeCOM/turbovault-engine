@@ -13,8 +13,8 @@ import uuid
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from engine.models.project import Project
 from engine.models.hubs import Hub
+from engine.models.project import Project
 from engine.models.source_metadata import SourceColumn
 
 

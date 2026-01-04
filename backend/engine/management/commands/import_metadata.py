@@ -3,7 +3,9 @@ Django management command to import metadata from an Excel file.
 """
 
 import os
+
 from django.core.management.base import BaseCommand, CommandError
+
 from engine.services.excel_import import ExcelImportService
 
 

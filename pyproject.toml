@@ -116,6 +116,8 @@ select = [
 ]
 ignore = [
     "E501",  # line too long (handled by black)
+    "DJ001", # Avoid null=True on string fields (intentional design choice)
+    "DJ012", # Model method ordering (not critical for functionality)
 ]
 
 [tool.mypy]

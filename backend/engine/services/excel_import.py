@@ -8,26 +8,24 @@ the new TurboVault Engine data model.
 from __future__ import annotations
 
 import logging
-import uuid
-from typing import Any, Dict, List, Optional, Set
 from datetime import datetime
 
 import pandas as pd
 from django.db import transaction
 from django.utils import timezone
 
-from engine.models.project import Project
-from engine.models.source_metadata import SourceSystem, SourceTable, SourceColumn
 from engine.models.hubs import Hub, HubColumn, HubSourceMapping
 from engine.models.links import Link, LinkColumn, LinkSourceMapping
-from engine.models.satellites import Satellite, SatelliteColumn
-from engine.models.snapshot_control import SnapshotControlTable, SnapshotControlLogic
+from engine.models.pit import PIT
+from engine.models.prejoin import PrejoinDefinition, PrejoinExtractionColumn
+from engine.models.project import Project
 from engine.models.reference_table import (
     ReferenceTable,
     ReferenceTableSatelliteAssignment,
 )
-from engine.models.pit import PIT
-from engine.models.prejoin import PrejoinDefinition, PrejoinExtractionColumn
+from engine.models.satellites import Satellite, SatelliteColumn
+from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
+from engine.models.source_metadata import SourceColumn, SourceSystem, SourceTable
 
 logger = logging.getLogger(__name__)
 
@@ -42,26 +40,26 @@ class ExcelImportService:
     def __init__(self, file_path: str):
         self.file_path = file_path
         self.excel_file = pd.ExcelFile(file_path)
-        self.project: Optional[Project] = None
-        self._source_systems: Dict[str, SourceSystem] = {}
-        self._source_tables: Dict[str, SourceTable] = {}
-        self._source_columns: Dict[str, SourceColumn] = {}
-        self._hubs: Dict[str, Hub] = {}
-        self._links: Dict[str, Link] = {}
-        self._satellites: Dict[str, Satellite] = {}
-        self._hub_columns: Dict[str, HubColumn] = {}
-        self._prejoins: Dict[str, PrejoinDefinition] = (
+        self.project: Project | None = None
+        self._source_systems: dict[str, SourceSystem] = {}
+        self._source_tables: dict[str, SourceTable] = {}
+        self._source_columns: dict[str, SourceColumn] = {}
+        self._hubs: dict[str, Hub] = {}
+        self._links: dict[str, Link] = {}
+        self._satellites: dict[str, Satellite] = {}
+        self._hub_columns: dict[str, HubColumn] = {}
+        self._prejoins: dict[str, PrejoinDefinition] = (
             {}
         )  # key: source_table_id|target_table_id
-        self._extractions: Dict[str, PrejoinExtractionColumn] = (
+        self._extractions: dict[str, PrejoinExtractionColumn] = (
             {}
         )  # key: prejoin_id|source_col_name
-        self._snapshot_control: Optional[SnapshotControlTable] = None
-        self._snapshot_logic: Optional[SnapshotControlLogic] = None
+        self._snapshot_control: SnapshotControlTable | None = None
+        self._snapshot_logic: SnapshotControlLogic | None = None
 
     @transaction.atomic
     def import_metadata(
-        self, project_name: str, description: Optional[str] = None
+        self, project_name: str, description: str | None = None
     ) -> Project:
         """
         Main entry point for importing metadata from Excel.
@@ -183,7 +181,7 @@ class ExcelImportService:
         This is necessary because almost all DV entities refer to source columns.
         """
         logger.info("Collecting source columns from all sheets...")
-        columns_to_create: Dict[str, Set[str]] = {}  # table_name -> set(col_names)
+        columns_to_create: dict[str, set[str]] = {}  # table_name -> set(col_names)
 
         # Sheets to scan for source columns
         sheets_to_scan = [
@@ -661,7 +659,7 @@ class ExcelImportService:
 
             # Satellite Columns
             # Collect columns to add: (name, is_ma_key)
-            cols_to_add: List[tuple[str, bool]] = []
+            cols_to_add: list[tuple[str, bool]] = []
 
             # 1. Regular Source Column
             regular_col = self._get_val(row, "source_column_physical_name")
@@ -926,7 +924,7 @@ class ExcelImportService:
             snapshot_forever=False,
         )
 
-    def _get_val(self, row, col) -> Optional[str]:
+    def _get_val(self, row, col) -> str | None:
         """Helper to get a cleaned string value or None if empty."""
         val = row.get(col)
         if (

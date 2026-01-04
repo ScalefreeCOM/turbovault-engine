@@ -6,6 +6,7 @@ ModelTemplate records in the database for each one.
 """
 
 from pathlib import Path
+
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
