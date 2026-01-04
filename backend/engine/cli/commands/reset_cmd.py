@@ -4,7 +4,6 @@ Reset command for TurboVault CLI.
 Reset the Django database by removing and recreating it.
 """
 
-
 import typer
 from rich.panel import Panel
 from rich.prompt import Confirm
