@@ -8,11 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+### Changed
+### Fixed
+
+## [0.1.0] - 2026-01-04
+
+### Added
 - Docker support with multi-stage Dockerfile
 - docker-compose.yml for local development
 - Automated release workflow for PyPI and GitHub releases
 - Docker image publishing to GitHub Container Registry (GHCR)
 - RELEASING.md guide for release process
+- RELEASE_CHECKLIST.md for quick reference
+- Dependabot configuration for automated dependency updates
+- Documentation issue template
+- GitHub Actions CI/CD pipeline
+- Pre-commit hooks for code quality
+- Contributing guidelines
+- Issue and PR templates
+- Developer setup scripts (setup-dev.ps1, setup-dev.sh)
 
 ### Changed
 
