@@ -2,7 +2,7 @@
 
 ## Installation
 
-Install Turbo Vault Engine in development mode:
+Install TurboVault Engine in development mode:
 
 ```bash
 pip install -e .
@@ -10,15 +10,18 @@ pip install -e .
 
 This makes the `turbovault` command available in your terminal.
 
-> **Automatic Database Setup:** TurboVault automatically detects if the database is not initialized and runs all necessary migrations on first use. You don't need to manually run `migrate` commands!
+> **Automatic Setup:** TurboVault automatically detects if the database is not initialized and runs all necessary migrations, creates default snapshot controls, and populates templates on first use. No manual setup required!
 
 ## Commands Overview
 
-TurboVault CLI provides three main commands:
+TurboVault CLI provides the following main commands:
 
 - `turbovault init` - Initialize a new project
-- `turbovault run` - Generate dbt project (coming soon)
+- `turbovault generate` - Generate dbt project from Data Vault model
+- `turbovault run` - Export Data Vault model to JSON
 - `turbovault serve` - Start Django admin server
+- `turbovault reset` - Reset the database
+- `turbovault --help` - Show help for all commands
 
 ## Command Reference
 
@@ -35,7 +38,9 @@ turbovault init --config config.yml
 This will:
 1. Load and validate your config.yml
 2. Create the project in the Django database
-3. Display a summary of the project configuration
+3. Create default snapshot controls
+4. Populate templates into the database
+5. Display a summary of the project configuration
 
 **Example:**
 ```bash
@@ -54,7 +59,11 @@ This launches an interactive wizard that prompts you for:
 - Whether to import from Excel
 - Excel file path (if applicable)
 - Stage schema name (default: "stage")
+- Stage database (optional)
 - RDV schema name (default: "rdv")
+- RDV database (optional)
+- dbt project output directory
+- Whether to create a ZIP archive
 
 **Example:**
 ```bash
@@ -67,6 +76,8 @@ turbovault init --interactive
 ? Path to Excel file: ./metadata/sales_sources.xlsx
 ? Stage schema name: stage
 ? RDV schema name: rdv
+? dbt project output directory: ./generated/dbt_project
+? Create ZIP archive of generated project? No
 ```
 
 #### Options
@@ -76,6 +87,151 @@ turbovault init --interactive
 | `--config PATH` | `-c` | Path to config.yml file |
 | `--interactive` | `-i` | Run interactive setup wizard |
 | `--help` | | Show help message |
+
+---
+
+### turbovault generate
+
+Generate a complete dbt project from your Data Vault model.
+
+#### Basic Usage
+
+```bash
+turbovault generate --project my_project
+```
+
+This will:
+1. Export your Data Vault model
+2. Validate the model (optional)
+3. Generate SQL models with datavault4dbt macros
+4. Generate YAML schemas for all models
+5. Create organized folder structure
+6. Output ready-to-use dbt project
+
+**Output location:** `./output/{project_name}/`
+
+#### Generate to Custom Directory
+
+```bash
+turbovault generate --project sales_datavault --output ./my_dbt_projects/sales
+```
+
+#### Generate with ZIP Archive
+
+```bash
+turbovault generate --project sales_datavault --zip
+```
+
+Creates both the folder and a `.zip` file.
+
+#### Options
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--project NAME` | `-p` | Project name (or interactive selection) | Interactive |
+| `--output PATH` | `-o` | Output directory path | `./output/{project}` |
+| `--mode MODE` | `-m` | Validation mode: `strict` or `lenient` | `strict` |
+| `--zip` | `-z` | Create ZIP archive after generation | `false` |
+| `--skip-validation` | | Skip pre-generation validation | `false` |
+| `--no-v1-satellites` | | Skip generating satellite _v1 views | `false` |
+| `--help` | | Show help message | |
+
+#### Validation Modes
+
+**Strict mode (default):**
+- Stops generation on first validation error
+- Ensures all entities are correctly configured
+- Recommended for production
+
+**Lenient mode:**
+- Skips invalid entities
+- Continues with valid entities
+- Useful for incremental development
+
+```bash
+# Use lenient mode
+turbovault generate --project my_project --mode lenient
+```
+
+#### Skip Satellite V1 Views
+
+By default, each satellite generates two models:
+- `sat_*_v0.sql` - Core satellite with incremental logic
+- `sat_*_v1.sql` - View with load_end_date
+
+Skip v1 generation:
+```bash
+turbovault generate --project my_project --no-v1-satellites
+```
+
+**Examples:**
+```bash
+# Generate with all defaults
+turbovault generate -p sales_datavault
+
+# Generate with custom output and ZIP
+turbovault generate -p sales_datavault -o ./dbt_output --zip
+
+# Generate in lenient mode without v1 satellites
+turbovault generate -p sales_datavault --mode lenient --no-v1-satellites
+
+# Skip validation entirely (not recommended)
+turbovault generate -p sales_datavault --skip-validation
+```
+
+---
+
+### turbovault run
+
+Export your Data Vault model to JSON format.
+
+#### Basic Usage
+
+```bash
+turbovault run --project my_project
+```
+
+This exports the complete Data Vault model including:
+- Project metadata
+- Sources and stages
+- Hubs, links, satellites
+- PITs and reference tables
+- Snapshot controls
+
+**Output:** `{project_name}_export_{timestamp}.json`
+
+#### Export to Custom Location
+
+```bash
+turbovault run --project sales_datavault --output ./exports/
+```
+
+#### Export with Pretty Formatting
+
+```bash
+turbovault run --project sales_datavault --format pretty
+```
+
+#### Options
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--project NAME` | `-p` | Project name (or interactive selection) | Interactive |
+| `--output PATH` | `-o` | Output directory or file path | Current directory |
+| `--format FORMAT` | `-f` | Output format: `compact` or `pretty` | `compact` |
+| `--help` | | Show help message | |
+
+**Examples:**
+```bash
+# Interactive project selection
+turbovault run
+
+# Export specific project
+turbovault run -p sales_datavault
+
+# Export with pretty formatting to custom location
+turbovault run -p sales_datavault -o ./exports/ -f pretty
+```
 
 ---
 
@@ -91,7 +247,9 @@ turbovault serve
 
 This starts the server on `http://127.0.0.1:8000/`
 
-Access the admin at: `http://127.0.0.1:8000/admin/`
+**Access points:**
+- Admin: `http://127.0.0.1:8000/admin/`
+- Home: `http://127.0.0.1:8000/`
 
 #### Custom Port and Host
 
@@ -102,7 +260,7 @@ turbovault serve --port 9000 --host 0.0.0.0
 #### Options
 
 | Option | Short | Description | Default |
-|--------|-------|-------------|---------|
+|--------|-------|-------------|------------|
 | `--port INT` | `-p` | Port to run server on | 8000 |
 | `--host STR` | `-h` | Host to bind to | 127.0.0.1 |
 | `--help` | | Show help message | |
@@ -121,57 +279,71 @@ turbovault serve -p 3000 -h localhost
 
 ---
 
-### turbovault run
+### turbovault reset
 
-Generate dbt project from your Data Vault model.
+Reset the database by deleting all data and reinitializing.
 
-**Status:** 🚧 Coming in a future version
+#### Basic Usage
 
-This command will:
-- Load your project from the Django database
-- Generate dbt models for stages, hubs, links, satellites
-- Create dbt_project.yml and related configuration
-- Optionally create a ZIP archive
-
-**Planned usage:**
 ```bash
-turbovault run --config config.yml
-turbovault run --output ./my_dbt_project
+turbovault reset
+```
+
+**Warning:** This will:
+1. Delete the database file
+2. Run migrations to recreate tables
+3. Prompt to create a new admin user
+4. Populate templates
+
+Use with caution - all data will be lost!
+
+#### Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--help` | | Show help message |
+
+**Example:**
+```bash
+# Reset database (will prompt for confirmation)
+turbovault reset
 ```
 
 ---
 
 ## Complete Workflow Examples
 
-### Example 1: Start from Scratch (No Excel)
+### Example 1: Quick Start - Generate dbt Project
 
 ```bash
 # 1. Initialize project interactively
 turbovault init --interactive
-# Answer: No to "Import metadata from Excel?"
 
-# 2. Start admin server
+# 2. Start admin server to define your model
 turbovault serve
 
-# 3. Open browser to http://127.0.0.1:8000/admin/
-# 4. Use admin interface to define your Data Vault model
+# 3. Define your Data Vault model in admin interface
+# - Navigate to http://127.0.0.1:8000/admin/
+# - Create hubs, links, satellites
 
-# 5. Generate dbt project (future)
-# turbovault run
+# 4. Generate dbt project
+turbovault generate --project my_project
+
+# 5. Use the generated dbt project
+cd output/my_project
+dbt deps
+dbt compile
+dbt run
 ```
 
-### Example 2: Import from Excel
+### Example 2: Complete Development Workflow
 
-First, create a `config.yml`:
-
-```yaml
+```bash
+# 1. Create config.yml
+cat > config.yml << EOF
 project:
   name: "sales_datavault"
   description: "Sales Data Vault"
-
-source:
-  type: excel
-  path: "./metadata/sales_sources.xlsx"
 
 configuration:
   stage_schema: "stg"
@@ -180,36 +352,64 @@ configuration:
 output:
   dbt_project_dir: "./generated/dbt_sales"
   create_zip: false
-```
+EOF
 
-Then run:
-
-```bash
-# 1. Initialize from config
+# 2. Initialize from config
 turbovault init --config config.yml
 
-# 2. (Future) Import metadata
-# turbovault import --config config.yml
-
-# 3. Review/edit in admin
+# 3. Model in admin (or programmatically)
 turbovault serve
 
-# 4. (Future) Generate dbt
-# turbovault run --config config.yml
+# 4. Export to JSON for review
+turbovault run --project sales_datavault --format pretty
+
+# 5. Generate dbt project
+turbovault generate --project sales_datavault --zip
+
+# 6. Deploy generated project
+cd generated/dbt_sales
+dbt deps
+dbt run
 ```
 
-### Example 3: Multiple Projects
+### Example 3: Template Customization Workflow
 
 ```bash
-# Initialize first project
-turbovault init --config projects/sales_config.yml
+# 1. Initialize project
+turbovault init --interactive
 
-# Initialize second project
-turbovault init --config projects/hr_config.yml
+# 2. Start admin server
+turbovault serve
 
-# Use admin to manage both
-turbovault serve -p 8000
+# 3. Customize templates
+# - Navigate to Model Templates in admin
+# - Edit SQL or YAML templates
+# - Save changes
+
+# 4. Generate with custom templates
+turbovault generate --project my_project
+
+# Templates from database override file-based defaults
 ```
+
+### Example 4: CI/CD Pipeline Example
+
+```bash
+# Skip interactive prompts
+export TURBOVAULT_SKIP_SUPERUSER_PROMPT=1
+export TURBOVAULT_SKIP_TEMPLATE_POPULATION=0
+
+# Initialize project
+turbovault init --config config.yml
+
+# Generate and validate
+turbovault generate --project ci_project --mode strict --zip
+
+# Archive is ready for deployment
+ls output/ci_project.zip
+```
+
+---
 
 ## Tips and Tricks
 
@@ -227,17 +427,47 @@ turbovault --help
 
 # Command-specific help
 turbovault init --help
-turbovault serve --help
+turbovault generate --help
 turbovault run --help
+turbovault serve --help
+turbovault reset --help
 ```
 
-### Typical Development Workflow
+### List Available Projects
 
-1. **Create config.yml** with your project settings
-2. **Initialize**: `turbovault init --config config.yml`
-3. **Model in Admin**: `turbovault serve` then open admin
-4. **Define your Data Vault model** (hubs, links, satellites)
-5. **Generate** (future): `turbovault run`
+When running `generate` or `run` without `--project`, you'll get an interactive list:
+
+```bash
+turbovault generate
+# ? Select a project:
+#   > sales_datavault
+#     hr_datavault
+#     marketing_datavault
+```
+
+### Template Management
+
+```bash
+# Populate templates from files (manual)
+cd backend
+python manage.py populate_templates
+
+# Overwrite existing templates with file versions
+python manage.py populate_templates --overwrite
+```
+
+### Validation Tips
+
+```bash
+# Check for validation errors without generating
+turbovault generate --project my_project --mode strict
+# If errors, fix in admin and regenerate
+
+# Generate what you can (skip invalid)
+turbovault generate --project my_project --mode lenient
+```
+
+---
 
 ## Troubleshooting
 
@@ -250,7 +480,7 @@ pip install -e .
 
 ### "Project already exists" Error
 
-When running `init` (either with `--config` or `--interactive`), if a project with the same name already exists, you'll be prompted:
+When running `init`, if a project with the same name already exists:
 
 ```
 ✗ Project 'my_project' already exists!
@@ -258,14 +488,39 @@ When running `init` (either with `--config` or `--interactive`), if a project wi
 ```
 
 Choose:
-- **Yes** to delete the existing project and create a new one
-- **No** to cancel initialization
+- **Yes** to delete and recreate
+- **No** to cancel
 
-**Note:** Deleting a project removes all associated data (hubs, links, satellites, etc.).
+**Note:** Deleting removes all associated data (hubs, links, satellites, etc.).
+
+### "No templates found" Warning
+
+If you see warnings about missing templates:
+
+```bash
+# Populate templates from files
+cd backend
+python manage.py populate_templates
+```
+
+This is automatically done during `turbovault init` but can be run manually if needed.
+
+### Generation Validation Errors
+
+If generation fails with validation errors:
+
+1. Review the error messages (they include error codes like HUB_001, LNK_001)
+2. Fix the issues in Django Admin
+3. Re-run generation
+
+Or use lenient mode to skip invalid entities:
+```bash
+turbovault generate --project my_project --mode lenient
+```
 
 ### Django Admin Login
 
-Create a superuser first:
+Create a superuser if you skipped the initial prompt:
 ```bash
 cd backend
 python manage.py createsuperuser
@@ -273,8 +528,21 @@ python manage.py createsuperuser
 
 Then use those credentials in the admin interface.
 
+### Permission Errors on Generated Files
+
+On Windows, if you get permission errors:
+```bash
+# Close any applications with files open in output directory
+# Then regenerate
+turbovault generate --project my_project --output ./new_output
+```
+
+---
+
 ## Next Steps
 
-- Review the [config schema documentation](config.example.yml)
-- Learn about [Django models](backend/engine/models/)
-- See [domain model documentation](docs/02_domain_model.md)
+- Review the [README](README.md) for overview
+- Study [dbt generation documentation](docs/06_dbt_generation.md)
+- Learn about [environment variables](ENVIRONMENT_VARIABLES.md)
+- Explore [domain model documentation](docs/02_domain_model.md)
+- Check [template customization guide](docs/06_dbt_generation.md#custom-templates)
