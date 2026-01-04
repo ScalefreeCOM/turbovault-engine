@@ -1,6 +1,7 @@
 """
 Pytest configuration and fixtures for TurboVault Engine tests.
 """
+
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "turbovault.settings")
 def django_setup() -> None:
     """Initialize Django for the test session."""
     import django
+
     django.setup()
 
 
@@ -23,17 +25,17 @@ def django_setup() -> None:
 def sample_export_path() -> Path:
     """Path to sample export JSON file."""
     project_root = Path(__file__).parent.parent.parent
-    
+
     # Prefer the test export file if it exists
     test_export = project_root / "pizza_delivery_empire_export_test.json"
     if test_export.exists():
         return test_export
-    
+
     # Otherwise look for any export JSON file
     export_files = list(project_root.glob("*_export_*.json"))
     if export_files:
         return export_files[0]
-    
+
     pytest.skip("No sample export JSON file found")
 
 
@@ -48,6 +50,7 @@ def sample_export_data(sample_export_path: Path) -> dict:
 def project_export(django_setup, sample_export_data: dict):
     """Create a ProjectExport from sample data."""
     from engine.services.export.models import ProjectExport
+
     try:
         return ProjectExport(**sample_export_data)
     except Exception as e:
@@ -66,6 +69,7 @@ def temp_output_dir(tmp_path: Path) -> Path:
 def generation_config():
     """Create a default GenerationConfig for testing."""
     from engine.services.generation import GenerationConfig
+
     return GenerationConfig(
         project_name="test_project",
         profile_name="default",
@@ -76,6 +80,7 @@ def generation_config():
 def template_resolver(django_setup):
     """Create a TemplateResolver for testing (file-based only)."""
     from engine.services.generation import TemplateResolver
+
     # Disable database lookups for tests to avoid ORM issues
     return TemplateResolver(use_db_templates=False)
 
