@@ -82,8 +82,17 @@ cd turbovault-engine
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install in development mode
-pip install -e .
+# Option 1: Automated setup (recommended)
+# Windows PowerShell:
+.\scripts\setup-dev.ps1
+
+# Linux/Mac:
+chmod +x scripts/setup-dev.sh
+./scripts/setup-dev.sh
+
+# Option 2: Manual installation
+pip install -e ".[dev]"
+pre-commit install  # Optional but recommended
 ```
 
 > **Note:** The database, admin user, and templates will be automatically set up the first time you run any TurboVault command. No manual setup required!

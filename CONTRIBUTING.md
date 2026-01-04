@@ -41,22 +41,29 @@ Thank you for your interest in contributing to TurboVault Engine! This document 
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. **Install development dependencies:**
+3. **Run the automated setup script (recommended):**
+   
+   **Windows (PowerShell):**
+   ```powershell
+   .\scripts\setup-dev.ps1
+   ```
+   
+   **Linux/Mac:**
+   ```bash
+   chmod +x scripts/setup-dev.sh
+   ./scripts/setup-dev.sh
+   ```
+   
+   This script will:
+   - Install all dependencies
+   - Set up pre-commit hooks
+   - Run initial database migrations
+   
+   **Or, set up manually:**
    ```bash
    pip install -e ".[dev]"
-   ```
-
-4. **Set up pre-commit hooks (recommended):**
-   ```bash
-   pip install pre-commit
    pre-commit install
-   ```
-
-5. **Initialize the database:**
-   ```bash
-   cd backend
-   python manage.py migrate
-   cd ..
+   cd backend && python manage.py migrate && cd ..
    ```
 
 6. **Verify your setup:**
