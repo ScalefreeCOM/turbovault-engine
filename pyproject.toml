@@ -62,6 +62,8 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.7",
     "django-stubs>=4.2",
+    "pytest>=8.0",
+    "pytest-django>=4.5",
 ]
 
 [project.urls]
@@ -138,3 +140,12 @@ ignore_errors = true
 
 [tool.django-stubs]
 django_settings_module = "turbovault.settings"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "turbovault.settings"
+pythonpath = ["backend"]
+testpaths = ["backend/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

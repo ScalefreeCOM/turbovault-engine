@@ -111,6 +111,10 @@ def _init_from_config(config_path: Path) -> None:
         from engine.cli.utils.db_utils import create_default_snapshot_controls
         create_default_snapshot_controls(project)
     
+    # Ensure templates are populated in database
+    from engine.cli.utils.db_utils import ensure_templates_populated
+    ensure_templates_populated()
+    
     print_step(3, 3, "Project initialization complete!")
     
     # Show summary
@@ -296,6 +300,10 @@ def _run_interactive_init() -> None:
     if not skip_snapshots:
         from engine.cli.utils.db_utils import create_default_snapshot_controls
         create_default_snapshot_controls(project)
+    
+    # Ensure templates are populated in database
+    from engine.cli.utils.db_utils import ensure_templates_populated
+    ensure_templates_populated()
     
     print_step(2, 2, "Setup complete!")
     console.print("\n[bold]Next steps:[/bold]")

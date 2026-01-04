@@ -5,7 +5,7 @@
 **Transform source metadata into production-ready Data Vault dbt projects**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Django](https://img.shields.io/badge/django-5.0+-green.svg)](https://www.djangoproject.com/)
+[![Django](https://img.shields.io/badge/django-6.0+-green.svg)](https://www.djangoproject.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 </div>
@@ -18,14 +18,15 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
 
 - **Ingests** source metadata from Excel files or database catalogs
 - **Maps** metadata into a consistent Data Vault domain model (Hubs, Links, Satellites)
-- **Generates** fully structured dbt projects ready for deployment
+- **Generates** complete, production-ready dbt projects with datavault4dbt macros
+- **Validates** your model before generation with comprehensive error checking
 
 **Perfect for:** Data Engineers looking to rapidly prototype, standardize, or automate their Data Vault implementations.
 
 ```
 ┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
 │   Source    │ --> │  TurboVault      │ --> │  dbt Project    │
-│  Metadata   │     │  Engine          │     │  (SQL Models)   │
+│  Metadata   │     │  Engine          │     │  (Ready to Run) │
 │  (Excel/DB) │     │                  │     │                 │
 └─────────────┘     └──────────────────┘     └─────────────────┘
 ```
@@ -34,25 +35,32 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
 
 ## ✨ Key Features
 
+### 🏗️ Complete dbt Project Generation
+- **Automatic model generation** - SQL models with datavault4dbt macros
+- **YAML schemas** - Complete dbt documentation for all models
+- **Organized structure** - Clean folder hierarchy (staging, raw_vault, business_vault)
+- **Template customization** - Customize any template via Django Admin
+- **Validation** - Pre-generation checks to catch errors early
+
 ### 📦 Data Vault Modeling
 - **Hubs** - Standard and reference hubs with business keys
 - **Links** - Standard and non-historized links connecting multiple hubs
-- **Satellites** - Standard, multi-active, non-historized, and reference satellites
-- **Groups** - Organize entities into logical folders for clean project structure
+- **Satellites** - Standard, multi-active, non-historized, effectivity, and reference satellites
+- **PITs** - Point-in-Time table generation
+- **Reference Tables** - Reference data modeling
+- **Snapshot Controls** - Configurable snapshot logic for temporal tracking
 
 ### 🔧 Source Management
 - **Source Systems** - Define database schemas and connections
 - **Source Tables** - Map physical tables with record source and load date
-- **Source Columns** - Track column metadata and data types
-
-### 📊 Export & Generation
-- **Stage Generation** - Automatic stage model definitions with hashkeys and hashdiffs
-- **Multi-Source Support** - Multiple sources feeding the same entity
+- **Prejoins** - Cross-table joins for complex link mappings
+- **Stage Models** - Automatic staging layer with hashkeys and hashdiffs
 
 ### 🖥️ Developer Experience
 - **Modern CLI** - Built with Typer and Rich for beautiful terminal output
-- **Django Admin** - Full web interface for model management
+- **Django Admin** - Full web interface for model and template management
 - **Config-Driven** - YAML configuration for automation and CI/CD
+- **Comprehensive Testing** - pytest test suite with 20+ tests
 
 ---
 
@@ -78,7 +86,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -e .
 ```
 
-> **Note:** The database and admin user will be automatically set up the first time you run any TurboVault command. No manual setup required!
+> **Note:** The database, admin user, and templates will be automatically set up the first time you run any TurboVault command. No manual setup required!
 
 ### Initialize Your First Project
 
@@ -93,27 +101,69 @@ turbovault init --config config.example.yml
 **On first run, TurboVault will:**
 1. ✅ Create the database
 2. ✅ Run all migrations
-3. ✅ Prompt you to create an admin user (optional)
+3. ✅ Populate template database from files
+4. ✅ Create default snapshot controls
+5. ✅ Prompt you to create an admin user (optional)
 
-### Explore via Django Admin
+### Generate Your dbt Project
 
 ```bash
-# Create a superuser for admin access
-cd backend
-python manage.py createsuperuser
-cd ..
+# Generate dbt project from your Data Vault model
+turbovault generate --project my_project
 
-# Start the admin server
-turbovault serve
+# Generate with custom output path
+turbovault generate --project my_project --output ./my_dbt
 
-# Open http://127.0.0.1:8000/admin/ in your browser
+# Generate with ZIP archive
+turbovault generate --project my_project --zip
+
+# Skip satellite v1 views
+turbovault generate --project my_project --no-v1-satellites
 ```
 
-### Export Your Data Vault Model
+**Generated project structure:**
+```
+output/my_project/
+├── dbt_project.yml
+├── packages.yml
+├── models/
+│   ├── staging/
+│   │   ├── sources.yml
+│   │   └── {source_system}/
+│   │       ├── stg__*.sql
+│   │       └── stg__*.yml
+│   ├── raw_vault/
+│   │   └── {group}/
+│   │       ├── hub_*.sql/yml
+│   │       ├── link_*.sql/yml
+│   │       ├── sat_*_v0.sql/yml
+│   │       └── sat_*_v1.sql/yml
+│   ├── business_vault/
+│   │   ├── pits/
+│   │   └── reference_tables/
+│   └── control/
+│       ├── control_snap_v0.sql/yml
+│       └── control_snap_v1.sql/yml
+├── macros/
+├── tests/
+├── seeds/
+├── analyses/
+└── snapshots/
+```
+
+### Use the Generated Project
 
 ```bash
-# Export project to JSON
-turbovault run --project my_project
+cd output/my_project
+
+# Install dbt packages (datavault4dbt)
+dbt deps
+
+# Compile to check for errors
+dbt compile
+
+# Run your Data Vault models
+dbt run
 ```
 
 ---
@@ -123,8 +173,10 @@ turbovault run --project my_project
 | Command | Description |
 |---------|-------------|
 | `turbovault init` | Initialize a new project (interactive or config-based) |
+| `turbovault generate` | Generate dbt project from Data Vault model |
+| `turbovault run` | Export Data Vault model to JSON |
 | `turbovault serve` | Start Django admin server for model management |
-| `turbovault run` | Export/generate Data Vault artifacts |
+| `turbovault reset` | Reset the database |
 | `turbovault --help` | Show all available commands |
 
 ### Command Examples
@@ -136,14 +188,20 @@ turbovault init --interactive
 # Initialize from YAML config
 turbovault init --config config.yml
 
-# Start admin on custom port
-turbovault serve --port 9000
+# Generate dbt project with validation
+turbovault generate --project sales_datavault
+
+# Generate in lenient mode (skip invalid entities)
+turbovault generate --project sales_datavault --mode lenient
+
+# Generate with ZIP and no v1 satellites
+turbovault generate -p sales_datavault --zip --no-v1-satellites
 
 # Export specific project to JSON
-turbovault run --project sales_datavault
-
-# Export to custom location
 turbovault run --project sales_datavault --output ./exports/
+
+# Start admin on custom port
+turbovault serve --port 9000
 ```
 
 ---
@@ -155,14 +213,22 @@ turbovault-engine/
 ├── backend/                    # Django backend
 │   ├── engine/                 # Main application
 │   │   ├── models/             # Domain models (Hub, Link, Satellite, etc.)
-│   │   ├── services/           # Business logic and export services
-│   │   │   └── export/         # Export builders and exporters
+│   │   ├── services/           # Business logic and services
+│   │   │   ├── export/         # Export builders and exporters
+│   │   │   └── generation/     # dbt project generation
+│   │   │       ├── templates/  # SQL and YAML templates
+│   │   │       ├── generator.py
+│   │   │       ├── validators.py
+│   │   │       └── template_resolver.py
 │   │   ├── cli/                # CLI commands
 │   │   └── admin.py            # Django admin configuration
-│   └── backend/                # Django project settings
+│   ├── tests/                  # Test suite
+│   └── turbovault/             # Django project settings
 ├── docs/                       # Documentation
 │   ├── 01_overview.md          # Architecture overview
-│   └── 02_domain_model.md      # Domain model specification
+│   ├── 02_domain_model.md      # Domain model specification
+│   ├── 05_export_flow_specification.md  # Generation spec
+│   └── 06_dbt_generation.md    # Generation usage guide
 ├── config.example.yml          # Example configuration file
 ├── CLI_GUIDE.md                # Detailed CLI documentation
 └── pyproject.toml              # Python package configuration
@@ -181,30 +247,20 @@ TurboVault Engine uses a comprehensive Data Vault domain model:
 | **Project** | Top-level container for all metadata |
 | **Group** | Logical grouping for organizing entities into subfolders |
 | **Source System** | Database/schema source definitions |
-| **Source Table** | Physical source tables |
+| **Source Table** | Physical source tables with metadata |
 | **Hub** | Data Vault hubs (standard or reference) |
-| **Link** | Relationships between hubs |
-| **Satellite** | Descriptive attributes for hubs/links |
+| **Link** | Relationships between hubs (standard or non-historized) |
+| **Satellite** | Descriptive attributes for hubs/links (6 types) |
+| **PIT** | Point-in-Time tables for temporal joins |
+| **Reference Table** | Reference data structures |
+| **Snapshot Control** | Temporal snapshot configuration |
 
-### Entity Relationships
+### Advanced Features
 
-```
-Project
-├── Groups
-├── Source Systems
-│   └── Source Tables
-│       └── Source Columns
-├── Hubs
-│   ├── Hub Columns
-│   │   └── Hub Source Mappings
-│   └── Satellites
-├── Links
-│   ├── Link Columns
-│   │   └── Link Source Mappings
-│   └── Satellites
-└── Satellites
-    └── Satellite Columns
-```
+- **Prejoins** - Define cross-table joins for link mappings
+- **Multi-source support** - Multiple sources feeding the same entity
+- **Satellite variants** - Standard, multi-active, effectivity, non-historized, reference, record-tracking
+- **Template customization** - All SQL and YAML templates customizable via Admin
 
 ---
 
@@ -234,62 +290,135 @@ See [config.example.yml](config.example.yml) for a complete example.
 
 ---
 
-## 📤 Export Format
+## 🎨 Template Customization
 
-The `turbovault run` command exports your model to JSON:
+All SQL and YAML templates can be customized:
 
-```json
-{
-  "project_name": "my_project",
-  "hubs": [
-    {
-      "hub_name": "hub_customer",
-      "hub_type": "standard",
-      "group": "sales",
-      "hashkey": {
-        "hashkey_name": "hk_customer",
-        "business_keys": ["customer_id"]
-      },
-      "source_tables": [...]
-    }
-  ],
-  "links": [...],
-  "satellites": [...],
-  "stages": [...]
-}
+1. **Start admin**: `turbovault serve`
+2. **Navigate to**: Model Templates in Django Admin
+3. **Edit any template** to customize generation
+4. **Higher priority templates** are selected first
+
+Templates are automatically populated from files during project initialization.
+
+### Manual Template Management
+
+```bash
+# Populate templates from files
+cd backend && python manage.py populate_templates
+
+# Overwrite existing templates
+python manage.py populate_templates --overwrite
 ```
+
+---
+
+## ✅ Validation
+
+Pre-generation validation catches common errors:
+
+| Entity | Rule | Code |
+|--------|------|------|
+| Hub (standard) | Must have hashkey | HUB_001 |
+| Hub | Must have ≥1 business key | HUB_002 |
+| Link | Must have hashkey | LNK_001 |
+| Link | Must reference ≥2 hubs | LNK_002 |
+| Satellite | Must have parent entity | SAT_001 |
+| Model | SQL generated but YAML missing | YML_001 |
+
+**Validation modes:**
+- `--mode strict` (default): Stop on first error
+- `--mode lenient`: Skip invalid, continue with valid
+- `--skip-validation`: Skip all validation
+
+---
+
+## 🧪 Testing
+
+Run the test suite:
+
+```bash
+# Run all tests
+python -m pytest backend/tests/ -v
+
+# Run specific test file
+python -m pytest backend/tests/test_validators.py -v
+
+# Run with coverage
+python -m pytest backend/tests/ --cov=engine.services.generation
+```
+
+**Test coverage:**
+- 10 validator unit tests
+- 10 generator integration tests
+- All tests passing ✅
+
+---
+
+## 📤 Export Formats
+
+### JSON Export
+
+```bash
+turbovault run --project my_project
+```
+
+Exports complete model to JSON with:
+- Project metadata
+- All hubs, links, satellites
+- Stage definitions with hashkeys/hashdiffs
+- PITs and reference tables
+- Snapshot controls
+
+### dbt Project
+
+```bash
+turbovault generate --project my_project
+```
+
+Generates ready-to-use dbt project with:
+- SQL models using datavault4dbt macros
+- YAML schemas for all models
+- Complete folder structure
+- packages.yml with datavault4dbt dependency
 
 ---
 
 ## 🗺️ Roadmap
 
-### Current Features (v0.1)
+### ✅ Completed Features (v0.2)
 - ✅ Project and source metadata management
-- ✅ Hub, Link, Satellite domain models
-- ✅ Group-based organization
-- ✅ Django Admin interface
-- ✅ JSON export with hashkeys and hashdiffs
-- ✅ Modern CLI with Typer/Rich
+- ✅ Hub, Link, Satellite domain models (6 satellite types)
+- ✅ Prejoin definitions for complex links
+- ✅ PIT and Reference table support
+- ✅ Snapshot control configuration
+- ✅ **Complete dbt project generation**
+- ✅ **Template customization via Django Admin**
+- ✅ **Pre-generation validation**
+- ✅ **Comprehensive test suite**
+- ✅ **Rich CLI with progress indicators**
+- ✅ **Automatic template population**
 
-### Planned Features
+### 📋 Planned Features
 
 #### Near-Term
 - 🔲 **Excel metadata import** - Bulk import from spreadsheet templates
-- 🔲 **dbt project generation** - Generate complete dbt projects with SQL models
-- 🔲 **Prejoin definitions** - Cross-table joins for link mappings
-- 🔲 **Snapshot control** - Point-in-time and snapshot configuration
+- 🔲 **Database catalog import** - Import metadata directly from databases
+- 🔲 **DBML export** - Database modeling language output
+- 🔲 **Template versioning** - Track template changes over time
 
 #### Medium-Term
-- 🔲 **Database catalog import** - Import metadata directly from databases
-- 🔲 **PIT (Point-in-Time) tables** - Generate PIT structures
-- 🔲 **Reference tables** - Full reference modeling support
-- 🔲 **DBML export** - Database modeling language output
+- 🔲 **Multi-project workspaces** - Manage multiple projects
+- 🔲 **Model comparison** - Diff and merge capabilities
+- 🔲 **CI/CD integration** - GitHub Actions workflow templates
+- 🔲 **Data lineage tracking** - Source-to-target mapping
 
 #### Long-Term
 - 🔲 **TurboVault Studio** - Web application with UI for modeling
 - 🔲 **Git integration** - Push generated projects to repositories
 - 🔲 **Cloud storage** - S3/GCS artifact storage
 - 🔲 **API endpoints** - REST API for programmatic access
+- 🔲 **Team collaboration** - Multi-user support with permissions
 
 ---
 
@@ -310,8 +439,19 @@ cd backend
 python manage.py migrate
 
 # Run tests
-pytest
+cd ..
+python -m pytest backend/tests/ -v
 ```
+
+---
+
+## 📚 Documentation
+
+- [Architecture Overview](docs/01_overview.md)
+- [Domain Model Specification](docs/02_domain_model.md)
+- [Export Flow Specification](docs/05_export_flow_specification.md)
+- [dbt Generation Guide](docs/06_dbt_generation.md)
+- [CLI Guide](CLI_GUIDE.md)
 
 ---
 
@@ -328,6 +468,8 @@ Built with:
 - [Typer](https://typer.tiangolo.com/) - CLI framework
 - [Rich](https://rich.readthedocs.io/) - Terminal formatting
 - [Pydantic](https://docs.pydantic.dev/) - Data validation
+- [Jinja2](https://jinja.palletsprojects.com/) - Template engine
+- [datavault4dbt](https://github.com/ScalefreeCOM/datavault4dbt) - dbt macros
 
 ---
 
