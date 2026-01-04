@@ -1,269 +1,211 @@
-# Releasing TurboVault Engine
+# Automated Release Workflow Guide
 
-This document describes the release process for TurboVault Engine.
+TurboVault Engine uses **Release Please** for fully automated releases. No manual version bumping or tagging required!
 
-## 📋 Release Checklist
+## 🤖 How It Works
 
-### Pre-Release
+1. **Make changes** using conventional commits
+2. **Merge PRs** to `main`
+3. **Release Please bot** creates a "Release PR" automatically
+4. **Review and merge** the Release PR
+5. **Release happens automatically** - that's it!
 
-- [ ] All tests passing on `main`
-- [ ] CHANGELOG.md updated with changes for this version
-- [ ] Version number updated in `pyproject.toml`
-- [ ] Documentation updated (if needed)
-- [ ] No open critical bugs
+## 📝 Conventional Commits
 
-### Release Process
+Use these prefixes in your commit messages:
 
-1. **Update Version Number**
-   
-   Edit `pyproject.toml`:
-   ```toml
-   [project]
-   name = "turbovault-engine"
-   version = "0.2.0"  # Update this
-   ```
+- `feat:` - New feature (→ minor version bump: 0.1.0 → 0.2.0)
+- `fix:` - Bug fix (→ patch version bump: 0.1.0 → 0.1.1)
+- `docs:` - Documentation only
+- `style:` - Code formatting
+- `refactor:` - Code refactoring
+- `perf:` - Performance improvements
+- `test:` - Adding tests
+- `chore:` - Maintenance tasks
+- `ci:` - CI/CD changes
 
-2. **Update CHANGELOG.md**
-   
-   Move items from `[Unreleased]` to a new version section:
-   ```markdown
-   ## [0.2.0] - 2026-01-15
-   
-   ### Added
-   - New feature X
-   - New feature Y
-   
-   ### Fixed
-   - Bug fix Z
-   ```
+**Breaking changes:** Add `!` after type or `BREAKING CHANGE:` in footer (→ major version bump: 0.1.0 → 1.0.0)
 
-3. **Commit Changes**
-   ```bash
-   git add pyproject.toml CHANGELOG.md
-   git commit -m "chore: bump version to 0.2.0"
-   git push origin main
-   ```
+## 🚀 Quick Release Guide
 
-4. **Create and Push Tag**
-   ```bash
-   # Create annotated tag
-   git tag -a v0.2.0 -m "Release v0.2.0"
-   
-   # Push tag to trigger release
-   git push origin v0.2.0
-   ```
-
-5. **Monitor Release Workflow**
-   
-   - Go to Actions tab on GitHub
-   - Watch "Release" workflow
-   - Verify all jobs complete successfully:
-     - ✅ Run Tests
-     - ✅ Build Python Package
-     - ✅ Build and Push Docker Image
-     - ✅ Create GitHub Release
-     - ⏭️  Publish to PyPI (skips if PYPI_API_TOKEN not set)
-
-### Post-Release
-
-- [ ] Verify GitHub Release created
-- [ ] Verify Docker image published to ghcr.io
-- [ ] Test installation: `pip install turbovault-engine==0.2.0` (if PyPI enabled)
-- [ ] Test Docker image: `docker pull ghcr.io/scalefreec om/turbovault-engine:0.2.0`
-- [ ] Announce release (if applicable)
-
----
-
-## 🐍 PyPI Publishing (Optional Setup)
-
-PyPI publishing is disabled by default. To enable:
-
-### One-Time Setup
-
-1. **Create PyPI Account**
-   - Register at https://pypi.org/account/register/
-   - Verify your email
-
-2. **Generate API Token**
-   - Go to https://pypi.org/manage/account/token/
-   - Create a new token with scope "Entire account"
-   - Copy the token (starts with `pypi-`)
-
-3. **Add Token to GitHub Secrets**
-   - Go to repository Settings → Secrets and variables → Actions
-   - Click "New repository secret"
-   - Name: `PYPI_API_TOKEN`
-   - Value: Paste your PyPI token
-   - Save
-
-4. **Verify Setup** (Optional - Use TestPyPI First)
-   
-   Before publishing to real PyPI, test with TestPyPI:
-   - Register at https://test.pypi.org/
-   - Generate token
-   - Add as `TEST_PYPI_API_TOKEN` secret
-   - Modify release workflow temporarily to use TestPyPI
-
-Once the `PYPI_API_TOKEN` secret exists, the release workflow will automatically publish to PyPI.
-
----
-
-## 🐳 Docker Images
-
-Docker images are automatically published to GitHub Container Registry (ghcr.io) on every release.
-
-### Image Tags
-
-Each release creates multiple tags:
-- `ghcr.io/scalefreec om/turbovault-engine:0.2.0` (exact version)
-- `ghcr.io/scalefreec om/turbovault-engine:0.2` (minor version)
-- `ghcr.io/scalefreec om/turbovault-engine:0` (major version)
-- `ghcr.io/scalefreec om/turbovault-engine:latest` (latest release)
-
-### Testing Docker Images
+### Normal Workflow
 
 ```bash
-# Pull the image
-docker pull ghcr.io/scalefreec om/turbovault-engine:latest
+# 1. Create feature branch
+git checkout -b feat/my-feature
 
-# Test CLI
-docker run ghcr.io/scalefreec om/turbovault-engine:latest turbovault --version
+# 2. Make changes and commit with conventional commits
+git commit -m "feat: add new export format"
+git commit -m "fix: resolve validation bug"
 
-# Test Django admin
-docker run -p 8000:8000 ghcr.io/scalefreec om/turbovault-engine:latest turbovault serve
+# 3. Push and create PR
+git push origin feat/my-feature
+# Create PR on GitHub
+
+# 4. Merge PR to main
+# That's it! Release Please monitors main branch
 ```
 
----
+### Release PR Appears
 
-## 🔄 Version Numbering
+After merging PRs, **Release Please automatically**:
+- Creates a "Release PR" (title: `chore: release X.Y.Z`)
+- Updates version in `pyproject.toml`
+- Updates `CHANGELOG.md`
+- Shows all changes since last release
 
-We follow [Semantic Versioning](https://semver.org/):
+**When you're ready to release:**
+1. Review the Release PR
+2. Merge it
+3. **Automatic release + Docker publish + PyPI (if enabled)**
 
-- `MAJOR.MINOR.PATCH` (e.g., `1.2.3`)
-  - **MAJOR**: Breaking changes
-  - **MINOR**: New features (backward compatible)
-  - **PATCH**: Bug fixes (backward compatible)
+## 📊 Example Flow
 
-### Pre-Release Versions
+```
+Day 1:
+PR: feat: add JSON export        → Merge to main
+PR: fix: template rendering      → Merge to main
 
-For testing:
-- `1.0.0-alpha.1` - Alpha release
-- `1.0.0-beta.1` - Beta release
-- `1.0.0-rc.1` - Release candidate
+Day 2:
+Release Please creates PR: "chore: release 0.2.0"
+├── pyproject.toml: version = "0.2.0"
+├── CHANGELOG.md: 
+│   ## [0.2.0]
+│   ### Features
+│   - add JSON export
+│   ### Bug Fixes
+│   - template rendering
 
-Tag format: `v1.0.0-rc.1`
+You: Review and merge the release PR
 
----
-
-## 🚨 Hotfix Releases
-
-For urgent fixes on a released version:
-
-1. Create hotfix branch from tag:
-   ```bash
-   git checkout -b hotfix/0.2.1 v0.2.0
-   ```
-
-2. Make the fix and commit
-
-3. Update version to `0.2.1` in `pyproject.toml`
-
-4. Update CHANGELOG.md
-
-5. Merge to main:
-   ```bash
-   git checkout main
-   git merge hotfix/0.2.1
-   ```
-
-6. Tag and push:
-   ```bash
-   git tag -a v0.2.1 -m "Hotfix v0.2.1"
-   git push origin main v0.2.1
-   ```
-
----
-
-## ⏪ Rolling Back a Release
-
-If a release has critical issues:
-
-### On PyPI
-- **Cannot delete** PyPI releases
-- Publish a new patch version with the fix
-- Mark the bad version as "yanked" on PyPI (prevents new installations)
-
-### On GitHub
-- Delete the GitHub release (Settings → Releases → Delete)
-- Delete the tag:
-  ```bash
-  git tag -d v0.2.0
-  git push origin :refs/tags/v0.2.0
-  ```
-
-### Docker Images
-- Delete package versions from GHCR (Packages → Settings → Delete version)
-
----
-
-## 🤖 Future: Automated Versioning
-
-Currently using manual version bumping. Future enhancements:
-
-- **Release Please**: Automated version bumping based on conventional commits
-- **Changelog Generation**: Automatic CHANGELOG updates
-- **PR-based Releases**: Create releases via pull requests
-
----
-
-## 📞 Troubleshooting
-
-### Release Workflow Fails
-
-**Tests fail:**
-- Check Actions tab for detailed logs
-- Run tests locally: `python -m pytest backend/tests/ -v`
-- Fix issues and push to main before creating tag
-
-**Docker build fails:**
-- Test locally: `docker build -t test .`
-- Check Dockerfile syntax
-- Verify all files are included (not in .dockerignore)
-
-**PyPI publish fails:**
-- Verify `PYPI_API_TOKEN` secret exists
-- Check token hasn't expired
-- Ensure version doesn't already exist on PyPI
-
-**GitHub release fails:**
-- Check GITHUB_TOKEN has `contents: write` permission
-- Verify tag format matches `v*.*.*`
-
-### Tag Already Exists
-
-If you need to recreate a tag:
-```bash
-# Delete local tag
-git tag -d v0.2.0
-
-# Delete remote tag
-git push origin :refs/tags/v0.2.0
-
-# Recreate tag
-git tag -a v0.2.0 -m "Release v0.2.0"
-git push origin v0.2.0
+GitHub: ✅ Creates release v0.2.0
+GitHub: ✅ Builds and publishes Docker image
+GitHub: ✅ Publishes to PyPI (if token configured)
 ```
 
----
+## ⚙️ What Gets Automated
 
-## 📊 Release Metrics
+✅ **Version Bumping**
+- Analyzes commit messages
+- Follows semantic versioning
+- Updates `pyproject.toml` automatically
 
-Track these for each release:
-- Time from tag to release completion
-- Number of downloads (PyPI)
-- Docker image pulls (GHCR)
-- Issues closed in this release
-- Breaking changes (if any)
+✅ **Changelog Generation**
+- Extracts from conventional commits
+- Organizes by type (Features, Bug Fixes, etc.)
+- Maintains `CHANGELOG.md`
+
+✅ **GitHub Release**
+- Creates release on merge
+- Includes changelog excerpt
+- Attaches build artifacts
+
+✅ **Publishing**
+- Docker image to GHCR
+- Python package to PyPI (if enabled)
+
+## 🎯 Release PR Workflow
+
+### 1. Release PR Created (Automatic)
+
+After you merge feature PRs, Release Please opens a PR titled:
+```
+chore: release v0.2.0
+```
+
+### 2. Review the Release PR
+
+Check:
+- [ ] Version number is correct
+- [ ] Changelog entries are accurate
+- [ ] All intended changes are included
+- [ ] No unwanted changes
+
+### 3. Merge the Release PR
+
+- Merge when ready to release
+- Release happens immediately after merge
+- Monitor Actions tab for workflow progress
+
+### 4. Release Published
+
+Automatically:
+- GitHub release created
+- Docker image published to ghcr.io
+- PyPI package published (if token set)
+
+## 🔧 Advanced Usage
+
+### Force a Specific Version
+
+Add label to Release PR:
+- `release-as: major` - Force major version (1.0.0 → 2.0.0)
+- `release-as: minor` - Force minor version (1.0.0 → 1.1.0)
+- `release-as: patch` - Force patch version (1.0.0 → 1.0.1)
+- `release-as: 1.5.0` - Force specific version
+
+### Skip Release
+
+Add `Release-As: 0.0.0` to commit message or PR body to skip release creation.
+
+### Pre-releases
+
+Not directly supported by Release Please, but you can:
+1. Create pre-release manually on GitHub
+2. Or use tags: `v1.0.0-beta.1`
+
+## 🆘 Troubleshooting
+
+**"Release PR not created?"**
+- Check commits use conventional commit format
+- Ensure commits are on `main` branch
+- Check Actions tab for Release Please workflow
+
+**"Release PR shows wrong version?"**
+- Add label `release-as: X.Y.Z` to force version
+- Or close PR, Release Please will recreate
+
+**"Want to release now but no PR?"**
+- Make a trivial change: `git commit --allow-empty -m "chore: trigger release"`
+- Push to main
+- Release PR will appear
+
+**"Need to update Release PR?"**
+- Close the Release PR
+- Release Please will create a new one with latest changes
+
+## 📚 Migration from Manual Process
+
+If you have existing tags (from manual process):
+1. ✅ Release Please respects existing tags
+2. ✅ Starts versioning from last tag
+3. ✅ No conflicts with previous releases
+
+## 🎓 Best Practices
+
+1. **Write descriptive commit messages**
+   ```
+   Good: feat: add Docker export command with compression support
+   Bad:  feat: updates
+   ```
+
+2. **One feature per commit**
+   - Makes changelog clearer
+   - Easier to understand releases
+
+3. **Review Release PR carefully**
+   - Verify changelog makes sense
+   - Check version bump is appropriate
+
+4. **Release regularly**
+   - Don't let Release PR accumulate too many changes
+   - Weekly or bi-weekly releases work well
+
+## 🔗 Resources
+
+- [Release Please Docs](https://github.com/google-github-actions/release-please-action)
+- [Conventional Commits](https://www.conventionalcommits.org/)
+- [Semantic Versioning](https://semver.org/)
 
 ---
 

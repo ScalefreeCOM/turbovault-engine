@@ -1,6 +1,111 @@
 # Quick Release Checklist
 
-Use this checklist when creating a new release. For detailed documentation, see [RELEASING.md](RELEASING.md).
+TurboVault Engine uses **Release Please** for automated releases. This checklist is for the simplified automated workflow.
+
+## 🤖 Automated Workflow (Primary)
+
+### Making Changes
+
+- [ ] Create feature branch: `git checkout -b feat/my-feature`
+- [ ] Make changes
+- [ ] Commit with conventional commits:
+  - `feat:` for features
+  - `fix:` for bug fixes
+  - `docs:` for documentation
+  - `chore:` for maintenance
+- [ ] Push and create PR
+- [ ] Merge PR to `main`
+
+### When Release PR Appears
+
+Release Please automatically creates a PR titled `chore: release vX.Y.Z`:
+
+- [ ] Review the Release PR:
+  - [ ] Version number looks correct
+  - [ ] Changelog entries are accurate
+  - [ ] All changes are included
+- [ ] Merge the Release PR
+
+### After Merge
+
+Automatically happens:
+- [ ] ✅ GitHub release created
+- [ ] ✅ Docker image published to GHCR
+- [ ] ⏭️ PyPI package (if `PYPI_API_TOKEN` configured)
+
+## 🎯 Verification
+
+### GitHub Release
+
+- [ ] Go to: https://github.com/ScalefreeCOM/turbovault-engine/releases
+- [ ] Verify latest release exists
+- [ ] Check release notes
+
+### Docker Image
+
+```bash
+docker pull ghcr.io/scalefreec om/turbovault-engine:latest
+docker run ghcr.io/scalefreec om/turbovault-engine:latest turbovault --version
+```
+
+- [ ] Image pulls successfully
+- [ ] Version is correct
+
+### PyPI (If Enabled)
+
+```bash
+pip install --upgrade turbovault-engine
+turbovault --version
+```
+
+- [ ] Package installs
+- [ ] Version is correct
+
+---
+
+## 💡 Tips
+
+**Force a specific version:**
+Add label to Release PR: `release-as: 1.0.0`
+
+**Trigger release without changes:**
+```bash
+git commit --allow-empty -m "chore: trigger release"
+git push origin main
+```
+
+**Update Release PR:**
+Just close it - Release Please will create a new one with latest changes
+
+---
+
+## 📚 Conventional Commit Examples
+
+```bash
+git commit -m "feat: add JSON export command"
+git commit -m "fix: resolve template rendering bug"
+git commit -m "docs: update README with Docker instructions"
+git commit -m "feat!: change CLI argument format" # Breaking change
+```
+
+---
+
+## 🆘 Troubleshooting
+
+**No Release PR created?**
+- Check commits have conventional commit format
+- Verify commits are on `main`
+- Check Actions → Release Please workflow
+
+**Release PR shows wrong version?**
+- Add label: `release-as: X.Y.Z`
+- Or close PR and let it recreate
+
+---
+
+**Manual Release Process (Deprecated):**
+See [RELEASING.md](RELEASING.md) for the legacy manual process (kept for reference).
+
 
 ## Pre-Release
 
