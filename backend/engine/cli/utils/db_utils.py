@@ -108,6 +108,104 @@ def create_default_snapshot_controls(project_or_name: 'Project | str') -> None:
         console.print("[dim]You can create them manually in the admin interface[/dim]\n")
 
 
+def ensure_templates_populated() -> None:
+    """
+    Ensure template files are loaded into the database.
+    
+    Checks if ModelTemplate records exist, and if not, populates them
+    from the file system template files. This runs automatically during
+    project initialization.
+    
+    Can be disabled via TURBOVAULT_SKIP_TEMPLATE_POPULATION environment variable.
+    """
+    from engine.models.templates import ModelTemplate, TemplateCategory
+    from engine.services.generation.template_resolver import TEMPLATES_DIR
+    from pathlib import Path
+    
+    # Check if we should skip template population
+    if os.environ.get('TURBOVAULT_SKIP_TEMPLATE_POPULATION', '').lower() in ('1', 'true', 'yes'):
+        return
+    
+    # Check if templates already exist
+    if ModelTemplate.objects.exists():
+        return
+    
+    console.print("\n[cyan]ℹ️  Populating database with template files...[/cyan]")
+    
+    try:
+        # Get or create category
+        category, _ = TemplateCategory.objects.get_or_create(
+            name="File-based Defaults",
+            defaults={"description": "Default templates from file system"}
+        )
+        
+        sql_templates_dir = TEMPLATES_DIR / "sql"
+        yaml_templates_dir = TEMPLATES_DIR / "yaml"
+        
+        created_count = 0
+        
+        # Valid entity types from ModelTemplate.EntityType
+        valid_types = [choice[0] for choice in ModelTemplate.EntityType.choices]
+        
+        # Process SQL templates
+        if sql_templates_dir.exists():
+            for sql_file in sql_templates_dir.glob("*.sql.j2"):
+                entity_type = sql_file.stem.removesuffix(".sql")
+                if entity_type in valid_types:
+                    content = sql_file.read_text(encoding="utf-8")
+                    ModelTemplate.objects.create(
+                        name=f"{entity_type} (SQL)",
+                        entity_type=entity_type,
+                        category=category,
+                        description=f"Default SQL template for {entity_type}",
+                        sql_template_content=content,
+                        priority=0,
+                        is_active=True,
+                    )
+                    created_count += 1
+        
+        # Process YAML templates
+        if yaml_templates_dir.exists():
+            for yaml_file in yaml_templates_dir.glob("*.yml.j2"):
+                entity_type = yaml_file.stem.removesuffix(".yml")
+                
+                # Skip project-level files
+                if entity_type in ["dbt_project", "packages", "sources"]:
+                    continue
+                
+                if entity_type in valid_types:
+                    content = yaml_file.read_text(encoding="utf-8")
+                    # Check if SQL template exists for this entity
+                    sql_template = ModelTemplate.objects.filter(
+                        entity_type=entity_type,
+                        name=f"{entity_type} (SQL)"
+                    ).first()
+                    
+                    if sql_template:
+                        # Update existing SQL template with YAML content
+                        sql_template.yaml_template_content = content
+                        sql_template.save()
+                    else:
+                        # Create YAML-only template
+                        ModelTemplate.objects.create(
+                            name=f"{entity_type} (YAML)",
+                            entity_type=entity_type,
+                            category=category,
+                            description=f"Default YAML template for {entity_type}",
+                            yaml_template_content=content,
+                            priority=0,
+                            is_active=True,
+                        )
+                    created_count += 1
+        
+        console.print(f"[dim]  Populated {created_count} template files[/dim]")
+        console.print("[green]✓ Templates ready[/green]\n")
+    
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Failed to populate templates: {e}[/yellow]")
+        console.print("[dim]You can populate them manually with: python manage.py populate_templates[/dim]\n")
+
+
 def ensure_database_ready() -> None:
     """
     Ensure the database is initialized and all migrations are applied.
