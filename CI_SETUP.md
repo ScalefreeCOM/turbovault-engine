@@ -247,6 +247,165 @@ docker run ghcr.io/scalefreec om/turbovault-engine:latest turbovault --help
 
 **See [RELEASING.md](file:///c:/Users/obause/Documents/repos/turbovault-engine/RELEASING.md) for full details.**
 
+---
+
+## 🚀 Quick Release Guide
+
+### Creating a New Release (Step-by-Step)
+
+**1. Prepare the Release**
+
+```bash
+# Make sure you're on main and up to date
+git checkout main
+git pull origin main
+
+# Ensure all tests pass
+python -m pytest backend/tests/ -v
+```
+
+**2. Update Version**
+
+Edit `pyproject.toml`:
+```toml
+[project]
+name = "turbovault-engine"
+version = "0.2.0"  # ← Change this
+```
+
+**3. Update Changelog**
+
+Edit `CHANGELOG.md` - move items from `[Unreleased]` to a new version section:
+
+```markdown
+## [Unreleased]
+
+### Added
+### Changed
+### Fixed
+
+## [0.2.0] - 2026-01-15
+
+### Added
+- New feature X
+- New feature Y
+
+### Fixed
+- Bug Z
+```
+
+**4. Commit and Push**
+
+```bash
+git add pyproject.toml CHANGELOG.md
+git commit -m "chore: release v0.2.0"
+git push origin main
+```
+
+**5. Create and Push Tag**
+
+```bash
+# Create annotated tag
+git tag -a v0.2.0 -m "Release v0.2.0"
+
+# Push tag (this triggers the release!)
+git push origin v0.2.0
+```
+
+**6. Monitor Release**
+
+1. Go to GitHub → Actions tab
+2. Watch "Release" workflow
+3. Wait for all jobs to complete (~5-10 minutes)
+4. Check:
+   - ✅ Tests passed
+   - ✅ Package built
+   - ✅ Docker image published to GHCR
+   - ✅ GitHub release created
+   - ⏭️ PyPI (skipped until you add `PYPI_API_TOKEN`)
+
+**7. Verify Release**
+
+```bash
+# Test Docker image
+docker pull ghcr.io/scalefreec om/turbovault-engine:0.2.0
+docker run ghcr.io/scalefreec om/turbovault-engine:0.2.0 turbovault --version
+
+# If PyPI is enabled:
+pip install turbovault-engine==0.2.0
+turbovault --version
+```
+
+### First Release Checklist
+
+For your very first release (`v0.1.0`):
+
+- [ ] Merge all pending PRs to `main`
+- [ ] All CI checks passing on `main`
+- [ ] Update version to `0.1.0` in `pyproject.toml`
+- [ ] Add `## [0.1.0] - YYYY-MM-DD` section to `CHANGELOG.md`
+- [ ] Commit: `git commit -m "chore: release v0.1.0"`
+- [ ] Create tag: `git tag -a v0.1.0 -m "Initial release"`
+- [ ] Push: `git push origin main v0.1.0`
+- [ ] Monitor Actions tab for workflow completion
+- [ ] Check GitHub Releases page
+- [ ] Test Docker image from GHCR
+- [ ] (Optional) Add `PYPI_API_TOKEN` secret for PyPI publishing
+
+### Common Release Scenarios
+
+**Patch Release (Bug Fix):**
+```bash
+# 0.1.0 → 0.1.1
+# Update version, changelog, commit, tag, push
+git tag -a v0.1.1 -m "Fix critical bug"
+```
+
+**Minor Release (New Features):**
+```bash
+# 0.1.0 → 0.2.0
+# Update version, changelog, commit, tag, push
+git tag -a v0.2.0 -m "Add new features"
+```
+
+**Major Release (Breaking Changes):**
+```bash
+# 0.2.0 → 1.0.0
+# Update version, changelog, commit, tag, push
+git tag -a v1.0.0 -m "First stable release"
+```
+
+**Pre-release (Testing):**
+```bash
+# For release candidates, alphas, betas
+git tag -a v0.2.0-rc.1 -m "Release candidate 1"
+git tag -a v1.0.0-beta.1 -m "Beta 1"
+```
+
+### Troubleshooting Releases
+
+**"Tag already exists"**
+```bash
+# Delete and recreate
+git tag -d v0.2.0
+git push origin :refs/tags/v0.2.0
+git tag -a v0.2.0 -m "Release v0.2.0"
+git push origin v0.2.0
+```
+
+**"Workflow didn't trigger"**
+- Check tag format: must be `v*.*.*` (with the `v` prefix)
+- Check Actions tab for errors
+- Verify workflow file exists: `.github/workflows/release.yml`
+
+**"Docker push failed"**
+- Check if package visibility is public in GitHub settings
+- Go to: Settings → Packages → turbovault-engine → Manage visibility
+
+**Full troubleshooting guide:** See [RELEASING.md](file:///c:/Users/obause/Documents/repos/turbovault-engine/RELEASING.md#troubleshooting)
+
+---
+
 ## 🔮 Next Phases (Not Implemented Yet)
 
 ### Phase 4: Quality Gates
