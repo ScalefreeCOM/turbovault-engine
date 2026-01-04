@@ -158,12 +158,38 @@ python -m pytest backend/tests/ -v
 git commit --no-verify -m "emergency fix"
 ```
 
-## 🔮 Next Phases (Not Implemented Yet)
+## ✅ Phase 2 - Enhanced CI (Implemented)
 
-### Phase 2: Enhanced CI
-- Code coverage reporting
-- Dependabot for automated updates
-- Security scanning
+### What's Been Added
+
+- **Dependabot** (`.github/dependabot.yml`)
+  - Automated Python dependency updates (weekly on Mondays)
+  - Automated GitHub Actions updates (weekly on Mondays)
+  - Minor/patch updates grouped together
+  - Major updates in separate PRs
+
+- **Documentation Issue Template** (`.github/ISSUE_TEMPLATE/documentation.md`)  
+  - Structured template for documentation improvement requests
+  - Makes it easy to report documentation gaps
+
+### How Dependabot Works
+
+1. **Weekly Checks:** Every Monday at 9:00 AM
+2. **Automatic PRs:** Creates pull requests for dependency updates
+3. **CI Verification:** All Dependabot PRs run through the full CI pipeline
+4. **Labels:** Auto-labels with `dependencies` and ecosystem type
+
+**Managing Dependabot PRs:**
+- Review the changelog and CI results
+- Merge if CI passes and changes look safe
+- For major updates, test locally first
+- Comment `@dependabot recreate` to rebuild a PR
+
+**Find Dependabot PRs:**
+- Go to Pull Requests tab
+- Filter by label: `dependencies`
+
+## 🔮 Next Phases (Not Implemented Yet)
 
 ### Phase 3: Docker & Release
 - Dockerfile for containerization

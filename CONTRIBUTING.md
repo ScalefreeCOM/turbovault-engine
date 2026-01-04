@@ -72,6 +72,33 @@ Thank you for your interest in contributing to TurboVault Engine! This document 
    turbovault --help
    ```
 
+## 🤖 Automated Dependency Updates
+
+This project uses **Dependabot** to automatically check for dependency updates:
+
+- **Python dependencies** - Checked weekly on Mondays
+- **GitHub Actions** - Checked weekly on Mondays
+
+### How it Works
+
+1. Dependabot creates PRs for dependency updates
+2. CI runs automatically on these PRs
+3. Review the changelog and test results
+4. Merge if everything passes
+
+### Handling Dependabot PRs
+
+**For minor/patch updates:**
+- Usually safe to merge if CI passes
+- Review the changelog for any breaking changes
+
+**For major updates:**
+- Read the migration guide carefully
+- Test locally before merging
+- May require code changes
+
+To rebuild Dependabot PRs: Comment `@dependabot recreate`
+
 ## 🔄 Development Workflow
 
 ### Branching Strategy
