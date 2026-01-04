@@ -8,11 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Dependabot configuration for automated dependency updates
-  - Python dependencies (weekly updates)
-  - GitHub Actions (weekly updates)
-- Documentation issue template
-- Phase 2 CI/CD documentation updates
+- Docker support with multi-stage Dockerfile
+- docker-compose.yml for local development
+- Automated release workflow for PyPI and GitHub releases
+- Docker image publishing to GitHub Container Registry (GHCR)
+- RELEASING.md guide for release process
 
 ### Changed
 

@@ -189,18 +189,71 @@ git commit --no-verify -m "emergency fix"
 - Go to Pull Requests tab
 - Filter by label: `dependencies`
 
-## 🔮 Next Phases (Not Implemented Yet)
+## ✅ Phase 3 - Docker & Release (Implemented)
 
-### Phase 3: Docker & Release
-- Dockerfile for containerization
-- docker-compose for local development
-- Release workflow for PyPI publishing
-- Automated GitHub releases
+### What's Been Added
+
+- **Dockerfile** (Multi-stage build)
+  - Optimized for production deployment
+  - Non-root user for security
+  - Minimal image size (< 500MB)
+  - Health checks included
+
+- **docker-compose.yml** (Local Development)
+  - Django admin on port 8000
+  - Persistent database volume
+  - Live code reloading
+  - Easy `docker-compose up` workflow
+
+- **Release Workflow** (`.github/workflows/release.yml`)
+  - Triggered by version tags (e.g., `v0.1.0`)
+  - Runs full test suite before release
+  - Builds and publishes Python package
+  - Publishes Docker images to GitHub Container Registry (GHCR)
+  - Creates GitHub releases with auto-generated notes
+  - **PyPI publishing ready** (add `PYPI_API_TOKEN` secret to enable)
+
+- **RELEASING.md Guide**
+  - Step-by-step release process
+  - PyPI setup instructions
+  - Docker image publishing
+  - Troubleshooting guide
+
+### Docker Usage
+
+**Local Development:**
+```bash
+docker-compose up
+# Access Django admin at http://localhost:8000/admin
+```
+
+**Production:**
+```bash
+# After first release
+docker pull ghcr.io/scalefreec om/turbovault-engine:latest
+docker run ghcr.io/scalefreec om/turbovault-engine:latest turbovault --help
+```
+
+### Release Process
+
+1. Update version in `pyproject.toml`
+2. Update `CHANGELOG.md`
+3. Commit and push to `main`
+4. Create and push tag: `git tag v0.2.0 && git push origin v0.2.0`
+5. Release workflow runs automatically
+6. Docker image published to GHCR
+7. GitHub release created
+8. PyPI release (if `PYPI_API_TOKEN` configured)
+
+**See [RELEASING.md](file:///c:/Users/obause/Documents/repos/turbovault-engine/RELEASING.md) for full details.**
+
+## 🔮 Next Phases (Not Implemented Yet)
 
 ### Phase 4: Quality Gates
 - Increased test coverage (target: 80%+)
 - Performance benchmarking
 - Documentation linting
+- Security scanning
 
 ## 🆘 Troubleshooting
 
