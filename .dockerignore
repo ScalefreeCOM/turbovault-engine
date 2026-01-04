@@ -1,0 +1,59 @@
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+.venv
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# CI/CD
+.github/
+.pre-commit-config.yaml
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Database
+*.sqlite3
+*.db
+
+# Output
+output/
+*.json
+*.zip
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

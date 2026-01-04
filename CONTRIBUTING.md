@@ -99,6 +99,47 @@ This project uses **Dependabot** to automatically check for dependency updates:
 
 To rebuild Dependabot PRs: Comment `@dependabot recreate`
 
+## 🐳 Docker Development (Optional)
+
+You can use Docker for development if you prefer containerized environments:
+
+### Using Docker Compose
+
+```bash
+# Start services (Django admin on port 8000)
+docker-compose up -d
+
+# View logs
+docker-compose logs -f app
+
+# Run commands in container
+docker-compose exec app turbovault --help
+
+# Run Django migrations
+docker-compose exec app sh -c "cd /app/backend && python manage.py migrate"
+
+# Stop services
+docker-compose down
+
+# Stop and remove volumes (fresh start)
+docker-compose down -v
+```
+
+### Building Docker Image Locally
+
+```bash
+# Build the image
+docker build -t turbovault-dev .
+
+# Run CLI commands
+docker run turbovault-dev turbovault --version
+
+# Run with volume mounts
+docker run -v $(pwd)/output:/app/output turbovault-dev turbovault generate --project my_project
+```
+
+**Note:** Docker development is optional. Most contributors use the standard Python virtual environment setup.
+
 ## 🔄 Development Workflow
 
 ### Branching Strategy
