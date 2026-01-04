@@ -390,9 +390,7 @@ class PITDefinition(BaseModel):
     dimension_key_column: str | None = Field(
         None, description="Optional dimension key column name"
     )
-    pit_type: str | None = Field(
-        None, description="Optional PIT type classification"
-    )
+    pit_type: str | None = Field(None, description="Optional PIT type classification")
     use_snapshot_optimization: bool = Field(
         default=True, description="Whether snapshot optimization is enabled"
     )
