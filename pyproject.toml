@@ -118,6 +118,10 @@ ignore = [
     "E501",  # line too long (handled by black)
     "DJ001", # Avoid null=True on string fields (intentional design choice)
     "DJ012", # Model method ordering (not critical for functionality)
+    "B904",  # Exception handling with 'from' clause (style preference)
+    "E402",  # Module level imports not at top (needed for Django setup)
+    "B008",  # Function calls in default arguments (required by Typer CLI)
+    "N806",  # Variable naming (Django's User model convention)
 ]
 
 [tool.mypy]

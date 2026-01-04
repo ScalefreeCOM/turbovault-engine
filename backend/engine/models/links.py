@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import uuid
 
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from engine.models.hubs import Hub

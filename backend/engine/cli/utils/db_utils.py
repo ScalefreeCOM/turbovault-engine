@@ -7,9 +7,13 @@ Handles database initialization, migration checks, and automatic migration execu
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
+
+if TYPE_CHECKING:
+    from engine.models import Project
 
 console = Console()
 
@@ -442,7 +446,7 @@ def _create_superuser_interactive() -> None:
         ) as progress:
             task = progress.add_task("Creating admin user...", total=None)
 
-            user = User.objects.create_superuser(
+            _user = User.objects.create_superuser(
                 username=username, email=email or "", password=password
             )
 
