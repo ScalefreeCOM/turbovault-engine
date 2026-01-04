@@ -4,9 +4,8 @@ Init command for TurboVault CLI.
 Initialize new projects from config or interactively.
 """
 
-from pathlib import Path
 import os
-from typing import Optional
+from pathlib import Path
 
 import questionary
 import typer
@@ -14,17 +13,17 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from engine.cli.utils.console import (
     console,
-    print_success,
     print_error,
     print_info,
-    print_step,
     print_panel,
+    print_step,
+    print_success,
 )
-from engine.services.config_loader import load_config_from_path, ConfigValidationError
+from engine.services.config_loader import ConfigValidationError, load_config_from_path
 
 
 def init(
-    config: Optional[Path] = typer.Option(
+    config: Path | None = typer.Option(
         None, "--config", "-c", help="Path to config.yml file", exists=True
     ),
     interactive: bool = typer.Option(
@@ -142,8 +141,9 @@ def _init_from_config(config_path: Path) -> None:
 def _run_interactive_init() -> None:
     """Run interactive project setup wizard."""
     # Lazy import to avoid loading models before Django setup
-    from engine.models import Project
     import yaml
+
+    from engine.models import Project
 
     console.print("\n[bold magenta]TurboVault Interactive Setup[/bold magenta]\n")
 
@@ -218,7 +218,7 @@ def _run_interactive_init() -> None:
     # Check if file exists
     if config_file.exists():
         overwrite = questionary.confirm(
-            f"config.yml already exists. Overwrite?", default=False
+            "config.yml already exists. Overwrite?", default=False
         ).ask()
 
         if not overwrite:

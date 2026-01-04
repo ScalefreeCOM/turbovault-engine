@@ -7,7 +7,7 @@ Provides functions to load and validate config.yml files using Pydantic schemas.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import yaml
 from pydantic import ValidationError
@@ -18,7 +18,7 @@ from engine.services.config_schema import TurboVaultConfig
 class ConfigValidationError(Exception):
     """Custom exception for configuration validation errors."""
 
-    def __init__(self, message: str, errors: list[Dict[str, Any]] | None = None):
+    def __init__(self, message: str, errors: list[dict[str, Any]] | None = None):
         super().__init__(message)
         self.errors = errors or []
 
@@ -53,7 +53,7 @@ def load_config_from_path(config_path: Path | str) -> TurboVaultConfig:
 
     # Load YAML
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             config_dict = yaml.safe_load(f)
     except yaml.YAMLError as e:
         raise ConfigValidationError(
@@ -69,7 +69,7 @@ def load_config_from_path(config_path: Path | str) -> TurboVaultConfig:
 
 
 def load_config_from_dict(
-    config_dict: Dict[str, Any], source_file: str | None = None
+    config_dict: dict[str, Any], source_file: str | None = None
 ) -> TurboVaultConfig:
     """
     Load and validate TurboVault configuration from a dictionary.

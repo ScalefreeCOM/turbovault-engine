@@ -6,8 +6,8 @@ Provides Rich-based console output with custom theme and helper functions.
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.theme import Theme
 from rich.text import Text
+from rich.theme import Theme
 
 # Custom theme for TurboVault
 custom_theme = Theme(

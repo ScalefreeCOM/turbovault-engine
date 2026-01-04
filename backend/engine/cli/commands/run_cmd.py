@@ -5,34 +5,31 @@ Generate Data Vault model export from stored metadata.
 """
 
 from pathlib import Path
-from typing import Optional
 
 import questionary
 import typer
-from rich.syntax import Syntax
 
 from engine.cli.utils.console import (
-    console,
-    print_success,
     print_error,
     print_info,
-    print_warning,
-    print_step,
     print_panel,
+    print_step,
+    print_success,
+    print_warning,
 )
 
 
 def run(
-    config: Optional[Path] = typer.Option(
+    config: Path | None = typer.Option(
         None, "--config", "-c", help="Path to config.yml file (optional)"
     ),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None, "--output", "-o", help="Output file path (auto-generated if not provided)"
     ),
     format: str = typer.Option(
         "json", "--format", "-f", help="Output format: json (more coming soon)"
     ),
-    project_name: Optional[str] = typer.Option(
+    project_name: str | None = typer.Option(
         None,
         "--project",
         "-p",

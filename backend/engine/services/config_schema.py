@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -27,7 +27,7 @@ class ProjectInfo(BaseModel):
         min_length=1,
         description="Project name (will be used as dbt project name if not specified)",
     )
-    description: Optional[str] = Field(None, description="Optional project description")
+    description: str | None = Field(None, description="Optional project description")
 
     @field_validator("name")
     @classmethod
@@ -54,7 +54,8 @@ class ExcelSourceConfig(BaseModel):
             import warnings
 
             warnings.warn(
-                f"Excel file not found: {v}. It will need to exist before import."
+                f"Excel file not found: {v}. It will need to exist before import.",
+                stacklevel=2,
             )
         return v
 
@@ -63,14 +64,14 @@ class ProjectConfiguration(BaseModel):
     """Project-level Data Vault configuration."""
 
     stage_schema: str = Field("stage", description="Schema name for staging layer")
-    stage_database: Optional[str] = Field(
+    stage_database: str | None = Field(
         None, description="Optional database name for staging layer"
     )
     rdv_schema: str = Field("rdv", description="Schema name for Raw Data Vault layer")
-    rdv_database: Optional[str] = Field(
+    rdv_database: str | None = Field(
         None, description="Optional database name for Raw Data Vault layer"
     )
-    hashdiff_naming_pattern: Optional[str] = Field(
+    hashdiff_naming_pattern: str | None = Field(
         None, description="Optional naming pattern for hashdiff columns (future use)"
     )
 
@@ -97,7 +98,7 @@ class OutputConfiguration(BaseModel):
     dbt_project_dir: Path = Field(
         ..., description="Directory where dbt project will be generated"
     )
-    dbt_project_name: Optional[str] = Field(
+    dbt_project_name: str | None = Field(
         None, description="Name of the dbt project (defaults to project.name)"
     )
     create_zip: bool = Field(
@@ -133,7 +134,7 @@ class TurboVaultConfig(BaseModel):
     """
 
     project: ProjectInfo = Field(..., description="Project information")
-    source: Optional[ExcelSourceConfig] = Field(
+    source: ExcelSourceConfig | None = Field(
         None, description="Optional source metadata import configuration"
     )
     configuration: ProjectConfiguration = Field(
@@ -145,7 +146,7 @@ class TurboVaultConfig(BaseModel):
     )
 
     @model_validator(mode="after")
-    def set_default_dbt_project_name(self) -> "TurboVaultConfig":
+    def set_default_dbt_project_name(self) -> TurboVaultConfig:
         """Set dbt_project_name to project.name if not specified."""
         if self.output.dbt_project_name is None:
             self.output.dbt_project_name = self.project.name

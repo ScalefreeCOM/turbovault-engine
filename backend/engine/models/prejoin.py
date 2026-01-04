@@ -14,8 +14,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 if TYPE_CHECKING:
-    from engine.models.project import Project
-    from engine.models.source_metadata import SourceTable, SourceColumn
+    pass
 
 
 class PrejoinDefinition(models.Model):

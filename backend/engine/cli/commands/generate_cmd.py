@@ -4,29 +4,27 @@ Generate command for TurboVault CLI.
 Generate a complete dbt project from Data Vault model.
 """
 
-from pathlib import Path
-from typing import Optional
-import shutil
 import zipfile
+from pathlib import Path
+from typing import Annotated
 
 import questionary
 import typer
-from typing_extensions import Annotated
 
 from engine.cli.utils.console import (
     console,
-    print_success,
     print_error,
     print_info,
-    print_warning,
-    print_step,
     print_panel,
+    print_step,
+    print_success,
+    print_warning,
 )
 
 
 def generate(
     project_name: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--project",
             "-p",
@@ -34,7 +32,7 @@ def generate(
         ),
     ] = None,
     output: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             "--output",
             "-o",
@@ -177,7 +175,7 @@ def generate(
         raise typer.Exit(1)
 
 
-def _select_project(projects: list, project_name: Optional[str]):
+def _select_project(projects: list, project_name: str | None):
     """Select a project by name or interactively."""
     from engine.models import Project
 
@@ -228,7 +226,7 @@ def _create_zip_archive(output_path: Path) -> Path:
 
 
 def _show_summary(
-    report, output_path: Path, zip_path: Optional[Path], no_v1: bool
+    report, output_path: Path, zip_path: Path | None, no_v1: bool
 ) -> None:
     """Display generation summary."""
     status = "[green]✓ Success[/green]" if report.success else "[red]✗ Failed[/red]"

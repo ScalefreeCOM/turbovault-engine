@@ -51,7 +51,7 @@ class ModelBuilder:
     - Aggregates information into target-agnostic representations
     """
 
-    def __init__(self, project: "Project") -> None:
+    def __init__(self, project: Project) -> None:
         """
         Initialize the builder for a specific project.
 
@@ -302,7 +302,7 @@ class ModelBuilder:
         return result
 
     def _get_hashdiffs_for_source_table(
-        self, source_table: "SourceTable"
+        self, source_table: SourceTable
     ) -> list[StageHashdiffDef]:
         """
         Get all hashdiff definitions for satellites using this source table.
@@ -344,7 +344,7 @@ class ModelBuilder:
         return result
 
     def _get_multi_active_config_for_source_table(
-        self, source_table: "SourceTable"
+        self, source_table: SourceTable
     ) -> MultiActiveConfig | None:
         """
         Get multi-active configuration if any multi-active satellite uses this source table.
@@ -389,7 +389,7 @@ class ModelBuilder:
         return None
 
     def _get_prejoins_for_source_table(
-        self, source_table: "SourceTable"
+        self, source_table: SourceTable
     ) -> list[PrejoinDefinitionExport]:
         """
         Get prejoin definitions for a source table.
@@ -450,7 +450,7 @@ class ModelBuilder:
         return result
 
     def _get_hashkeys_for_source_table(
-        self, source_table: "SourceTable"
+        self, source_table: SourceTable
     ) -> list[StageHashkeyDef]:
         """
         Get all hashkey definitions needed for a source table's stage.
@@ -492,7 +492,7 @@ class ModelBuilder:
                 )
 
         result = []
-        for hub_key, info in hub_columns_map.items():
+        for _hub_key, info in hub_columns_map.items():
             hub = info["hub"]
 
             # Skip if not a standard hub (no hashkey needed)

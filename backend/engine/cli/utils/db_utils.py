@@ -11,7 +11,6 @@ from pathlib import Path
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-
 console = Console()
 
 
@@ -22,8 +21,9 @@ def create_default_snapshot_controls(project_or_name: "Project | str") -> None:
     Args:
         project_or_name: Either a Project object or project name string
     """
-    from engine.models import SnapshotControlTable, SnapshotControlLogic, Project
     from datetime import datetime, time
+
+    from engine.models import Project, SnapshotControlLogic, SnapshotControlTable
 
     # Check if we should skip default snapshot creation
     if os.environ.get("TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS", "").lower() in (
@@ -128,9 +128,9 @@ def ensure_templates_populated() -> None:
 
     Can be disabled via TURBOVAULT_SKIP_TEMPLATE_POPULATION environment variable.
     """
+
     from engine.models.templates import ModelTemplate, TemplateCategory
     from engine.services.generation.template_resolver import TEMPLATES_DIR
-    from pathlib import Path
 
     # Check if we should skip template population
     if os.environ.get("TURBOVAULT_SKIP_TEMPLATE_POPULATION", "").lower() in (
@@ -235,7 +235,6 @@ def ensure_database_ready() -> None:
         SystemExit: If migrations fail to apply
     """
     from django.conf import settings
-    from django.core.management import call_command
     from django.db import connection
     from django.db.migrations.executor import MigrationExecutor
 
@@ -290,8 +289,9 @@ def _run_migrations(initial: bool = False) -> None:
     Raises:
         SystemExit: If migrations fail
     """
-    from django.core.management import call_command
     from io import StringIO
+
+    from django.core.management import call_command
 
     try:
         # Capture output to avoid cluttering the console
@@ -338,8 +338,8 @@ def _ensure_superuser_exists() -> None:
 
     This can be disabled via TURBOVAULT_SKIP_SUPERUSER_PROMPT environment variable.
     """
-    from django.contrib.auth import get_user_model
     import questionary
+    from django.contrib.auth import get_user_model
 
     # Check if we should skip superuser creation
     if os.environ.get("TURBOVAULT_SKIP_SUPERUSER_PROMPT", "").lower() in (
@@ -374,10 +374,10 @@ def _create_superuser_interactive() -> None:
     """
     Interactively create a superuser account.
     """
-    from django.contrib.auth import get_user_model
-    from django.core.exceptions import ValidationError
-    from django.core import validators
     import questionary
+    from django.contrib.auth import get_user_model
+    from django.core import validators
+    from django.core.exceptions import ValidationError
 
     User = get_user_model()
 

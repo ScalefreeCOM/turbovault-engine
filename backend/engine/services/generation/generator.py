@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .file_writer import write_sql_file, write_yaml_file
-from .folder_config import FolderConfig, GenerationConfig, get_model_filename
+from .folder_config import GenerationConfig, get_model_filename
 from .report import GenerationReport
 from .template_resolver import TemplateResolver
 
