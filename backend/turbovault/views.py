@@ -15,4 +15,4 @@ def home(request: HttpRequest) -> HttpResponse:
     Returns the static home page with project information
     and a link to the Django admin area.
     """
-    return render(request, 'home.html')
+    return render(request, "home.html")

@@ -4,6 +4,7 @@ Django management command to populate database with template files.
 Reads all SQL and YAML templates from the templates directory and creates
 ModelTemplate records in the database for each one.
 """
+
 from pathlib import Path
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -19,47 +20,43 @@ class Command(BaseCommand):
         parser.add_argument(
             "--overwrite",
             action="store_true",
-            help="Overwrite existing templates with same entity_type and name"
+            help="Overwrite existing templates with same entity_type and name",
         )
         parser.add_argument(
             "--category",
             type=str,
             default="File-based Defaults",
-            help="Category name for the templates (default: 'File-based Defaults')"
+            help="Category name for the templates (default: 'File-based Defaults')",
         )
 
     def handle(self, *args, **options):
         overwrite = options["overwrite"]
         category_name = options["category"]
-        
+
         self.stdout.write(self.style.NOTICE("Populating templates from file system..."))
-        
+
         # Get or create category
         category, created = TemplateCategory.objects.get_or_create(
             name=category_name,
-            defaults={"description": "Default templates from file system"}
+            defaults={"description": "Default templates from file system"},
         )
         if created:
             self.stdout.write(self.style.SUCCESS(f"Created category: {category_name}"))
-        
+
         sql_templates_dir = TEMPLATES_DIR / "sql"
         yaml_templates_dir = TEMPLATES_DIR / "yaml"
-        
+
         created_count = 0
         updated_count = 0
         skipped_count = 0
-        
+
         with transaction.atomic():
             # Process SQL templates
             if sql_templates_dir.exists():
                 for sql_file in sql_templates_dir.glob("*.sql.j2"):
                     entity_type = sql_file.stem.removesuffix(".sql")
                     result = self._process_template_file(
-                        sql_file,
-                        entity_type,
-                        category,
-                        overwrite,
-                        "sql"
+                        sql_file, entity_type, category, overwrite, "sql"
                     )
                     if result == "created":
                         created_count += 1
@@ -67,22 +64,18 @@ class Command(BaseCommand):
                         updated_count += 1
                     else:
                         skipped_count += 1
-            
+
             # Process YAML templates
             if yaml_templates_dir.exists():
                 for yaml_file in yaml_templates_dir.glob("*.yml.j2"):
                     entity_type = yaml_file.stem.removesuffix(".yml")
-                    
+
                     # Skip project-level files
                     if entity_type in ["dbt_project", "packages", "sources"]:
                         continue
-                    
+
                     result = self._process_template_file(
-                        yaml_file,
-                        entity_type,
-                        category,
-                        overwrite,
-                        "yaml"
+                        yaml_file, entity_type, category, overwrite, "yaml"
                     )
                     if result == "created":
                         created_count += 1
@@ -90,7 +83,7 @@ class Command(BaseCommand):
                         updated_count += 1
                     else:
                         skipped_count += 1
-        
+
         # Summary
         self.stdout.write(
             self.style.SUCCESS(
@@ -107,11 +100,11 @@ class Command(BaseCommand):
         entity_type: str,
         category: TemplateCategory,
         overwrite: bool,
-        template_type: str  # 'sql' or 'yaml'
+        template_type: str,  # 'sql' or 'yaml'
     ) -> str:
         """
         Process a single template file.
-        
+
         Returns:
             "created", "updated", or "skipped"
         """
@@ -124,19 +117,18 @@ class Command(BaseCommand):
                 )
             )
             return "skipped"
-        
+
         # Read template content
         content = file_path.read_text(encoding="utf-8")
-        
+
         # Template name based on entity type and template type
         template_name = f"{entity_type} ({template_type.upper()})"
-        
+
         # Check if template exists
         existing = ModelTemplate.objects.filter(
-            entity_type=entity_type,
-            name=template_name
+            entity_type=entity_type, name=template_name
         ).first()
-        
+
         if existing:
             if overwrite:
                 # Update existing template
@@ -146,10 +138,8 @@ class Command(BaseCommand):
                     existing.yaml_template_content = content
                 existing.category = category
                 existing.save()
-                
-                self.stdout.write(
-                    self.style.WARNING(f"Updated: {template_name}")
-                )
+
+                self.stdout.write(self.style.WARNING(f"Updated: {template_name}"))
                 return "updated"
             else:
                 self.stdout.write(
@@ -168,15 +158,13 @@ class Command(BaseCommand):
                 "priority": 0,  # Default priority
                 "is_active": True,
             }
-            
+
             if template_type == "sql":
                 kwargs["sql_template_content"] = content
             else:
                 kwargs["yaml_template_content"] = content
-            
+
             ModelTemplate.objects.create(**kwargs)
-            
-            self.stdout.write(
-                self.style.SUCCESS(f"Created: {template_name}")
-            )
+
+            self.stdout.write(self.style.SUCCESS(f"Created: {template_name}"))
             return "created"

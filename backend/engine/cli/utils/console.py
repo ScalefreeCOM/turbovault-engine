@@ -3,19 +3,22 @@ Console utilities for TurboVault CLI.
 
 Provides Rich-based console output with custom theme and helper functions.
 """
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.theme import Theme
 from rich.text import Text
 
 # Custom theme for TurboVault
-custom_theme = Theme({
-    "info": "cyan",
-    "warning": "yellow",
-    "error": "bold red",
-    "success": "bold green",
-    "highlight": "bold magenta",
-})
+custom_theme = Theme(
+    {
+        "info": "cyan",
+        "warning": "yellow",
+        "error": "bold red",
+        "success": "bold green",
+        "highlight": "bold magenta",
+    }
+)
 
 # Global console instance
 console = Console(theme=custom_theme)
@@ -32,7 +35,7 @@ def print_banner() -> None:
     banner.append("Data Vault Automation Tool", style="cyan")
     banner.append("    ║\n", style="bold cyan")
     banner.append("╚═══════════════════════════════════════╝", style="bold cyan")
-    
+
     console.print(banner)
     console.print()
 
