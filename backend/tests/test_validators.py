@@ -3,7 +3,6 @@ Unit tests for pre-generation validators.
 """
 
 
-
 class TestValidationResult:
     """Tests for ValidationResult class."""
 
