@@ -9,15 +9,14 @@ historization strategies.
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from engine.models.project import Project
 from engine.models.hubs import Hub
+from engine.models.project import Project
 from engine.models.satellites import Satellite, SatelliteColumn
-from engine.models.snapshot_control import SnapshotControlTable, SnapshotControlLogic
+from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
 
 
 class ReferenceTable(models.Model):

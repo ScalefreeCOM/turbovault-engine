@@ -2,7 +2,6 @@
 Unit tests for pre-generation validators.
 """
 
-import pytest
 
 
 class TestValidationResult:
@@ -67,8 +66,8 @@ class TestValidateExport:
     ):
         """validate_export returns a ValidationResult object."""
         from engine.services.generation.validators import (
-            validate_export,
             ValidationResult,
+            validate_export,
         )
 
         result = validate_export(project_export)

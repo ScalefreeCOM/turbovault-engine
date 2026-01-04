@@ -12,7 +12,7 @@ import typer
 from rich.panel import Panel
 from rich.text import Text
 
-from engine.cli.utils.console import console, print_info, print_success
+from engine.cli.utils.console import console
 
 
 def serve(
@@ -29,9 +29,9 @@ def serve(
     # Display startup banner
     banner = Text()
     banner.append("🚀 Starting TurboVault Server\n\n", style="bold cyan")
-    banner.append(f"Server: ", style="bold")
+    banner.append("Server: ", style="bold")
     banner.append(f"http://{host}:{port}/\n", style="cyan underline")
-    banner.append(f"Admin:  ", style="bold")
+    banner.append("Admin:  ", style="bold")
     banner.append(f"http://{host}:{port}/admin/\n\n", style="cyan underline")
     banner.append("Press CTRL+C to stop the server", style="dim")
 

@@ -4,9 +4,6 @@ Reset command for TurboVault CLI.
 Reset the Django database by removing and recreating it.
 """
 
-import os
-import sys
-from pathlib import Path
 
 import typer
 from rich.panel import Panel
@@ -52,8 +49,9 @@ def reset(
     console.print("\n[bold]Flushing database...[/bold]")
 
     # Use Django management commands to flush and migrate
-    from django.core.management import call_command
     from io import StringIO
+
+    from django.core.management import call_command
 
     try:
         # Flush the database (delete all data)

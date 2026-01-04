@@ -8,10 +8,8 @@ that can be serialized to various output formats (JSON, dbt, DBML, etc.).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
-
 
 # =============================================================================
 # Source Layer Models
@@ -29,9 +27,9 @@ class SourceTableDef(BaseModel):
     """Definition of a source table with its columns and metadata."""
 
     table_name: str
-    alias: Optional[str] = None
-    record_source: Optional[str] = None
-    load_date: Optional[str] = None
+    alias: str | None = None
+    record_source: str | None = None
+    load_date: str | None = None
     columns: list[SourceColumnDef] = Field(default_factory=list)
 
 
@@ -40,7 +38,7 @@ class SourceSystemDef(BaseModel):
 
     name: str
     schema_name: str
-    database_name: Optional[str] = None
+    database_name: str | None = None
     tables: list[SourceTableDef] = Field(default_factory=list)
 
 
@@ -79,8 +77,8 @@ class HubDefinition(BaseModel):
 
     hub_name: str
     hub_type: str  # "standard" or "reference"
-    group: Optional[str] = None
-    hashkey: Optional[HashkeyDefinition] = None
+    group: str | None = None
+    hashkey: HashkeyDefinition | None = None
     business_key_columns: list[str] = Field(
         default_factory=list, description="Target hub column names for business keys"
     )
@@ -153,7 +151,7 @@ class LinkDefinition(BaseModel):
 
     link_name: str
     link_type: str  # "standard" or "non_historized"
-    group: Optional[str] = None
+    group: str | None = None
     hashkey: HashkeyDefinition = Field(description="Link hashkey definition")
     hub_references: list[str] = Field(
         default_factory=list, description="Names of hubs connected by this link"
@@ -242,8 +240,8 @@ class StageDefinition(BaseModel):
     source_table: str
     source_schema: str
     source_system: str
-    record_source: Optional[str] = None
-    load_date: Optional[str] = None
+    record_source: str | None = None
+    load_date: str | None = None
 
     # Hashkey calculations for hubs
     hashkeys: list[StageHashkeyDef] = Field(
@@ -261,7 +259,7 @@ class StageDefinition(BaseModel):
     )
 
     # Multi-active configuration (if any multi-active satellite uses this source)
-    multi_active_config: Optional[MultiActiveConfig] = Field(
+    multi_active_config: MultiActiveConfig | None = Field(
         None,
         description="Multi-active key config if a multi-active satellite uses this source",
     )
@@ -285,7 +283,7 @@ class SatelliteColumnDef(BaseModel):
     """Definition of a satellite column."""
 
     source_column: str = Field(description="Source column physical name")
-    target_column_name: Optional[str] = Field(
+    target_column_name: str | None = Field(
         None, description="Target column name (if renamed from source)"
     )
     is_multi_active_key: bool = Field(
@@ -294,7 +292,7 @@ class SatelliteColumnDef(BaseModel):
     include_in_delta_detection: bool = Field(
         default=True, description="Whether to include in hashdiff calculation"
     )
-    target_column_transformation: Optional[str] = Field(
+    target_column_transformation: str | None = Field(
         None, description="Optional transformation expression"
     )
 
@@ -310,7 +308,7 @@ class SatelliteDefinition(BaseModel):
     satellite_type: str = Field(
         description="Type: standard, reference, non_historized, or multi_active"
     )
-    group: Optional[str] = None
+    group: str | None = None
     parent_entity: str = Field(description="Name of parent hub or link")
     parent_entity_type: str = Field(description="Type of parent: 'hub' or 'link'")
     parent_hashkey: str = Field(
@@ -364,10 +362,10 @@ class ReferenceTableDefinition(BaseModel):
     historization_type: str = Field(
         description="Historization strategy: latest, full, or snapshot_based"
     )
-    snapshot_control_table: Optional[str] = Field(
+    snapshot_control_table: str | None = Field(
         None, description="Snapshot control table name (if snapshot_based)"
     )
-    snapshot_logic_column: Optional[str] = Field(
+    snapshot_logic_column: str | None = Field(
         None, description="Snapshot logic column name (if snapshot_based)"
     )
     satellites: list[ReferenceTableSatelliteAssignment] = Field(
@@ -389,10 +387,10 @@ class PITDefinition(BaseModel):
         description="Name of the snapshot control table (v1)"
     )
     snapshot_logic_column: str = Field(description="Snapshot logic column name")
-    dimension_key_column: Optional[str] = Field(
+    dimension_key_column: str | None = Field(
         None, description="Optional dimension key column name"
     )
-    pit_type: Optional[str] = Field(
+    pit_type: str | None = Field(
         None, description="Optional PIT type classification"
     )
     use_snapshot_optimization: bool = Field(
@@ -416,8 +414,8 @@ class SnapshotLogicPattern(BaseModel):
     component: str = Field(
         description="Snapshot component (daily, end_of_week, end_of_month, etc.)"
     )
-    duration: Optional[int] = Field(None, description="Duration value (e.g., 1, 7, 30)")
-    unit: Optional[str] = Field(
+    duration: int | None = Field(None, description="Duration value (e.g., 1, 7, 30)")
+    unit: str | None = Field(
         None, description="Duration unit (DAY, WEEK, MONTH, QUARTER, YEAR)"
     )
     forever: bool = Field(
@@ -480,12 +478,12 @@ class ProjectExport(BaseModel):
     """
 
     project_name: str
-    project_description: Optional[str] = None
+    project_description: str | None = None
     generated_at: datetime = Field(default_factory=datetime.now)
 
     # Configuration
-    stage_schema: Optional[str] = None
-    rdv_schema: Optional[str] = None
+    stage_schema: str | None = None
+    rdv_schema: str | None = None
 
     # Export configuration
     export_sources: bool = True

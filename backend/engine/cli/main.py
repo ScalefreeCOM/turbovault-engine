@@ -7,17 +7,16 @@ A powerful command-line interface for Data Vault modeling and dbt project genera
 import os
 import sys
 from pathlib import Path
+from typing import Annotated
 
 import typer
-from typing_extensions import Annotated
 
 # Add backend directory to path to ensure Django can be imported
 backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
-from engine.cli.utils.console import console, print_banner
-from engine.cli.commands import init_cmd, run_cmd, serve_cmd, reset_cmd, generate_cmd
-
+from engine.cli.commands import generate_cmd, init_cmd, reset_cmd, run_cmd, serve_cmd
+from engine.cli.utils.console import console
 
 # Create Typer app
 app = typer.Typer(

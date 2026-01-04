@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, time
-from typing import Optional
 
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ValidationError

@@ -22,7 +22,7 @@ class BaseExporter(ABC):
     """
 
     @abstractmethod
-    def export(self, project_export: "ProjectExport") -> str:
+    def export(self, project_export: ProjectExport) -> str:
         """
         Export project to target format.
 

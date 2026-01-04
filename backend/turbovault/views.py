@@ -4,8 +4,8 @@ Views for TurboVault Engine.
 This module contains views for the static landing page.
 """
 
-from django.shortcuts import render
 from django.http import HttpRequest, HttpResponse
+from django.shortcuts import render
 
 
 def home(request: HttpRequest) -> HttpResponse:
