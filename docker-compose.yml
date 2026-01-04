@@ -1,0 +1,35 @@
+# Docker Compose for TurboVault Engine Development
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: turbovault-engine:dev
+    container_name: turbovault-dev
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount source code for live development
+      - ./backend:/app/backend:ro
+      # Persistent database
+      - turbovault-db:/app/data
+      # Output directory for generated projects
+      - ./output:/app/output
+    environment:
+      - DJANGO_SETTINGS_MODULE=turbovault.settings
+      - DEBUG=1
+      - TURBOVAULT_SKIP_SUPERUSER_PROMPT=1
+    command: >
+      sh -c "
+        cd /app/backend &&
+        python manage.py migrate --noinput &&
+        python manage.py runserver 0.0.0.0:8000
+      "
+    stdin_open: true
+    tty: true
+
+volumes:
+  turbovault-db:
+    name: turbovault-database

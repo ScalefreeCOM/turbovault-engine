@@ -97,6 +97,34 @@ pre-commit install  # Optional but recommended
 
 > **Note:** The database, admin user, and templates will be automatically set up the first time you run any TurboVault command. No manual setup required!
 
+### 🐳 Docker Installation (Alternative)
+
+Use Docker for a pre-configured environment:
+
+```bash
+# Option 1: Pull from GitHub Container Registry (after first release)
+docker pull ghcr.io/scalefreec om/turbovault-engine:latest
+
+# Run commands
+docker run ghcr.io/scalefreec om/turbovault-engine:latest turbovault --help
+
+# Option 2: Build locally
+git clone https://github.com/ScalefreeCOM/turbovault-engine.git
+cd turbovault-engine
+docker build -t turbovault-engine .
+docker run turbovault-engine turbovault --help
+```
+
+**Development with Docker Compose:**
+
+```bash
+# Start Django admin server
+docker-compose up
+
+# Access at http://localhost:8000/admin
+# Data persists in Docker volume
+```
+
 ### Initialize Your First Project
 
 ```bash
