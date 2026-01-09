@@ -112,6 +112,17 @@ def _init_from_config(config_path: Path) -> None:
 
         create_default_snapshot_controls(project)
 
+    # Import metadata if source is defined
+    if config.source and config.source.type == "excel":
+        from engine.services.excel_import import ExcelImportService
+        print_info(f"Importing metadata from {config.source.path}...")
+        try:
+            service = ExcelImportService(str(config.source.path))
+            service.import_metadata(project=project, skip_snapshots=True)
+            print_success("Metadata successfully imported")
+        except Exception as e:
+            print_error(f"Metadata import failed: {e}")
+
     # Ensure templates are populated in database
     from engine.cli.utils.db_utils import ensure_templates_populated
 
@@ -132,7 +143,7 @@ def _init_from_config(config_path: Path) -> None:
     print_panel("Project Summary", summary.strip(), style="success")
 
     if config.source:
-        print_info("Next step: Metadata import will be available in future version")
+        print_info("Next step: Use the admin interface to review your imported model")
     else:
         print_info("Next step: Use Django admin to define your Data Vault model")
         console.print("  Run: turbovault serve", style="dim")
@@ -163,7 +174,7 @@ def _run_interactive_init() -> None:
 
     source_path = None
     if use_source:
-        source_path = questionary.path("Path to Excel file:", only_files=True).ask()
+        source_path = questionary.path("Path to Excel file:").ask()
 
     # Stage schema
     stage_schema = questionary.text("Stage schema name:", default="stage").ask()
@@ -266,6 +277,17 @@ def _run_interactive_init() -> None:
 
     print_success(f"Created project: {project.name}")
 
+    # Import metadata if source is defined
+    if source_path:
+        from engine.services.excel_import import ExcelImportService
+        print_info(f"Importing metadata from {source_path}...")
+        try:
+            service = ExcelImportService(str(source_path))
+            service.import_metadata(project=project, skip_snapshots=True)
+            print_success("Metadata successfully imported")
+        except Exception as e:
+            print_error(f"Metadata import failed: {e}")
+
     # Create default snapshot controls for the new project
     skip_snapshots = (
         os.getenv("TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS", "").lower() == "true"
@@ -283,10 +305,11 @@ def _run_interactive_init() -> None:
     print_step(2, 2, "Setup complete!")
     console.print("\n[bold]Next steps:[/bold]")
     console.print(f"  • Review/edit your config: {config_file}", style="info")
-    console.print(
-        "  • Run 'turbovault serve' to start the admin interface", style="info"
-    )
-    console.print("  • Use the admin to define your Data Vault model", style="info")
+    if source_path:
+        console.print("  • Run 'turbovault serve' to review imported metadata", style="info")
+    else:
+        console.print("  • Run 'turbovault serve' to start the admin interface", style="info")
+        console.print("  • Use the admin to define your Data Vault model", style="info")
     console.print(
         f"  • Re-run with: turbovault init --config {config_file}", style="dim"
     )
