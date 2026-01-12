@@ -8,8 +8,6 @@ the new TurboVault Engine data model.
 from __future__ import annotations
 
 import logging
-import uuid
-from typing import Any, Dict, List, Optional, Set
 from datetime import datetime
 
 import pandas as pd
@@ -21,12 +19,16 @@ from engine.models.links import Link, LinkColumn, LinkSourceMapping
 from engine.models.pit import PIT
 from engine.models.prejoin import PrejoinDefinition, PrejoinExtractionColumn
 from engine.models.project import Project
-from engine.models.reference_table import ReferenceTable, ReferenceTableSatelliteAssignment
+from engine.models.reference_table import (
+    ReferenceTable,
+    ReferenceTableSatelliteAssignment,
+)
 from engine.models.satellites import Satellite, SatelliteColumn
 from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
 from engine.models.source_metadata import SourceColumn, SourceSystem, SourceTable
 
 logger = logging.getLogger(__name__)
+
 
 class ExcelImportService:
     """
@@ -106,7 +108,9 @@ class ExcelImportService:
             self._process_prejoins(self.excel_file.parse("non_historized_link"))
 
         if "non_historized_link" in self.excel_file.sheet_names:
-            self._process_non_historized_links(self.excel_file.parse("non_historized_link"))
+            self._process_non_historized_links(
+                self.excel_file.parse("non_historized_link")
+            )
 
         # 6. Process Satellites
         sat_sheets = [

@@ -115,6 +115,7 @@ def _init_from_config(config_path: Path) -> None:
     # Import metadata if source is defined
     if config.source and config.source.type == "excel":
         from engine.services.excel_import import ExcelImportService
+
         print_info(f"Importing metadata from {config.source.path}...")
         try:
             service = ExcelImportService(str(config.source.path))
@@ -280,6 +281,7 @@ def _run_interactive_init() -> None:
     # Import metadata if source is defined
     if source_path:
         from engine.services.excel_import import ExcelImportService
+
         print_info(f"Importing metadata from {source_path}...")
         try:
             service = ExcelImportService(str(source_path))
@@ -306,9 +308,13 @@ def _run_interactive_init() -> None:
     console.print("\n[bold]Next steps:[/bold]")
     console.print(f"  • Review/edit your config: {config_file}", style="info")
     if source_path:
-        console.print("  • Run 'turbovault serve' to review imported metadata", style="info")
+        console.print(
+            "  • Run 'turbovault serve' to review imported metadata", style="info"
+        )
     else:
-        console.print("  • Run 'turbovault serve' to start the admin interface", style="info")
+        console.print(
+            "  • Run 'turbovault serve' to start the admin interface", style="info"
+        )
         console.print("  • Use the admin to define your Data Vault model", style="info")
     console.print(
         f"  • Re-run with: turbovault init --config {config_file}", style="dim"
