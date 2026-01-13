@@ -59,19 +59,30 @@ class ExcelImportService:
 
     @transaction.atomic
     def import_metadata(
-        self, project_name: str, description: str | None = None
+        self,
+        project_name: str | None = None,
+        description: str | None = None,
+        project: Project | None = None,
+        skip_snapshots: bool = False,
     ) -> Project:
         """
         Main entry point for importing metadata from Excel.
         """
         logger.info(f"Starting import from {self.file_path}")
 
-        # 1. Create Project
-        self.project = Project.objects.create(
-            name=project_name,
-            description=description or f"Imported from {self.file_path}",
-            config={},
-        )
+        # 1. Create or Use Project
+        if project:
+            self.project = project
+        else:
+            if not project_name:
+                raise ValueError(
+                    "project_name is required if no project instance is provided"
+                )
+            self.project = Project.objects.create(
+                name=project_name,
+                description=description or f"Imported from {self.file_path}",
+                config={},
+            )
 
         # 2. Process Source Data (Systems and Tables)
         if "source_data" in self.excel_file.sheet_names:
@@ -112,8 +123,8 @@ class ExcelImportService:
             if sheet in self.excel_file.sheet_names:
                 self._process_satellites(self.excel_file.parse(sheet), sheet)
 
-        # 7. Create default Snapshot Control
-        self._create_default_snapshot_control()
+        # 7. Create default Snapshot Control (or find existing)
+        self._create_default_snapshot_control(skip_creation=skip_snapshots)
 
         # 8. Process Prejoins (after source columns, before links that might use them)
         # Wait, non_historized_link processing already happens.
@@ -541,6 +552,7 @@ class ExcelImportService:
             col_name = (
                 self._get_val(row, "prejoin_target_column_alias")
                 or self._get_val(row, "prejoin_extraction_column_name")
+                or self._get_val(row, "target_column_physical_name")
                 or self._get_val(row, "source_column_physical_name")
             )
             if col_name:
@@ -718,7 +730,7 @@ class ExcelImportService:
                         project=self.project,
                         source_table=source_table,
                         prejoin_target_table=target_table,
-                        prejoin_operator=PrejoinDefinition.Operator.AND,
+                        prejoin_operator=PrejoinDefinition.JoinOperator.AND,
                     )
 
                     # Conditions
@@ -900,10 +912,24 @@ class ExcelImportService:
                     if sat:
                         pit.satellites.add(sat)
 
-    def _create_default_snapshot_control(self):
+    def _create_default_snapshot_control(self, skip_creation: bool = False):
         """Creates a default snapshot control table and logic rule as per spec."""
         if self._snapshot_control:
             return  # Already created
+
+        # Try to find existing one for the project first
+        existing_table = SnapshotControlTable.objects.filter(
+            project=self.project
+        ).first()
+        if existing_table:
+            self._snapshot_control = existing_table
+            self._snapshot_logic = SnapshotControlLogic.objects.filter(
+                snapshot_control_table=existing_table
+            ).first()
+            return
+
+        if skip_creation:
+            return
 
         today = timezone.now().date()
         self._snapshot_control = SnapshotControlTable.objects.create(
