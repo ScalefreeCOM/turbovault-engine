@@ -20,7 +20,6 @@ repos:
     rev: 24.1.1
     hooks:
       - id: black
-        language_version: python3.12
         args: ['--config=pyproject.toml']
         files: ^backend/
 
@@ -34,12 +33,12 @@ repos:
 
   # Type checking with mypy (non-blocking)
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.8.0
+    rev: v1.19.1
     hooks:
       - id: mypy
-        args: ['--config-file=pyproject.toml']
+        args: ['--config-file', 'pyproject.toml']
         files: ^backend/
-        additional_dependencies: 
+        additional_dependencies:
           - django-stubs>=4.2
           - types-PyYAML
         # Non-blocking - warnings only

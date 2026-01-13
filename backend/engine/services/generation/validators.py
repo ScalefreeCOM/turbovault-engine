@@ -253,15 +253,16 @@ def _validate_link(link: LinkDefinition) -> ValidationResult:
             code="LNK_001",
         )
 
-    # Links must reference at least 2 hubs
-    if not link.foreign_hashkeys or len(link.foreign_hashkeys) < 2:
-        result.add_error(
-            entity_type="link",
-            entity_name=link.link_name,
-            field="foreign_hashkeys",
-            message="Link must reference at least 2 hubs",
-            code="LNK_002",
-        )
+    # Links must reference at least 2 hubs (except non-historized links)
+    if link.link_type != "non_historized":
+        if not link.foreign_hashkeys or len(link.foreign_hashkeys) < 2:
+            result.add_error(
+                entity_type="link",
+                entity_name=link.link_name,
+                field="foreign_hashkeys",
+                message="A standard Link must reference at least 2 hubs",
+                code="LNK_002",
+            )
 
     # Link should have at least one source
     if not link.source_tables:
