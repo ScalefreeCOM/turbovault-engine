@@ -41,6 +41,8 @@ def custom_get_app_list(
         "hubcolumn",
         "hubsourcemapping",
         "link",
+        "linkhubreference",
+        "linkhubsourcemapping",
         "linkcolumn",
         "linksourcemapping",
         "satellite",

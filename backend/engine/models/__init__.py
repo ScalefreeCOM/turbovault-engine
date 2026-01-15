@@ -6,7 +6,13 @@ This package contains all Django ORM models for the Data Vault domain.
 
 from engine.models.group import Group
 from engine.models.hubs import Hub, HubColumn, HubSourceMapping
-from engine.models.links import Link, LinkColumn, LinkSourceMapping
+from engine.models.links import (
+    Link,
+    LinkColumn,
+    LinkHubReference,
+    LinkHubSourceMapping,
+    LinkSourceMapping,
+)
 from engine.models.pit import PIT
 from engine.models.prejoin import PrejoinDefinition, PrejoinExtractionColumn
 from engine.models.project import Project
@@ -30,6 +36,8 @@ __all__ = [
     "HubSourceMapping",
     "Link",
     "LinkColumn",
+    "LinkHubReference",
+    "LinkHubSourceMapping",
     "LinkSourceMapping",
     "SnapshotControlTable",
     "SnapshotControlLogic",

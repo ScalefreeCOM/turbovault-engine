@@ -502,7 +502,13 @@ class SatelliteColumnAdmin(admin.ModelAdmin):
 
 
 # Import link models
-from engine.models import Link, LinkColumn, LinkSourceMapping
+from engine.models import (
+    Link,
+    LinkColumn,
+    LinkHubReference,
+    LinkHubSourceMapping,
+    LinkSourceMapping,
+)
 
 
 class LinkColumnInline(admin.TabularInline):
@@ -512,9 +518,50 @@ class LinkColumnInline(admin.TabularInline):
     extra = 1
     fields = ["column_name", "column_type", "sort_order"]
     ordering = ["sort_order"]
-    show_change_link = True  # Allow clicking to edit column details including mappings
+    show_change_link = True
     verbose_name = "Link Column"
     verbose_name_plural = "Link Columns"
+
+
+class LinkHubSourceMappingInline(admin.TabularInline):
+    """Inline admin for link hub source mappings."""
+
+    model = LinkHubSourceMapping
+    extra = 1
+    fields = ["standard_hub_column", "source_column", "prejoin_extraction_column"]
+    autocomplete_fields = ["source_column", "prejoin_extraction_column"]
+    verbose_name = "Hub Key Mapping"
+    verbose_name_plural = "Hub Key Mappings"
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """Filter standard_hub_column to only allow columns from the referenced hub."""
+        if db_field.name == "standard_hub_column":
+            # Get the ID of the LinkHubReference being edited
+            if request.resolver_match and request.resolver_match.kwargs.get(
+                "object_id"
+            ):
+                try:
+                    link_hub_ref = LinkHubReference.objects.get(
+                        pk=request.resolver_match.kwargs["object_id"]
+                    )
+                    # Filter columns to those belonging to the referenced hub
+                    kwargs["queryset"] = HubColumn.objects.filter(hub=link_hub_ref.hub)
+                except LinkHubReference.DoesNotExist:
+                    pass
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+class LinkHubReferenceInline(admin.TabularInline):
+    """Inline admin for link hub references."""
+
+    model = LinkHubReference
+    extra = 1
+    fields = ["hub", "hub_hashkey_alias_in_link", "sort_order"]
+    ordering = ["sort_order"]
+    autocomplete_fields = ["hub"]
+    show_change_link = True  # Allow clicking to edit mappings in LinkHubReferenceAdmin
+    verbose_name = "Hub Reference"
+    verbose_name_plural = "Hub References"
 
 
 class LinkSourceMappingInline(admin.TabularInline):
@@ -522,7 +569,7 @@ class LinkSourceMappingInline(admin.TabularInline):
 
     model = LinkSourceMapping
     extra = 1
-    fields = ["source_column", "is_primary_source"]
+    fields = ["source_column"]
     autocomplete_fields = ["source_column"]
     verbose_name = "Source Mapping"
     verbose_name_plural = "Source Mappings"
@@ -545,8 +592,7 @@ class LinkAdmin(admin.ModelAdmin):
     search_fields = ["link_physical_name", "link_hashkey_name"]
     readonly_fields = ["link_id", "created_at", "updated_at"]
     autocomplete_fields = ["project", "group"]
-    filter_horizontal = ["hub_references"]
-    inlines = [LinkColumnInline]
+    inlines = [LinkHubReferenceInline, LinkColumnInline]
 
     fieldsets = [
         (
@@ -555,17 +601,11 @@ class LinkAdmin(admin.ModelAdmin):
                 "fields": [
                     "link_id",
                     "project",
+                    "group",
                     "link_physical_name",
                     "link_type",
                     "link_hashkey_name",
                 ]
-            },
-        ),
-        (
-            "Hub References",
-            {
-                "fields": ["hub_references"],
-                "description": "Hubs connected by this link (must be standard hubs)",
             },
         ),
         (
@@ -612,11 +652,10 @@ class LinkSourceMappingAdmin(admin.ModelAdmin):
     list_display = [
         "link_column",
         "source_column",
-        "is_primary_source",
         "get_link",
         "created_at",
     ]
-    list_filter = ["is_primary_source", "link_column__link__project"]
+    list_filter = ["link_column__link__project"]
     search_fields = [
         "link_column__column_name",
         "source_column__source_column_physical_name",
@@ -628,6 +667,51 @@ class LinkSourceMappingAdmin(admin.ModelAdmin):
     def get_link(self, obj: LinkSourceMapping) -> str:
         """Return the link name for this mapping."""
         return obj.link_column.link.link_physical_name
+
+
+@admin.register(LinkHubReference)
+class LinkHubReferenceAdmin(admin.ModelAdmin):
+    """Admin configuration for LinkHubReference model."""
+
+    list_display = [
+        "link",
+        "hub",
+        "hub_hashkey_alias_in_link",
+        "sort_order",
+        "created_at",
+    ]
+    list_filter = ["link__project", "hub"]
+    search_fields = ["link__link_physical_name", "hub__hub_physical_name"]
+    autocomplete_fields = ["link", "hub"]
+    inlines = [LinkHubSourceMappingInline]
+
+
+@admin.register(LinkHubSourceMapping)
+class LinkHubSourceMappingAdmin(admin.ModelAdmin):
+    """Admin configuration for LinkHubSourceMapping model."""
+
+    list_display = [
+        "link_hub_reference",
+        "standard_hub_column",
+        "get_source_display",
+        "created_at",
+    ]
+    list_filter = ["link_hub_reference__link__project"]
+    search_fields = ["link_hub_reference__link__link_physical_name"]
+    autocomplete_fields = [
+        "link_hub_reference",
+        "standard_hub_column",
+        "source_column",
+        "prejoin_extraction_column",
+    ]
+
+    @admin.display(description="Mapped Source")
+    def get_source_display(self, obj: LinkHubSourceMapping) -> str:
+        if obj.source_column:
+            return str(obj.source_column)
+        elif obj.prejoin_extraction_column:
+            return f"[Prejoin] {obj.prejoin_extraction_column}"
+        return "-"
 
 
 # ==============================================================================
