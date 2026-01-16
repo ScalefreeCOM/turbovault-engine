@@ -113,8 +113,6 @@ class SourceTable(models.Model):
 
     record_source_value = models.CharField(
         max_length=500,
-        blank=True,
-        null=True,
         help_text="Value/expression used as record_source for this table",
     )
 
@@ -127,8 +125,6 @@ class SourceTable(models.Model):
 
     load_date_value = models.CharField(
         max_length=500,
-        blank=True,
-        null=True,
         help_text="Expression or column name used as load date value",
     )
 
