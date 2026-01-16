@@ -123,7 +123,7 @@ class OutputConfiguration(BaseModel):
     @classmethod
     def normalize_path(cls, v: Path) -> Path:
         """Normalize path and ensure it's absolute."""
-        return v.resolve()
+        return v.expanduser().resolve()
 
 
 class TurboVaultConfig(BaseModel):
