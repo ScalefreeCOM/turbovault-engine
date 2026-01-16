@@ -12,29 +12,13 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      upload_url: ${{ steps.release.outputs.upload_url }}
     steps:
       - uses: google-github-actions/release-please-action@v4
+        id: release
         with:
-          # Python package type
-          release-type: python
-          
-          # Package name (matches pyproject.toml)
-          package-name: turbovault-engine
-          
           # Token for creating PRs and releases
           token: ${{ secrets.GITHUB_TOKEN }}
-          
-          # Changelog sections (customize based on conventional commits)
-          changelog-types: |
-            [
-              {"type":"feat","section":"Features","hidden":false},
-              {"type":"fix","section":"Bug Fixes","hidden":false},
-              {"type":"docs","section":"Documentation","hidden":false},
-              {"type":"style","section":"Code Style","hidden":false},
-              {"type":"refactor","section":"Refactoring","hidden":false},
-              {"type":"perf","section":"Performance","hidden":false},
-              {"type":"test","section":"Tests","hidden":false},
-              {"type":"build","section":"Build System","hidden":false},
-              {"type":"ci","section":"CI/CD","hidden":false},
-              {"type":"chore","section":"Miscellaneous","hidden":false}
-            ]
