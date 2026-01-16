@@ -5,6 +5,18 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/v0.2.0...v0.3.0) (2026-01-16)
+
+
+### Features
+
+* **cli:** add ASCII art banner to startup ([131634f](https://github.com/ScalefreeCOM/turbovault-engine/commit/131634f839d411cc7bf37460c500e180c93e3f25))
+
+
+### Bug Fixes
+
+* **cli:** suppress ruff whitespace warnings for ASCII banner ([720300a](https://github.com/ScalefreeCOM/turbovault-engine/commit/720300a167b99647057c7e55fafa8ba9a344ff17))
+
 ## [0.2.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/v0.1.2...v0.2.0) (2026-01-16)
 
 
