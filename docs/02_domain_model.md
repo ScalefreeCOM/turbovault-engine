@@ -235,17 +235,16 @@ Defines a Data Vault link entity.
 |--------------------|------------|----------|-----------------------------------------------------------------------------|
 | link_id            | identifier | PK       | Unique identifier of the link.                                             |
 | project_id         | identifier | ✓ (FK)   | FK to `Project`.                                                            |
+| group_id           | identifier | (FK)     | FK to `Group` (optional).                                                   |
 | link_physical_name | string     | ✓        | Physical name of the link (e.g. `link_customer_order`).                    |
+| link_hashkey_name  | string     | ✓        | Name of the link hashkey column (e.g. `lk_customer_order`).                |
 | link_type          | string     | ✓        | `standard` or `non-historized`.                                            |
-| hub_references     | list[id]   | ✓        | List of hub IDs this link connects; can only point to **standard hubs**.   |
-| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
-| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
-
-> In relational/Django terms, `hub_references` will be modeled as a many-to-many relation between `link` and `hub` (restricted to hubs with `hub_type = standard`).
+| created_at         | datetime   | ✓        | Timestamp when the record was created.                                     |
+| updated_at         | datetime   | ✓        | Timestamp when the record was last updated.                                |
 
 **Relationships**
 
-- `link` connects multiple `hub` entities.
+- `link` **has many** `link_hub_references` (defining which hubs it connects).
 - `link` **has many** `link_column`, `link_source_mapping`, `link_hub_source_mapping`.
 - `link` is referenced by:
   - `satellite.parent_entity_id` (when parent is a link).
@@ -253,7 +252,28 @@ Defines a Data Vault link entity.
 
 ---
 
-### 5.2 `link_column`
+### 5.2 `link_hub_references`
+
+Defines the hubs referenced by a link. Replaces the list field in `link`.
+
+| Field                        | Type       | Required | Description                                                                 |
+|------------------------------|------------|----------|-----------------------------------------------------------------------------|
+| link_hub_reference_id        | identifier | PK       | Unique identifier for the link-to-hub reference.                            |
+| link_id                      | identifier | ✓ (FK)   | FK to `link.link_id`.                                                       |
+| hub_id                       | identifier | ✓ (FK)   | FK to `hub.hub_id`.                                                         |
+| hub_hashkey_alias_in_link    | string     |          | Alias for the hub hashkey in the link. Default should be the hub's hashkey name. |
+| sort_order                   | integer    |          | Order of appearance in the link. Lower values appear first.                 |
+| created_at                   | datetime   | ✓        | Timestamp when the record was created.                                      |
+| updated_at                   | datetime   | ✓        | Timestamp when the record was last updated.                                 |
+
+**Relationships**
+
+- `link_hub_references` **belongs to** one `link` and one `hub`.
+- Used in `link_hub_source_mapping.link_hub_reference_id`.
+
+---
+
+### 5.3 `link_column`
 
 Describes columns in a link (payload or additional).
 
@@ -262,9 +282,10 @@ Describes columns in a link (payload or additional).
 | link_column_id  | identifier | PK       | Unique identifier of the link column.                        |
 | link_id         | identifier | ✓ (FK)   | FK to `link.link_id`.                                       |
 | column_name     | string     | ✓        | Logical/target column name in the link.                      |
-| column_type     | string     | ✓        | `payload` or `additional_column`.                            |
-| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
-| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
+| column_type     | string     | ✓        | `payload`, `additional_column`, or `dependant_child_key`.    |
+| sort_order      | integer    |          | Order of appearance. Lower values appear first.              |
+| created_at      | datetime   | ✓        | Timestamp when the record was created.                                     |
+| updated_at      | datetime   | ✓        | Timestamp when the record was last updated.                                |
 
 **Relationships**
 
@@ -273,7 +294,7 @@ Describes columns in a link (payload or additional).
 
 ---
 
-### 5.3 `link_source_mapping`
+### 5.4 `link_source_mapping`
 
 Maps link columns to source columns.
 
@@ -282,8 +303,8 @@ Maps link columns to source columns.
 | link_source_mapping_id | identifier | PK       | Unique identifier for a link column mapping.                           |
 | link_column_id         | identifier | ✓ (FK)   | FK to `link_column.link_column_id`.                                    |
 | source_column_id       | identifier | ✓ (FK)   | FK to `source_column.source_column_id`.                                |
-| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
-| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
+| created_at             | datetime   | ✓        | Timestamp when the record was created.                                     |
+| updated_at             | datetime   | ✓        | Timestamp when the record was last updated.                                |
 
 **Relationships**
 
@@ -293,19 +314,19 @@ Maps link columns to source columns.
 
 ---
 
-### 5.4 `link_hub_source_mapping`
+### 5.5 `link_hub_source_mapping`
 
 Defines how link hub keys are derived from source data.
 
 | Field                           | Type       | Required | Description                                                                                                                                 |
 |---------------------------------|------------|----------|---------------------------------------------------------------------------------------------------------------------------------------------|
 | link_hub_source_mapping_id      | identifier | PK       | Unique identifier for a link hub mapping.                                                                                                   |
-| link_id                         | identifier | ✓ (FK)   | FK to `link.link_id`.                                                                                                                       |
+| link_hub_reference_id           | identifier | ✓ (FK)   | FK to `link_hub_references.link_hub_reference_id`.                                                                                          |
 | standard_hub_column_id          | identifier | ✓ (FK)   | FK to `hub_column.hub_column_id` (must be a hub column of a standard hub).                                                                  |
 | source_column_id                | identifier |          | FK to `source_column.source_column_id` when mapping directly from a source column.                                                          |
 | prejoin_extraction_column_id    | identifier |          | FK to `prejoin_extraction_column.prejoin_extraction_column_id` when mapping from a pre-joined extraction column.                           |
-| created_at                              | datetime   | ✓        | Timestamp when the record was created.                                                                          |
-| updated_at                              | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
+| created_at                      | datetime   | ✓        | Timestamp when the record was created.                                                                          |
+| updated_at                      | datetime   | ✓        | Timestamp when the record was last updated.                                                                     |
 
 > **Constraint:** Either `(source_column_id)` must be set **or** `(prejoin_extraction_column_id)` must be set, but **not both**.  
 > This expresses “direct from source” vs. “via pre-join extraction”.
@@ -313,7 +334,7 @@ Defines how link hub keys are derived from source data.
 **Relationships**
 
 - `link_hub_source_mapping` **belongs to**:
-  - one `link`,
+  - one `link_hub_references` (replacing direct link FK),
   - one `hub_column` (as the hub key column),
   - either one `source_column` or one `prejoin_extraction_column`.
 

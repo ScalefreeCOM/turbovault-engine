@@ -15,7 +15,13 @@ from django.db import transaction
 from django.utils import timezone
 
 from engine.models.hubs import Hub, HubColumn, HubSourceMapping
-from engine.models.links import Link, LinkColumn, LinkSourceMapping
+from engine.models.links import (
+    Link,
+    LinkColumn,
+    LinkHubReference,
+    LinkHubSourceMapping,
+    LinkSourceMapping,
+)
 from engine.models.pit import PIT
 from engine.models.prejoin import PrejoinDefinition, PrejoinExtractionColumn
 from engine.models.project import Project
@@ -59,19 +65,30 @@ class ExcelImportService:
 
     @transaction.atomic
     def import_metadata(
-        self, project_name: str, description: str | None = None
+        self,
+        project_name: str | None = None,
+        description: str | None = None,
+        project: Project | None = None,
+        skip_snapshots: bool = False,
     ) -> Project:
         """
         Main entry point for importing metadata from Excel.
         """
         logger.info(f"Starting import from {self.file_path}")
 
-        # 1. Create Project
-        self.project = Project.objects.create(
-            name=project_name,
-            description=description or f"Imported from {self.file_path}",
-            config={},
-        )
+        # 1. Create or Use Project
+        if project:
+            self.project = project
+        else:
+            if not project_name:
+                raise ValueError(
+                    "project_name is required if no project instance is provided"
+                )
+            self.project = Project.objects.create(
+                name=project_name,
+                description=description or f"Imported from {self.file_path}",
+                config={},
+            )
 
         # 2. Process Source Data (Systems and Tables)
         if "source_data" in self.excel_file.sheet_names:
@@ -86,17 +103,20 @@ class ExcelImportService:
         if "ref_hub" in self.excel_file.sheet_names:
             self._process_reference_hubs(self.excel_file.parse("ref_hub"))
 
-        # 5. Process Links
-        if "standard_link" in self.excel_file.sheet_names:
-            self._process_standard_links(self.excel_file.parse("standard_link"))
-
-        # 5.1 Process Prejoins before links
+        # 5. Process Prejoins (Must happen before Links because Links use extractions)
         if "standard_link" in self.excel_file.sheet_names:
             self._process_prejoins(self.excel_file.parse("standard_link"))
         if "non_historized_link" in self.excel_file.sheet_names:
             self._process_prejoins(self.excel_file.parse("non_historized_link"))
 
+        # 5.1 Process Links
+        if "standard_link" in self.excel_file.sheet_names:
+            self._process_standard_links(self.excel_file.parse("standard_link"))
+
         if "non_historized_link" in self.excel_file.sheet_names:
+            self._process_non_historized_links(
+                self.excel_file.parse("non_historized_link")
+            )
             self._process_non_historized_links(
                 self.excel_file.parse("non_historized_link")
             )
@@ -112,8 +132,8 @@ class ExcelImportService:
             if sheet in self.excel_file.sheet_names:
                 self._process_satellites(self.excel_file.parse(sheet), sheet)
 
-        # 7. Create default Snapshot Control
-        self._create_default_snapshot_control()
+        # 7. Create default Snapshot Control (or find existing)
+        self._create_default_snapshot_control(skip_creation=skip_snapshots)
 
         # 8. Process Prejoins (after source columns, before links that might use them)
         # Wait, non_historized_link processing already happens.
@@ -416,168 +436,411 @@ class ExcelImportService:
         """Processes standard_link sheet."""
         df.columns = [c.lower() for c in df.columns]
 
-        for _, row in df.iterrows():
-            link_name = str(row.get("target_link_table_physical_name"))
+        # Forward fill to handle merged cells
+        if "target_link_table_physical_name" in df.columns:
+            df["target_link_table_physical_name"] = df[
+                "target_link_table_physical_name"
+            ].ffill()
+
+        # First pass: Create Links
+        link_groups = df.groupby("target_link_table_physical_name")
+
+        for link_name, link_rows in link_groups:
+            link_name = str(link_name)
             if not link_name or link_name == "nan":
                 continue
 
+            # Create Link
+            row_sample = link_rows.iloc[0]
             if link_name not in self._links:
                 link = Link.objects.create(
                     project=self.project,
                     link_physical_name=link_name,
-                    link_hashkey_name=f"lk_{link_name}",
+                    link_hashkey_name=self._get_val(
+                        row_sample, "target_primary_key_physical_name"
+                    )
+                    or f"lk_{link_name}",
                     link_type=Link.LinkType.STANDARD,
                 )
                 self._links[link_name] = link
-                link_id = self._get_val(row, "link_identifier")
+                link_id = self._get_val(row_sample, "link_identifier")
                 if link_id:
                     self._links[link_id] = link
 
             link = self._links[link_name]
 
-            # Handle Hub References (Many-to-Many)
-            hub_id_str = self._get_val(row, "hub_identifier")
-            if hub_id_str:
-                hub = self._hubs.get(hub_id_str)
-                if not hub:
-                    hub = Hub.objects.filter(
-                        project=self.project, hub_physical_name=hub_id_str
-                    ).first()
+            # Separate Payload rows
+            if "hub_identifier" not in link_rows.columns:
+                ref_rows = pd.DataFrame()
+                payload_rows = link_rows
+            else:
+                ref_rows = link_rows[
+                    link_rows["hub_identifier"].notna()
+                    & (link_rows["hub_identifier"].astype(str) != "nan")
+                ]
+                payload_rows = link_rows[
+                    link_rows["hub_identifier"].isna()
+                    | (link_rows["hub_identifier"].astype(str) == "nan")
+                ]
 
-                if hub and hub.hub_type == Hub.HubType.STANDARD:
-                    link.hub_references.add(hub)
+            # === Process Hub References ===
+            if not ref_rows.empty:
+                hub_groups = ref_rows.groupby("hub_identifier")
+                for hub_id_str, hub_rows in hub_groups:
+                    hub_id_str = str(hub_id_str)
+                    hub = self._hubs.get(hub_id_str)
+                    if not hub:
+                        hub = Hub.objects.filter(
+                            project=self.project, hub_physical_name=hub_id_str
+                        ).first()
 
-                    # Create LinkColumn and Mapping
-                    col_name = self._get_val(
-                        row, "target_column_physical_name"
-                    ) or self._get_val(row, "source_column_physical_name")
-                    if col_name:
-                        lc, _ = LinkColumn.objects.get_or_create(
-                            link=link,
-                            column_name=col_name,
-                            defaults={
-                                "column_type": LinkColumn.ColumnType.BUSINESS_KEY
-                            },
+                    if not hub:
+                        logger.warning(
+                            f"Hub {hub_id_str} not found in Link {link_name}"
+                        )
+                        continue
+
+                    # Group by Alias (Scenario A vs B)
+                    hub_rows = hub_rows.copy()
+                    hub_rows["target_column_physical_name"] = hub_rows[
+                        "target_column_physical_name"
+                    ].fillna("")
+
+                    alias_groups = hub_rows.groupby("target_column_physical_name")
+
+                    for alias, alias_rows in alias_groups:
+                        hk_col = self._get_val(
+                            alias_rows.iloc[0], "target_primary_key_physical_name"
+                        )
+                        final_alias = alias if alias != hk_col else ""
+                        sort_order = int(
+                            alias_rows.iloc[0].get("target_column_sort_order") or 0
                         )
 
-                        # Mapping (could be prejoin)
-                        extraction_key = f"{link.link_physical_name}|{self._get_val(row, 'prejoin_target_column_alias') or col_name}"
-                        extraction = self._extractions.get(extraction_key)
+                        lhr = LinkHubReference.objects.create(
+                            link=link,
+                            hub=hub,
+                            hub_hashkey_alias_in_link=final_alias,
+                            sort_order=sort_order,
+                        )
 
-                        if extraction:
-                            LinkSourceMapping.objects.get_or_create(
-                                link_column=lc,
-                                prejoin_extraction_column=extraction,
-                                defaults={"is_primary_source": True},
+                        # Mappings
+                        alias_rows_sorted = alias_rows.sort_values(
+                            "target_column_sort_order"
+                        )
+
+                        hub_cols = list(
+                            hub.columns.filter(
+                                column_type=HubColumn.ColumnType.BUSINESS_KEY
+                            ).order_by("sort_order")
+                        )
+                        if not hub_cols:
+                            hub_cols = list(
+                                hub.columns.filter(
+                                    column_type=HubColumn.ColumnType.REFERENCE_KEY
+                                ).order_by("sort_order")
                             )
-                        else:
+
+                        for idx, (_, row) in enumerate(alias_rows_sorted.iterrows()):
+                            if idx >= len(hub_cols):
+                                continue
+
+                            hub_col = hub_cols[idx]
+
                             source_table_id = self._get_val(
                                 row, "source_table_identifier"
                             )
                             source_col_name = self._get_val(
                                 row, "source_column_physical_name"
                             )
-                            source_col = self._source_columns.get(
-                                f"{source_table_id}|{source_col_name}"
+                            prejoin_alias = self._get_val(
+                                row, "prejoin_target_column_alias"
                             )
-                            if source_col:
-                                LinkSourceMapping.objects.get_or_create(
-                                    link_column=lc,
-                                    source_column=source_col,
-                                    defaults={"is_primary_source": True},
+                            ext_col_name = self._get_val(
+                                row, "prejoin_extraction_column_name"
+                            )
+
+                            prejoin_ext = None
+                            source_col = None
+
+                            if prejoin_alias or ext_col_name:
+                                key_candidate = (
+                                    prejoin_alias or ext_col_name or source_col_name
                                 )
+                                extraction_key = f"{link_name}|{key_candidate}"
+                                prejoin_ext = self._extractions.get(extraction_key)
+
+                            if not prejoin_ext and source_table_id and source_col_name:
+                                source_col = self._source_columns.get(
+                                    f"{source_table_id}|{source_col_name}"
+                                )
+
+                            if source_col or prejoin_ext:
+                                LinkHubSourceMapping.objects.create(
+                                    link_hub_reference=lhr,
+                                    standard_hub_column=hub_col,
+                                    source_column=source_col,
+                                    prejoin_extraction_column=prejoin_ext,
+                                )
+
+            # === Process Payload ===
+            for _, row in payload_rows.iterrows():
+                col_name = (
+                    self._get_val(row, "target_column_physical_name")
+                    or self._get_val(row, "prejoin_target_column_alias")
+                    or self._get_val(row, "prejoin_extraction_column_name")
+                    or self._get_val(row, "source_column_physical_name")
+                )
+                if not col_name:
+                    continue
+
+                hk_def = row.get("target_primary_key_physical_name")
+                is_key = bool(hk_def and not pd.isna(hk_def))
+                col_type = (
+                    LinkColumn.ColumnType.DEPENDANT_CHILD_KEY
+                    if is_key
+                    else LinkColumn.ColumnType.PAYLOAD
+                )
+
+                lc, _ = LinkColumn.objects.get_or_create(
+                    link=link,
+                    column_name=col_name,
+                    defaults={
+                        "column_type": col_type,
+                        "sort_order": int(row.get("target_column_sort_order") or 0),
+                    },
+                )
+
+                prejoin_alias = self._get_val(row, "prejoin_target_column_alias")
+                ext_col_name = self._get_val(row, "prejoin_extraction_column_name")
+                prejoin_ext = None
+                source_col = None
+
+                if prejoin_alias or ext_col_name:
+                    key_candidate = prejoin_alias or ext_col_name or col_name
+                    extraction_key = f"{link_name}|{key_candidate}"
+                    prejoin_ext = self._extractions.get(extraction_key)
+
+                if prejoin_ext:
+                    source_col = prejoin_ext.source_column
+                elif not source_col:
+                    source_table_id = self._get_val(row, "source_table_identifier")
+                    source_col_name = self._get_val(row, "source_column_physical_name")
+                    if source_table_id and source_col_name:
+                        source_col = self._source_columns.get(
+                            f"{source_table_id}|{source_col_name}"
+                        )
+
+                if source_col:
+                    LinkSourceMapping.objects.get_or_create(
+                        link_column=lc,
+                        source_column=source_col,
+                    )
 
     def _process_non_historized_links(self, df: pd.DataFrame):
         """Processes non_historized_link sheet."""
         df.columns = [c.lower() for c in df.columns]
 
-        for _, row in df.iterrows():
-            link_name = str(row.get("target_link_table_physical_name"))
+        # Forward fill to handle merged cells
+        if "target_link_table_physical_name" in df.columns:
+            df["target_link_table_physical_name"] = df[
+                "target_link_table_physical_name"
+            ].ffill()
+
+        # First pass: Create Links
+        link_groups = df.groupby("target_link_table_physical_name")
+
+        for link_name, link_rows in link_groups:
+            link_name = str(link_name)
             if not link_name or link_name == "nan":
                 continue
 
+            # Create Link
+            row_sample = link_rows.iloc[0]
             if link_name not in self._links:
                 link = Link.objects.create(
                     project=self.project,
                     link_physical_name=link_name,
-                    link_hashkey_name=f"lk_{link_name}",
+                    link_hashkey_name=self._get_val(
+                        row_sample, "target_primary_key_physical_name"
+                    )
+                    or f"lk_{link_name}",
                     link_type=Link.LinkType.NON_HISTORIZED,
                 )
                 self._links[link_name] = link
-                nh_link_id = self._get_val(row, "nh_link_identifier")
+                nh_link_id = self._get_val(row_sample, "nh_link_identifier")
                 if nh_link_id:
                     self._links[nh_link_id] = link
 
             link = self._links[link_name]
 
-            # Hub References
-            hub_id_str = self._get_val(row, "hub_identifier")
-            if hub_id_str:
-                hub = self._hubs.get(hub_id_str)
-                if not hub:
-                    hub = Hub.objects.filter(
-                        project=self.project, hub_physical_name=hub_id_str
-                    ).first()
-                if hub and hub.hub_type == Hub.HubType.STANDARD:
-                    link.hub_references.add(hub)
+            # Separate Payload rows
+            if "hub_identifier" not in link_rows.columns:
+                ref_rows = pd.DataFrame()
+                payload_rows = link_rows
+            else:
+                ref_rows = link_rows[
+                    link_rows["hub_identifier"].notna()
+                    & (link_rows["hub_identifier"].astype(str) != "nan")
+                ]
+                payload_rows = link_rows[
+                    link_rows["hub_identifier"].isna()
+                    | (link_rows["hub_identifier"].astype(str) == "nan")
+                ]
 
-                    # BKs for NH links are payload usually, but let's add them as business_key if sort_order present?
-                    # Spec says NH Hub Column logic is same.
-                    col_name = self._get_val(
-                        row, "target_column_physical_name"
-                    ) or self._get_val(row, "source_column_physical_name")
-                    if col_name:
-                        lc, _ = LinkColumn.objects.get_or_create(
-                            link=link,
-                            column_name=col_name,
-                            defaults={
-                                "column_type": LinkColumn.ColumnType.BUSINESS_KEY
-                            },
+            # === Process Hub References ===
+            if not ref_rows.empty:
+                hub_groups = ref_rows.groupby("hub_identifier")
+                for hub_id_str, hub_rows in hub_groups:
+                    hub_id_str = str(hub_id_str)
+                    hub = self._hubs.get(hub_id_str)
+                    if not hub:
+                        hub = Hub.objects.filter(
+                            project=self.project, hub_physical_name=hub_id_str
+                        ).first()
+
+                    if not hub:
+                        logger.warning(
+                            f"Hub {hub_id_str} not found in NH Link {link_name}"
                         )
-                        # mapping handled below in payload if it matches?
-                        # Actually let's separated BK and Payload based on hub_identifier presence.
+                        continue
 
-            # Payload Columns (only if hub_identifier is empty or specifically mapped)
-            col_name = (
-                self._get_val(row, "prejoin_target_column_alias")
-                or self._get_val(row, "prejoin_extraction_column_name")
-                or self._get_val(row, "source_column_physical_name")
-            )
-            if col_name:
-                link_column, _ = LinkColumn.objects.get_or_create(
+                    # Group by Alias (Scenario A vs B)
+                    hub_rows = hub_rows.copy()
+                    hub_rows["target_column_physical_name"] = hub_rows[
+                        "target_column_physical_name"
+                    ].fillna("")
+
+                    alias_groups = hub_rows.groupby("target_column_physical_name")
+
+                    for alias, alias_rows in alias_groups:
+                        hk_col = self._get_val(
+                            alias_rows.iloc[0], "target_primary_key_physical_name"
+                        )
+                        final_alias = alias if alias != hk_col else ""
+                        sort_order = int(
+                            alias_rows.iloc[0].get("target_column_sort_order") or 0
+                        )
+
+                        lhr = LinkHubReference.objects.create(
+                            link=link,
+                            hub=hub,
+                            hub_hashkey_alias_in_link=final_alias,
+                            sort_order=sort_order,
+                        )
+
+                        # Mappings
+                        alias_rows_sorted = alias_rows.sort_values(
+                            "target_column_sort_order"
+                        )
+
+                        hub_cols = list(
+                            hub.columns.filter(
+                                column_type=HubColumn.ColumnType.BUSINESS_KEY
+                            ).order_by("sort_order")
+                        )
+                        if not hub_cols:
+                            hub_cols = list(
+                                hub.columns.filter(
+                                    column_type=HubColumn.ColumnType.REFERENCE_KEY
+                                ).order_by("sort_order")
+                            )
+
+                        for idx, (_, row) in enumerate(alias_rows_sorted.iterrows()):
+                            if idx >= len(hub_cols):
+                                continue
+
+                            hub_col = hub_cols[idx]
+
+                            source_table_id = self._get_val(
+                                row, "source_table_identifier"
+                            )
+                            source_col_name = self._get_val(
+                                row, "source_column_physical_name"
+                            )
+                            prejoin_alias = self._get_val(
+                                row, "prejoin_target_column_alias"
+                            )
+                            ext_col_name = self._get_val(
+                                row, "prejoin_extraction_column_name"
+                            )
+
+                            prejoin_ext = None
+                            source_col = None
+
+                            if prejoin_alias or ext_col_name:
+                                key_candidate = (
+                                    prejoin_alias or ext_col_name or source_col_name
+                                )
+                                extraction_key = f"{link_name}|{key_candidate}"
+                                prejoin_ext = self._extractions.get(extraction_key)
+
+                            if not prejoin_ext and source_table_id and source_col_name:
+                                source_col = self._source_columns.get(
+                                    f"{source_table_id}|{source_col_name}"
+                                )
+
+                            if source_col or prejoin_ext:
+                                LinkHubSourceMapping.objects.create(
+                                    link_hub_reference=lhr,
+                                    standard_hub_column=hub_col,
+                                    source_column=source_col,
+                                    prejoin_extraction_column=prejoin_ext,
+                                )
+
+            # === Process Payload ===
+            for _, row in payload_rows.iterrows():
+                col_name = (
+                    self._get_val(row, "target_column_physical_name")
+                    or self._get_val(row, "prejoin_target_column_alias")
+                    or self._get_val(row, "prejoin_extraction_column_name")
+                    or self._get_val(row, "source_column_physical_name")
+                )
+                if not col_name:
+                    continue
+
+                hk_def = row.get("target_primary_key_physical_name")
+                is_key = bool(hk_def and not pd.isna(hk_def))
+                col_type = (
+                    LinkColumn.ColumnType.DEPENDANT_CHILD_KEY
+                    if is_key
+                    else LinkColumn.ColumnType.PAYLOAD
+                )
+
+                lc, _ = LinkColumn.objects.get_or_create(
                     link=link,
                     column_name=col_name,
-                    defaults={"column_type": LinkColumn.ColumnType.PAYLOAD},
+                    defaults={
+                        "column_type": col_type,
+                        "sort_order": int(row.get("target_column_sort_order") or 0),
+                    },
                 )
 
-                # Mapping
-                source_table_key = self._get_val(row, "source_table_identifier")
-                source_col_name = self._get_val(row, "source_column_physical_name")
+                prejoin_alias = self._get_val(row, "prejoin_target_column_alias")
+                ext_col_name = self._get_val(row, "prejoin_extraction_column_name")
+                prejoin_ext = None
+                source_col = None
 
-                # Check for prejoin extraction first
-                alias = self._get_val(row, "prejoin_target_column_alias")
-                ext_col = self._get_val(row, "prejoin_extraction_column_name")
-                extraction_key = (
-                    f"{link.link_physical_name}|{alias or ext_col or col_name}"
-                )
-                extraction = self._extractions.get(extraction_key)
+                if prejoin_alias or ext_col_name:
+                    key_candidate = prejoin_alias or ext_col_name or col_name
+                    extraction_key = f"{link_name}|{key_candidate}"
+                    prejoin_ext = self._extractions.get(extraction_key)
 
-                if extraction:
-                    LinkSourceMapping.objects.get_or_create(
-                        link_column=link_column,
-                        prejoin_extraction_column=extraction,
-                        defaults={"is_primary_source": True},
-                    )
-                else:
-                    source_col = self._source_columns.get(
-                        f"{source_table_key}|{source_col_name}"
-                    )
-                    if source_col:
-                        LinkSourceMapping.objects.get_or_create(
-                            link_column=link_column,
-                            source_column=source_col,
-                            defaults={"is_primary_source": True},
+                if prejoin_ext:
+                    source_col = prejoin_ext.source_column
+                elif not source_col:
+                    source_table_id = self._get_val(row, "source_table_identifier")
+                    source_col_name = self._get_val(row, "source_column_physical_name")
+                    if source_table_id and source_col_name:
+                        source_col = self._source_columns.get(
+                            f"{source_table_id}|{source_col_name}"
                         )
+
+                if source_col:
+                    LinkSourceMapping.objects.get_or_create(
+                        link_column=lc,
+                        source_column=source_col,
+                    )
 
     def _process_satellites(self, df: pd.DataFrame, sheet_type: str):
         """Processes all types of satellite sheets."""
@@ -696,7 +959,29 @@ class ExcelImportService:
 
     def _process_prejoins(self, df: pd.DataFrame):
         """Processes prejoin definitions and extractions."""
-        df.columns = [c.lower() for c in df.columns]
+        df.columns = [c.lower().strip() for c in df.columns]
+
+        # Forward fill critical columns to allow merged cells usage
+        cols_to_fill = [
+            "source_table_identifier",
+            "prejoin_table_identifier",
+            "target_link_table_physical_name",
+        ]
+        for col in cols_to_fill:
+            if col in df.columns:
+                df[col] = df[col].ffill()
+
+        # Helper for case-insensitive lookup
+        def get_table_and_id(tid):
+            if not tid:
+                return None, None
+            if tid in self._source_tables:
+                return self._source_tables[tid], tid
+            # Fallback
+            for k, v in self._source_tables.items():
+                if k.lower() == str(tid).lower():
+                    return v, k
+            return None, None
 
         for _, row in df.iterrows():
             source_table_id = self._get_val(row, "source_table_identifier")
@@ -707,37 +992,40 @@ class ExcelImportService:
 
             link_name = self._get_val(row, "target_link_table_physical_name")
 
+            # Resolve Objects and Canonical IDs
+            source_table, source_table_id = get_table_and_id(source_table_id)
+            target_table, target_table_id = get_table_and_id(target_table_id)
+
+            if not source_table or not target_table:
+                continue
+
             # Prejoin Definition
             prejoin_key = f"{source_table_id}|{target_table_id}"
             if prejoin_key not in self._prejoins:
-                source_table = self._source_tables.get(source_table_id)
-                target_table = self._source_tables.get(target_table_id)
+                prejoin = PrejoinDefinition.objects.create(
+                    project=self.project,
+                    source_table=source_table,
+                    prejoin_target_table=target_table,
+                    prejoin_operator=PrejoinDefinition.JoinOperator.AND,
+                )
 
-                if source_table and target_table:
-                    prejoin = PrejoinDefinition.objects.create(
-                        project=self.project,
-                        source_table=source_table,
-                        prejoin_target_table=target_table,
-                        prejoin_operator=PrejoinDefinition.Operator.AND,
-                    )
+                # Conditions
+                source_col_name = self._get_val(row, "source_column_physical_name")
+                target_col_name = self._get_val(row, "prejoin_table_column_name")
 
-                    # Conditions
-                    source_col_name = self._get_val(row, "source_column_physical_name")
-                    target_col_name = self._get_val(row, "prejoin_table_column_name")
+                source_col = self._source_columns.get(
+                    f"{source_table_id}|{source_col_name}"
+                )
+                target_col = self._source_columns.get(
+                    f"{target_table_id}|{target_col_name}"
+                )
 
-                    source_col = self._source_columns.get(
-                        f"{source_table_id}|{source_col_name}"
-                    )
-                    target_col = self._source_columns.get(
-                        f"{target_table_id}|{target_col_name}"
-                    )
+                if source_col:
+                    prejoin.prejoin_condition_source_column.add(source_col)
+                if target_col:
+                    prejoin.prejoin_condition_target_column.add(target_col)
 
-                    if source_col:
-                        prejoin.prejoin_condition_source_column.add(source_col)
-                    if target_col:
-                        prejoin.prejoin_condition_target_column.add(target_col)
-
-                    self._prejoins[prejoin_key] = prejoin
+                self._prejoins[prejoin_key] = prejoin
 
             prejoin = self._prejoins.get(prejoin_key)
             if not prejoin:
@@ -749,6 +1037,7 @@ class ExcelImportService:
                 source_col = self._source_columns.get(
                     f"{target_table_id}|{extraction_col_name}"
                 )
+
                 if source_col:
                     extraction, _ = PrejoinExtractionColumn.objects.get_or_create(
                         prejoin=prejoin, source_column=source_col
@@ -900,10 +1189,24 @@ class ExcelImportService:
                     if sat:
                         pit.satellites.add(sat)
 
-    def _create_default_snapshot_control(self):
+    def _create_default_snapshot_control(self, skip_creation: bool = False):
         """Creates a default snapshot control table and logic rule as per spec."""
         if self._snapshot_control:
             return  # Already created
+
+        # Try to find existing one for the project first
+        existing_table = SnapshotControlTable.objects.filter(
+            project=self.project
+        ).first()
+        if existing_table:
+            self._snapshot_control = existing_table
+            self._snapshot_logic = SnapshotControlLogic.objects.filter(
+                snapshot_control_table=existing_table
+            ).first()
+            return
+
+        if skip_creation:
+            return
 
         today = timezone.now().date()
         self._snapshot_control = SnapshotControlTable.objects.create(
