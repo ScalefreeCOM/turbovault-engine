@@ -468,7 +468,6 @@ class ModelBuilder:
             Hub,
             HubColumn,
             HubSourceMapping,
-            Link,
             LinkColumn,
             LinkHubSourceMapping,
             LinkSourceMapping,
@@ -479,7 +478,7 @@ class ModelBuilder:
         # ========================================================================
         # 1. Process Hub Hashkeys
         # ========================================================================
-        
+
         # Find all hub source mappings where source column is from this table
         hub_mappings = HubSourceMapping.objects.filter(
             source_column__source_table=source_table
@@ -531,7 +530,7 @@ class ModelBuilder:
         # ========================================================================
         # 2. Process Link Hashkeys
         # ========================================================================
-        
+
         # Find all link hub source mappings where source column is from this table
         # This includes both direct source_column and prejoin_extraction_column
         link_hub_mappings = LinkHubSourceMapping.objects.filter(
@@ -745,9 +744,10 @@ class ModelBuilder:
             hub_refs = link.hub_references.all()
             hub_names = [hub_ref.hub.hub_physical_name for hub_ref in hub_refs]
             foreign_hashkeys = [
-                hub_ref.hub.hub_hashkey_name for hub_ref in hub_refs if hub_ref.hub.hub_hashkey_name
+                hub_ref.hub.hub_hashkey_name
+                for hub_ref in hub_refs
+                if hub_ref.hub.hub_hashkey_name
             ]
-
 
             # Business key columns are NOT stored in LinkColumn
             # They are derived from hub references via LinkHubSourceMapping
