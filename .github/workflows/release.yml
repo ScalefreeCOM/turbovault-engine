@@ -69,7 +69,7 @@ jobs:
     needs: build-package
     runs-on: ubuntu-latest
     # Only publish if PYPI_API_TOKEN secret exists
-    if: ${{ secrets.PYPI_API_TOKEN != '' }}
+    if: ${{ vars.PUBLISH_PYPI == 'true' }}
     
     steps:
     - name: Download artifacts
