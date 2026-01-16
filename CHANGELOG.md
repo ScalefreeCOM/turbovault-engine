@@ -5,6 +5,24 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/v0.3.0...v0.4.0) (2026-01-16)
+
+
+### Features
+
+* **export:** adding correct link hashkey generation to model export ([#28](https://github.com/ScalefreeCOM/turbovault-engine/issues/28)) ([3fbb324](https://github.com/ScalefreeCOM/turbovault-engine/commit/3fbb32431497be76b4cbedfcf229d50016ad32eb))
+* make record_source and load_date required ([#29](https://github.com/ScalefreeCOM/turbovault-engine/issues/29)) ([4dd3ad0](https://github.com/ScalefreeCOM/turbovault-engine/commit/4dd3ad03f87ba01a43e77c01151a32cd94a5bfc0))
+
+
+### Bug Fixes
+
+* adding missing dependencies for excel import ([#26](https://github.com/ScalefreeCOM/turbovault-engine/issues/26)) ([78cb189](https://github.com/ScalefreeCOM/turbovault-engine/commit/78cb189e24e228b7828f89c3b90985bf03608fe6))
+
+
+### Dependencies
+
+* **deps:** update rich requirement from &lt;14.0,&gt;=13.0 to >=13.0,<15.0 ([#10](https://github.com/ScalefreeCOM/turbovault-engine/issues/10)) ([29e6081](https://github.com/ScalefreeCOM/turbovault-engine/commit/29e6081641876c4c83e9117d26c195d5b8da869f))
+
 ## [0.3.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/v0.2.0...v0.3.0) (2026-01-16)
 
 
