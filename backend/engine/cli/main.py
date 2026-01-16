@@ -53,6 +53,8 @@ def main(
 
 def _print_banner() -> None:
     """Display TurboVault ASCII art banner."""
+    # fmt: off
+    # ruff: noqa: W291, W293
     banner = """
   _______         _                           _ _   
  |__   __|       | |                         | | |  
@@ -63,6 +65,7 @@ def _print_banner() -> None:
                                                     
                                                     
 """
+    # fmt: on
     console.print(f"[bold cyan]{banner}[/bold cyan]")
 
 
