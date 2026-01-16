@@ -455,8 +455,8 @@ class ModelBuilder:
         """
         Get all hashkey definitions needed for a source table's stage.
 
-        Queries hub (and future: link) source mappings to find all
-        hashkeys that need to be calculated from this source table.
+        Queries hub and link source mappings to find all hashkeys that need
+        to be calculated from this source table.
 
         Args:
             source_table: The source table to get hashkeys for
@@ -464,10 +464,23 @@ class ModelBuilder:
         Returns:
             List of hashkey definitions for the stage
         """
-        from engine.models import Hub, HubColumn, HubSourceMapping
+        from engine.models import (
+            Hub,
+            HubColumn,
+            HubSourceMapping,
+            LinkColumn,
+            LinkHubSourceMapping,
+            LinkSourceMapping,
+        )
+
+        result = []
+
+        # ========================================================================
+        # 1. Process Hub Hashkeys
+        # ========================================================================
 
         # Find all hub source mappings where source column is from this table
-        mappings = HubSourceMapping.objects.filter(
+        hub_mappings = HubSourceMapping.objects.filter(
             source_column__source_table=source_table
         ).select_related("hub_column__hub", "source_column")
 
@@ -476,7 +489,7 @@ class ModelBuilder:
             lambda: {"hub": None, "source_columns": []}
         )
 
-        for mapping in mappings:
+        for mapping in hub_mappings:
             hub = mapping.hub_column.hub
             hub_key = str(hub.hub_id)
 
@@ -491,7 +504,6 @@ class ModelBuilder:
                     }
                 )
 
-        result = []
         for _hub_key, info in hub_columns_map.items():
             hub = info["hub"]
 
@@ -512,6 +524,122 @@ class ModelBuilder:
                         entity_type="hub",
                         hashkey_name=hub.hub_hashkey_name,
                         business_key_columns=source_column_names,
+                    )
+                )
+
+        # ========================================================================
+        # 2. Process Link Hashkeys
+        # ========================================================================
+
+        # Find all link hub source mappings where source column is from this table
+        # This includes both direct source_column and prejoin_extraction_column
+        link_hub_mappings = LinkHubSourceMapping.objects.filter(
+            source_column__source_table=source_table
+        ).select_related(
+            "link_hub_reference__link",
+            "link_hub_reference__hub",
+            "standard_hub_column",
+            "source_column",
+        ) | LinkHubSourceMapping.objects.filter(
+            prejoin_extraction_column__source_column__source_table=source_table
+        ).select_related(
+            "link_hub_reference__link",
+            "link_hub_reference__hub",
+            "standard_hub_column",
+            "prejoin_extraction_column__source_column",
+        )
+
+        # Group by link to build link hashkey definitions
+        link_columns_map: dict[str, dict] = defaultdict(
+            lambda: {
+                "link": None,
+                "hub_source_columns": [],  # Columns from hub references
+                "dependent_child_keys": [],  # Dependent child key columns
+            }
+        )
+
+        for mapping in link_hub_mappings:
+            link = mapping.link_hub_reference.link
+            link_key = str(link.link_id)
+
+            link_columns_map[link_key]["link"] = link
+
+            # Get the source column (either direct or from prejoin)
+            if mapping.source_column:
+                source_col_name = mapping.source_column.source_column_physical_name
+            elif mapping.prejoin_extraction_column:
+                source_col_name = (
+                    mapping.prejoin_extraction_column.source_column.source_column_physical_name
+                )
+            else:
+                continue  # Skip invalid mappings
+
+            # Add to hub source columns with proper sorting
+            link_columns_map[link_key]["hub_source_columns"].append(
+                {
+                    "source_column": source_col_name,
+                    "hub_ref_sort_order": mapping.link_hub_reference.sort_order or 0,
+                    "hub_col_sort_order": mapping.standard_hub_column.sort_order or 0,
+                }
+            )
+
+        # Now find dependent child keys for each link from this source table
+        link_source_mappings = LinkSourceMapping.objects.filter(
+            source_column__source_table=source_table,
+            link_column__column_type=LinkColumn.ColumnType.DEPENDANT_CHILD_KEY,
+        ).select_related("link_column__link", "source_column")
+
+        for mapping in link_source_mappings:
+            link = mapping.link_column.link
+            link_key = str(link.link_id)
+
+            # Initialize link entry if not already present
+            if link_key not in link_columns_map:
+                link_columns_map[link_key] = {
+                    "link": link,
+                    "hub_source_columns": [],
+                    "dependent_child_keys": [],
+                }
+
+            link_columns_map[link_key]["dependent_child_keys"].append(
+                {
+                    "source_column": mapping.source_column.source_column_physical_name,
+                    "sort_order": mapping.link_column.sort_order or 0,
+                }
+            )
+
+        # Build link hashkey definitions
+        for _link_key, info in link_columns_map.items():
+            link = info["link"]
+
+            # Skip if no hashkey name is defined
+            if not link.link_hashkey_name:
+                continue
+
+            # Sort hub source columns first by hub reference sort order, then by hub column sort order
+            sorted_hub_columns = sorted(
+                info["hub_source_columns"],
+                key=lambda x: (x["hub_ref_sort_order"], x["hub_col_sort_order"]),
+            )
+            hub_column_names = [c["source_column"] for c in sorted_hub_columns]
+
+            # Sort dependent child keys by their sort order
+            sorted_child_keys = sorted(
+                info["dependent_child_keys"], key=lambda x: x["sort_order"]
+            )
+            child_key_names = [c["source_column"] for c in sorted_child_keys]
+
+            # Combine hub columns and dependent child keys
+            all_business_keys = hub_column_names + child_key_names
+
+            # Only add if we have at least some business key columns
+            if all_business_keys:
+                result.append(
+                    StageHashkeyDef(
+                        target_entity=link.link_physical_name,
+                        entity_type="link",
+                        hashkey_name=link.link_hashkey_name,
+                        business_key_columns=all_business_keys,
                     )
                 )
 
@@ -614,17 +742,18 @@ class ModelBuilder:
         for link in links:
             # Get hub references with their hashkey names
             hub_refs = link.hub_references.all()
-            hub_names = [hub.hub_physical_name for hub in hub_refs]
+            hub_names = [hub_ref.hub.hub_physical_name for hub_ref in hub_refs]
             foreign_hashkeys = [
-                hub.hub_hashkey_name for hub in hub_refs if hub.hub_hashkey_name
+                hub_ref.hub.hub_hashkey_name
+                for hub_ref in hub_refs
+                if hub_ref.hub.hub_hashkey_name
             ]
 
-            # Get business key columns (ordered by sort_order)
-            bk_columns = link.columns.filter(
-                column_type=LinkColumn.ColumnType.BUSINESS_KEY
-            ).order_by("sort_order")
-
-            business_key_column_names = [col.column_name for col in bk_columns]
+            # Business key columns are NOT stored in LinkColumn
+            # They are derived from hub references via LinkHubSourceMapping
+            #  For the link definition export, we don't list them separately
+            # as they're implicit in the hub_references
+            business_key_column_names = []
 
             # Get payload and additional columns
             payload_cols = link.columns.filter(
