@@ -45,9 +45,25 @@ def main(
         console.print("[bold]TurboVault Engine[/bold] version 0.1.0")
         raise typer.Exit()
 
-    # Setup Django for CLI context (only if not showing help/version)
+    # Display ASCII art banner when a command is invoked
     if ctx.invoked_subcommand:
+        _print_banner()
         _setup_django()
+
+
+def _print_banner() -> None:
+    """Display TurboVault ASCII art banner."""
+    banner = """
+  _______         _                           _ _   
+ |__   __|       | |                         | | |  
+    | |_   _ _ __| |__   _____   ____ _ _   _| | |_ 
+    | | | | | '__| '_ \\ / _ \\ \\ / / _` | | | | | __|
+    | | |_| | |  | |_) | (_) \\ V / (_| | |_| | | |_ 
+    |_|\\__,_|_|  |_.__/ \\___/ \\_/ \\__,_|\\__,_|_|\\__|
+                                                    
+                                                    
+"""
+    console.print(f"[bold cyan]{banner}[/bold cyan]")
 
 
 def _setup_django() -> None:
