@@ -1,15 +1,14 @@
 [# Multi-Active Satellite Template #]
 [# Generates a multi-active satellite model using datavault4dbt.ma_sat_v0() macro #]
-
 {{ config(
     materialized='incremental',
     tags=['satellite', 'multi_active', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 
 {%- set yaml_metadata -%}
-source_model: '[[ stage_name ]]'
-parent_hashkey: '[[ parent_hashkey ]]'
-src_hashdiff: '[[ hashdiff_name ]]'
+source_model: [[ stage_name ]]
+parent_hashkey: [[ parent_hashkey ]]
+src_hashdiff: [[ hashdiff_name ]]
 src_ma_key:
 [% for col in columns if col.is_multi_active_key %]
     - [[ col.target_column_name if col.target_column_name else col.source_column ]]

@@ -1,31 +1,19 @@
 [# Non-Historized Link Template #]
 [# Generates a non-historized link model using datavault4dbt.nh_link() macro #]
-
 {{ config(
     materialized='incremental',
     tags=['link', 'non_historized', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 
 {%- set yaml_metadata -%}
-link_hashkey: '[[ hashkey.hashkey_name ]]'
-foreign_hashkeys:
-[% for fk in foreign_hashkeys %]
-    - '[[ fk ]]'
-[% endfor %]
-[% if payload_columns %]
-payload:
-[% for col in payload_columns %]
-    - [[ col ]]
-[% endfor %]
-[% endif %]
 source_models:
 [% for source in source_tables %]
-    - name: '[[ source.stage_name ]]'
+    - name: [[ source.stage_name ]]
 [% if source.rsrc_static %]
       rsrc_static: '[[ source.rsrc_static ]]'
 [% endif %]
 [% if source.link_hk and source.link_hk != hashkey.hashkey_name %]
-      link_hk: '[[ source.link_hk ]]'
+      link_hk: [[ source.link_hk ]]
 [% endif %]
 [% if source.fk_columns %]
       fk_columns:
@@ -34,6 +22,17 @@ source_models:
 [% endfor %]
 [% endif %]
 [% endfor %]
+link_hashkey: [[ hashkey.hashkey_name ]]
+foreign_hashkeys:
+[% for fk in foreign_hashkeys %]
+    - [[ fk ]]
+[% endfor %]
+[% if payload_columns %]
+payload:
+[% for col in payload_columns %]
+    - [[ col ]]
+[% endfor %]
+[% endif %]
 {%- endset -%}
 
 {{ datavault4dbt.nh_link(yaml_metadata=yaml_metadata) }}

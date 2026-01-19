@@ -1,13 +1,12 @@
 [# Reference Table Template #]
 [# Generates a reference table that combines a reference hub with its satellites #]
-
 {{ config(
     materialized='view',
     tags=['reference_table', 'business_vault']
 ) }}
 
 {%- set yaml_metadata -%}
-ref_hub: '[[ reference_hub_name ]]'
+ref_hub: [[ reference_hub_name ]]
 ref_satellites:
 [% for sat in satellites %]
     - [[ sat.satellite_name ]]
