@@ -8,7 +8,8 @@
 ) }}
 
 {%- set yaml_metadata -%}
-source_model: '[[ source_system | lower | replace(" ", "_") ]].[[ source_table ]]'
+source_model: 
+    [[ source_system | lower | replace(" ", "_") ]]: [[ source_table ]]
 ldts: '[[ load_date ]]'
 rsrc: '[[ record_source ]]'
 [% if hashkeys or hashdiffs %]
