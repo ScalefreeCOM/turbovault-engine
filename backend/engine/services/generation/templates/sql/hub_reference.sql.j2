@@ -1,6 +1,5 @@
 [# Reference Hub Template #]
 [# Generates a reference hub model using datavault4dbt.ref_hub() macro #]
-
 {{ config(
     materialized='incremental',
     tags=['hub', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
@@ -9,7 +8,7 @@
 {%- set yaml_metadata -%}
 source_models:
 [% for source in source_tables %]
-    - name: '[[ source.stage_name ]]'
+    - name: [[ source.stage_name ]]
 [% if source.rsrc_static %]
       rsrc_static: '[[ source.rsrc_static ]]'
 [% endif %]

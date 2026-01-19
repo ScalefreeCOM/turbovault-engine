@@ -1,23 +1,22 @@
 [# Record Tracking Satellite Template #]
 [# Tracks the presence/absence of business objects in source systems #]
-
 {{ config(
     materialized='incremental',
     tags=['satellite', 'record_tracking', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 
 {%- set yaml_metadata -%}
-tracked_hashkey: '[[ parent_hashkey ]]'
 source_models:
 [% for source in source_tables %]
-    - name: '[[ source.stage_name ]]'
+    - name: [[ source.stage_name ]]
 [% if source.rsrc_static %]
       rsrc_static: '[[ source.rsrc_static ]]'
 [% endif %]
 [% if source.hk_column and source.hk_column != parent_hashkey %]
-      hk_column: '[[ source.hk_column ]]'
+      hk_column: [[ source.hk_column ]]
 [% endif %]
 [% endfor %]
+tracked_hashkey: [[ parent_hashkey ]]
 {%- endset -%}
 
 {{ datavault4dbt.rec_track_sat(yaml_metadata=yaml_metadata) }}
