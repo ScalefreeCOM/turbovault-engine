@@ -5,6 +5,21 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.5.0...turbovault-engine-v0.5.1) (2026-01-20)
+
+
+### Bug Fixes
+
+* **model_generation:** aligned sql templates with best practices ([ded720c](https://github.com/ScalefreeCOM/turbovault-engine/commit/ded720c85a25a73910aa84d06eea897312c0c991))
+* **model_generation:** source generation to include name ([aac42ce](https://github.com/ScalefreeCOM/turbovault-engine/commit/aac42ce4b14335f43bc1eeae49bb34c4bc392d0d))
+* **model_generation:** stage generation proper source syntax ([5c7121f](https://github.com/ScalefreeCOM/turbovault-engine/commit/5c7121f6095034ae3f5665f1f62e3b1722a6c36d))
+
+
+### CI/CD
+
+* bump actions/download-artifact from 6 to 7 ([73c7bc7](https://github.com/ScalefreeCOM/turbovault-engine/commit/73c7bc78e308249757d1d634d991c58b9561a411))
+* bump docker/build-push-action from 5 to 6 ([6259a83](https://github.com/ScalefreeCOM/turbovault-engine/commit/6259a83cb679f18e9fa3ad00e38394579db4833a))
+
 ## [0.5.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.4.0...turbovault-engine-v0.5.0) (2026-01-16)
 
 
