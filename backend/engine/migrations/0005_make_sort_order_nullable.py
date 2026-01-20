@@ -6,13 +6,17 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0004_change_effectivity_satellite_default'),
+        ("engine", "0004_change_effectivity_satellite_default"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='hubcolumn',
-            name='sort_order',
-            field=models.IntegerField(blank=True, help_text='Sorting index to define ordering of hub columns (auto-incremented if not provided)', null=True),
+            model_name="hubcolumn",
+            name="sort_order",
+            field=models.IntegerField(
+                blank=True,
+                help_text="Sorting index to define ordering of hub columns (auto-incremented if not provided)",
+                null=True,
+            ),
         ),
     ]

@@ -6,8 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0006_add_hub_to_hubsourcemapping'),
+        ("engine", "0006_add_hub_to_hubsourcemapping"),
     ]
 
-    operations = [
-    ]
+    operations = []

@@ -6,13 +6,16 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0003_hub_hubcolumn_hubsourcemapping'),
+        ("engine", "0003_hub_hubcolumn_hubsourcemapping"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='hub',
-            name='create_effectivity_satellite',
-            field=models.BooleanField(default=True, help_text='If true, an effectivity satellite should be generated for this hub'),
+            model_name="hub",
+            name="create_effectivity_satellite",
+            field=models.BooleanField(
+                default=True,
+                help_text="If true, an effectivity satellite should be generated for this hub",
+            ),
         ),
     ]

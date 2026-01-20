@@ -7,13 +7,20 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0010_satellite_satellitecolumn'),
+        ("engine", "0010_satellite_satellitecolumn"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='satellite',
-            name='source_table',
-            field=models.ForeignKey(blank=True, help_text='Source table that feeds this satellite (all columns must come from this table)', null=True, on_delete=django.db.models.deletion.PROTECT, related_name='satellites', to='engine.sourcetable'),
+            model_name="satellite",
+            name="source_table",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Source table that feeds this satellite (all columns must come from this table)",
+                null=True,
+                on_delete=django.db.models.deletion.PROTECT,
+                related_name="satellites",
+                to="engine.sourcetable",
+            ),
         ),
     ]
