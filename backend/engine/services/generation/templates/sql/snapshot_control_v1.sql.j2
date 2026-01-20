@@ -3,7 +3,7 @@
 
 [# Compute v0_name from name (remove any suffix and add _v0) #]
 [% set base_name = name.replace('_v0', '').replace('_v1', '') %]
-[% set control_v0_name = base_name ~ '_v0' %]
+[% set control_v0_name = base_name ~ '_v0' -%]
 
 {{ config(
     materialized='view',
@@ -11,7 +11,7 @@
 ) }}
 
 {%- set yaml_metadata -%}
-control_snap_v0: '[[ control_v0_name ]]'
+control_snap_v0: [[ control_v0_name ]]
 log_logic:
 [% for pattern in logic_patterns %]
     [[ pattern.component ]]:

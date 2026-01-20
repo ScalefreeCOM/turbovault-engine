@@ -1,14 +1,14 @@
 [# Stage Model Template #]
 [# Generates a staging model that prepares source data for Data Vault loading #]
 [# Uses datavault4dbt.stage() macro with yaml_metadata format #]
-
 {{ config(
     materialized='view',
     tags=['staging', '[[ source_system | lower | replace(" ", "_") ]]']
 ) }}
 
 {%- set yaml_metadata -%}
-source_model: '[[ source_system | lower | replace(" ", "_") ]].[[ source_table ]]'
+source_model: 
+    [[ source_system | lower | replace(" ", "_") ]]: [[ source_table ]]
 ldts: '[[ load_date ]]'
 rsrc: '[[ record_source ]]'
 [% if hashkeys or hashdiffs %]

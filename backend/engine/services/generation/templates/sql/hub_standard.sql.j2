@@ -1,32 +1,25 @@
 [# Standard Hub Template #]
 [# Generates a standard hub model using datavault4dbt.hub() macro #]
-
 {{ config(
     materialized='incremental',
     tags=['hub', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 
 {%- set yaml_metadata -%}
-hashkey: '[[ hashkey.hashkey_name ]]'
-business_keys:
-[% for bk in business_key_columns %]
-    - [[ bk ]]
-[% endfor %]
 source_models:
 [% for source in source_tables %]
-    - name: '[[ source.stage_name ]]'
-[% if source.rsrc_static %]
-      rsrc_static: '[[ source.rsrc_static ]]'
-[% endif %]
-[% if source.hk_column and source.hk_column != hashkey.hashkey_name %]
-      hk_column: '[[ source.hk_column ]]'
-[% endif %]
-[% if source.bk_columns %]
+    - name: [[ source.stage_name ]]
+[% if source.business_key_columns %]
       bk_columns:
-[% for bk in source.bk_columns %]
+[% for bk in source.business_key_columns %]
           - [[ bk ]]
 [% endfor %]
 [% endif %]
+[% endfor %]
+hashkey: [[ hashkey.hashkey_name ]]
+business_keys:
+[% for bk in business_key_columns %]
+    - [[ bk ]]
 [% endfor %]
 {%- endset -%}
 

@@ -4,7 +4,7 @@ version: 2
 
 sources:
 [% for source in sources %]
-  - name: [[ source.source_system | lower | replace(" ", "_") ]]
+  - name: [[ source.name | lower | replace(" ", "_") ]]
 [% if source.database_name %]
     database: [[ source.database_name ]]
 [% endif %]

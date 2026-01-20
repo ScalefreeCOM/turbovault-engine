@@ -7,19 +7,11 @@
 ) }}
 
 {%- set yaml_metadata -%}
-link_hashkey: '[[ hashkey.hashkey_name ]]'
-foreign_hashkeys:
-[% for fk in foreign_hashkeys %]
-    - '[[ fk ]]'
-[% endfor %]
 source_models:
 [% for source in source_tables %]
-    - name: '[[ source.stage_name ]]'
+    - name: [[ source.stage_name ]]
 [% if source.rsrc_static %]
       rsrc_static: '[[ source.rsrc_static ]]'
-[% endif %]
-[% if source.link_hk and source.link_hk != hashkey.hashkey_name %]
-      link_hk: '[[ source.link_hk ]]'
 [% endif %]
 [% if source.fk_columns %]
       fk_columns:
@@ -27,6 +19,11 @@ source_models:
           - [[ fk ]]
 [% endfor %]
 [% endif %]
+[% endfor %]
+link_hashkey: [[ hashkey.hashkey_name ]]
+foreign_hashkeys:
+[% for fk in foreign_hashkeys %]
+    - [[ fk ]]
 [% endfor %]
 {%- endset -%}
 
