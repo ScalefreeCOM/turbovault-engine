@@ -72,13 +72,45 @@ WSGI_APPLICATION = "turbovault.wsgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-# Using SQLite for local development and CLI usage
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
-}
+# Dynamic database configuration based on config.yml or environment variables
+
+
+def get_database_config() -> dict[str, dict[str, str | int | dict]]:
+    """
+    Get database configuration from config.yml or use default SQLite.
+
+    Checks for TURBOVAULT_CONFIG_PATH environment variable to load database
+    settings from config.yml. Falls back to SQLite if not configured.
+
+    Returns:
+        Django DATABASES configuration dictionary
+    """
+    import os
+
+    from engine.services.config_loader import load_config_from_path
+    from engine.services.config_schema import DatabaseConfig, DatabaseEngine
+
+    config_path = os.environ.get("TURBOVAULT_CONFIG_PATH")
+
+    # Try to load database config from config.yml
+    if config_path and Path(config_path).exists():
+        try:
+            config = load_config_from_path(config_path)
+            if config.database:
+                return {"default": config.database.to_django_config(BASE_DIR)}
+        except Exception:
+            # If config loading fails, fall back to default SQLite
+            pass
+
+    # Default SQLite configuration
+    default_db = DatabaseConfig(
+        engine=DatabaseEngine.SQLITE,
+        name=str(BASE_DIR / "db.sqlite3"),
+    )
+    return {"default": default_db.to_django_config(BASE_DIR)}
+
+
+DATABASES = get_database_config()
 
 
 # Internationalization

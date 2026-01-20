@@ -70,6 +70,13 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
 
 - Python 3.10+
 - pip (Python package manager)
+- (Optional) Database drivers if using external databases:
+  - PostgreSQL: `psycopg2-binary`
+  - MySQL: `mysqlclient`
+  - SQL Server: `mssql-django`
+  - Oracle: `cx_Oracle`
+  - Snowflake: `django-snowflake`
+
 
 ### Installation
 
@@ -314,6 +321,16 @@ source:
   type: excel
   path: "./metadata/sources.xlsx"
 
+# Optional: Configure external database (PostgreSQL, MySQL, etc.)
+# Default is SQLite if not specified
+database:
+  engine: postgresql
+  name: turbovault_db
+  user: turbovault_user
+  password: your_password
+  host: localhost
+  port: 5432
+
 configuration:
   stage_schema: "stage"
   rdv_schema: "rdv"
@@ -323,7 +340,20 @@ output:
   create_zip: false
 ```
 
+**Supported Databases:**
+- **SQLite** (default) - No configuration needed
+- **PostgreSQL** - `pip install psycopg2-binary`
+- **MySQL/MariaDB** - `pip install mysqlclient`
+- **SQL Server** - `pip install mssql-django`
+- **Oracle** - `pip install cx_Oracle`
+- **Snowflake** - `pip install django-snowflake`
+
 See [config.example.yml](config.example.yml) for a complete example.
+
+**Documentation:**
+- [Configuration Schema Reference](docs/03_config_schema.md) - Complete config.yml reference
+- [Database Configuration Guide](docs/DATABASE_CONFIGURATION.md) - Detailed database setup
+
 
 ---
 
@@ -486,9 +516,13 @@ python -m pytest backend/tests/ -v
 
 - [Architecture Overview](docs/01_overview.md)
 - [Domain Model Specification](docs/02_domain_model.md)
+- [Configuration Schema Reference](docs/03_config_schema.md)
+- [Database Configuration Guide](docs/DATABASE_CONFIGURATION.md)
+- [Import Flow Specification](docs/04_import_flow_specification.md)
 - [Export Flow Specification](docs/05_export_flow_specification.md)
 - [dbt Generation Guide](docs/06_dbt_generation.md)
-- [CLI Guide](CLI_GUIDE.md)
+- [CLI Guide](docs/CLI_GUIDE.md)
+
 
 ---
 
