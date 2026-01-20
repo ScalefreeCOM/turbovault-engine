@@ -142,4 +142,67 @@ def validate_config(config: TurboVaultConfig) -> list[str]:
             f"  It will be created during generation."
         )
 
+    # Validate database configuration and check for required drivers
+    if config.database:
+        db_warnings = _validate_database_config(config.database)
+        warnings.extend(db_warnings)
+
+    return warnings
+
+
+def _validate_database_config(db_config: Any) -> list[str]:
+    """
+    Validate database configuration and check for required drivers.
+
+    Args:
+        db_config: DatabaseConfig object
+
+    Returns:
+        List of warning messages about missing drivers or configuration issues
+    """
+    from engine.services.config_schema import DatabaseEngine
+
+    warnings = []
+
+    # Check if required database driver is installed
+    driver_requirements = {
+        DatabaseEngine.POSTGRESQL: {
+            "module": "psycopg2",
+            "package": "psycopg2-binary",
+            "install": "pip install psycopg2-binary",
+        },
+        DatabaseEngine.MYSQL: {
+            "module": "MySQLdb",
+            "package": "mysqlclient",
+            "install": "pip install mysqlclient",
+        },
+        DatabaseEngine.ORACLE: {
+            "module": "cx_Oracle",
+            "package": "cx_Oracle",
+            "install": "pip install cx_Oracle",
+        },
+        DatabaseEngine.MSSQL: {
+            "module": "sql_server.pyodbc",
+            "package": "mssql-django",
+            "install": "pip install mssql-django",
+        },
+        DatabaseEngine.SNOWFLAKE: {
+            "module": "snowflake.connector",
+            "package": "django-snowflake",
+            "install": "pip install django-snowflake",
+        },
+    }
+
+    engine = db_config.engine
+    if engine in driver_requirements:
+        req = driver_requirements[engine]
+        try:
+            __import__(req["module"])
+        except ImportError:
+            warnings.append(
+                f"Database driver not installed for {engine}.\n"
+                f"  Install it with: {req['install']}\n"
+                f"  Package: {req['package']}"
+            )
+
     return warnings

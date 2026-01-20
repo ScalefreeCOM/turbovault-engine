@@ -19,6 +19,120 @@ class SourceType(str, Enum):
     EXCEL = "excel"
 
 
+class DatabaseEngine(str, Enum):
+    """Supported database backends."""
+
+    SQLITE = "sqlite3"
+    POSTGRESQL = "postgresql"
+    MYSQL = "mysql"
+    ORACLE = "oracle"
+    MSSQL = "mssql"
+    SNOWFLAKE = "snowflake"
+
+
+class DatabaseConfig(BaseModel):
+    """
+    Database connection configuration.
+
+    Allows configuring external databases (PostgreSQL, MySQL, etc.)
+    instead of the default SQLite.
+    """
+
+    engine: DatabaseEngine = Field(
+        DatabaseEngine.SQLITE,
+        description="Database backend engine",
+    )
+    name: str = Field(
+        ...,
+        description="Database name (or file path for SQLite)",
+    )
+    user: str | None = Field(
+        None,
+        description="Database username (not required for SQLite)",
+    )
+    password: str | None = Field(
+        None,
+        description="Database password (not required for SQLite)",
+    )
+    host: str | None = Field(
+        None,
+        description="Database host (not required for SQLite)",
+    )
+    port: int | None = Field(
+        None,
+        description="Database port (not required for SQLite)",
+    )
+    options: dict[str, str] | None = Field(
+        None,
+        description="Additional database options (e.g., sslmode, charset)",
+    )
+
+    @model_validator(mode="after")
+    def validate_required_fields(self) -> DatabaseConfig:
+        """Validate that required fields are present based on engine type."""
+        # SQLite only needs name (file path)
+        if self.engine == DatabaseEngine.SQLITE:
+            return self
+
+        # All other databases require user, password, and host
+        missing_fields = []
+
+        if not self.user:
+            missing_fields.append("user")
+        if not self.password:
+            missing_fields.append("password")
+        if not self.host:
+            missing_fields.append("host")
+
+        if missing_fields:
+            raise ValueError(
+                f"Database engine '{self.engine}' requires the following fields: "
+                f"{', '.join(missing_fields)}"
+            )
+
+        return self
+
+    def to_django_config(
+        self, base_dir: Path | None = None
+    ) -> dict[str, str | int | dict]:
+        """
+        Convert to Django DATABASES configuration format.
+
+        Args:
+            base_dir: Base directory for resolving relative SQLite paths
+
+        Returns:
+            Dictionary compatible with Django DATABASES setting
+        """
+        config: dict[str, str | int | dict] = {
+            "ENGINE": f"django.db.backends.{self.engine.value}",
+            "NAME": self.name,
+        }
+
+        # For SQLite, resolve path relative to base_dir if provided
+        if self.engine == DatabaseEngine.SQLITE and base_dir:
+            db_path = Path(self.name)
+            if not db_path.is_absolute():
+                config["NAME"] = str(base_dir / db_path)
+
+        # Add connection parameters for non-SQLite databases
+        if self.engine != DatabaseEngine.SQLITE:
+            if self.user:
+                config["USER"] = self.user
+            if self.password:
+                config["PASSWORD"] = self.password
+            if self.host:
+                config["HOST"] = self.host
+            if self.port:
+                config["PORT"] = self.port
+
+        # Add additional options if provided
+        if self.options:
+            config["OPTIONS"] = self.options
+
+        return config
+
+
 class ProjectInfo(BaseModel):
     """Project metadata and identification."""
 
@@ -136,6 +250,10 @@ class TurboVaultConfig(BaseModel):
     project: ProjectInfo = Field(..., description="Project information")
     source: ExcelSourceConfig | None = Field(
         None, description="Optional source metadata import configuration"
+    )
+    database: DatabaseConfig | None = Field(
+        None,
+        description="Optional database configuration (defaults to SQLite if not specified)",
     )
     configuration: ProjectConfiguration = Field(
         default_factory=ProjectConfiguration,

@@ -12,18 +12,76 @@ source:
   type: excel
   path: "./metadata/source_metadata.xlsx"
 
+# Optional: Database configuration
+# By default, TurboVault uses SQLite (no configuration needed)
+# Configure an external database for production or multi-user scenarios
+# database:
+#   # SQLite (default - usually no need to specify)
+#   engine: sqlite3
+#   name: "db.sqlite3"
+#
+#   # PostgreSQL example
+#   engine: postgresql
+#   name: "turbovault_db"
+#   user: "turbovault_user"
+#   password: "your_password"
+#   host: "localhost"
+#   port: 5432
+#   options:
+#     sslmode: "require"
+#
+#   # MySQL/MariaDB example
+#   engine: mysql
+#   name: "turbovault_db"
+#   user: "turbovault_user"
+#   password: "your_password"
+#   host: "localhost"
+#   port: 3306
+#   options:
+#     charset: "utf8mb4"
+#
+#   # SQL Server example
+#   engine: mssql
+#   name: "turbovault_db"
+#   user: "turbovault_user"
+#   password: "your_password"
+#   host: "localhost"
+#   port: 1433
+#   options:
+#     driver: "ODBC Driver 17 for SQL Server"
+#
+#   # Oracle example
+#   engine: oracle
+#   name: "xe"
+#   user: "turbovault_user"
+#   password: "your_password"
+#   host: "localhost"
+#   port: 1521
+#
+#   # Snowflake example
+#   engine: snowflake
+#   name: "turbovault_db"
+#   user: "turbovault_user"
+#   password: "your_password"
+#   host: "your_account.snowflakecomputing.com"
+#   options:
+#     account: "your_account"
+#     warehouse: "COMPUTE_WH"
+#     database: "TURBOVAULT_DB"
+#     schema: "PUBLIC"
+
 # Project-level Data Vault configuration
 configuration:
   # Staging layer schema name
   stage_schema: "stage"
   # Optional: Staging database name
   stage_database: "dv_raw"
-  
+
   # Raw Data Vault layer schema name
   rdv_schema: "rdv"
-  # Optional: RDV database name  
+  # Optional: RDV database name
   rdv_database: "dv_core"
-  
+
   # Optional: Hashdiff naming pattern (for future use, not implemented yet)
   hashdiff_naming_pattern: ""
 
@@ -31,13 +89,13 @@ configuration:
 output:
   # Directory where dbt project will be generated (required)
   dbt_project_dir: "./generated/dbt_project"
-  
+
   # Optional: dbt project name (defaults to project.name)
   dbt_project_name: null
-  
+
   # Whether to create a ZIP archive of the generated project
   create_zip: false
-  
+
   # Export control options
   export_sources: true      # Include source system definitions in export
   generate_tests: true      # Generate dbt tests (for future dbt generation)
@@ -48,7 +106,7 @@ output:
 # ---
 # project:
 #   name: "minimal_project"
-# 
+#
 # output:
 #   dbt_project_dir: "./dbt_output"
 
