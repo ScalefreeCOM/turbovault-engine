@@ -285,7 +285,7 @@ def _run_interactive_init() -> None:
         print_info(f"Importing metadata from {source_path}...")
         try:
             service = ExcelImportService(str(source_path))
-            service.import_metadata(project=project, skip_snapshots=True)
+            service.import_metadata(project=project, skip_snapshots=False)
             print_success("Metadata successfully imported")
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
