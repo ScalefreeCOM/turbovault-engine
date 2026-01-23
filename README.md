@@ -217,8 +217,7 @@ dbt run
 | Command | Description |
 |---------|-------------|
 | `turbovault init` | Initialize a new project (interactive or config-based) |
-| `turbovault generate` | Generate dbt project from Data Vault model |
-| `turbovault run` | Export Data Vault model to JSON |
+| `turbovault generate` | Generate dbt project and/or export Data Vault model to JSON |
 | `turbovault serve` | Start Django admin server for model management |
 | `turbovault reset` | Reset the database |
 | `turbovault --help` | Show all available commands |
@@ -241,8 +240,14 @@ turbovault generate --project sales_datavault --mode lenient
 # Generate with ZIP and no v1 satellites
 turbovault generate -p sales_datavault --zip --no-v1-satellites
 
-# Export specific project to JSON
-turbovault run --project sales_datavault --output ./exports/
+# Export Data Vault model to JSON only
+turbovault generate --json-only --project sales_datavault
+
+# Export JSON alongside dbt project generation
+turbovault generate --export-json --project sales_datavault
+
+# Export JSON with custom output path
+turbovault generate --json-only --json-output ./exports/model.json
 
 # Start admin on custom port
 turbovault serve --port 9000
@@ -427,7 +432,17 @@ python -m pytest backend/tests/ --cov=engine.services.generation
 ### JSON Export
 
 ```bash
-turbovault run --project my_project
+# Export JSON only (no dbt generation)
+turbovault generate --json-only --project my_project
+
+# Export JSON alongside dbt project
+turbovault generate --export-json --project my_project
+
+# Specify custom JSON output path
+turbovault generate --json-only --json-output ./exports/model.json
+
+# Use compact JSON format
+turbovault generate --json-only --json-format compact
 ```
 
 Exports complete model to JSON with:
