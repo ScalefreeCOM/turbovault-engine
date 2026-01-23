@@ -111,6 +111,13 @@ class PrejoinCondition(BaseModel):
     )
 
 
+class PrejoinExtractionColumn(BaseModel):
+    """Column extracted from target table."""
+
+    source_column_name: str
+    target_column_alias: str | None = None
+
+
 class PrejoinDefinitionExport(BaseModel):
     """Prejoin definition exported to stage."""
 
@@ -118,7 +125,7 @@ class PrejoinDefinitionExport(BaseModel):
     join_conditions: PrejoinCondition = Field(
         description="Join conditions between source and target"
     )
-    extraction_columns: list[str] = Field(
+    extraction_columns: list[PrejoinExtractionColumn] = Field(
         default_factory=list, description="Columns extracted from target table"
     )
 

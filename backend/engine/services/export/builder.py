@@ -20,6 +20,7 @@ from engine.services.export.models import (
     LinkSourceInfo,
     MultiActiveConfig,
     PITDefinition,
+    PrejoinExtractionColumn,
     PrejoinCondition,
     PrejoinDefinitionExport,
     ProjectExport,
@@ -435,7 +436,10 @@ class ModelBuilder:
 
             # Get extraction column names
             extraction_columns = [
-                ext.source_column.source_column_physical_name
+                PrejoinExtractionColumn(
+                    source_column_name=ext.source_column.source_column_physical_name,
+                    target_column_alias=ext.prejoin_target_column_alias or ext.source_column.source_column_physical_name,
+                )
                 for ext in prejoin.extraction_columns.all()
             ]
 
