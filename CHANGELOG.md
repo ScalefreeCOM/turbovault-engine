@@ -5,6 +5,18 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.6.0...turbovault-engine-v0.7.0) (2026-01-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* The --json-only and --export-json flags have been replaced with --type flag.
+
+### Features
+
+* adding new configuration system for dynamic database settings ([#38](https://github.com/ScalefreeCOM/turbovault-engine/issues/38)) ([70a5287](https://github.com/ScalefreeCOM/turbovault-engine/commit/70a528754fc0e63fd2d103bd5c704c29c0fc98c5))
+* consolidate commands and add debug mode  ([#39](https://github.com/ScalefreeCOM/turbovault-engine/issues/39)) ([d52ca68](https://github.com/ScalefreeCOM/turbovault-engine/commit/d52ca684a738531c37094f0f091341eaa3901eab))
+
 ## [0.6.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.5.1...turbovault-engine-v0.6.0) (2026-01-20)
 
 
