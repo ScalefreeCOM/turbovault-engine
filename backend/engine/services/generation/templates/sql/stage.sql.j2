@@ -31,14 +31,25 @@ hashed_columns:
 [% if prejoins %]
 prejoined_columns:
 [% for prejoin in prejoins %]
-[% for extraction_col in prejoin.extraction_columns %]
-    [[ extraction_col ]]:
-        src_name: '[[ source_system | lower | replace(" ", "_") ]]'
-        src_table: '[[ prejoin.target_table ]]'
-        bk: '[[ extraction_col ]]'
-        this_column_name: '[[ prejoin.join_conditions.source_columns[0] ]]'
-        ref_column_name: '[[ prejoin.join_conditions.target_columns[0] ]]'
-[% endfor %]
+    - extraction_columns:
+    [% for extraction_col in prejoin.extraction_columns %]
+        - [[ extraction_col.source_column_name ]]
+    [% endfor %]
+      aliases:
+      [% for extraction_col in prejoin.extraction_columns %]
+        - [[ extraction_col.target_column_alias ]]
+      [% endfor %]
+      src_name: '[[ source_system | lower | replace(" ", "_") ]]'
+      src_table: '[[ prejoin.target_table ]]'
+      this_column_name: 
+      [% for source_column in prejoin.join_conditions.source_columns %]
+        - '[[ source_column ]]'
+      [% endfor %]
+      ref_column_name: 
+      [% for target_column in prejoin.join_conditions.target_columns %]
+        - '[[ target_column ]]'
+      [% endfor %]
+      operator: '[[ prejoin.join_conditions.operator ]]'
 [% endfor %]
 [% endif %]
 [% if multi_active_config %]
