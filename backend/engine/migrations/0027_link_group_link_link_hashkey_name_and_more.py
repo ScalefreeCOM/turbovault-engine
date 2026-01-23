@@ -7,33 +7,58 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0026_alter_linkcolumn_options_and_more'),
+        ("engine", "0026_alter_linkcolumn_options_and_more"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='link',
-            name='group',
-            field=models.ForeignKey(blank=True, help_text='Optional group for organizing links into subfolders', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='links', to='engine.group'),
+            model_name="link",
+            name="group",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Optional group for organizing links into subfolders",
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="links",
+                to="engine.group",
+            ),
         ),
         migrations.AddField(
-            model_name='link',
-            name='link_hashkey_name',
-            field=models.CharField(default='', help_text='Name of the link hashkey column (e.g. lk_customer_order)', max_length=255),
+            model_name="link",
+            name="link_hashkey_name",
+            field=models.CharField(
+                default="",
+                help_text="Name of the link hashkey column (e.g. lk_customer_order)",
+                max_length=255,
+            ),
         ),
         migrations.AlterField(
-            model_name='linkcolumn',
-            name='column_type',
-            field=models.CharField(choices=[('payload', 'Payload'), ('additional_column', 'Additional Column'), ('dependant_child_key', 'Dependant Child Key')], help_text='Type of column: payload or additional_column', max_length=20),
+            model_name="linkcolumn",
+            name="column_type",
+            field=models.CharField(
+                choices=[
+                    ("payload", "Payload"),
+                    ("additional_column", "Additional Column"),
+                    ("dependant_child_key", "Dependant Child Key"),
+                ],
+                help_text="Type of column: payload or additional_column",
+                max_length=20,
+            ),
         ),
         migrations.AlterField(
-            model_name='linkcolumn',
-            name='sort_order',
-            field=models.IntegerField(default=0, help_text='Order of appearance in the link structure. Leave as 0 to auto-assign next available number.'),
+            model_name="linkcolumn",
+            name="sort_order",
+            field=models.IntegerField(
+                default=0,
+                help_text="Order of appearance in the link structure. Leave as 0 to auto-assign next available number.",
+            ),
         ),
         migrations.AlterField(
-            model_name='linkhubreference',
-            name='sort_order',
-            field=models.IntegerField(default=0, help_text='Order of appearance in the link. Leave as 0 to auto-assign next available number.'),
+            model_name="linkhubreference",
+            name="sort_order",
+            field=models.IntegerField(
+                default=0,
+                help_text="Order of appearance in the link. Leave as 0 to auto-assign next available number.",
+            ),
         ),
     ]

@@ -7,13 +7,20 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0005_make_sort_order_nullable'),
+        ("engine", "0005_make_sort_order_nullable"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='hubsourcemapping',
-            name='hub',
-            field=models.ForeignKey(blank=True, help_text='Hub this mapping belongs to', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='source_mappings', to='engine.hub'),
+            model_name="hubsourcemapping",
+            name="hub",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Hub this mapping belongs to",
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="source_mappings",
+                to="engine.hub",
+            ),
         ),
     ]

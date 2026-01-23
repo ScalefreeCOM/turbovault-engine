@@ -9,70 +9,237 @@ class Migration(migrations.Migration):
 
     initial = True
 
-    dependencies = [
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
-            name='Project',
+            name="Project",
             fields=[
-                ('project_id', models.UUIDField(default=uuid.uuid4, editable=False, help_text='Unique identifier for the project', primary_key=True, serialize=False)),
-                ('name', models.CharField(help_text='Human-readable name of the project', max_length=255)),
-                ('description', models.TextField(blank=True, help_text='Optional longer description of the project', null=True)),
-                ('config', models.JSONField(blank=True, help_text='Optional JSON for project-level configuration parameters', null=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True, help_text='Timestamp when the project was created')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='Timestamp when the project was last updated')),
+                (
+                    "project_id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier for the project",
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "name",
+                    models.CharField(
+                        help_text="Human-readable name of the project", max_length=255
+                    ),
+                ),
+                (
+                    "description",
+                    models.TextField(
+                        blank=True,
+                        help_text="Optional longer description of the project",
+                        null=True,
+                    ),
+                ),
+                (
+                    "config",
+                    models.JSONField(
+                        blank=True,
+                        help_text="Optional JSON for project-level configuration parameters",
+                        null=True,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        help_text="Timestamp when the project was created",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="Timestamp when the project was last updated",
+                    ),
+                ),
             ],
             options={
-                'db_table': 'project',
-                'ordering': ['-created_at'],
+                "db_table": "project",
+                "ordering": ["-created_at"],
             },
         ),
         migrations.CreateModel(
-            name='SourceSystem',
+            name="SourceSystem",
             fields=[
-                ('source_system_id', models.UUIDField(default=uuid.uuid4, editable=False, help_text='Unique identifier of the source system', primary_key=True, serialize=False)),
-                ('schema_name', models.CharField(help_text='Schema name in the source system', max_length=255)),
-                ('database_name', models.CharField(blank=True, help_text='Optional database name (if applicable)', max_length=255, null=True)),
-                ('name', models.CharField(help_text='Human-readable name for this source system', max_length=255)),
-                ('project', models.ForeignKey(help_text='Project this source system belongs to', on_delete=django.db.models.deletion.CASCADE, related_name='source_systems', to='engine.project')),
+                (
+                    "source_system_id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier of the source system",
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "schema_name",
+                    models.CharField(
+                        help_text="Schema name in the source system", max_length=255
+                    ),
+                ),
+                (
+                    "database_name",
+                    models.CharField(
+                        blank=True,
+                        help_text="Optional database name (if applicable)",
+                        max_length=255,
+                        null=True,
+                    ),
+                ),
+                (
+                    "name",
+                    models.CharField(
+                        help_text="Human-readable name for this source system",
+                        max_length=255,
+                    ),
+                ),
+                (
+                    "project",
+                    models.ForeignKey(
+                        help_text="Project this source system belongs to",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="source_systems",
+                        to="engine.project",
+                    ),
+                ),
             ],
             options={
-                'db_table': 'source_system',
-                'ordering': ['name'],
-                'unique_together': {('project', 'schema_name', 'database_name')},
+                "db_table": "source_system",
+                "ordering": ["name"],
+                "unique_together": {("project", "schema_name", "database_name")},
             },
         ),
         migrations.CreateModel(
-            name='SourceTable',
+            name="SourceTable",
             fields=[
-                ('source_table_id', models.UUIDField(default=uuid.uuid4, editable=False, help_text='Unique identifier of the source table', primary_key=True, serialize=False)),
-                ('physical_table_name', models.CharField(help_text='Physical name of the table in the source system (e.g. CUSTOMER)', max_length=255)),
-                ('alias', models.CharField(blank=True, help_text='Optional alias used in generated code/dbt models', max_length=255, null=True)),
-                ('record_source_value', models.CharField(blank=True, help_text='Value/expression used as record_source for this table', max_length=500, null=True)),
-                ('static_part_of_record_source', models.CharField(blank=True, help_text='Optional static part of record_source that is reused', max_length=500, null=True)),
-                ('load_date_value', models.CharField(blank=True, help_text='Expression or column name used as load date value', max_length=500, null=True)),
-                ('project', models.ForeignKey(help_text='Project this source table belongs to', on_delete=django.db.models.deletion.CASCADE, related_name='source_tables', to='engine.project')),
-                ('source_system', models.ForeignKey(help_text='Source system this table belongs to', on_delete=django.db.models.deletion.CASCADE, related_name='tables', to='engine.sourcesystem')),
+                (
+                    "source_table_id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier of the source table",
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "physical_table_name",
+                    models.CharField(
+                        help_text="Physical name of the table in the source system (e.g. CUSTOMER)",
+                        max_length=255,
+                    ),
+                ),
+                (
+                    "alias",
+                    models.CharField(
+                        blank=True,
+                        help_text="Optional alias used in generated code/dbt models",
+                        max_length=255,
+                        null=True,
+                    ),
+                ),
+                (
+                    "record_source_value",
+                    models.CharField(
+                        blank=True,
+                        help_text="Value/expression used as record_source for this table",
+                        max_length=500,
+                        null=True,
+                    ),
+                ),
+                (
+                    "static_part_of_record_source",
+                    models.CharField(
+                        blank=True,
+                        help_text="Optional static part of record_source that is reused",
+                        max_length=500,
+                        null=True,
+                    ),
+                ),
+                (
+                    "load_date_value",
+                    models.CharField(
+                        blank=True,
+                        help_text="Expression or column name used as load date value",
+                        max_length=500,
+                        null=True,
+                    ),
+                ),
+                (
+                    "project",
+                    models.ForeignKey(
+                        help_text="Project this source table belongs to",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="source_tables",
+                        to="engine.project",
+                    ),
+                ),
+                (
+                    "source_system",
+                    models.ForeignKey(
+                        help_text="Source system this table belongs to",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="tables",
+                        to="engine.sourcesystem",
+                    ),
+                ),
             ],
             options={
-                'db_table': 'source_table',
-                'ordering': ['physical_table_name'],
-                'unique_together': {('source_system', 'physical_table_name')},
+                "db_table": "source_table",
+                "ordering": ["physical_table_name"],
+                "unique_together": {("source_system", "physical_table_name")},
             },
         ),
         migrations.CreateModel(
-            name='SourceColumn',
+            name="SourceColumn",
             fields=[
-                ('source_column_id', models.UUIDField(default=uuid.uuid4, editable=False, help_text='Unique identifier of the source column', primary_key=True, serialize=False)),
-                ('source_column_physical_name', models.CharField(help_text='Physical column name in the source table', max_length=255)),
-                ('source_column_datatype', models.CharField(help_text='Logical or physical data type of the column', max_length=255)),
-                ('source_table', models.ForeignKey(help_text='Source table this column belongs to', on_delete=django.db.models.deletion.CASCADE, related_name='columns', to='engine.sourcetable')),
+                (
+                    "source_column_id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier of the source column",
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "source_column_physical_name",
+                    models.CharField(
+                        help_text="Physical column name in the source table",
+                        max_length=255,
+                    ),
+                ),
+                (
+                    "source_column_datatype",
+                    models.CharField(
+                        help_text="Logical or physical data type of the column",
+                        max_length=255,
+                    ),
+                ),
+                (
+                    "source_table",
+                    models.ForeignKey(
+                        help_text="Source table this column belongs to",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="columns",
+                        to="engine.sourcetable",
+                    ),
+                ),
             ],
             options={
-                'db_table': 'source_column',
-                'ordering': ['source_column_physical_name'],
-                'unique_together': {('source_table', 'source_column_physical_name')},
+                "db_table": "source_column",
+                "ordering": ["source_column_physical_name"],
+                "unique_together": {("source_table", "source_column_physical_name")},
             },
         ),
     ]

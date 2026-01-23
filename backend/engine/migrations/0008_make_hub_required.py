@@ -7,13 +7,18 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0007_populate_hub_field'),
+        ("engine", "0007_populate_hub_field"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='hubsourcemapping',
-            name='hub',
-            field=models.ForeignKey(help_text='Hub this mapping belongs to', on_delete=django.db.models.deletion.CASCADE, related_name='source_mappings', to='engine.hub'),
+            model_name="hubsourcemapping",
+            name="hub",
+            field=models.ForeignKey(
+                help_text="Hub this mapping belongs to",
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="source_mappings",
+                to="engine.hub",
+            ),
         ),
     ]

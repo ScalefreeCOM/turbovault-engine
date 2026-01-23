@@ -6,26 +6,40 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0025_alter_linkcolumn_options_and_more'),
+        ("engine", "0025_alter_linkcolumn_options_and_more"),
     ]
 
     operations = [
         migrations.AlterModelOptions(
-            name='linkcolumn',
-            options={'ordering': ['link', 'sort_order', 'column_name'], 'verbose_name': 'Link Column', 'verbose_name_plural': 'Link Columns'},
+            name="linkcolumn",
+            options={
+                "ordering": ["link", "sort_order", "column_name"],
+                "verbose_name": "Link Column",
+                "verbose_name_plural": "Link Columns",
+            },
         ),
         migrations.AlterModelOptions(
-            name='linkhubreference',
-            options={'ordering': ['link', 'sort_order', 'hub'], 'verbose_name': 'Link Hub Reference', 'verbose_name_plural': 'Link Hub References'},
+            name="linkhubreference",
+            options={
+                "ordering": ["link", "sort_order", "hub"],
+                "verbose_name": "Link Hub Reference",
+                "verbose_name_plural": "Link Hub References",
+            },
         ),
         migrations.AddField(
-            model_name='linkcolumn',
-            name='sort_order',
-            field=models.IntegerField(default=0, help_text='Order of appearance in the link structure. Lower values appear first.'),
+            model_name="linkcolumn",
+            name="sort_order",
+            field=models.IntegerField(
+                default=0,
+                help_text="Order of appearance in the link structure. Lower values appear first.",
+            ),
         ),
         migrations.AddField(
-            model_name='linkhubreference',
-            name='sort_order',
-            field=models.IntegerField(default=0, help_text='Order of appearance in the link. Lower values appear first.'),
+            model_name="linkhubreference",
+            name="sort_order",
+            field=models.IntegerField(
+                default=0,
+                help_text="Order of appearance in the link. Lower values appear first.",
+            ),
         ),
     ]

@@ -7,41 +7,62 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0001_initial'),
+        ("engine", "0001_initial"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='sourcecolumn',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, default=django.utils.timezone.now, help_text='Timestamp when the source column was created'),
+            model_name="sourcecolumn",
+            name="created_at",
+            field=models.DateTimeField(
+                auto_now_add=True,
+                default=django.utils.timezone.now,
+                help_text="Timestamp when the source column was created",
+            ),
             preserve_default=False,
         ),
         migrations.AddField(
-            model_name='sourcecolumn',
-            name='updated_at',
-            field=models.DateTimeField(auto_now=True, help_text='Timestamp when the source column was last updated'),
+            model_name="sourcecolumn",
+            name="updated_at",
+            field=models.DateTimeField(
+                auto_now=True,
+                help_text="Timestamp when the source column was last updated",
+            ),
         ),
         migrations.AddField(
-            model_name='sourcesystem',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, default=django.utils.timezone.now, help_text='Timestamp when the source system was created'),
+            model_name="sourcesystem",
+            name="created_at",
+            field=models.DateTimeField(
+                auto_now_add=True,
+                default=django.utils.timezone.now,
+                help_text="Timestamp when the source system was created",
+            ),
             preserve_default=False,
         ),
         migrations.AddField(
-            model_name='sourcesystem',
-            name='updated_at',
-            field=models.DateTimeField(auto_now=True, help_text='Timestamp when the source system was last updated'),
+            model_name="sourcesystem",
+            name="updated_at",
+            field=models.DateTimeField(
+                auto_now=True,
+                help_text="Timestamp when the source system was last updated",
+            ),
         ),
         migrations.AddField(
-            model_name='sourcetable',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, default=django.utils.timezone.now, help_text='Timestamp when the source table was created'),
+            model_name="sourcetable",
+            name="created_at",
+            field=models.DateTimeField(
+                auto_now_add=True,
+                default=django.utils.timezone.now,
+                help_text="Timestamp when the source table was created",
+            ),
             preserve_default=False,
         ),
         migrations.AddField(
-            model_name='sourcetable',
-            name='updated_at',
-            field=models.DateTimeField(auto_now=True, help_text='Timestamp when the source table was last updated'),
+            model_name="sourcetable",
+            name="updated_at",
+            field=models.DateTimeField(
+                auto_now=True,
+                help_text="Timestamp when the source table was last updated",
+            ),
         ),
     ]
