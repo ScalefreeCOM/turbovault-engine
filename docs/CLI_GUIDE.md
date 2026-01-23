@@ -17,8 +17,7 @@ This makes the `turbovault` command available in your terminal.
 TurboVault CLI provides the following main commands:
 
 - `turbovault init` - Initialize a new project
-- `turbovault generate` - Generate dbt project from Data Vault model
-- `turbovault run` - Export Data Vault model to JSON
+- `turbovault generate` - Generate dbt project and/or export Data Vault model to JSON
 - `turbovault serve` - Start Django admin server
 - `turbovault reset` - Reset the database
 - `turbovault --help` - Show help for all commands
@@ -129,11 +128,14 @@ Creates both the folder and a `.zip` file.
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
 | `--project NAME` | `-p` | Project name (or interactive selection) | Interactive |
-| `--output PATH` | `-o` | Output directory path | `./output/{project}` |
+| `--output PATH` | `-o` | Output directory path (only for type=dbt) | `./output/{project}` |
 | `--mode MODE` | `-m` | Validation mode: `strict` or `lenient` | `strict` |
-| `--zip` | `-z` | Create ZIP archive after generation | `false` |
+| `--zip` | `-z` | Create ZIP archive after generation (only for type=dbt) | `false` |
 | `--skip-validation` | | Skip pre-generation validation | `false` |
-| `--no-v1-satellites` | | Skip generating satellite _v1 views | `false` |
+| `--no-v1-satellites` | | Skip generating satellite _v1 views (only for type=dbt) | `false` |
+| `--type TYPE` | `-t` | Export type: `dbt` or `json` | Interactive |
+| `--json-output PATH` | | JSON output file path (only for type=json) | Auto-generated |
+| `--json-format FORMAT` | | JSON format: `compact` or `pretty` (only for type=json) | `pretty` |
 | `--help` | | Show help message | |
 
 #### Validation Modes
@@ -166,72 +168,61 @@ turbovault generate --project my_project --no-v1-satellites
 
 **Examples:**
 ```bash
-# Generate with all defaults
+# Interactive type selection (default)
 turbovault generate -p sales_datavault
 
+# Generate dbt project
+turbovault generate --type dbt -p sales_datavault
+
 # Generate with custom output and ZIP
-turbovault generate -p sales_datavault -o ./dbt_output --zip
+turbovault generate --type dbt -p sales_datavault -o ./dbt_output --zip
 
 # Generate in lenient mode without v1 satellites
-turbovault generate -p sales_datavault --mode lenient --no-v1-satellites
+turbovault generate --type dbt -p sales_datavault --mode lenient --no-v1-satellites
 
 # Skip validation entirely (not recommended)
-turbovault generate -p sales_datavault --skip-validation
+turbovault generate --type dbt -p sales_datavault --skip-validation
+
+# Export to JSON
+turbovault generate --type json -p sales_datavault
+
+# Export JSON to custom path with pretty formatting
+turbovault generate --type json --json-output ./exports/model.json --json-format pretty -p sales_datavault
+
+# Export compact JSON format
+turbovault generate --type json --json-format compact -p sales_datavault
 ```
 
----
+#### Export Types
 
-### turbovault run
+The `generate` command supports two export types via the `--type` flag:
 
-Export your Data Vault model to JSON format.
-
-#### Basic Usage
-
+**`dbt` - Generate dbt project (default if not specified):**
 ```bash
-turbovault run --project my_project
+turbovault generate --type dbt --project my_project
+```
+Creates a complete dbt project with all models, macros, and configuration.
+
+**`json` - Export Data Vault model to JSON:**
+```bash
+turbovault generate --type json --project my_project
+```
+Exports the complete Data Vault model as JSON for inspection or integration.
+
+**Interactive selection:** If `--type` is not provided, you'll be prompted to choose:
+```bash
+turbovault generate --project my_project
+# ? Select export type:
+#   > dbt - Generate dbt project
+#     json - Export Data Vault model to JSON
 ```
 
-This exports the complete Data Vault model including:
+The JSON export includes:
 - Project metadata
 - Sources and stages
 - Hubs, links, satellites
 - PITs and reference tables
 - Snapshot controls
-
-**Output:** `{project_name}_export_{timestamp}.json`
-
-#### Export to Custom Location
-
-```bash
-turbovault run --project sales_datavault --output ./exports/
-```
-
-#### Export with Pretty Formatting
-
-```bash
-turbovault run --project sales_datavault --format pretty
-```
-
-#### Options
-
-| Option | Short | Description | Default |
-|--------|-------|-------------|---------|
-| `--project NAME` | `-p` | Project name (or interactive selection) | Interactive |
-| `--output PATH` | `-o` | Output directory or file path | Current directory |
-| `--format FORMAT` | `-f` | Output format: `compact` or `pretty` | `compact` |
-| `--help` | | Show help message | |
-
-**Examples:**
-```bash
-# Interactive project selection
-turbovault run
-
-# Export specific project
-turbovault run -p sales_datavault
-
-# Export with pretty formatting to custom location
-turbovault run -p sales_datavault -o ./exports/ -f pretty
-```
 
 ---
 
@@ -360,8 +351,8 @@ turbovault init --config config.yml
 # 3. Model in admin (or programmatically)
 turbovault serve
 
-# 4. Export to JSON for review
-turbovault run --project sales_datavault --format pretty
+# 4. Export to JSON for review (optional)
+turbovault generate --json-only --project sales_datavault --json-format pretty
 
 # 5. Generate dbt project
 turbovault generate --project sales_datavault --zip
@@ -428,14 +419,13 @@ turbovault --help
 # Command-specific help
 turbovault init --help
 turbovault generate --help
-turbovault run --help
 turbovault serve --help
 turbovault reset --help
 ```
 
 ### List Available Projects
 
-When running `generate` or `run` without `--project`, you'll get an interactive list:
+When running `generate` without `--project`, you'll get an interactive list:
 
 ```bash
 turbovault generate

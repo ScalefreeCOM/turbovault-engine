@@ -132,6 +132,9 @@ def ensure_templates_populated() -> None:
 
     Can be disabled via TURBOVAULT_SKIP_TEMPLATE_POPULATION environment variable.
     """
+    from engine.cli.utils.debug import debug_print
+
+    debug_print("ensure_templates_populated() called")
 
     from engine.models.templates import ModelTemplate, TemplateCategory
     from engine.services.generation.template_resolver import TEMPLATES_DIR
@@ -142,10 +145,13 @@ def ensure_templates_populated() -> None:
         "true",
         "yes",
     ):
+        debug_print("Skipping template population (env var set)")
         return
 
+    debug_print("Checking if templates exist in database...")
     # Check if templates already exist
     if ModelTemplate.objects.exists():
+        debug_print("Templates already exist, returning")
         return
 
     console.print("\n[cyan]ℹ️  Populating database with template files...[/cyan]")
@@ -231,56 +237,42 @@ def ensure_database_ready() -> None:
 
     This function:
     1. Checks if the database file exists (for SQLite)
-    2. Checks if there are unapplied migrations
-    3. Automatically runs migrations if needed
-    4. Checks if a superuser exists and prompts to create one if not
+    2. Creates and initializes the database if it doesn't exist
+    3. Populates templates if needed
 
     Raises:
         SystemExit: If migrations fail to apply
     """
     from django.conf import settings
-    from django.db import connection
-    from django.db.migrations.executor import MigrationExecutor
+
+    from engine.cli.utils.debug import debug_print
+
+    debug_print("ensure_database_ready() started")
 
     # For SQLite, check if database file exists
     db_config = settings.DATABASES["default"]
     is_sqlite = db_config["ENGINE"] == "django.db.backends.sqlite3"
 
+    debug_print(f"Database engine: {db_config['ENGINE']}")
+
     if is_sqlite:
         db_path = Path(db_config["NAME"])
         db_exists = db_path.exists()
+        debug_print(f"SQLite database exists: {db_exists}")
 
         if not db_exists:
             console.print("\n[yellow]⚠️  Database not found. Initializing...[/yellow]")
             _run_migrations(initial=True)
             console.print("[green]✓ Database initialized successfully[/green]\n")
-            # Check for superuser after initial setup
-            _ensure_superuser_exists()
+            # Populate templates after initial setup
+            ensure_templates_populated()
+            debug_print("Returning after initial setup")
             return
 
-    # Check for pending migrations
-    try:
-        executor = MigrationExecutor(connection)
-        plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
-
-        if plan:
-            # There are unapplied migrations
-            migration_count = len(plan)
-            console.print(
-                f"\n[yellow]⚠️  Found {migration_count} unapplied migration(s)[/yellow]"
-            )
-            _run_migrations(initial=False)
-            console.print("[green]✓ Migrations applied successfully[/green]\n")
-
-    except Exception as e:
-        # If we can't check migrations, assume database needs setup
-        console.print(f"\n[yellow]⚠️  Unable to check migrations: {e}[/yellow]")
-        console.print("[yellow]Attempting to initialize database...[/yellow]")
-        _run_migrations(initial=True)
-        console.print("[green]✓ Database setup complete[/green]\n")
-
-    # Always check for superuser
-    _ensure_superuser_exists()
+    # Database exists - just ensure templates are populated
+    debug_print("Database exists, ensuring templates are populated...")
+    ensure_templates_populated()
+    debug_print("ensure_database_ready() completed")
 
 
 def _run_migrations(initial: bool = False) -> None:
