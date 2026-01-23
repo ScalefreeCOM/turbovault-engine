@@ -211,3 +211,4 @@ output/
 .output/
 
 config.yml
+.venv*
