@@ -6,24 +6,40 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0024_alter_linksourcemapping_source_column'),
+        ("engine", "0024_alter_linksourcemapping_source_column"),
     ]
 
     operations = [
         migrations.AlterModelOptions(
-            name='linkcolumn',
-            options={'ordering': ['link', 'column_name'], 'verbose_name': 'Link Column', 'verbose_name_plural': 'Link Columns'},
+            name="linkcolumn",
+            options={
+                "ordering": ["link", "column_name"],
+                "verbose_name": "Link Column",
+                "verbose_name_plural": "Link Columns",
+            },
         ),
         migrations.AlterModelOptions(
-            name='linkhubreference',
-            options={'ordering': ['link', 'hub'], 'verbose_name': 'Link Hub Reference', 'verbose_name_plural': 'Link Hub References'},
+            name="linkhubreference",
+            options={
+                "ordering": ["link", "hub"],
+                "verbose_name": "Link Hub Reference",
+                "verbose_name_plural": "Link Hub References",
+            },
         ),
         migrations.AlterModelOptions(
-            name='linkhubsourcemapping',
-            options={'ordering': ['link_hub_reference', 'standard_hub_column'], 'verbose_name': 'Link Hub Source Mapping', 'verbose_name_plural': 'Link Hub Source Mappings'},
+            name="linkhubsourcemapping",
+            options={
+                "ordering": ["link_hub_reference", "standard_hub_column"],
+                "verbose_name": "Link Hub Source Mapping",
+                "verbose_name_plural": "Link Hub Source Mappings",
+            },
         ),
         migrations.AlterModelOptions(
-            name='linksourcemapping',
-            options={'ordering': ['link_column'], 'verbose_name': 'Link Source Mapping', 'verbose_name_plural': 'Link Source Mappings'},
+            name="linksourcemapping",
+            options={
+                "ordering": ["link_column"],
+                "verbose_name": "Link Source Mapping",
+                "verbose_name_plural": "Link Source Mappings",
+            },
         ),
     ]

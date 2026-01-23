@@ -6,12 +6,12 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0013_refactor_link_models'),
+        ("engine", "0013_refactor_link_models"),
     ]
 
     operations = [
         migrations.RemoveField(
-            model_name='linkcolumn',
-            name='parent_hub',
+            model_name="linkcolumn",
+            name="parent_hub",
         ),
     ]

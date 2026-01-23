@@ -7,18 +7,32 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0019_add_prejoin_models'),
+        ("engine", "0019_add_prejoin_models"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='linksourcemapping',
-            name='prejoin_extraction_column',
-            field=models.ForeignKey(blank=True, help_text='Prejoin extraction column (XOR with source_column)', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='link_mappings', to='engine.prejoinextractioncolumn'),
+            model_name="linksourcemapping",
+            name="prejoin_extraction_column",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Prejoin extraction column (XOR with source_column)",
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="link_mappings",
+                to="engine.prejoinextractioncolumn",
+            ),
         ),
         migrations.AlterField(
-            model_name='linksourcemapping',
-            name='source_column',
-            field=models.ForeignKey(blank=True, help_text='Direct source column (XOR with prejoin_extraction_column)', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='link_column_mappings', to='engine.sourcecolumn'),
+            model_name="linksourcemapping",
+            name="source_column",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Direct source column (XOR with prejoin_extraction_column)",
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="link_column_mappings",
+                to="engine.sourcecolumn",
+            ),
         ),
     ]

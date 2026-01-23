@@ -8,77 +8,274 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0011_add_source_table_to_satellite'),
+        ("engine", "0011_add_source_table_to_satellite"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='Link',
+            name="Link",
             fields=[
-                ('link_id', models.UUIDField(default=uuid.uuid4, editable=False, help_text='Unique identifier of the link', primary_key=True, serialize=False)),
-                ('link_physical_name', models.CharField(help_text='Physical name of the link (e.g. link_customer_order)', max_length=255)),
-                ('link_hashkey_name', models.CharField(help_text='Name of the link hashkey column (e.g. lk_customer_order)', max_length=255)),
-                ('link_type', models.CharField(choices=[('standard', 'Standard'), ('non_historized', 'Non-Historized')], default='standard', help_text='Type of link: standard or non-historized', max_length=20)),
-                ('created_at', models.DateTimeField(auto_now_add=True, help_text='Timestamp when the link was created')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='Timestamp when the link was last updated')),
-                ('hub_references', models.ManyToManyField(help_text='Hubs connected by this link (must be standard hubs)', limit_choices_to={'hub_type': 'standard'}, related_name='links', to='engine.hub')),
-                ('project', models.ForeignKey(help_text='Project this link belongs to', on_delete=django.db.models.deletion.CASCADE, related_name='links', to='engine.project')),
+                (
+                    "link_id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier of the link",
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "link_physical_name",
+                    models.CharField(
+                        help_text="Physical name of the link (e.g. link_customer_order)",
+                        max_length=255,
+                    ),
+                ),
+                (
+                    "link_hashkey_name",
+                    models.CharField(
+                        help_text="Name of the link hashkey column (e.g. lk_customer_order)",
+                        max_length=255,
+                    ),
+                ),
+                (
+                    "link_type",
+                    models.CharField(
+                        choices=[
+                            ("standard", "Standard"),
+                            ("non_historized", "Non-Historized"),
+                        ],
+                        default="standard",
+                        help_text="Type of link: standard or non-historized",
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        help_text="Timestamp when the link was created",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="Timestamp when the link was last updated",
+                    ),
+                ),
+                (
+                    "hub_references",
+                    models.ManyToManyField(
+                        help_text="Hubs connected by this link (must be standard hubs)",
+                        limit_choices_to={"hub_type": "standard"},
+                        related_name="links",
+                        to="engine.hub",
+                    ),
+                ),
+                (
+                    "project",
+                    models.ForeignKey(
+                        help_text="Project this link belongs to",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="links",
+                        to="engine.project",
+                    ),
+                ),
             ],
             options={
-                'db_table': 'link',
-                'ordering': ['link_physical_name'],
-                'unique_together': {('project', 'link_physical_name')},
+                "db_table": "link",
+                "ordering": ["link_physical_name"],
+                "unique_together": {("project", "link_physical_name")},
             },
         ),
         migrations.AddField(
-            model_name='satellite',
-            name='parent_link',
-            field=models.ForeignKey(blank=True, help_text='Parent link (if satellite belongs to a link)', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='satellites', to='engine.link'),
+            model_name="satellite",
+            name="parent_link",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Parent link (if satellite belongs to a link)",
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="satellites",
+                to="engine.link",
+            ),
         ),
         migrations.CreateModel(
-            name='LinkColumn',
+            name="LinkColumn",
             fields=[
-                ('link_column_id', models.UUIDField(default=uuid.uuid4, editable=False, help_text='Unique identifier of the link column', primary_key=True, serialize=False)),
-                ('column_name', models.CharField(help_text='Logical/target column name in the link', max_length=255)),
-                ('column_type', models.CharField(choices=[('payload', 'Payload'), ('additional_column', 'Additional Column')], help_text='Type of column: payload or additional_column', max_length=20)),
-                ('created_at', models.DateTimeField(auto_now_add=True, help_text='Timestamp when the link column was created')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='Timestamp when the link column was last updated')),
-                ('link', models.ForeignKey(help_text='Link this column belongs to', on_delete=django.db.models.deletion.CASCADE, related_name='columns', to='engine.link')),
+                (
+                    "link_column_id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier of the link column",
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "column_name",
+                    models.CharField(
+                        help_text="Logical/target column name in the link",
+                        max_length=255,
+                    ),
+                ),
+                (
+                    "column_type",
+                    models.CharField(
+                        choices=[
+                            ("payload", "Payload"),
+                            ("additional_column", "Additional Column"),
+                        ],
+                        help_text="Type of column: payload or additional_column",
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        help_text="Timestamp when the link column was created",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="Timestamp when the link column was last updated",
+                    ),
+                ),
+                (
+                    "link",
+                    models.ForeignKey(
+                        help_text="Link this column belongs to",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="columns",
+                        to="engine.link",
+                    ),
+                ),
             ],
             options={
-                'db_table': 'link_column',
-                'ordering': ['link', 'column_name'],
-                'unique_together': {('link', 'column_name')},
+                "db_table": "link_column",
+                "ordering": ["link", "column_name"],
+                "unique_together": {("link", "column_name")},
             },
         ),
         migrations.CreateModel(
-            name='LinkHubSourceMapping',
+            name="LinkHubSourceMapping",
             fields=[
-                ('link_hub_source_mapping_id', models.UUIDField(default=uuid.uuid4, editable=False, help_text='Unique identifier of the link hub source mapping', primary_key=True, serialize=False)),
-                ('created_at', models.DateTimeField(auto_now_add=True, help_text='Timestamp when the mapping was created')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='Timestamp when the mapping was last updated')),
-                ('link', models.ForeignKey(help_text='Link this mapping belongs to', on_delete=django.db.models.deletion.CASCADE, related_name='hub_source_mappings', to='engine.link')),
-                ('source_column', models.ForeignKey(blank=True, help_text='Source column when mapping directly from source', null=True, on_delete=django.db.models.deletion.PROTECT, related_name='link_hub_mappings', to='engine.sourcecolumn')),
-                ('standard_hub_column', models.ForeignKey(help_text='Hub column (business key) from a standard hub', limit_choices_to={'hub__hub_type': 'standard'}, on_delete=django.db.models.deletion.PROTECT, related_name='link_hub_mappings', to='engine.hubcolumn')),
+                (
+                    "link_hub_source_mapping_id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier of the link hub source mapping",
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        help_text="Timestamp when the mapping was created",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="Timestamp when the mapping was last updated",
+                    ),
+                ),
+                (
+                    "link",
+                    models.ForeignKey(
+                        help_text="Link this mapping belongs to",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="hub_source_mappings",
+                        to="engine.link",
+                    ),
+                ),
+                (
+                    "source_column",
+                    models.ForeignKey(
+                        blank=True,
+                        help_text="Source column when mapping directly from source",
+                        null=True,
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="link_hub_mappings",
+                        to="engine.sourcecolumn",
+                    ),
+                ),
+                (
+                    "standard_hub_column",
+                    models.ForeignKey(
+                        help_text="Hub column (business key) from a standard hub",
+                        limit_choices_to={"hub__hub_type": "standard"},
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="link_hub_mappings",
+                        to="engine.hubcolumn",
+                    ),
+                ),
             ],
             options={
-                'db_table': 'link_hub_source_mapping',
-                'ordering': ['link', 'standard_hub_column'],
+                "db_table": "link_hub_source_mapping",
+                "ordering": ["link", "standard_hub_column"],
             },
         ),
         migrations.CreateModel(
-            name='LinkSourceMapping',
+            name="LinkSourceMapping",
             fields=[
-                ('link_source_mapping_id', models.UUIDField(default=uuid.uuid4, editable=False, help_text='Unique identifier of the link source mapping', primary_key=True, serialize=False)),
-                ('created_at', models.DateTimeField(auto_now_add=True, help_text='Timestamp when the mapping was created')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='Timestamp when the mapping was last updated')),
-                ('link_column', models.ForeignKey(help_text='Link column being mapped', on_delete=django.db.models.deletion.CASCADE, related_name='source_mappings', to='engine.linkcolumn')),
-                ('source_column', models.ForeignKey(help_text='Source column providing the data', on_delete=django.db.models.deletion.PROTECT, related_name='link_column_mappings', to='engine.sourcecolumn')),
+                (
+                    "link_source_mapping_id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier of the link source mapping",
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        help_text="Timestamp when the mapping was created",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="Timestamp when the mapping was last updated",
+                    ),
+                ),
+                (
+                    "link_column",
+                    models.ForeignKey(
+                        help_text="Link column being mapped",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="source_mappings",
+                        to="engine.linkcolumn",
+                    ),
+                ),
+                (
+                    "source_column",
+                    models.ForeignKey(
+                        help_text="Source column providing the data",
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="link_column_mappings",
+                        to="engine.sourcecolumn",
+                    ),
+                ),
             ],
             options={
-                'db_table': 'link_source_mapping',
-                'ordering': ['link_column'],
-                'unique_together': {('link_column', 'source_column')},
+                "db_table": "link_source_mapping",
+                "ordering": ["link_column"],
+                "unique_together": {("link_column", "source_column")},
             },
         ),
     ]

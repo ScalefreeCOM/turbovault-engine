@@ -7,18 +7,27 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0020_add_prejoin_to_link_mapping'),
+        ("engine", "0020_add_prejoin_to_link_mapping"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='snapshotcontroltable',
-            name='name',
-            field=models.CharField(default='control_snap_v0', help_text='Name of the snapshot control table (e.g., control_snap_v0)', max_length=255),
+            model_name="snapshotcontroltable",
+            name="name",
+            field=models.CharField(
+                default="control_snap_v0",
+                help_text="Name of the snapshot control table (e.g., control_snap_v0)",
+                max_length=255,
+            ),
         ),
         migrations.AlterField(
-            model_name='snapshotcontroltable',
-            name='project',
-            field=models.ForeignKey(help_text='Project this snapshot control belongs to', on_delete=django.db.models.deletion.CASCADE, related_name='snapshot_controls', to='engine.project'),
+            model_name="snapshotcontroltable",
+            name="project",
+            field=models.ForeignKey(
+                help_text="Project this snapshot control belongs to",
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="snapshot_controls",
+                to="engine.project",
+            ),
         ),
     ]

@@ -7,13 +7,18 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('engine', '0023_alter_linkcolumn_options_and_more'),
+        ("engine", "0023_alter_linkcolumn_options_and_more"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='linksourcemapping',
-            name='source_column',
-            field=models.ForeignKey(help_text='Source column mapped to this link column', on_delete=django.db.models.deletion.CASCADE, related_name='link_column_mappings', to='engine.sourcecolumn'),
+            model_name="linksourcemapping",
+            name="source_column",
+            field=models.ForeignKey(
+                help_text="Source column mapped to this link column",
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="link_column_mappings",
+                to="engine.sourcecolumn",
+            ),
         ),
     ]
