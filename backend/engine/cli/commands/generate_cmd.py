@@ -57,23 +57,84 @@ def generate(
         bool,
         typer.Option("--no-v1-satellites", help="Skip generating satellite _v1 views"),
     ] = False,
+    type: Annotated[
+        str | None,
+        typer.Option(
+            "--type",
+            "-t",
+            help="Export type: 'dbt' or 'json' (interactive if not provided)",
+        ),
+    ] = None,
+    json_output: Annotated[
+        Path | None,
+        typer.Option(
+            "--json-output",
+            help="JSON output file path (only for type=json, auto-generated if not provided)",
+        ),
+    ] = None,
+    json_format: Annotated[
+        str,
+        typer.Option(
+            "--json-format",
+            help="JSON format: 'compact' or 'pretty' (only for type=json)",
+        ),
+    ] = "pretty",
 ) -> None:
     """
     Generate a complete dbt project from Data Vault model.
 
     Creates a ready-to-use dbt project with all models (stages, hubs, links,
     satellites, PITs, reference tables) using datavault4dbt macros.
+
+    Can also export the Data Vault model as JSON using --type json.
     """
+    from engine.cli.utils.debug import debug_print
+
+    debug_print("generate() function called")
+
     # Lazy imports to avoid loading before Django setup
     from engine.models import Project
     from engine.services.export.builder import ModelBuilder
     from engine.services.generation import DbtProjectGenerator, GenerationConfig
     from engine.services.generation.validators import validate_export
 
+    debug_print("Imports complete")
+
+    # Interactive type selection if not provided
+    if not type:
+        type = questionary.select(
+            "Select export type:",
+            choices=[
+                questionary.Choice("dbt - Generate dbt project", value="dbt"),
+                questionary.Choice(
+                    "json - Export Data Vault model to JSON", value="json"
+                ),
+            ],
+        ).ask()
+
+        if not type:
+            raise typer.Exit(0)
+
+    # Validate type
+    if type not in ("dbt", "json"):
+        print_error(f"Invalid type: {type}. Must be 'dbt' or 'json'.")
+        raise typer.Exit(1)
+
+    # Validate JSON format
+    if json_format not in ("compact", "pretty"):
+        print_error(
+            f"Invalid JSON format: {json_format}. Must be 'compact' or 'pretty'."
+        )
+        raise typer.Exit(1)
+
     # Validate mode
     if mode not in ("strict", "lenient"):
         print_error(f"Invalid mode: {mode}. Must be 'strict' or 'lenient'.")
         raise typer.Exit(1)
+
+    # Determine what we're doing
+    should_export_json = type == "json"
+    should_generate_dbt = type == "dbt"
 
     # Get available projects
     projects = list(Project.objects.all().order_by("name"))
@@ -88,14 +149,28 @@ def generate(
     if not selected_project:
         raise typer.Exit(0)
 
-    # Determine output path
-    if not output:
+    # Determine output path for dbt if needed
+    if should_generate_dbt and not output:
         safe_name = selected_project.name.lower().replace(" ", "_")
         output = Path("./output") / safe_name
 
+    # Calculate total steps
+    total_steps = 2  # Build + Complete
+    if should_export_json:
+        total_steps += 1  # JSON export step
+    if should_generate_dbt:
+        if not skip_validation:
+            total_steps += 1  # Validation step
+        total_steps += 1  # Generation step
+
+    current_step = 0
+
     # Build export
+    current_step += 1
     print_step(
-        1, 5, f"Building export for project: [bold]{selected_project.name}[/bold]"
+        current_step,
+        total_steps,
+        f"Building export for project: [bold]{selected_project.name}[/bold]",
     )
 
     try:
@@ -105,9 +180,31 @@ def generate(
         print_error(f"Failed to build export: {e}")
         raise typer.Exit(1)
 
-    # Validate
+    # JSON Export (if type is json)
+    json_file_path = None
+    if should_export_json:
+        current_step += 1
+        json_file_path = _export_json(
+            current_step,
+            total_steps,
+            project_export,
+            selected_project,
+            json_output,
+            json_format,
+        )
+
+        # JSON-only: show summary and return
+        current_step += 1
+        print_step(current_step, total_steps, "Export complete!")
+        _show_json_only_summary(project_export, json_file_path)
+        print_success(f"JSON export saved to: {json_file_path}")
+        return
+
+    # From here on, we're generating dbt
+    # Validate (only if generating dbt)
     if not skip_validation:
-        print_step(2, 5, "Validating export data...")
+        current_step += 1
+        print_step(current_step, total_steps, "Validating export data...")
         validation_result = validate_export(project_export)
 
         # Show warnings
@@ -129,10 +226,12 @@ def generate(
             else:
                 print_warning("Continuing with valid entities only (lenient mode)")
     else:
-        print_step(2, 5, "Skipping validation (--skip-validation)")
+        current_step += 1
+        print_step(current_step, total_steps, "Skipping validation (--skip-validation)")
 
     # Configure generator
-    print_step(3, 5, "Configuring generator...")
+    current_step += 1
+    print_step(current_step, total_steps, "Generating dbt project...")
 
     config = GenerationConfig(
         project_name=selected_project.name.lower().replace(" ", "_"),
@@ -144,8 +243,6 @@ def generate(
     )
 
     # Generate dbt project
-    print_step(4, 5, f"Generating dbt project to: [bold]{output}[/bold]")
-
     try:
         generator = DbtProjectGenerator(
             output_path=output,
@@ -162,7 +259,8 @@ def generate(
         zip_path = _create_zip_archive(output)
 
     # Show results
-    print_step(5, 5, "Generation complete!")
+    current_step += 1
+    print_step(current_step, total_steps, "Generation complete!")
 
     _show_summary(report, output, zip_path, no_v1_satellites)
 
@@ -173,6 +271,57 @@ def generate(
     else:
         print_error("Generation completed with errors")
         raise typer.Exit(1)
+
+
+def _export_json(
+    current_step: int,
+    total_steps: int,
+    project_export,
+    selected_project,
+    json_output: Path | None,
+    json_format: str,
+) -> Path:
+    """Export the project model to JSON and return the file path."""
+    from datetime import datetime
+
+    from engine.services.export.exporters.json_exporter import JSONExporter
+
+    print_step(current_step, total_steps, "Exporting to JSON format...")
+
+    # Determine indent based on format
+    indent = 2 if json_format == "pretty" else None
+
+    exporter = JSONExporter(indent=indent)
+    export_content = exporter.export(project_export)
+
+    # Generate default filename if not provided
+    if not json_output:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = (
+            f"{selected_project.name.lower().replace(' ', '_')}_export_{timestamp}.json"
+        )
+        json_output = Path(filename)
+
+    # Write to file
+    json_output.parent.mkdir(parents=True, exist_ok=True)
+    with open(json_output, "w") as f:
+        f.write(export_content)
+
+    return json_output
+
+
+def _show_json_only_summary(project_export, json_path: Path) -> None:
+    """Display summary for JSON-only export."""
+    summary = f"""
+[bold]Project:[/bold] {project_export.project_name}
+[bold]Sources:[/bold] {len(project_export.sources)} system(s)
+[bold]Hubs:[/bold] {len(project_export.hubs)} hub(s)
+[bold]Links:[/bold] {len(project_export.links)} link(s)
+[bold]Satellites:[/bold] {len(project_export.satellites)} satellite(s)
+[bold]Stages:[/bold] {len(project_export.stages)} stage(s)
+[bold]Exported to:[/bold] {json_path.absolute()}
+"""
+    print_panel("Export Summary", summary.strip(), style="success")
 
 
 def _select_project(projects: list, project_name: str | None):

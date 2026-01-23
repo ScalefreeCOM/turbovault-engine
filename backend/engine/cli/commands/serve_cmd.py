@@ -51,12 +51,27 @@ def serve(
 
     # Run Django runserver
     try:
+        from engine.cli.utils.debug import debug_print
+
         cmd = [sys.executable, str(manage_py), "runserver", f"{host}:{port}"]
 
-        subprocess.run(cmd, cwd=str(backend_dir))
+        debug_print(f"Starting server with command: {' '.join(cmd)}")
+        debug_print(f"Working directory: {backend_dir}")
+
+        # Run the server - this will block until CTRL+C
+        result = subprocess.run(cmd, cwd=str(backend_dir), check=False)
+
+        debug_print(f"Server exited with return code: {result.returncode}")
+
+        # If it exits with an error code, report it
+        if (
+            result.returncode != 0 and result.returncode != 130
+        ):  # 130 is KeyboardInterrupt
+            console.print(f"[red]✗ Server exited with code {result.returncode}[/red]")
+            raise typer.Exit(result.returncode)
 
     except KeyboardInterrupt:
-        console.print("\n\n[warning]Server stopped by user[/warning]")
+        console.print("\n\n[yellow]⚠️  Server stopped by user[/yellow]")
     except Exception as e:
-        console.print(f"[error]Failed to start server: {e}[/error]")
+        console.print(f"[red]✗ Failed to start server: {e}[/red]")
         raise typer.Exit(1)
