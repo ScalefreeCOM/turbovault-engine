@@ -110,10 +110,10 @@ Use Docker for a pre-configured environment:
 
 ```bash
 # Option 1: Pull from GitHub Container Registry (after first release)
-docker pull ghcr.io/scalefreec om/turbovault-engine:latest
+docker pull ghcr.io/scalefreecom/turbovault-engine:latest
 
 # Run commands
-docker run ghcr.io/scalefreec om/turbovault-engine:latest turbovault --help
+docker run ghcr.io/scalefreecom/turbovault-engine:latest turbovault --help
 
 # Option 2: Build locally
 git clone https://github.com/ScalefreeCOM/turbovault-engine.git
