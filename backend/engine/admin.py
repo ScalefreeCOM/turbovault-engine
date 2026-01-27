@@ -904,7 +904,6 @@ class PITAdmin(admin.ModelAdmin):
 # ==============================================================================
 
 
-
 class PrejoinExtractionColumnInline(admin.TabularInline):
     """Inline for prejoin extraction columns."""
 
