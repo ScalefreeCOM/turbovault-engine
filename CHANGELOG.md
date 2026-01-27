@@ -5,6 +5,14 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.7.0...turbovault-engine-v0.7.1) (2026-01-27)
+
+
+### Bug Fixes
+
+* linting ([a0fb55a](https://github.com/ScalefreeCOM/turbovault-engine/commit/a0fb55a5de4f978aee75dd925279641c95f7d00d))
+* typo in Docker pull command in README ([#42](https://github.com/ScalefreeCOM/turbovault-engine/issues/42)) ([5dec902](https://github.com/ScalefreeCOM/turbovault-engine/commit/5dec902648dad67e3a28ac058f2c594a0686abb4))
+
 ## [0.7.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.6.0...turbovault-engine-v0.7.0) (2026-01-23)
 
 
