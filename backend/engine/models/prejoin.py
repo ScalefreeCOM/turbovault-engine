@@ -163,6 +163,13 @@ class PrejoinExtractionColumn(models.Model):
         help_text="Column from the target table to extract",
     )
 
+    prejoin_target_column_alias = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Optional alias for the extracted column in the dbt stage. Will overwrite physical column name.",
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the extraction column was created"
     )

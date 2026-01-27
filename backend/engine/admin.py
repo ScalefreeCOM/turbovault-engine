@@ -910,6 +910,7 @@ class PrejoinExtractionColumnInline(admin.TabularInline):
     model = PrejoinExtractionColumn
     extra = 1
     autocomplete_fields = ["source_column"]
+    fields = ["source_column", "prejoin_target_column_alias"]
     readonly_fields = ["extraction_id", "created_at", "updated_at"]
 
 
@@ -975,17 +976,34 @@ class PrejoinDefinitionAdmin(admin.ModelAdmin):
 class PrejoinExtractionColumnAdmin(admin.ModelAdmin):
     """Admin configuration for PrejoinExtractionColumn model."""
 
-    list_display = ["get_column_name", "prejoin", "source_column", "created_at"]
+    list_display = [
+        "get_column_name",
+        "prejoin_target_column_alias",
+        "prejoin",
+        "source_column",
+        "created_at",
+    ]
     list_filter = ["prejoin__project", "prejoin__source_table"]
     search_fields = [
         "source_column__source_column_physical_name",
         "prejoin__source_table__physical_table_name",
+        "prejoin_target_column_alias",
     ]
     readonly_fields = ["extraction_id", "created_at", "updated_at"]
     autocomplete_fields = ["prejoin", "source_column"]
 
     fieldsets = [
-        (None, {"fields": ["extraction_id", "prejoin", "source_column"]}),
+        (
+            None,
+            {
+                "fields": [
+                    "extraction_id",
+                    "prejoin",
+                    "source_column",
+                    "prejoin_target_column_alias",
+                ]
+            },
+        ),
         (
             "Timestamps",
             {"fields": ["created_at", "updated_at"], "classes": ["collapse"]},
