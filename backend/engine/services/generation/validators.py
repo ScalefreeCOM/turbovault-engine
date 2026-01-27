@@ -216,15 +216,16 @@ def _validate_hub(hub: HubDefinition) -> ValidationResult:
                 code="HUB_001",
             )
 
-    # All hubs must have at least one business key
-    if not hub.business_key_columns:
-        result.add_error(
-            entity_type="hub",
-            entity_name=hub.hub_name,
-            field="business_key_columns",
-            message="Hub must have at least one business key column",
-            code="HUB_002",
-        )
+    # Standard hubs must have at least one business key
+    if hub.hub_type == "standard":
+        if not hub.business_key_columns:
+            result.add_error(
+                entity_type="hub",
+                entity_name=hub.hub_name,
+                field="business_key_columns",
+                message="Standard Hub must have at least one business key column",
+                code="HUB_002",
+            )
 
     # Hub should have at least one source
     if not hub.source_tables:

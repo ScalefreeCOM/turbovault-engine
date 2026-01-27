@@ -135,11 +135,6 @@ class ExcelImportService:
         # 7. Create default Snapshot Control (or find existing)
         self._create_default_snapshot_control(skip_creation=skip_snapshots)
 
-        # 8. Process Prejoins (after source columns, before links that might use them)
-        # Wait, non_historized_link processing already happens.
-        # Actually, let's process prejoins EARLY if they are needed by links.
-        # I'll move this up in a second if needed.
-
         # 9. Process Reference Tables
         if "ref_table" in self.excel_file.sheet_names:
             self._process_reference_tables(self.excel_file.parse("ref_table"))
@@ -1039,11 +1034,13 @@ class ExcelImportService:
                 )
 
                 if source_col:
-                    extraction, _ = PrejoinExtractionColumn.objects.get_or_create(
-                        prejoin=prejoin, source_column=source_col
+                    alias = self._get_val(row, "prejoin_target_column_alias")
+                    extraction, _ = PrejoinExtractionColumn.objects.update_or_create(
+                        prejoin=prejoin,
+                        source_column=source_col,
+                        defaults={"prejoin_target_column_alias": alias},
                     )
                     # Key by link_name + alias/target_col_name for lookup in links
-                    alias = self._get_val(row, "prejoin_target_column_alias")
                     self._extractions[f"{link_name}|{alias or extraction_col_name}"] = (
                         extraction
                     )
