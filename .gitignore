@@ -210,5 +210,6 @@ __marimo__/
 output/
 .output/
 
+config_*.yml
 config.yml
 .venv*
