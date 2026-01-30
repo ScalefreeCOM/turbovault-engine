@@ -118,7 +118,6 @@ class ExcelImportService:
                 self.excel_file.parse("non_historized_link")
             )
 
-
         # 6. Process Satellites
         sat_sheets = [
             "standard_satellite",
