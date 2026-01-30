@@ -473,9 +473,7 @@ class ModelBuilder:
             Hub,
             HubColumn,
             HubSourceMapping,
-            Link,
             LinkColumn,
-            LinkHubReference,
             LinkHubSourceMapping,
             LinkSourceMapping,
         )
@@ -641,18 +639,18 @@ class ModelBuilder:
                 hashkey_name = (
                     hub_ref.hub_hashkey_alias_in_link or hub_ref.hub.hub_hashkey_name
                 )
-                
+
                 if not hashkey_name:
-                        continue
+                    continue
 
                 # Avoid duplicates if we already generated this hashkey
                 if hashkey_name in generated_hashkeys:
                     continue
-                
+
                 # Sort by hub column sort order
                 sorted_hub_bk_cols = sorted(col_info, key=lambda x: x["sort_order"])
                 bk_col_names = [c["source_column"] for c in sorted_hub_bk_cols]
-                
+
                 if bk_col_names:
                     result.append(
                         StageHashkeyDef(
@@ -697,10 +695,6 @@ class ModelBuilder:
                         business_key_columns=all_business_keys,
                     )
                 )
-
-
-
-        
 
         return result
 
