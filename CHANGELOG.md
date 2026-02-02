@@ -5,6 +5,16 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.7.1...turbovault-engine-v0.7.2) (2026-02-02)
+
+
+### Bug Fixes
+
+* generate referenced hub hashkeys for links ([fafe45f](https://github.com/ScalefreeCOM/turbovault-engine/commit/fafe45f265346866c879987fd028d78b089d62bf))
+* multi hub references for links ([b101897](https://github.com/ScalefreeCOM/turbovault-engine/commit/b101897fa5423a6a35f8d2aaa3d5718d2ab20713))
+* source_tables for links not empty anymore ([e94e4f5](https://github.com/ScalefreeCOM/turbovault-engine/commit/e94e4f5f3811d32e1963a6e6c4f2ac3ffaf38048))
+* sources for ref hubs ([398ca61](https://github.com/ScalefreeCOM/turbovault-engine/commit/398ca61767422d11e2e0d0d139b109e6706c64bb))
+
 ## [0.7.1](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.7.0...turbovault-engine-v0.7.1) (2026-01-27)
 
 
