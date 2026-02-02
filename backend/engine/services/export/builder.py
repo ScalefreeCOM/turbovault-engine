@@ -171,6 +171,13 @@ class ModelBuilder:
 
             business_key_names = [col.column_name for col in bk_columns]
 
+            # Get reference key columns (ordered)
+            rk_columns = hub.columns.filter(
+                column_type=HubColumn.ColumnType.REFERENCE_KEY
+            ).order_by("sort_order")
+
+            reference_key_names = [col.column_name for col in rk_columns]
+
             # Get additional columns
             additional_columns = hub.columns.filter(
                 column_type=HubColumn.ColumnType.ADDITIONAL_COLUMN
@@ -195,6 +202,7 @@ class ModelBuilder:
                     group=hub.group.group_name if hub.group else None,
                     hashkey=hashkey,
                     business_key_columns=business_key_names,
+                    reference_key_columns=reference_key_names,
                     additional_columns=additional_column_names,
                     source_tables=source_info,
                     create_record_tracking_satellite=hub.create_record_tracking_satellite,
@@ -230,6 +238,22 @@ class ModelBuilder:
                 source_table_map[table_key]["columns"].append(
                     mapping.source_column.source_column_physical_name
                 )
+
+        # Also process REFERENCE_KEY columns for reference hubs
+        for column in hub.columns.filter(column_type=HubColumn.ColumnType.REFERENCE_KEY):
+            for mapping in column.source_mappings.all():
+                table = mapping.source_column.source_table
+                table_key = table.physical_table_name
+
+                source_table_map[table_key]["source_system"] = table.source_system.name
+                source_table_map[table_key][
+                    "stage_name"
+                ] = f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}"
+                
+                # Append if not already present
+                col_name = mapping.source_column.source_column_physical_name
+                if col_name not in source_table_map[table_key]["columns"]:
+                    source_table_map[table_key]["columns"].append(col_name)
 
         return [
             HubSourceInfo(
