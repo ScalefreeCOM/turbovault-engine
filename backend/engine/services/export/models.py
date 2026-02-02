@@ -82,6 +82,10 @@ class HubDefinition(BaseModel):
     business_key_columns: list[str] = Field(
         default_factory=list, description="Target hub column names for business keys"
     )
+    reference_key_columns: list[str] = Field(
+        default_factory=list,
+        description="Target hub column names for reference keys (for reference hubs)",
+    )
     additional_columns: list[str] = Field(
         default_factory=list, description="Additional non-key columns in the hub"
     )
