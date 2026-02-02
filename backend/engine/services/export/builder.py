@@ -240,7 +240,9 @@ class ModelBuilder:
                 )
 
         # Also process REFERENCE_KEY columns for reference hubs
-        for column in hub.columns.filter(column_type=HubColumn.ColumnType.REFERENCE_KEY):
+        for column in hub.columns.filter(
+            column_type=HubColumn.ColumnType.REFERENCE_KEY
+        ):
             for mapping in column.source_mappings.all():
                 table = mapping.source_column.source_table
                 table_key = table.physical_table_name
@@ -249,7 +251,7 @@ class ModelBuilder:
                 source_table_map[table_key][
                     "stage_name"
                 ] = f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}"
-                
+
                 # Append if not already present
                 col_name = mapping.source_column.source_column_physical_name
                 if col_name not in source_table_map[table_key]["columns"]:
@@ -828,8 +830,7 @@ class ModelBuilder:
             hub_ref_defs = [
                 LinkHubReferenceDefinition(
                     hub_name=hub_ref.hub.hub_physical_name,
-                    hub_hashkey_alias_in_link=hub_ref.hub_hashkey_alias_in_link
-                    or None,
+                    hub_hashkey_alias_in_link=hub_ref.hub_hashkey_alias_in_link or None,
                 )
                 for hub_ref in hub_refs
             ]
@@ -960,8 +961,10 @@ class ModelBuilder:
                         if "hashkey_mappings" not in source_table_map[table_key]:
                             source_table_map[table_key]["hashkey_mappings"] = []
 
-                        existing_mappings = source_table_map[table_key]["hashkey_mappings"]
-                        
+                        existing_mappings = source_table_map[table_key][
+                            "hashkey_mappings"
+                        ]
+
                         if hk_mapping not in existing_mappings:
                             existing_mappings.append(hk_mapping)
                             source_table_map[table_key][
