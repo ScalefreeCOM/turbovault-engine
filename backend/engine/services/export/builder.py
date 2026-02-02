@@ -787,7 +787,9 @@ class ModelBuilder:
         from engine.models import Link, LinkColumn
 
         links = Link.objects.filter(project=self.project).prefetch_related(
-            "hub_references",
+            "hub_references__source_mappings__source_column__source_table__source_system",
+            "hub_references__source_mappings__prejoin_extraction_column__source_column__source_table__source_system",
+            "hub_references__source_mappings__standard_hub_column",
             "columns__source_mappings__source_column__source_table__source_system",
         )
 
@@ -855,6 +857,47 @@ class ModelBuilder:
                         LinkColumnMapping(
                             link_column_name=column.column_name,
                             link_column_type=column.column_type,
+                            source_column_name=source_col_name,
+                        )
+                    )
+
+            # Process hub references to add source tables for business keys
+            for hub_ref in hub_refs:
+                for mapping in hub_ref.source_mappings.all():
+                    # Handle both direct source columns and prejoin extraction columns
+                    if mapping.source_column:
+                        # Direct source column mapping
+                        table = mapping.source_column.source_table
+                        source_col_name = (
+                            mapping.source_column.source_column_physical_name
+                        )
+                    elif mapping.prejoin_extraction_column:
+                        # Prejoin extraction column mapping
+                        table = (
+                            mapping.prejoin_extraction_column.source_column.source_table
+                        )
+                        source_col_name = (
+                            mapping.prejoin_extraction_column.source_column.source_column_physical_name
+                        )
+                    else:
+                        continue
+
+                    table_key = table.physical_table_name
+
+                    if table_key not in source_table_map:
+                        source_table_map[table_key] = {
+                            "source_system": table.source_system.name,
+                            "stage_name": f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}",
+                            "columns": [],
+                        }
+
+                    # Add column mapping for Business Key
+                    # Only add if not already present (to avoid duplicates if used same column multiple times)
+                    # For a given source table, we want to list this column usage.
+                    source_table_map[table_key]["columns"].append(
+                        LinkColumnMapping(
+                            link_column_name=mapping.standard_hub_column.column_name,
+                            link_column_type="business_key",
                             source_column_name=source_col_name,
                         )
                     )
