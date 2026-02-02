@@ -479,6 +479,7 @@ class ModelBuilder:
         )
 
         result = []
+        generated_hashkeys = set()
 
         # ========================================================================
         # 1. Process Hub Hashkeys
@@ -523,14 +524,16 @@ class ModelBuilder:
             source_column_names = [c["source_column"] for c in sorted_columns]
 
             if source_column_names:  # Only add if we have business key columns
+                hashkey_name = hub.hub_hashkey_name
                 result.append(
                     StageHashkeyDef(
                         target_entity=hub.hub_physical_name,
                         entity_type="hub",
-                        hashkey_name=hub.hub_hashkey_name,
+                        hashkey_name=hashkey_name,
                         business_key_columns=source_column_names,
                     )
                 )
+                generated_hashkeys.add(hashkey_name)
 
         # ========================================================================
         # 2. Process Link Hashkeys
@@ -560,12 +563,14 @@ class ModelBuilder:
                 "link": None,
                 "hub_source_columns": [],  # Columns from hub references
                 "dependent_child_keys": [],  # Dependent child key columns
+                "hub_refs": defaultdict(list),  # Track columns per hub reference
             }
         )
 
         for mapping in link_hub_mappings:
             link = mapping.link_hub_reference.link
             link_key = str(link.link_id)
+            hub_ref = mapping.link_hub_reference
 
             link_columns_map[link_key]["link"] = link
 
@@ -579,12 +584,20 @@ class ModelBuilder:
             else:
                 continue  # Skip invalid mappings
 
-            # Add to hub source columns with proper sorting
+            # Add to hub source columns with proper sorting (for Link Hashkey)
             link_columns_map[link_key]["hub_source_columns"].append(
                 {
                     "source_column": source_col_name,
-                    "hub_ref_sort_order": mapping.link_hub_reference.sort_order or 0,
+                    "hub_ref_sort_order": hub_ref.sort_order or 0,
                     "hub_col_sort_order": mapping.standard_hub_column.sort_order or 0,
+                }
+            )
+
+            # Store for Hub Hashkey (grouped by Hub Ref)
+            link_columns_map[link_key]["hub_refs"][hub_ref].append(
+                {
+                    "source_column": source_col_name,
+                    "sort_order": mapping.standard_hub_column.sort_order or 0,
                 }
             )
 
@@ -604,6 +617,7 @@ class ModelBuilder:
                     "link": link,
                     "hub_source_columns": [],
                     "dependent_child_keys": [],
+                    "hub_refs": defaultdict(list),
                 }
 
             link_columns_map[link_key]["dependent_child_keys"].append(
@@ -617,6 +631,40 @@ class ModelBuilder:
         for _link_key, info in link_columns_map.items():
             link = info["link"]
 
+            # ----------------------------------------------------------------
+            # Handle referenced Hub Hashkeys
+            # ----------------------------------------------------------------
+            for hub_ref, col_info in info["hub_refs"].items():
+                # Determine hashkey name
+                hashkey_name = (
+                    hub_ref.hub_hashkey_alias_in_link or hub_ref.hub.hub_hashkey_name
+                )
+
+                if not hashkey_name:
+                    continue
+
+                # Avoid duplicates if we already generated this hashkey
+                if hashkey_name in generated_hashkeys:
+                    continue
+
+                # Sort by hub column sort order
+                sorted_hub_bk_cols = sorted(col_info, key=lambda x: x["sort_order"])
+                bk_col_names = [c["source_column"] for c in sorted_hub_bk_cols]
+
+                if bk_col_names:
+                    result.append(
+                        StageHashkeyDef(
+                            target_entity=hub_ref.hub.hub_physical_name,
+                            entity_type="hub",
+                            hashkey_name=hashkey_name,
+                            business_key_columns=bk_col_names,
+                        )
+                    )
+                    generated_hashkeys.add(hashkey_name)
+
+            # ----------------------------------------------------------------
+            # Link Hashkey
+            # ----------------------------------------------------------------
             # Skip if no hashkey name is defined
             if not link.link_hashkey_name:
                 continue
