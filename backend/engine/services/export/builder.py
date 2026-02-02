@@ -17,6 +17,8 @@ from engine.services.export.models import (
     HubSourceInfo,
     LinkColumnMapping,
     LinkDefinition,
+    LinkHubReferenceDefinition,
+    LinkSourceHashkeyMapping,
     LinkSourceInfo,
     MultiActiveConfig,
     PITDefinition,
@@ -797,11 +799,21 @@ class ModelBuilder:
         for link in links:
             # Get hub references with their hashkey names
             hub_refs = link.hub_references.all()
-            hub_names = [hub_ref.hub.hub_physical_name for hub_ref in hub_refs]
-            foreign_hashkeys = [
-                hub_ref.hub.hub_hashkey_name
+
+            # Transform to LinkHubReferenceDefinition
+            hub_ref_defs = [
+                LinkHubReferenceDefinition(
+                    hub_name=hub_ref.hub.hub_physical_name,
+                    hub_hashkey_alias_in_link=hub_ref.hub_hashkey_alias_in_link
+                    or None,
+                )
                 for hub_ref in hub_refs
-                if hub_ref.hub.hub_hashkey_name
+            ]
+
+            foreign_hashkeys = [
+                hub_ref.hub_hashkey_alias_in_link or hub_ref.hub.hub_hashkey_name
+                for hub_ref in hub_refs
+                if (hub_ref.hub_hashkey_alias_in_link or hub_ref.hub.hub_hashkey_name)
             ]
 
             # Business key columns are NOT stored in LinkColumn
@@ -850,6 +862,7 @@ class ModelBuilder:
                             "source_system": table.source_system.name,
                             "stage_name": f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}",
                             "columns": [],
+                            "hashkey_mappings": [],
                         }
 
                     # Add column mapping
@@ -902,12 +915,42 @@ class ModelBuilder:
                         )
                     )
 
+                    # Add hashkey mapping
+                    # Target Foreign Hashkey: alias if exists, else hub hashkey name
+                    target_hk = (
+                        hub_ref.hub_hashkey_alias_in_link
+                        or hub_ref.hub.hub_hashkey_name
+                    )
+
+                    # Source Stage Hashkey:
+                    # In _get_hashkeys_for_source_table, we use alias if available for the hashkey name
+                    # So source stage hashkey matches the target foreign hashkey name
+                    stage_hk = target_hk
+
+                    if target_hk:
+                        hk_mapping = LinkSourceHashkeyMapping(
+                            target_foreign_hashkey=target_hk,
+                            source_stage_hashkey=stage_hk,
+                        )
+                        # Avoid duplicates: check if we initialized it properly above
+                        if "hashkey_mappings" not in source_table_map[table_key]:
+                            source_table_map[table_key]["hashkey_mappings"] = []
+
+                        existing_mappings = source_table_map[table_key]["hashkey_mappings"]
+                        
+                        if hk_mapping not in existing_mappings:
+                            existing_mappings.append(hk_mapping)
+                            source_table_map[table_key][
+                                "hashkey_mappings"
+                            ] = existing_mappings
+
             source_tables = [
                 LinkSourceInfo(
                     source_table=table_name,
                     source_system=info["source_system"],
                     stage_name=info["stage_name"],
                     columns=info["columns"],
+                    hashkey_mappings=info.get("hashkey_mappings", []),
                 )
                 for table_name, info in source_table_map.items()
             ]
@@ -925,7 +968,7 @@ class ModelBuilder:
                     link_type=link.link_type,
                     group=link.group.group_name if link.group else None,
                     hashkey=hashkey,
-                    hub_references=hub_names,
+                    hub_references=hub_ref_defs,
                     foreign_hashkeys=foreign_hashkeys,
                     business_key_columns=business_key_column_names,
                     payload_columns=list(payload_cols),
