@@ -82,6 +82,10 @@ class HubDefinition(BaseModel):
     business_key_columns: list[str] = Field(
         default_factory=list, description="Target hub column names for business keys"
     )
+    reference_key_columns: list[str] = Field(
+        default_factory=list,
+        description="Target hub column names for reference keys (for reference hubs)",
+    )
     additional_columns: list[str] = Field(
         default_factory=list, description="Additional non-key columns in the hub"
     )
@@ -138,6 +142,22 @@ class LinkColumnMapping(BaseModel):
     source_column_name: str
 
 
+class LinkSourceHashkeyMapping(BaseModel):
+    """
+    Mapping of a Link Foreign Hashkey to a Stage Hashkey.
+
+    Defines which hashkey from the source stage is used to populate
+    a specific foreign hashkey in the link.
+    """
+
+    target_foreign_hashkey: str = Field(
+        description="The foreign hashkey in the Link this maps to"
+    )
+    source_stage_hashkey: str = Field(
+        description="The hashkey column in the stage model"
+    )
+
+
 class LinkSourceInfo(BaseModel):
     """Information about source tables feeding a link."""
 
@@ -147,6 +167,17 @@ class LinkSourceInfo(BaseModel):
     columns: list[LinkColumnMapping] = Field(
         default_factory=list, description="Mapped columns from this source table"
     )
+    hashkey_mappings: list[LinkSourceHashkeyMapping] = Field(
+        default_factory=list,
+        description="Mappings from link foreign hashkeys to stage hashkeys",
+    )
+
+
+class LinkHubReferenceDefinition(BaseModel):
+    """Definition of a hub reference in a link."""
+
+    hub_name: str
+    hub_hashkey_alias_in_link: str | None = None
 
 
 class LinkDefinition(BaseModel):
@@ -160,8 +191,8 @@ class LinkDefinition(BaseModel):
     link_type: str  # "standard" or "non_historized"
     group: str | None = None
     hashkey: HashkeyDefinition = Field(description="Link hashkey definition")
-    hub_references: list[str] = Field(
-        default_factory=list, description="Names of hubs connected by this link"
+    hub_references: list[LinkHubReferenceDefinition] = Field(
+        default_factory=list, description="Hubs connected by this link"
     )
     foreign_hashkeys: list[str] = Field(
         default_factory=list,

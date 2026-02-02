@@ -12,10 +12,16 @@ source_models:
 [% if source.rsrc_static %]
       rsrc_static: '[[ source.rsrc_static ]]'
 [% endif %]
+[% if source.business_key_columns %]
+    - ref_keys: 
+    [% for rk in source.business_key_columns %]
+        - [[ rk ]]
+    [% endfor %]
+[% endif %]
 [% endfor %]
 ref_keys:
-[% for bk in business_key_columns %]
-    - [[ bk ]]
+[% for rk in reference_key_columns %]
+    - [[ rk ]]
 [% endfor %]
 {%- endset -%}
 
