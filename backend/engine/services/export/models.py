@@ -153,7 +153,9 @@ class LinkSourceHashkeyMapping(BaseModel):
     target_foreign_hashkey: str = Field(
         description="The foreign hashkey in the Link this maps to"
     )
-    source_stage_hashkey: str = Field(description="The hashkey column in the stage model")
+    source_stage_hashkey: str = Field(
+        description="The hashkey column in the stage model"
+    )
 
 
 class LinkSourceInfo(BaseModel):
