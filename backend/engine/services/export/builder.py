@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from engine.services.export.models import (
+    DerivedColumnDef,
     HashkeyDefinition,
     HubDefinition,
     HubSourceInfo,
@@ -53,6 +54,16 @@ class ModelBuilder:
     - Derives hashkey definitions for stages from hub/link mappings
     - Aggregates information into target-agnostic representations
     """
+
+    # Transformation placeholder mappings
+    # Each entry maps a placeholder pattern to a lambda that generates its replacement value
+    # Add new placeholders here as needed
+    TRANSFORMATION_PLACEHOLDERS = {
+        "[[source_column]]": lambda source_col_name: source_col_name,
+        # Future placeholders can be added here, e.g.:
+        # "[[target_column]]": lambda source_col_name, target_col_name: target_col_name,
+        # "[[datatype]]": lambda source_col_name, datatype: datatype,
+    }
 
     def __init__(self, project: Project) -> None:
         """
@@ -300,6 +311,9 @@ class ModelBuilder:
             # Get prejoins that use this source table
             prejoins = self._get_prejoins_for_source_table(table)
 
+            # Get derived columns from satellites
+            derived_columns = self._get_derived_columns_for_source_table(table)
+
             # Get columns
             columns = [
                 SourceColumnDef(
@@ -324,6 +338,7 @@ class ModelBuilder:
                     hashdiffs=hashdiffs,
                     prejoins=prejoins,
                     multi_active_config=multi_active_config,
+                    derived_columns=derived_columns,
                     columns=columns,
                 )
             )
@@ -416,6 +431,82 @@ class ModelBuilder:
             )
 
         return None
+
+    def _replace_transformation_placeholders(
+        self, transformation: str | None, source_col_name: str
+    ) -> str | None:
+        """
+        Replace placeholders in transformation string with actual values.
+
+        Iterates through all defined TRANSFORMATION_PLACEHOLDERS and replaces
+        each placeholder with its corresponding value.
+
+        Args:
+            transformation: The transformation string (may contain placeholders)
+            source_col_name: The source column name for placeholder replacement
+
+        Returns:
+            Transformation string with all placeholders replaced, or None if input was None
+        """
+        if not transformation:
+            return transformation
+
+        result = transformation
+        # Iterate through all defined placeholders and replace them
+        for placeholder, replacement_fn in self.TRANSFORMATION_PLACEHOLDERS.items():
+            if placeholder in result:
+                # Call the replacement function with source_col_name
+                replacement_value = replacement_fn(source_col_name)
+                result = result.replace(placeholder, replacement_value)
+
+        return result
+
+    def _get_derived_columns_for_source_table(
+        self, source_table: SourceTable
+    ) -> list[DerivedColumnDef]:
+        """
+        Get derived column definitions for satellites using this source table.
+
+        Identifies satellite columns that require transformation or renaming
+        (i.e., where target_column_name differs from source_column_name or
+        where target_column_transformation is specified).
+
+        Args:
+            source_table: The source table to get derived columns for
+
+        Returns:
+            List of derived column definitions with placeholders replaced
+        """
+        from engine.models import Satellite
+
+        satellites = Satellite.objects.filter(
+            source_table=source_table
+        ).prefetch_related("columns__source_column")
+
+        result = []
+        for sat in satellites:
+            for col in sat.columns.all():
+                source_col_name = col.source_column.source_column_physical_name
+                target_col_name = col.target_column_name or source_col_name
+                transformation = col.target_column_transformation
+
+                # Replace placeholders in transformation
+                transformation_replaced = self._replace_transformation_placeholders(
+                    transformation, source_col_name
+                )
+
+                # Include if target name differs from source OR transformation exists
+                if target_col_name != source_col_name or transformation:
+                    result.append(
+                        DerivedColumnDef(
+                            target_column_name=target_col_name,
+                            source_column_name=source_col_name,
+                            datatype="",  # Keep empty for now as requested
+                            transformation=transformation_replaced,
+                        )
+                    )
+
+        return result
 
     def _get_prejoins_for_source_table(
         self, source_table: SourceTable
