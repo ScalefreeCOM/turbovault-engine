@@ -260,12 +260,8 @@ class DerivedColumnDef(BaseModel):
     Represents a column that requires transformation or renaming for satellite usage.
     """
 
-    target_column_name: str = Field(
-        description="Target column name in the satellite"
-    )
-    source_column_name: str = Field(
-        description="Source column name from the stage"
-    )
+    target_column_name: str = Field(description="Target column name in the satellite")
+    source_column_name: str = Field(description="Source column name from the stage")
     datatype: str = Field(
         default="", description="Data type of the derived column (optional)"
     )

@@ -79,6 +79,13 @@ def generate(
             help="JSON format: 'compact' or 'pretty' (only for type=json)",
         ),
     ] = "pretty",
+    dbml_output: Annotated[
+        Path | None,
+        typer.Option(
+            "--dbml-output",
+            help="DBML output file path (only for type=dbml, auto-generated if not provided)",
+        ),
+    ] = None,
 ) -> None:
     """
     Generate a complete dbt project from Data Vault model.
@@ -109,6 +116,9 @@ def generate(
                 questionary.Choice(
                     "json - Export Data Vault model to JSON", value="json"
                 ),
+                questionary.Choice(
+                    "dbml - Export Data Vault ER diagram to DBML", value="dbml"
+                ),
             ],
         ).ask()
 
@@ -116,8 +126,8 @@ def generate(
             raise typer.Exit(0)
 
     # Validate type
-    if type not in ("dbt", "json"):
-        print_error(f"Invalid type: {type}. Must be 'dbt' or 'json'.")
+    if type not in ("dbt", "json", "dbml"):
+        print_error(f"Invalid type: {type}. Must be 'dbt', 'json', or 'dbml'.")
         raise typer.Exit(1)
 
     # Validate JSON format
@@ -134,6 +144,7 @@ def generate(
 
     # Determine what we're doing
     should_export_json = type == "json"
+    should_export_dbml = type == "dbml"
     should_generate_dbt = type == "dbt"
 
     # Get available projects
@@ -158,6 +169,8 @@ def generate(
     total_steps = 2  # Build + Complete
     if should_export_json:
         total_steps += 1  # JSON export step
+    if should_export_dbml:
+        total_steps += 1  # DBML export step
     if should_generate_dbt:
         if not skip_validation:
             total_steps += 1  # Validation step
@@ -198,6 +211,25 @@ def generate(
         print_step(current_step, total_steps, "Export complete!")
         _show_json_only_summary(project_export, json_file_path)
         print_success(f"JSON export saved to: {json_file_path}")
+        return
+
+    # DBML Export (if type is dbml)
+    dbml_file_path = None
+    if should_export_dbml:
+        current_step += 1
+        dbml_file_path = _export_dbml(
+            current_step,
+            total_steps,
+            project_export,
+            selected_project,
+            dbml_output,
+        )
+
+        # DBML-only: show summary and return
+        current_step += 1
+        print_step(current_step, total_steps, "Export complete!")
+        _show_json_only_summary(project_export, dbml_file_path)
+        print_success(f"DBML export saved to: {dbml_file_path}")
         return
 
     # From here on, we're generating dbt
@@ -308,6 +340,39 @@ def _export_json(
         f.write(export_content)
 
     return json_output
+
+
+def _export_dbml(
+    current_step: int,
+    total_steps: int,
+    project_export,
+    selected_project,
+    dbml_output: Path | None,
+) -> Path:
+    """Export the project model to DBML and return the file path."""
+    from datetime import datetime
+
+    from engine.services.export.exporters.dbml_exporter import DBMLExporter
+
+    print_step(current_step, total_steps, "Exporting to DBML format (ER diagram)...")
+
+    exporter = DBMLExporter()
+    export_content = exporter.export(project_export)
+
+    # Generate default filename if not provided
+    if not dbml_output:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = (
+            f"{selected_project.name.lower().replace(' ', '_')}_erd_{timestamp}.dbml"
+        )
+        dbml_output = Path(filename)
+
+    # Write to file
+    dbml_output.parent.mkdir(parents=True, exist_ok=True)
+    with open(dbml_output, "w") as f:
+        f.write(export_content)
+
+    return dbml_output
 
 
 def _show_json_only_summary(project_export, json_path: Path) -> None:
