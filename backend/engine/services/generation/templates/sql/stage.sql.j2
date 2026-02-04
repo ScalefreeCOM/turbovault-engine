@@ -52,6 +52,17 @@ prejoined_columns:
       operator: '[[ prejoin.join_conditions.operator ]]'
 [% endfor %]
 [% endif %]
+[% if derived_columns | length > 0 %]
+derived_columns:
+[% for derived_column in derived_columns %]
+    [[ derived_column.target_column_name ]]:
+      value: '[[ derived_column.transformation if derived_column.transformation else derived_column.source_column_name ]]'
+      [% if derived_column.datatype != '' %]
+      datatype: '[[ derived_column.datatype ]]'
+      [% endif %]
+      src_cols_required: '[[ derived_column.source_column_name ]]'
+[% endfor %]
+[% endif %]
 [% if multi_active_config %]
 multi_active_config:
     multi_active_key: '[[ multi_active_config.multi_active_key[0] ]]'

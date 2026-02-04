@@ -253,6 +253,27 @@ class StageHashdiffDef(BaseModel):
     )
 
 
+class DerivedColumnDef(BaseModel):
+    """
+    Derived column definition within a stage model.
+
+    Represents a column that requires transformation or renaming for satellite usage.
+    """
+
+    target_column_name: str = Field(
+        description="Target column name in the satellite"
+    )
+    source_column_name: str = Field(
+        description="Source column name from the stage"
+    )
+    datatype: str = Field(
+        default="", description="Data type of the derived column (optional)"
+    )
+    transformation: str | None = Field(
+        None, description="SQL transformation expression (if any)"
+    )
+
+
 class MultiActiveConfig(BaseModel):
     """
     Multi-active satellite configuration for a stage.
@@ -302,14 +323,16 @@ class StageDefinition(BaseModel):
         description="Multi-active key config if a multi-active satellite uses this source",
     )
 
+    # Derived columns (transformations or renames needed for satellite processing)
+    derived_columns: list[DerivedColumnDef] = Field(
+        default_factory=list,
+        description="Derived columns from satellites with transformations or renamed targets",
+    )
+
     # Source columns
     columns: list[SourceColumnDef] = Field(
         default_factory=list, description="Source columns available in this stage"
     )
-
-    # Future additions
-    # prejoins: list[PrejoinDef] = Field(default_factory=list)
-    # derived_columns: list[DerivedColumnDef] = Field(default_factory=list)
 
 
 # =============================================================================
