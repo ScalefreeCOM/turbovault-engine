@@ -53,7 +53,7 @@ class DBMLExporter(BaseExporter):
                 "hashkey": hub.hashkey.hashkey_name if hub.hashkey else None,
                 "type": hub.hub_type,
                 "reference_keys": hub.reference_key_columns,
-                "business_keys": hub.business_key_columns
+                "business_keys": hub.business_key_columns,
             }
             for hub in project_export.hubs
         }
@@ -85,7 +85,9 @@ class DBMLExporter(BaseExporter):
 
     def _add_header(self, project_export: ProjectExport) -> None:
         """Add DBML file header with project information."""
-        self.output_lines.append(f"// Data Vault ER Diagram: {project_export.project_name}")
+        self.output_lines.append(
+            f"// Data Vault ER Diagram: {project_export.project_name}"
+        )
         if project_export.project_description:
             self.output_lines.append(f"// {project_export.project_description}")
         self.output_lines.append(f"// Generated at: {project_export.generated_at}")
@@ -97,7 +99,9 @@ class DBMLExporter(BaseExporter):
 
         # Hashkey column (primary key)
         if hub.hashkey:
-            self.output_lines.append(f"  {hub.hashkey.hashkey_name.upper()} varchar [primary key]")
+            self.output_lines.append(
+                f"  {hub.hashkey.hashkey_name.upper()} varchar [primary key]"
+            )
 
         # Business key columns
         for bk in hub.business_key_columns:
@@ -140,14 +144,14 @@ class DBMLExporter(BaseExporter):
                 if fk.lower() == hub_hk_name.lower():
                     hub_ref = ref
                     break
-            
+
             if hub_ref:
                 # Use actual hub hashkey name from lookup if available, fallback to guessing
                 hub_info = self.hub_lookup.get(hub_ref.hub_name, {})
                 target_hk = hub_info.get("hashkey")
                 if not target_hk:
                     target_hk = f"hk_{hub_ref.hub_name.lower().removeprefix('hub_')}"
-                
+
                 self.output_lines.append(
                     f"  {fk.upper()} varchar [ref: > {hub_ref.hub_name}.{target_hk.upper()}]"
                 )
@@ -182,7 +186,7 @@ class DBMLExporter(BaseExporter):
             # For reference satellites, link via business/reference keys
             parent_hub = satellite.parent_entity
             hub_info = self.hub_lookup.get(parent_hub)
-            
+
             # If no business keys provided, fallback to standard hashkey logic (should not happen for reference sats)
             if not satellite.parent_business_keys and not hub_info:
                 hk_name = satellite.parent_hashkey or "PARENT_HK"
@@ -218,7 +222,9 @@ class DBMLExporter(BaseExporter):
             target_name = col.target_column_name or col.source_column
             # Add note for multi-active key columns
             if col.is_multi_active_key:
-                self.output_lines.append(f"  {target_name.upper()} varchar [note: 'Multi-active key']")
+                self.output_lines.append(
+                    f"  {target_name.upper()} varchar [note: 'Multi-active key']"
+                )
             else:
                 self.output_lines.append(f"  {target_name.upper()} varchar")
 
@@ -229,7 +235,7 @@ class DBMLExporter(BaseExporter):
         notes = []
         if satellite.satellite_type != "standard":
             notes.append(f"Satellite type: {satellite.satellite_type}")
-        
+
         if notes:
             combined_note = ". ".join(notes)
             self.output_lines.append(f"  Note: '{combined_note}'")
@@ -267,7 +273,7 @@ class DBMLExporter(BaseExporter):
 
         # Reference to the hub
         hub_info = self.hub_lookup.get(ref_table.reference_hub_name)
-        
+
         if hub_info and hub_info["type"] == "reference" and hub_info["reference_keys"]:
             # Link via reference keys
             for rk in hub_info["reference_keys"]:
@@ -294,7 +300,7 @@ class DBMLExporter(BaseExporter):
         # Combine notes
         notes = []
         notes.append(f"Historization type: {ref_table.historization_type}")
-        
+
         if ref_table.satellites:
             sat_names = ", ".join(s.satellite_name for s in ref_table.satellites)
             notes.append(f"Includes columns from: {sat_names}")
