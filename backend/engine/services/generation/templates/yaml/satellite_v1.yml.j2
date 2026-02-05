@@ -7,10 +7,19 @@ models:
     config:
       tags: ['satellite', 'v1', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
     columns:
+[% if parent_hashkey %]
       - name: [[ parent_hashkey ]]
         description: "Parent entity hash key"
         data_tests:
           - not_null
+[% elif parent_business_keys %]
+  [% for ref_key in parent_business_keys %]
+      - name: [[ ref_key ]]
+        description: "Parent reference key"
+        data_tests:
+          - not_null
+  [% endfor %]
+[% endif %]
       - name: [[ hashdiff_name ]]
         description: "Hash diff for change detection"
 [% for column in columns %]

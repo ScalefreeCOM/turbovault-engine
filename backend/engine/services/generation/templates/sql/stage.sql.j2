@@ -31,7 +31,7 @@ hashed_columns:
 [% if prejoins %]
 prejoined_columns:
 [% for prejoin in prejoins %]
-    - extraction_columns:
+    - extract_columns:
     [% for extraction_col in prejoin.extraction_columns %]
         - [[ extraction_col.source_column_name ]]
     [% endfor %]
