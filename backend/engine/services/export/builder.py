@@ -961,11 +961,10 @@ class ModelBuilder:
                         )
                     elif mapping.prejoin_extraction_column:
                         # Prejoin extraction column mapping
-                        table = (
-                            mapping.prejoin_extraction_column.source_column.source_table
-                        )
+                        table = mapping.prejoin_extraction_column.prejoin.source_table
                         source_col_name = (
-                            mapping.prejoin_extraction_column.source_column.source_column_physical_name
+                            mapping.prejoin_extraction_column.prejoin_target_column_alias
+                            or mapping.prejoin_extraction_column.source_column.source_column_physical_name
                         )
                     else:
                         # Skip invalid mappings (should not happen due to validation)
@@ -1002,11 +1001,11 @@ class ModelBuilder:
                         )
                     elif mapping.prejoin_extraction_column:
                         # Prejoin extraction column mapping
-                        table = (
-                            mapping.prejoin_extraction_column.source_column.source_table
-                        )
+                        # Use the source table of the prejoin (the one being staged)
+                        table = mapping.prejoin_extraction_column.prejoin.source_table
                         source_col_name = (
-                            mapping.prejoin_extraction_column.source_column.source_column_physical_name
+                            mapping.prejoin_extraction_column.prejoin_target_column_alias
+                            or mapping.prejoin_extraction_column.source_column.source_column_physical_name
                         )
                     else:
                         continue
