@@ -957,13 +957,15 @@ class ExcelImportService:
         # to prevent leakage across different links or source tables.
         group_cols = ["target_link_table_physical_name", "source_table_identifier"]
         prejoin_cols = ["prejoin_table_identifier"]
-        
+
         # Check if they exist before grouping
         active_group_cols = [c for c in group_cols if c in df.columns]
         active_prejoin_cols = [c for c in prejoin_cols if c in df.columns]
-        
+
         if active_group_cols and active_prejoin_cols:
-            df[active_prejoin_cols] = df.groupby(active_group_cols, sort=False)[active_prejoin_cols].ffill()
+            df[active_prejoin_cols] = df.groupby(active_group_cols, sort=False)[
+                active_prejoin_cols
+            ].ffill()
 
         # Helper for case-insensitive lookup
         def get_table_and_id(tid):
