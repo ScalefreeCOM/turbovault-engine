@@ -9,7 +9,19 @@
 ref_hub: [[ reference_hub_name ]]
 ref_satellites:
 [% for sat in satellites %]
-    - [[ sat.satellite_name ]]_v1
+    [[ sat.satellite_name ]]_v1:
+    [% if sat.include_columns %]
+      include:
+        [% for col in sat.include_columns %]
+        - [[ col ]]
+        [% endfor %]
+    [% endif %]
+    [% if sat.exclude_columns %]
+      exclude:
+        [% for col in sat.exclude_columns %]
+        - [[ col ]]
+        [% endfor %]
+    [% endif %]
 [% endfor %]
 {%- endset -%}
 
