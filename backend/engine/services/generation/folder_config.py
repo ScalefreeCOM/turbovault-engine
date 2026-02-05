@@ -127,8 +127,14 @@ class GenerationConfig:
 
     # Satellite v0/v1 generation
     generate_satellite_v1_views: bool = True
-    satellite_v0_suffix: str = "_v0"
-    satellite_v1_suffix: str = "_v1"
+    satellite_v0_naming: str = "[[ satellite_name ]]_v0"
+    satellite_v1_naming: str = "[[ satellite_name ]]_v1"
+
+    def resolve_entity_name(self, pattern: str, entity_name: str) -> str:
+        """Resolve a naming pattern with placeholder replacement."""
+        return pattern.replace("[[ entity_name ]]", entity_name).replace(
+            "[[ satellite_name ]]", entity_name
+        )
 
     # Validation mode
     mode: Literal["strict", "lenient"] = "strict"

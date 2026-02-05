@@ -7,6 +7,7 @@ All domain entities (source metadata, hubs, links, satellites, etc.) are scoped 
 
 from __future__ import annotations
 
+import re
 import uuid
 
 from django.db import models
@@ -55,3 +56,30 @@ class Project(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    def get_naming_pattern(self, pattern_key: str) -> str:
+        """Get the raw naming pattern from config or its default."""
+        defaults = {
+            "hashdiff_naming": "hd_[[ satellite_name ]]",
+            "hashkey_naming": "hk_[[ entity_name ]]",
+            "satellite_v0_naming": "[[ satellite_name ]]_v0",
+            "satellite_v1_naming": "[[ satellite_name ]]_v1",
+        }
+        return (self.config or {}).get(pattern_key) or defaults.get(pattern_key, "")
+
+    def resolve_naming_pattern(self, pattern_key: str, entity_name: str) -> str:
+        """
+        Resolve a naming pattern from the project config with placeholder replacement.
+
+        Placeholders:
+        - [[ entity_name ]] or [[ satellite_name ]]
+        """
+        pattern = self.get_naming_pattern(pattern_key)
+
+        # Replace placeholders
+        # We accept entity_name or satellite_name for flexibility
+        resolved = pattern.replace("[[ entity_name ]]", entity_name).replace(
+            "[[ satellite_name ]]", entity_name
+        )
+
+        return resolved

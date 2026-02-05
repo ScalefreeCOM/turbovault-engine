@@ -99,14 +99,21 @@ class Hub(models.Model):
         """Validate that standard hubs have a hashkey name."""
         super().clean()
 
-        # Validate hashkey for standard hubs
-        if self.hub_type == self.HubType.STANDARD and not self.hub_hashkey_name:
-            raise ValidationError(
-                {"hub_hashkey_name": "Hash key name is required for standard hubs."}
-            )
+        # Validate hashkey for standard hubs - only if it won't be auto-populated
+        # If it's a new instance and has no project yet (unsaved), we might still want to warn,
+        # but usually cleanup happens when we have project context.
+        pass
 
     def __str__(self) -> str:
         return self.hub_physical_name
+
+    def save(self, *args, **kwargs) -> None:
+        """Auto-populate hashkey name for standard hubs if not provided."""
+        if self.hub_type == self.HubType.STANDARD and not self.hub_hashkey_name:
+            self.hub_hashkey_name = self.project.resolve_naming_pattern(
+                "hashkey_naming", self.hub_physical_name
+            )
+        super().save(*args, **kwargs)
 
 
 class HubColumn(models.Model):
