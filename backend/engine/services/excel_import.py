@@ -1105,19 +1105,29 @@ class ExcelImportService:
 
                 if include_str:
                     for col_name in include_str.split(","):
+                        col_name = col_name.strip()
                         col = SatelliteColumn.objects.filter(
-                            satellite=sat, target_column_name=col_name.strip()
+                            satellite=sat, target_column_name=col_name
                         ).first()
                         if col:
                             assignment.include_columns.add(col)
+                        else:
+                            logger.warning(
+                                f"Included column '{col_name}' not found in satellite '{sat.satellite_physical_name}' for reference table '{ref_table_name}'"
+                            )
 
                 if exclude_str:
                     for col_name in exclude_str.split(","):
+                        col_name = col_name.strip()
                         col = SatelliteColumn.objects.filter(
-                            satellite=sat, target_column_name=col_name.strip()
+                            satellite=sat, target_column_name=col_name
                         ).first()
                         if col:
                             assignment.exclude_columns.add(col)
+                        else:
+                            logger.warning(
+                                f"Excluded column '{col_name}' not found in satellite '{sat.satellite_physical_name}' for reference table '{ref_table_name}'"
+                            )
 
     def _process_pits(self, df: pd.DataFrame):
         """Processes pit sheet."""
