@@ -1169,11 +1169,11 @@ class ModelBuilder:
             for assignment in ref_table.satellite_assignments.all():
                 # Get column names
                 include_cols = [
-                    col.satellite_column_physical_name
+                    col.target_column_name
                     for col in assignment.include_columns.all()
                 ]
                 exclude_cols = [
-                    col.satellite_column_physical_name
+                    col.target_column_name
                     for col in assignment.exclude_columns.all()
                 ]
 
