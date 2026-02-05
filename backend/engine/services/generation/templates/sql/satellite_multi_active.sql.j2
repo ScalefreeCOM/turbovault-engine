@@ -14,7 +14,7 @@ src_ma_key:
     - [[ col.target_column_name if col.target_column_name else col.source_column ]]
 [% endfor %]
 src_payload:
-[% for col in columns %]
+[% for col in columns if not col.is_multi_active_key%]
     - [[ col.target_column_name if col.target_column_name else col.source_column ]]
 [% endfor %]
 {%- endset -%}

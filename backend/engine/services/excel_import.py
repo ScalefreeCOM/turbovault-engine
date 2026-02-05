@@ -953,15 +953,19 @@ class ExcelImportService:
         """Processes prejoin definitions and extractions."""
         df.columns = [c.lower().strip() for c in df.columns]
 
-        # Forward fill critical columns to allow merged cells usage
-        cols_to_fill = [
-            "source_table_identifier",
-            "prejoin_table_identifier",
-            "target_link_table_physical_name",
-        ]
-        for col in cols_to_fill:
-            if col in df.columns:
-                df[col] = df[col].ffill()
+        # Forward fill prejoin columns within the same link and source table
+        # to prevent leakage across different links or source tables.
+        group_cols = ["target_link_table_physical_name", "source_table_identifier"]
+        prejoin_cols = ["prejoin_table_identifier"]
+
+        # Check if they exist before grouping
+        active_group_cols = [c for c in group_cols if c in df.columns]
+        active_prejoin_cols = [c for c in prejoin_cols if c in df.columns]
+
+        if active_group_cols and active_prejoin_cols:
+            df[active_prejoin_cols] = df.groupby(active_group_cols, sort=False)[
+                active_prejoin_cols
+            ].ffill()
 
         # Helper for case-insensitive lookup
         def get_table_and_id(tid):
@@ -1103,19 +1107,29 @@ class ExcelImportService:
 
                 if include_str:
                     for col_name in include_str.split(","):
+                        col_name = col_name.strip()
                         col = SatelliteColumn.objects.filter(
-                            satellite=sat, target_column_name=col_name.strip()
+                            satellite=sat, target_column_name=col_name
                         ).first()
                         if col:
                             assignment.include_columns.add(col)
+                        else:
+                            logger.warning(
+                                f"Included column '{col_name}' not found in satellite '{sat.satellite_physical_name}' for reference table '{ref_table_name}'"
+                            )
 
                 if exclude_str:
                     for col_name in exclude_str.split(","):
+                        col_name = col_name.strip()
                         col = SatelliteColumn.objects.filter(
-                            satellite=sat, target_column_name=col_name.strip()
+                            satellite=sat, target_column_name=col_name
                         ).first()
                         if col:
                             assignment.exclude_columns.add(col)
+                        else:
+                            logger.warning(
+                                f"Excluded column '{col_name}' not found in satellite '{sat.satellite_physical_name}' for reference table '{ref_table_name}'"
+                            )
 
     def _process_pits(self, df: pd.DataFrame):
         """Processes pit sheet."""

@@ -668,7 +668,7 @@ class ModelBuilder:
             "standard_hub_column",
             "source_column",
         ) | LinkHubSourceMapping.objects.filter(
-            prejoin_extraction_column__source_column__source_table=source_table
+            prejoin_extraction_column__prejoin__source_table=source_table
         ).select_related(
             "link_hub_reference__link",
             "link_hub_reference__hub",
@@ -698,7 +698,8 @@ class ModelBuilder:
                 source_col_name = mapping.source_column.source_column_physical_name
             elif mapping.prejoin_extraction_column:
                 source_col_name = (
-                    mapping.prejoin_extraction_column.source_column.source_column_physical_name
+                    mapping.prejoin_extraction_column.prejoin_target_column_alias
+                    or mapping.prejoin_extraction_column.source_column.source_column_physical_name
                 )
             else:
                 continue  # Skip invalid mappings
@@ -961,11 +962,10 @@ class ModelBuilder:
                         )
                     elif mapping.prejoin_extraction_column:
                         # Prejoin extraction column mapping
-                        table = (
-                            mapping.prejoin_extraction_column.source_column.source_table
-                        )
+                        table = mapping.prejoin_extraction_column.prejoin.source_table
                         source_col_name = (
-                            mapping.prejoin_extraction_column.source_column.source_column_physical_name
+                            mapping.prejoin_extraction_column.prejoin_target_column_alias
+                            or mapping.prejoin_extraction_column.source_column.source_column_physical_name
                         )
                     else:
                         # Skip invalid mappings (should not happen due to validation)
@@ -1002,11 +1002,11 @@ class ModelBuilder:
                         )
                     elif mapping.prejoin_extraction_column:
                         # Prejoin extraction column mapping
-                        table = (
-                            mapping.prejoin_extraction_column.source_column.source_table
-                        )
+                        # Use the source table of the prejoin (the one being staged)
+                        table = mapping.prejoin_extraction_column.prejoin.source_table
                         source_col_name = (
-                            mapping.prejoin_extraction_column.source_column.source_column_physical_name
+                            mapping.prejoin_extraction_column.prejoin_target_column_alias
+                            or mapping.prejoin_extraction_column.source_column.source_column_physical_name
                         )
                     else:
                         continue
@@ -1169,12 +1169,10 @@ class ModelBuilder:
             for assignment in ref_table.satellite_assignments.all():
                 # Get column names
                 include_cols = [
-                    col.satellite_column_physical_name
-                    for col in assignment.include_columns.all()
+                    col.target_column_name for col in assignment.include_columns.all()
                 ]
                 exclude_cols = [
-                    col.satellite_column_physical_name
-                    for col in assignment.exclude_columns.all()
+                    col.target_column_name for col in assignment.exclude_columns.all()
                 ]
 
                 satellite_assignments.append(

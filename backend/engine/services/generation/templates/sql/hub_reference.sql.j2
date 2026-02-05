@@ -13,7 +13,7 @@ source_models:
       rsrc_static: '[[ source.rsrc_static ]]'
 [% endif %]
 [% if source.business_key_columns %]
-    - ref_keys: 
+      ref_keys: 
     [% for rk in source.business_key_columns %]
         - [[ rk ]]
     [% endfor %]
