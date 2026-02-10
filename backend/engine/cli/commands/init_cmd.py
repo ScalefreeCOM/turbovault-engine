@@ -195,9 +195,7 @@ def _run_interactive_init() -> None:
         if source_type == "excel":
             source_path = questionary.path("Path to Excel file:").ask()
         elif source_type == "sqlite":
-            console.print(
-                "[yellow]SQLite import is not yet implemented. Proceeding without import.[/yellow]"
-            )
+            source_path = questionary.path("Path to SQLite database:").ask()
 
     # Stage schema
     stage_schema = questionary.text("Stage schema name:", default="stage").ask()
@@ -259,7 +257,7 @@ def _run_interactive_init() -> None:
         config_dict["project"]["description"] = description
 
     if source_path:
-        config_dict["source"] = {"type": "excel", "path": source_path}
+        config_dict["source"] = {"type": source_type, "path": source_path}
 
     if stage_database:
         config_dict["configuration"]["stage_database"] = stage_database
@@ -324,15 +322,21 @@ def _run_interactive_init() -> None:
 
     # Import metadata if source is defined
     if source_path:
-        from engine.services.excel_import import ExcelImportService
-
         print_info(f"Importing metadata from {source_path}...")
         try:
-            service = ExcelImportService(str(source_path))
-            service.import_metadata(project=project, skip_snapshots=False)
+            if source_type == "excel":
+                from engine.services.excel_import import ExcelImportService
+                service = ExcelImportService(str(source_path))
+                service.import_metadata(project=project, skip_snapshots=False)
+            elif source_type == "sqlite":
+                from engine.services.sqlite_import import SqliteImportService
+                service = SqliteImportService(str(source_path))
+                service.import_metadata(project=project, skip_snapshots=False)
+
             print_success("Metadata successfully imported")
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
+            logger.exception("Metadata import error")
 
     # Create default snapshot controls for the new project
     skip_snapshots = (
