@@ -82,25 +82,25 @@ jobs:
         files: dist/*
         fail_on_unmatched_files: true
 
-  publish-pypi:
-    name: Publish to PyPI
-    needs: build-package
-    runs-on: ubuntu-latest
-    # Only publish if PYPI_API_TOKEN secret exists
-    if: false
+  # publish-pypi:
+  #   name: Publish to PyPI
+  #   needs: build-package
+  #   runs-on: ubuntu-latest
+  #   # Only publish if PYPI_API_TOKEN secret exists
+  #   if: false
 
-    steps:
-    - name: Download artifacts
-      uses: actions/download-artifact@v7
-      with:
-        name: python-package-distributions
-        path: dist/
+  #   steps:
+  #   - name: Download artifacts
+  #     uses: actions/download-artifact@v7
+  #     with:
+  #       name: python-package-distributions
+  #       path: dist/
 
-    - name: Publish to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        password: ${{ secrets.PYPI_API_TOKEN }}
-        skip-existing: true
+  #   - name: Publish to PyPI
+  #     uses: pypa/gh-action-pypi-publish@release/v1
+  #     with:
+  #       password: secrets.PYPI_API_TOKEN
+  #       skip-existing: true
 
   build-push-docker:
     name: Build and Push Docker Image
