@@ -209,7 +209,10 @@ Project-level Data Vault configuration. If not provided, defaults are used.
 | `stage_database` | string | No | `null` | Database name for staging layer (optional) |
 | `rdv_schema` | string | No | `"rdv"` | Schema name for Raw Data Vault layer |
 | `rdv_database` | string | No | `null` | Database name for Raw Data Vault layer (optional) |
-| `hashdiff_naming_pattern` | string | No | `null` | Naming pattern for hashdiff columns (future use) |
+| `hashdiff_naming` | string | No | `"hd_[[ satellite_name ]]"` | Naming pattern for hashdiff columns |
+| `hashkey_naming` | string | No | `"hk_[[ entity_name ]]"` | Naming pattern for hub/link hashkey columns |
+| `satellite_v0_naming` | string | No | `"[[ satellite_name ]]_v0"` | Naming pattern for v0 satellite models |
+| `satellite_v1_naming` | string | No | `"[[ satellite_name ]]_v1"` | Naming pattern for v1 satellite models |
 
 **Example:**
 
@@ -218,8 +221,10 @@ configuration:
   stage_schema: "stg"
   stage_database: "dw_raw"
   rdv_schema: "raw_vault"
-  rdv_database: "dw_core"
-  hashdiff_naming_pattern: "HASHDIFF_{table}"
+  hashdiff_naming: "hd_[[ satellite_name ]]"
+  hashkey_naming: "hk_[[ entity_name ]]"
+  satellite_v0_naming: "[[ satellite_name ]]_v0"
+  satellite_v1_naming: "[[ satellite_name ]]_v1"
 ```
 
 **Minimal Example (use defaults):**

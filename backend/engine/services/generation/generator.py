@@ -350,8 +350,8 @@ class DbtProjectGenerator:
             logger.debug("No satellites to generate")
             return
 
-        v0_suffix = self.config.satellite_v0_suffix
-        v1_suffix = self.config.satellite_v1_suffix
+        v0_naming = self.config.satellite_v0_naming
+        v1_naming = self.config.satellite_v1_naming
         generate_v1 = self.config.generate_satellite_v1_views
 
         # V1-capable types (standard, effectivity, multi_active, reference)
@@ -379,7 +379,9 @@ class DbtProjectGenerator:
                 )
 
                 # Generate v0 model name
-                v0_name = f"{satellite.satellite_name}{v0_suffix}"
+                v0_name = self.config.resolve_entity_name(
+                    v0_naming, satellite.satellite_name
+                )
 
                 # Generate SQL file (v0)
                 context = satellite.model_dump()
@@ -403,7 +405,7 @@ class DbtProjectGenerator:
                 # Generate v1 view if enabled and satellite type supports it
                 if generate_v1 and satellite.satellite_type in v1_types:
                     self._generate_satellite_v1(
-                        satellite, output_dir, v0_name, v1_suffix
+                        satellite, output_dir, v0_name, v1_naming
                     )
 
             except Exception as e:
@@ -422,7 +424,7 @@ class DbtProjectGenerator:
         satellite: SatelliteDefinition,
         output_dir: Path,
         v0_name: str,
-        v1_suffix: str,
+        v1_suffix_or_pattern: str,
     ) -> None:
         """Generate satellite v1 view (load_end_date view)."""
         sql_template, yaml_template = self.template_resolver.get_templates(
@@ -440,7 +442,7 @@ class DbtProjectGenerator:
 
         # Generate v1 model name
         base_name = satellite.satellite_name
-        v1_name = f"{base_name}{v1_suffix}"
+        v1_name = self.config.resolve_entity_name(v1_suffix_or_pattern, base_name)
 
         # Build context for v1 template
         context = satellite.model_dump()

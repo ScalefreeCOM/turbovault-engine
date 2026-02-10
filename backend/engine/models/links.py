@@ -89,6 +89,14 @@ class Link(models.Model):
     def __str__(self) -> str:
         return self.link_physical_name
 
+    def save(self, *args, **kwargs) -> None:
+        """Auto-populate hashkey name if not provided."""
+        if not self.link_hashkey_name:
+            self.link_hashkey_name = self.project.resolve_naming_pattern(
+                "hashkey_naming", self.link_physical_name
+            )
+        super().save(*args, **kwargs)
+
 
 class LinkHubReference(models.Model):
     """
