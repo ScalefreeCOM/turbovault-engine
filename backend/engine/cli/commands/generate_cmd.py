@@ -270,6 +270,8 @@ def generate(
         profile_name="default",
         mode=mode,  # type: ignore
         generate_satellite_v1_views=not no_v1_satellites,
+        satellite_v0_naming=selected_project.get_naming_pattern("satellite_v0_naming"),
+        satellite_v1_naming=selected_project.get_naming_pattern("satellite_v1_naming"),
         skip_validation=skip_validation,
         create_zip=create_zip,
     )

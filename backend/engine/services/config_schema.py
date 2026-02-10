@@ -185,8 +185,17 @@ class ProjectConfiguration(BaseModel):
     rdv_database: str | None = Field(
         None, description="Optional database name for Raw Data Vault layer"
     )
-    hashdiff_naming_pattern: str | None = Field(
-        None, description="Optional naming pattern for hashdiff columns (future use)"
+    hashdiff_naming: str | None = Field(
+        None, description="Naming pattern for hashdiff columns"
+    )
+    hashkey_naming: str | None = Field(
+        None, description="Naming pattern for hub/link hashkey columns"
+    )
+    satellite_v0_naming: str | None = Field(
+        None, description="Naming pattern for v0 satellite models"
+    )
+    satellite_v1_naming: str | None = Field(
+        None, description="Naming pattern for v1 satellite models"
     )
 
     @field_validator("stage_schema", "rdv_schema")

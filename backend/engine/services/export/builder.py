@@ -370,12 +370,11 @@ class ModelBuilder:
             ]
 
             if hashdiff_columns:
-                # Generate hashdiff name (hd_<satellite_name_without_sat_prefix>)
+                # Generate hashdiff name using project pattern
                 sat_name = sat.satellite_physical_name
-                if sat_name.startswith("sat_"):
-                    hd_name = f"hd_{sat_name[4:]}"
-                else:
-                    hd_name = f"hd_{sat_name}"
+                hd_name = self.project.resolve_naming_pattern(
+                    "hashdiff_naming", sat_name
+                )
 
                 result.append(
                     StageHashdiffDef(
@@ -858,12 +857,11 @@ class ModelBuilder:
             # Generate stage name
             stage_name = f"stg__{sat.source_table.source_system.name.lower().replace(' ', '_')}__{sat.source_table.physical_table_name.lower()}"
 
-            # Generate hashdiff name (hd_<satellite_name_without_sat_prefix>)
+            # Generate hashdiff name using project pattern
             sat_name = sat.satellite_physical_name
-            if sat_name.startswith("sat_"):
-                hashdiff_name = f"hd_{sat_name[4:]}"
-            else:
-                hashdiff_name = f"hd_{sat_name}"
+            hashdiff_name = self.project.resolve_naming_pattern(
+                "hashdiff_naming", sat_name
+            )
 
             # Build column definitions
             columns = []

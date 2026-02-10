@@ -96,7 +96,14 @@ def _init_from_config(config_path: Path) -> None:
         project = Project.objects.create(
             name=config.project.name,
             description=config.project.description or "",
-            config={},  # We'll store additional config here later
+            config={
+                "stage_schema": config.configuration.stage_schema,
+                "rdv_schema": config.configuration.rdv_schema,
+                "hashdiff_naming": config.configuration.hashdiff_naming,
+                "hashkey_naming": config.configuration.hashkey_naming,
+                "satellite_v0_naming": config.configuration.satellite_v0_naming,
+                "satellite_v1_naming": config.configuration.satellite_v1_naming,
+            },
         )
 
         progress.update(task, completed=True)
@@ -199,6 +206,26 @@ def _run_interactive_init() -> None:
         "Create ZIP archive of generated project?", default=False
     ).ask()
 
+    # Naming standards
+    overwrite_naming = questionary.confirm(
+        "Do you want to overwrite default naming conventions?", default=False
+    ).ask()
+
+    naming_config = {}
+    if overwrite_naming:
+        naming_config["hashdiff_naming"] = questionary.text(
+            "Hashdiff naming pattern:", default="hd_[[ satellite_name ]]"
+        ).ask()
+        naming_config["hashkey_naming"] = questionary.text(
+            "Hashkey naming pattern:", default="hk_[[ entity_name ]]"
+        ).ask()
+        naming_config["satellite_v0_naming"] = questionary.text(
+            "Satellite V0 naming pattern:", default="[[ satellite_name ]]_v0"
+        ).ask()
+        naming_config["satellite_v1_naming"] = questionary.text(
+            "Satellite V1 naming pattern:", default="[[ satellite_name ]]_v1"
+        ).ask()
+
     # Generate config dictionary
     config_dict = {
         "project": {
@@ -207,6 +234,7 @@ def _run_interactive_init() -> None:
         "configuration": {
             "stage_schema": stage_schema,
             "rdv_schema": rdv_schema,
+            **naming_config,
         },
         "output": {"dbt_project_dir": output_dir, "create_zip": create_zip},
     }
@@ -273,6 +301,7 @@ def _run_interactive_init() -> None:
             "stage_schema": stage_schema,
             "rdv_schema": rdv_schema,
             "source_path": str(source_path) if source_path else None,
+            **naming_config,
         },
     )
 
