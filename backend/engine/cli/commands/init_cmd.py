@@ -178,11 +178,26 @@ def _run_interactive_init() -> None:
     description = questionary.text("Project description (optional):", default="").ask()
 
     # Source type
-    use_source = questionary.confirm("Import metadata from Excel?", default=False).ask()
+    import_metadata = questionary.confirm("Import existing metadata?", default=False).ask()
 
     source_path = None
-    if use_source:
-        source_path = questionary.path("Path to Excel file:").ask()
+    source_type = None
+
+    if import_metadata:
+        source_type = questionary.select(
+            "Select source type:",
+            choices=[
+                questionary.Choice("Excel file (.xlsx)", value="excel"),
+                questionary.Choice("SQLite database (.db)", value="sqlite"),
+            ],
+        ).ask()
+
+        if source_type == "excel":
+            source_path = questionary.path("Path to Excel file:").ask()
+        elif source_type == "sqlite":
+            console.print(
+                "[yellow]SQLite import is not yet implemented. Proceeding without import.[/yellow]"
+            )
 
     # Stage schema
     stage_schema = questionary.text("Stage schema name:", default="stage").ask()
