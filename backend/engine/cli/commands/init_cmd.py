@@ -132,9 +132,15 @@ def _init_from_config(config_path: Path) -> None:
             print_error(f"Metadata import failed: {e}")
 
     # Ensure templates are populated in database
-    from engine.cli.utils.db_utils import ensure_templates_populated
+    from engine.cli.utils.db_utils import (
+        _ensure_superuser_exists,
+        ensure_templates_populated,
+    )
 
     ensure_templates_populated()
+
+    # Ensure admin user exists
+    _ensure_superuser_exists()
 
     print_step(3, 3, "Project initialization complete!")
 
@@ -329,9 +335,15 @@ def _run_interactive_init() -> None:
         create_default_snapshot_controls(project)
 
     # Ensure templates are populated in database
-    from engine.cli.utils.db_utils import ensure_templates_populated
+    from engine.cli.utils.db_utils import (
+        _ensure_superuser_exists,
+        ensure_templates_populated,
+    )
 
     ensure_templates_populated()
+
+    # Ensure admin user exists
+    _ensure_superuser_exists()
 
     print_step(2, 2, "Setup complete!")
     console.print("\n[bold]Next steps:[/bold]")
