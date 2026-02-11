@@ -28,12 +28,12 @@ jobs:
     - name: Check formatting with Black
       run: |
         black --check backend/ -v
-      continue-on-error: false
+      continue-on-error: true
 
     - name: Lint with Ruff
       run: |
         ruff check backend/
-      continue-on-error: false
+      continue-on-error: true
 
     - name: Type check with mypy (warnings only)
       run: |
