@@ -285,40 +285,23 @@ def _run_migrations(initial: bool = False) -> None:
     Raises:
         SystemExit: If migrations fail
     """
-    from io import StringIO
-
     from django.core.management import call_command
 
     try:
-        # Capture output to avoid cluttering the console
-        output = StringIO()
+        console.print(
+            "\n[cyan]Applying migrations...[/cyan]"
+            if not initial
+            else "\n[cyan]Creating database tables...[/cyan]"
+        )
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-            transient=True,
-        ) as progress:
-            task = progress.add_task(
-                (
-                    "Applying migrations..."
-                    if not initial
-                    else "Creating database tables..."
-                ),
-                total=None,
-            )
-
-            # Run migrations with minimal output
-            call_command(
-                "migrate", verbosity=0, interactive=False, stdout=output, stderr=output
-            )
-
-            progress.update(task, completed=True)
+        # Run migrations without output capture to avoid hanging on Windows
+        #  The verbosity=1 provides minimal but necessary progress output
+        call_command("migrate", verbosity=1, interactive=False)
 
         if initial:
-            console.print("[dim]  Created all database tables[/dim]")
+            console.print("[green]✓ Created all database tables[/green]\n")
         else:
-            console.print("[dim]  Applied all pending migrations[/dim]")
+            console.print("[green]✓ Applied all pending migrations[/green]\n")
 
     except Exception as e:
         console.print(f"\n[red]✗ Migration failed: {e}[/red]")
