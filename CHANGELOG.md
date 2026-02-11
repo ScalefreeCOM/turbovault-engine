@@ -5,6 +5,16 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.7.2...turbovault-engine-v0.7.3) (2026-02-11)
+
+
+### Bug Fixes
+
+* django migrations and admin user creation ([#73](https://github.com/ScalefreeCOM/turbovault-engine/issues/73)) ([df327e6](https://github.com/ScalefreeCOM/turbovault-engine/commit/df327e662cb48d6086a41b666487ebecd7b9baad))
+* ensuring admin user is always created when running init ([df327e6](https://github.com/ScalefreeCOM/turbovault-engine/commit/df327e662cb48d6086a41b666487ebecd7b9baad))
+* fixing ci job issue ([#69](https://github.com/ScalefreeCOM/turbovault-engine/issues/69)) ([47bd01f](https://github.com/ScalefreeCOM/turbovault-engine/commit/47bd01f2997d27d568da88424b0822be03b82dc5))
+* fixing issue with migrations accidentially being reformatted ([df327e6](https://github.com/ScalefreeCOM/turbovault-engine/commit/df327e662cb48d6086a41b666487ebecd7b9baad))
+
 ## [0.7.2](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.7.1...turbovault-engine-v0.7.2) (2026-02-02)
 
 
