@@ -1,9 +1,8 @@
 """
-Excel Import Service for TurboVault Engine (SQLite-based).
+SQLite Import Service for TurboVault Engine.
 
-This is a drop-in replacement for excel_import.py that uses openpyxl + an
-in-memory SQLite database as the intermediate data layer instead of Pandas
-DataFrames.  All Django ORM writes are identical to the original service.
+This service reads metadata from a SQLite database (already populated with
+the expected sheet-like tables) and imports it into the Django backend models.
 """
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ import sqlite3
 from datetime import datetime
 from typing import Any
 
-import openpyxl
 from django.db import transaction
 from django.utils import timezone
 
@@ -58,17 +56,28 @@ def _clean(val: Any) -> str | None:
     return str(val).strip()
 
 
-def _rows(conn: sqlite3.Connection, table: str) -> list[sqlite3.Row]:
-    """Return all rows from *table* as sqlite3.Row objects."""
-    cur = conn.execute(f"SELECT * FROM [{table}]")
-    return cur.fetchall()
-
-
-def _row_get(row: sqlite3.Row, col: str) -> Any:
-    """Safely get a column value from a Row; returns None if missing."""
+def _rows(conn: sqlite3.Connection, table: str) -> list[dict[str, Any]]:
+    """Return all rows from *table* as dictionaries with lowercase keys."""
     try:
-        return row[col]
-    except (IndexError, KeyError):
+        cur = conn.cursor()
+        cur.execute(f"SELECT * FROM [{table}]")
+        description = cur.description
+        if not description:
+            return []
+        col_names = [d[0].lower() for d in description]
+        results = []
+        for row in cur.fetchall():
+            results.append(dict(zip(col_names, row)))
+        return results
+    except sqlite3.OperationalError:
+        return []
+
+
+def _row_get(row: dict[str, Any], col: str) -> Any:
+    """Safely get a column value from a Row dictionary (assumes lowercase keys)."""
+    try:
+        return row.get(col.lower())
+    except (AttributeError, TypeError):
         return None
 
 
@@ -76,32 +85,25 @@ def _row_get(row: sqlite3.Row, col: str) -> Any:
 # Service
 # ---------------------------------------------------------------------------
 
-class ExcelImportSqliteService:
+class SqliteImportService:
     """
-    Service to import metadata from the legacy Excel format.
+    Service to import metadata from a SQLite database.
 
-    Uses openpyxl to read the workbook and an in-memory SQLite database as
-    the staging area for sheet data.  All Django ORM writes are identical
-    to :class:`ExcelImportService`.
+    The SQLite database must contain tables corresponding to the expected
+    sheets (e.g., 'source_data', 'standard_hub', etc.).
     """
 
-    def __init__(self, file_path: str):
-        self.file_path = file_path
-
-        # Open workbook (read-only, data-only for perf)
-        self._wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
-        self._sheet_names: list[str] = self._wb.sheetnames
-
-        # In-memory SQLite staging DB
-        self._conn = sqlite3.connect(":memory:")
+    def __init__(self, conn: sqlite3.Connection):
+        self._conn = conn
+        # Ensure rows are accessible by name
+        original_factory = self._conn.row_factory
         self._conn.row_factory = sqlite3.Row
-        self._loaded_tables: set[str] = set()
+        
+        # Check available tables
+        cur = self._conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        self._available_tables = {row["name"] for row in cur.fetchall()}
 
-        # Preload every sheet into SQLite
-        for sheet_name in self._sheet_names:
-            self._load_sheet_to_sqlite(sheet_name)
-
-        # Internal caches – identical to the Pandas version
+        # Internal caches
         self.project: Project | None = None
         self._source_systems: dict[str, SourceSystem] = {}
         self._source_tables: dict[str, SourceTable] = {}
@@ -115,52 +117,8 @@ class ExcelImportSqliteService:
         self._snapshot_control: SnapshotControlTable | None = None
         self._snapshot_logic: SnapshotControlLogic | None = None
 
-    # ------------------------------------------------------------------
-    # Sheet → SQLite loader
-    # ------------------------------------------------------------------
-
-    def _load_sheet_to_sqlite(self, sheet_name: str) -> None:
-        """Read an openpyxl worksheet and insert all rows into a SQLite table."""
-        ws = self._wb[sheet_name]
-
-        rows_iter = ws.iter_rows(values_only=True)
-        try:
-            header_raw = next(rows_iter)
-        except StopIteration:
-            return  # empty sheet
-
-        columns = [str(c).strip().lower() for c in header_raw if c is not None]
-        if not columns:
-            return
-
-        # Sanitised table name (sheet names may contain spaces)
-        tbl = sheet_name  # we quote it in SQL with []
-
-        col_defs = ", ".join(f"[{c}] TEXT" for c in columns)
-        self._conn.execute(f"CREATE TABLE IF NOT EXISTS [{tbl}] ({col_defs})")
-
-        placeholders = ", ".join("?" for _ in columns)
-        insert_sql = f"INSERT INTO [{tbl}] ({', '.join(f'[{c}]' for c in columns)}) VALUES ({placeholders})"
-
-        num_cols = len(columns)
-        for row in rows_iter:
-            # Trim row to header length (openpyxl can yield extra Nones)
-            vals = list(row[:num_cols])
-            # Convert non-None values to strings to match Pandas' text behaviour
-            vals = [str(v).strip() if v is not None else None for v in vals]
-            # Replace stringified null markers with actual None
-            vals = [None if v is not None and v.strip().lower() in ("none", "") else v for v in vals]
-            self._conn.execute(insert_sql, vals)
-
-        self._conn.commit()
-        self._loaded_tables.add(sheet_name)
-
-    def _has_sheet(self, name: str) -> bool:
-        return name in self._loaded_tables
-
-    # ------------------------------------------------------------------
-    # Public API (identical signature to ExcelImportService)
-    # ------------------------------------------------------------------
+    def _has_table(self, name: str) -> bool:
+        return name in self._available_tables
 
     @transaction.atomic
     def import_metadata(
@@ -170,8 +128,8 @@ class ExcelImportSqliteService:
         project: Project | None = None,
         skip_snapshots: bool = False,
     ) -> Project:
-        """Main entry point for importing metadata from Excel."""
-        logger.info(f"Starting import from {self.file_path}")
+        """Main entry point for importing metadata from SQLite."""
+        logger.info("Starting import from SQLite database")
 
         # 1. Create or Use Project
         if project:
@@ -183,33 +141,33 @@ class ExcelImportSqliteService:
                 )
             self.project = Project.objects.create(
                 name=project_name,
-                description=description or f"Imported from {self.file_path}",
+                description=description or "Imported from SQLite",
                 config={},
             )
 
         # 2. Process Source Data
-        if self._has_sheet("source_data"):
+        if self._has_table("source_data"):
             self._process_source_data()
 
         # 3. Collect all Source Columns
         self._collect_all_source_columns()
 
         # 4. Process Hubs
-        if self._has_sheet("standard_hub"):
+        if self._has_table("standard_hub"):
             self._process_standard_hubs()
-        if self._has_sheet("ref_hub"):
+        if self._has_table("ref_hub"):
             self._process_reference_hubs()
 
         # 5. Process Prejoins (must happen before Links)
-        if self._has_sheet("standard_link"):
+        if self._has_table("standard_link"):
             self._process_prejoins("standard_link")
-        if self._has_sheet("non_historized_link"):
+        if self._has_table("non_historized_link"):
             self._process_prejoins("non_historized_link")
 
         # 5.1 Process Links
-        if self._has_sheet("standard_link"):
+        if self._has_table("standard_link"):
             self._process_standard_links()
-        if self._has_sheet("non_historized_link"):
+        if self._has_table("non_historized_link"):
             self._process_non_historized_links()
 
         # 6. Process Satellites
@@ -220,18 +178,18 @@ class ExcelImportSqliteService:
             "multiactive_satellite",
         ]
         for sheet in sat_sheets:
-            if self._has_sheet(sheet):
+            if self._has_table(sheet):
                 self._process_satellites(sheet)
 
         # 7. Create default Snapshot Control
         self._create_default_snapshot_control(skip_creation=skip_snapshots)
 
         # 9. Process Reference Tables
-        if self._has_sheet("ref_table"):
+        if self._has_table("ref_table"):
             self._process_reference_tables()
 
         # 10. Process PITs
-        if self._has_sheet("pit"):
+        if self._has_table("pit"):
             self._process_pits()
 
         logger.info(f"Import completed. Project ID: {self.project.project_id}")
@@ -242,7 +200,7 @@ class ExcelImportSqliteService:
     # ------------------------------------------------------------------
 
     def _process_source_data(self) -> None:
-        """Processes the source_data sheet."""
+        """Processes the source_data table."""
         for row in _rows(self._conn, "source_data"):
             system_name = _clean(row["source_system"]) or "Unknown System"
             schema_name = _clean(row["source_schema_physical_name"]) or "public"
@@ -284,8 +242,8 @@ class ExcelImportSqliteService:
                     self._source_tables[table_name] = table
 
     def _collect_all_source_columns(self) -> None:
-        """Scans all sheets to find all mentioned source columns and creates them."""
-        logger.info("Collecting source columns from all sheets...")
+        """Scans all tables to find all mentioned source columns and creates them."""
+        logger.info("Collecting source columns from all tables...")
         columns_to_create: dict[str, set[str]] = {}
 
         sheets_to_scan = [
@@ -297,14 +255,12 @@ class ExcelImportSqliteService:
             ("ref_sat", "source_table_identifier", ["source_column_physical_name"]),
             ("non_historized_satellite", "source_table_identifier", ["source_column_physical_name"]),
             ("multiactive_satellite", "source_table_identifier", ["source_column_physical_name", "multi_active_attributes"]),
-            ("non_historized_link", "source_table_identifier", ["source_column_physical_name"]),
-            ("non_historized_link", "prejoin_table_identifier", ["prejoin_table_column_name", "prejoin_extraction_column_name"]),
-            ("standard_link", "source_table_identifier", ["source_column_physical_name"]),
             ("standard_link", "prejoin_table_identifier", ["prejoin_table_column_name", "prejoin_extraction_column_name"]),
+            ("non_historized_link", "prejoin_table_identifier", ["prejoin_table_column_name", "prejoin_extraction_column_name"]),
         ]
 
         for sheet_name, table_col, data_cols in sheets_to_scan:
-            if not self._has_sheet(sheet_name):
+            if not self._has_table(sheet_name):
                 continue
 
             for row in _rows(self._conn, sheet_name):
@@ -330,8 +286,7 @@ class ExcelImportSqliteService:
             table = self._source_tables.get(table_key)
             if not table:
                 logger.warning(
-                    f"Source table {table_key} not found in source_data, "
-                    "but referenced columns exist."
+                    f"Source table {table_key} not found, but referenced columns exist."
                 )
                 continue
 
@@ -346,7 +301,7 @@ class ExcelImportSqliteService:
                 self._source_columns[f"{phys_name}|{col_name}"] = column
 
     def _process_standard_hubs(self) -> None:
-        """Processes standard_hub sheet."""
+        """Processes standard_hub table."""
         for row in _rows(self._conn, "standard_hub"):
             hub_name = _clean(row["target_hub_table_physical_name"])
             if not hub_name:
@@ -414,7 +369,7 @@ class ExcelImportSqliteService:
                         first_mapping.save()
 
     def _process_reference_hubs(self) -> None:
-        """Processes ref_hub sheet."""
+        """Processes ref_hub table."""
         for row in _rows(self._conn, "ref_hub"):
             hub_name = _clean(row["target_reference_table_physical_name"])
             if not hub_name:
@@ -459,11 +414,11 @@ class ExcelImportSqliteService:
                 )
 
     def _process_standard_links(self) -> None:
-        """Processes standard_link sheet."""
+        """Processes standard_link table."""
         self._process_links_generic("standard_link", Link.LinkType.STANDARD, "link_identifier")
 
     def _process_non_historized_links(self) -> None:
-        """Processes non_historized_link sheet."""
+        """Processes non_historized_link table."""
         self._process_links_generic(
             "non_historized_link", Link.LinkType.NON_HISTORIZED, "nh_link_identifier"
         )
@@ -474,22 +429,15 @@ class ExcelImportSqliteService:
         link_type: str,
         id_col: str,
     ) -> None:
-        """
-        Shared logic for standard and non-historized link sheets.
-
-        Replicates the Pandas version's forward-fill on
-        ``target_link_table_physical_name``, groupby on link name, and
-        hub-ref vs payload separation.
-        """
+        """Shared logic for standard and non-historized link tables."""
         all_rows = _rows(self._conn, sheet)
         if not all_rows:
             return
 
-        # Check if columns exist
         col_names = all_rows[0].keys()
         has_hub_id = "hub_identifier" in col_names
 
-        # Forward-fill target_link_table_physical_name (replicates df.ffill())
+        # Forward-fill target_link_table_physical_name
         rows_as_dicts: list[dict[str, Any]] = [dict(r) for r in all_rows]
         last_link_name: str | None = None
         for rd in rows_as_dicts:
@@ -507,7 +455,6 @@ class ExcelImportSqliteService:
             link_groups.setdefault(ln, []).append(rd)
 
         for link_name, link_rows in link_groups.items():
-            # Create Link
             row_sample = link_rows[0]
             if link_name not in self._links:
                 link = Link.objects.create(
@@ -526,7 +473,6 @@ class ExcelImportSqliteService:
 
             link = self._links[link_name]
 
-            # Separate hub-ref rows from payload rows
             if not has_hub_id:
                 ref_rows: list[dict[str, Any]] = []
                 payload_rows = link_rows
@@ -540,7 +486,6 @@ class ExcelImportSqliteService:
 
             # === Process Hub References ===
             if ref_rows:
-                # Group by hub_identifier
                 hub_groups: dict[str, list[dict[str, Any]]] = {}
                 for r in ref_rows:
                     hid = str(r["hub_identifier"])
@@ -559,12 +504,10 @@ class ExcelImportSqliteService:
                         )
                         continue
 
-                    # Fill NULLs in target_column_physical_name
                     for r in hub_rows:
                         if _is_empty(r.get("target_column_physical_name")):
                             r["target_column_physical_name"] = ""
 
-                    # Group by alias
                     alias_groups: dict[str, list[dict[str, Any]]] = {}
                     for r in hub_rows:
                         alias_groups.setdefault(
@@ -587,7 +530,6 @@ class ExcelImportSqliteService:
                             sort_order=sort_order,
                         )
 
-                        # Sort by target_column_sort_order
                         alias_rows_sorted = sorted(
                             alias_rows,
                             key=lambda r: int(r.get("target_column_sort_order") or 0),
@@ -700,7 +642,7 @@ class ExcelImportSqliteService:
                     )
 
     def _process_satellites(self, sheet_type: str) -> None:
-        """Processes all types of satellite sheets."""
+        """Processes satellite tables."""
         for row in _rows(self._conn, sheet_type):
             sat_name_col = (
                 "target_reference_table_physical_name"
@@ -772,9 +714,7 @@ class ExcelImportSqliteService:
 
             satellite = self._satellites[sat_name]
 
-            # Satellite Columns
             cols_to_add: list[tuple[str, bool]] = []
-
             regular_col = _clean(_row_get(row, "source_column_physical_name"))
             if regular_col:
                 cols_to_add.append((regular_col, False))
@@ -807,16 +747,13 @@ class ExcelImportSqliteService:
                     )
 
     def _process_prejoins(self, sheet: str) -> None:
-        """Processes prejoin definitions and extractions from a link sheet."""
+        """Processes prejoin definitions and extractions from a link table."""
         all_rows = _rows(self._conn, sheet)
         if not all_rows:
             return
 
         rows_as_dicts: list[dict[str, Any]] = [dict(r) for r in all_rows]
 
-        # Forward fill prejoin_table_identifier within each
-        # (target_link_table_physical_name, source_table_identifier) group —
-        # identical to the Pandas grouped ffill.
         col_names_set = set(rows_as_dicts[0].keys()) if rows_as_dicts else set()
         group_cols = ["target_link_table_physical_name", "source_table_identifier"]
         prejoin_cols = ["prejoin_table_identifier"]
@@ -825,7 +762,6 @@ class ExcelImportSqliteService:
         active_prejoin_cols = [c for c in prejoin_cols if c in col_names_set]
 
         if active_group_cols and active_prejoin_cols:
-            # Track the last non-null value per group per prejoin column
             last_vals: dict[tuple[str, ...], dict[str, str | None]] = {}
             for rd in rows_as_dicts:
                 grp_key = tuple(str(rd.get(c) or "") for c in active_group_cols)
@@ -857,7 +793,6 @@ class ExcelImportSqliteService:
                 continue
 
             link_name = _clean(rd.get("target_link_table_physical_name"))
-
             source_table, source_table_id = get_table_and_id(source_table_id)
             target_table, target_table_id = get_table_and_id(target_table_id)
 
@@ -912,7 +847,7 @@ class ExcelImportSqliteService:
                     ] = extraction
 
     def _process_reference_tables(self) -> None:
-        """Processes ref_table sheet."""
+        """Processes ref_table table."""
         for row in _rows(self._conn, "ref_table"):
             ref_table_name = _clean(
                 _row_get(row, "target_reference_table_physical_name")
@@ -987,7 +922,7 @@ class ExcelImportSqliteService:
                             assignment.exclude_columns.add(col)
 
     def _process_pits(self) -> None:
-        """Processes pit sheet."""
+        """Processes pit table."""
         for row in _rows(self._conn, "pit"):
             pit_name = _clean(_row_get(row, "pit_physical_table_name"))
             entity_id = _clean(_row_get(row, "tracked_entity"))
@@ -1089,15 +1024,6 @@ class ExcelImportSqliteService:
             snapshot_forever=False,
         )
 
-    def _get_val(self, row: sqlite3.Row | dict[str, Any], col: str) -> str | None:
+    def _get_val(self, row: dict[str, Any], col: str) -> str | None:
         """Helper to get a cleaned string value or None if empty."""
-        if isinstance(row, dict):
-            val = row.get(col)
-        else:
-            val = _row_get(row, col)
-        return _clean(val)
-
-    def close(self) -> None:
-        """Close the in-memory SQLite connection and workbook."""
-        self._conn.close()
-        self._wb.close()
+        return _clean(_row_get(row, col))
