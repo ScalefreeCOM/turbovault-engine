@@ -6,7 +6,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Django](https://img.shields.io/badge/django-6.0+-green.svg)](https://www.djangoproject.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
 </div>
 
@@ -506,7 +506,26 @@ Generates ready-to-use dbt project with:
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please see our contributing guidelines (coming soon).
+We welcome and appreciate community contributions! To keep the project sustainable while ensuring the software remains open and accessible, we follow a **Dual-Licensing** model.
+
+### 📜 Licensing & Open Source
+This project is licensed under the **GNU Affero General Public License v3 (AGPL-3.0)**. 
+
+The AGPL is a "strong copyleft" license. If you modify this software and provide it as a service over a network (SaaS), you **must** make your modified source code available to your users under the same license.
+
+### ✍️ Contributor License Agreement (CLA)
+To contribute code, all contributors are required to sign our **Contributor License Agreement (CLA)**. 
+* **Why?** This ensures that you have the right to contribute the code and grants us the necessary rights to include your work in future versions of the project, including potential commercial or non-AGPL distributions.
+* **How?** **FIXME**
+
+### 💼 Commercial Usage & Licensing
+We understand that the AGPL-3.0 may not be suitable for every organization's internal policies or proprietary products. 
+
+If you wish to use this project in a commercial or proprietary setting without the "copyleft" requirements of the AGPL, we offer **alternative commercial licenses**. This allows you to:
+* Use the software without disclosing your own source code.
+* Receive dedicated support and enterprise-grade warranties.
+
+Please contact us at **contact@scalefree.com** to discuss a commercial license tailored to your needs.
 
 ### Development Setup
 
@@ -543,7 +562,7 @@ python -m pytest backend/tests/ -v
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **GNU Affero General Public License v3 (AGPL-3.0)** - see the [LICENSE](LICENSE) file for details.
 
 ---
 
