@@ -6,7 +6,7 @@ import os
 
 from django.core.management.base import BaseCommand, CommandError
 
-from engine.services.excel_import import ExcelImportService
+from engine.services.excel_sqlite_adapter import ExcelImport
 
 
 class Command(BaseCommand):
@@ -37,7 +37,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.NOTICE(f"Importing metadata from {excel_path}..."))
 
         try:
-            service = ExcelImportService(excel_path)
+            service = ExcelImport(excel_path)
             project = service.import_metadata(project_name, description)
 
             self.stdout.write(
