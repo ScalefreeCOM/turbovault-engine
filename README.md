@@ -524,6 +524,7 @@ We understand that the AGPL-3.0 may not be suitable for every organization's int
 If you wish to use this project in a commercial or proprietary setting without the "copyleft" requirements of the AGPL, we offer **alternative commercial licenses**. This allows you to:
 * Use the software without disclosing your own source code.
 * Receive dedicated support and enterprise-grade warranties.
+* Support the development team.
 
 Please contact us at **contact@scalefree.com** to discuss a commercial license tailored to your needs.
 
