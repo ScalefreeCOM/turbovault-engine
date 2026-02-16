@@ -17,6 +17,7 @@ class SourceType(str, Enum):
     """Supported source metadata types."""
 
     EXCEL = "excel"
+    SQLITE = "sqlite"
 
 
 class DatabaseEngine(str, Enum):
@@ -172,6 +173,28 @@ class ExcelSourceConfig(BaseModel):
                 stacklevel=2,
             )
         return v
+class SqliteSourceConfig(BaseModel):
+    """Configuration for importing metadata from SQLite."""
+
+    type: Literal[SourceType.SQLITE] = Field(
+        SourceType.SQLITE, description="Source type (must be 'sqlite')"
+    )
+    path: Path = Field(
+        ..., description="Path to SQLite database containing source metadata"
+    )
+
+    @field_validator("path")
+    @classmethod
+    def validate_path_exists(cls, v: Path) -> Path:
+        """Warn if file doesn't exist."""
+        if not v.exists():
+            import warnings
+
+            warnings.warn(
+                f"SQLite database not found: {v}. It will need to exist before import.",
+                stacklevel=2,
+            )
+        return v
 
 
 class ProjectConfiguration(BaseModel):
@@ -257,7 +280,7 @@ class TurboVaultConfig(BaseModel):
     """
 
     project: ProjectInfo = Field(..., description="Project information")
-    source: ExcelSourceConfig | None = Field(
+    source: ExcelSourceConfig | SqliteSourceConfig | None = Field(
         None, description="Optional source metadata import configuration"
     )
     database: DatabaseConfig | None = Field(

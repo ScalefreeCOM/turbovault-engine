@@ -120,16 +120,30 @@ def _init_from_config(config_path: Path) -> None:
         create_default_snapshot_controls(project)
 
     # Import metadata if source is defined
-    if config.source and config.source.type == "excel":
-        from engine.services.excel_import import ExcelImportService
+    if config.source:
+        if config.source.type == "excel":
+            from engine.services.excel_sqlite_adapter import ExcelImport
 
-        print_info(f"Importing metadata from {config.source.path}...")
-        try:
-            service = ExcelImportService(str(config.source.path))
-            service.import_metadata(project=project, skip_snapshots=True)
-            print_success("Metadata successfully imported")
-        except Exception as e:
-            print_error(f"Metadata import failed: {e}")
+            print_info(f"Importing metadata from {config.source.path}...")
+            try:
+                service = ExcelImport(str(config.source.path))
+                service.import_metadata(project=project, skip_snapshots=True)
+                print_success("Metadata successfully imported")
+            except Exception as e:
+                print_error(f"Metadata import failed: {e}")
+        elif config.source.type == "sqlite":
+            import sqlite3
+            from engine.services.sqlite_import import SqliteImportService
+
+            print_info(f"Importing metadata from {config.source.path}...")
+            try:
+                conn = sqlite3.connect(str(config.source.path))
+                service = SqliteImportService(conn)
+                service.import_metadata(project=project, skip_snapshots=True)
+                conn.close()
+                print_success("Metadata successfully imported")
+            except Exception as e:
+                print_error(f"Metadata import failed: {e}")
 
     # Ensure templates are populated in database
     from engine.cli.utils.db_utils import (
@@ -184,11 +198,24 @@ def _run_interactive_init() -> None:
     description = questionary.text("Project description (optional):", default="").ask()
 
     # Source type
-    use_source = questionary.confirm("Import metadata from Excel?", default=False).ask()
+    import_metadata = questionary.confirm("Import existing metadata?", default=False).ask()
 
     source_path = None
-    if use_source:
-        source_path = questionary.path("Path to Excel file:").ask()
+    source_type = None
+
+    if import_metadata:
+        source_type = questionary.select(
+            "Select source type:",
+            choices=[
+                questionary.Choice("Excel file (.xlsx)", value="excel"),
+                questionary.Choice("SQLite database (.db)", value="sqlite"),
+            ],
+        ).ask()
+
+        if source_type == "excel":
+            source_path = questionary.path("Path to Excel file:").ask()
+        elif source_type == "sqlite":
+            source_path = questionary.path("Path to SQLite database (.db):").ask()
 
     # Stage schema
     stage_schema = questionary.text("Stage schema name:", default="stage").ask()
@@ -250,7 +277,7 @@ def _run_interactive_init() -> None:
         config_dict["project"]["description"] = description
 
     if source_path:
-        config_dict["source"] = {"type": "excel", "path": source_path}
+        config_dict["source"] = {"type": source_type, "path": source_path}
 
     if stage_database:
         config_dict["configuration"]["stage_database"] = stage_database
@@ -315,15 +342,29 @@ def _run_interactive_init() -> None:
 
     # Import metadata if source is defined
     if source_path:
-        from engine.services.excel_import import ExcelImportService
+        if source_type == "excel":
+            from engine.services.excel_sqlite_adapter import ExcelImport
 
-        print_info(f"Importing metadata from {source_path}...")
-        try:
-            service = ExcelImportService(str(source_path))
-            service.import_metadata(project=project, skip_snapshots=False)
-            print_success("Metadata successfully imported")
-        except Exception as e:
-            print_error(f"Metadata import failed: {e}")
+            print_info(f"Importing metadata from {source_path}...")
+            try:
+                service = ExcelImport(str(source_path))
+                service.import_metadata(project=project, skip_snapshots=False)
+                print_success("Metadata successfully imported")
+            except Exception as e:
+                print_error(f"Metadata import failed: {e}")
+        elif source_type == "sqlite":
+            import sqlite3
+            from engine.services.sqlite_import import SqliteImportService
+
+            print_info(f"Importing metadata from {source_path}...")
+            try:
+                conn = sqlite3.connect(str(source_path))
+                service = SqliteImportService(conn)
+                service.import_metadata(project=project, skip_snapshots=False)
+                conn.close()
+                print_success("Metadata successfully imported")
+            except Exception as e:
+                print_error(f"Metadata import failed: {e}")
 
     # Create default snapshot controls for the new project
     skip_snapshots = (
