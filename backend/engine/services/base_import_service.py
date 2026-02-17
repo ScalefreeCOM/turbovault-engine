@@ -25,6 +25,7 @@ from engine.models.satellites import Satellite, SatelliteColumn
 from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
 from engine.models.source_metadata import SourceColumn, SourceSystem, SourceTable
 from engine.services.metadata_source import MetadataSource
+from engine.services.staging_service import get_or_create_staging_column
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +207,8 @@ class BaseImportService:
             source_col = self._source_columns.get(f"{source_table_key}|{source_col_name}")
             if source_col:
                 HubSourceMapping.objects.get_or_create(
-                    hub_column=hub_column, source_column=source_col,
+                    hub_column=hub_column,
+                    staging_column=get_or_create_staging_column(source_col),
                     defaults={"is_primary_source": str(row.get("is_primary_source")).upper() == "TRUE"}
                 )
 
@@ -231,7 +233,11 @@ class BaseImportService:
             source_table_key = self._get_val(row, "source_table_identifier")
             source_col = self._source_columns.get(f"{source_table_key}|{source_col_name}")
             if source_col:
-                HubSourceMapping.objects.get_or_create(hub_column=hub_column, source_column=source_col, defaults={"is_primary_source": True})
+                HubSourceMapping.objects.get_or_create(
+                    hub_column=hub_column,
+                    staging_column=get_or_create_staging_column(source_col),
+                    defaults={"is_primary_source": True}
+                )
 
     def _process_standard_links(self, df: pd.DataFrame):
         if "target_link_table_physical_name" in df.columns:
@@ -288,7 +294,11 @@ class BaseImportService:
                     prejoin_ext = self._extractions.get(f"{link.link_physical_name}|{prejoin_alias or ext_col_name or source_col_name}")
                     source_col = self._source_columns.get(f"{source_table_id}|{source_col_name}") if not prejoin_ext else None
                     if source_col or prejoin_ext:
-                        LinkHubSourceMapping.objects.create(link_hub_reference=lhr, standard_hub_column=hub_cols[idx], source_column=source_col, prejoin_extraction_column=prejoin_ext)
+                        LinkHubSourceMapping.objects.create(
+                            link_hub_reference=lhr,
+                            standard_hub_column=hub_cols[idx],
+                            staging_column=get_or_create_staging_column(source_col or prejoin_ext)
+                        )
         else: payload_rows = link_rows
 
         for _, row in payload_rows.iterrows():
@@ -298,7 +308,11 @@ class BaseImportService:
             source_table_id = self._get_val(row, "source_table_identifier")
             source_col_name = self._get_val(row, "source_column_physical_name")
             source_col = self._source_columns.get(f"{source_table_id}|{source_col_name}")
-            if source_col: LinkSourceMapping.objects.get_or_create(link_column=lc, source_column=source_col)
+            if source_col:
+                LinkSourceMapping.objects.get_or_create(
+                    link_column=lc,
+                    staging_column=get_or_create_staging_column(source_col)
+                )
 
     def _process_satellites(self, df: pd.DataFrame, sheet_type: str):
         name_col = "target_reference_table_physical_name" if sheet_type == "ref_sat" else "target_satellite_table_physical_name"
@@ -339,7 +353,8 @@ class BaseImportService:
                 source_col = self._source_columns.get(f"{source_table_id}|{self._get_val(row, 'source_column_physical_name')}")
                 if source_col:
                     SatelliteColumn.objects.get_or_create(
-                        satellite=sat, source_column=source_col,
+                        satellite=sat,
+                        staging_column=get_or_create_staging_column(source_col),
                         defaults={"target_column_name": col_name if col_name != source_col.source_column_physical_name else None}
                     )
 

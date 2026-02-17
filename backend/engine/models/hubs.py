@@ -212,11 +212,11 @@ class HubSourceMapping(models.Model):
         help_text="Hub column being mapped",
     )
 
-    source_column = models.ForeignKey(
-        SourceColumn,
+    staging_column = models.ForeignKey(
+        "engine.StagingColumn",
         on_delete=models.CASCADE,
         related_name="hub_mappings",
-        help_text="Source column providing the data",
+        help_text="Unified staging column for this hub mapping",
     )
 
     is_primary_source = models.BooleanField(
@@ -234,7 +234,7 @@ class HubSourceMapping(models.Model):
 
     class Meta:
         db_table = "hub_source_mapping"
-        unique_together = [["hub_column", "source_column"]]
+        unique_together = [["hub_column", "staging_column"]]
 
     def clean(self) -> None:
         """Validate that only one mapping is marked as primary source per hub."""
@@ -257,4 +257,4 @@ class HubSourceMapping(models.Model):
                 )
 
     def __str__(self) -> str:
-        return f"{self.hub_column} → {self.source_column}"
+        return f"{self.hub_column} → {self.staging_column}"

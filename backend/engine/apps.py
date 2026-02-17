@@ -19,3 +19,6 @@ class EngineConfig(AppConfig):
 
         # Import admin_site to apply monkey patch for model grouping
         from engine import admin_site  # noqa: F401
+
+        # Register signals
+        import engine.models.signals  # noqa: F401

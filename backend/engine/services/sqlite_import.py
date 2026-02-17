@@ -33,6 +33,7 @@ from engine.models.reference_table import (
 from engine.models.satellites import Satellite, SatelliteColumn
 from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
 from engine.models.source_metadata import SourceColumn, SourceSystem, SourceTable
+from engine.services.staging_service import get_or_create_staging_column
 
 logger = logging.getLogger(__name__)
 
@@ -346,7 +347,7 @@ class SqliteImportService:
             if source_col:
                 HubSourceMapping.objects.get_or_create(
                     hub_column=hub_column,
-                    source_column=source_col,
+                    staging_column=get_or_create_staging_column(source_col),
                     defaults={
                         "is_primary_source": str(
                             _row_get(row, "is_primary_source")
@@ -409,7 +410,7 @@ class SqliteImportService:
             if source_col:
                 HubSourceMapping.objects.get_or_create(
                     hub_column=hub_column,
-                    source_column=source_col,
+                    staging_column=get_or_create_staging_column(source_col),
                     defaults={"is_primary_source": True},
                 )
 
@@ -583,8 +584,7 @@ class SqliteImportService:
                                 LinkHubSourceMapping.objects.create(
                                     link_hub_reference=lhr,
                                     standard_hub_column=hub_col,
-                                    source_column=source_col,
-                                    prejoin_extraction_column=prejoin_ext,
+                                    staging_column=get_or_create_staging_column(source_col or prejoin_ext),
                                 )
 
             # === Process Payload ===
@@ -638,7 +638,7 @@ class SqliteImportService:
                 if source_col:
                     LinkSourceMapping.objects.get_or_create(
                         link_column=lc,
-                        source_column=source_col,
+                        staging_column=get_or_create_staging_column(source_col),
                     )
 
     def _process_satellites(self, sheet_type: str) -> None:
@@ -737,7 +737,7 @@ class SqliteImportService:
 
                     SatelliteColumn.objects.get_or_create(
                         satellite=satellite,
-                        source_column=source_col,
+                        staging_column=get_or_create_staging_column(source_col),
                         defaults={
                             "is_multi_active_key": is_ma_key,
                             "include_in_delta_detection": sheet_type
