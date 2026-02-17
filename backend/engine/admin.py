@@ -14,9 +14,12 @@ from engine.models import (
     Project,
     ReferenceTable,
     ReferenceTableSatelliteAssignment,
+    ReferenceTable,
+    ReferenceTableSatelliteAssignment,
     SourceColumn,
     SourceSystem,
     SourceTable,
+    StagingColumn,
 )
 
 
@@ -123,6 +126,16 @@ class SourceColumnAdmin(admin.ModelAdmin):
         return obj.source_table.source_system.name
 
 
+@admin.register(StagingColumn)
+class StagingColumnAdmin(admin.ModelAdmin):
+    """Admin configuration for StagingColumn model."""
+
+    list_display = ["physical_name", "datatype", "source_table", "project"]
+    list_filter = ["source_table", "project"]
+    search_fields = ["source_column__source_column_physical_name", "prejoin_column__prejoin_target_column_alias"]
+    autocomplete_fields = ["project", "source_table", "source_column", "prejoin_column"]
+
+
 # Import hub models
 from engine.models import Hub, HubColumn, HubSourceMapping
 
@@ -142,10 +155,16 @@ class HubSourceMappingInline(admin.TabularInline):
 
     model = HubSourceMapping
     extra = 1
-    fields = ["source_column", "is_primary_source"]
-    autocomplete_fields = ["source_column"]
-    verbose_name = "Source Mapping"
-    verbose_name_plural = "Source Mappings"
+    fields = ["staging_column", "is_primary_source"]
+    autocomplete_fields = ["staging_column"]
+    verbose_name = "Input Mapping"
+    verbose_name_plural = "Input Mappings"
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """Rename staging_column to Input Column in the admin form."""
+        if db_field.name == "staging_column":
+            db_field.verbose_name = "Input Column"
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 @admin.register(Hub)
@@ -233,7 +252,7 @@ class HubSourceMappingAdmin(admin.ModelAdmin):
 
     list_display = [
         "hub_column",
-        "source_column",
+        "staging_column",
         "is_primary_source",
         "get_hub",
         "created_at",
@@ -242,10 +261,16 @@ class HubSourceMappingAdmin(admin.ModelAdmin):
     search_fields = [
         "hub_column__column_name",
         "hub_column__hub__hub_physical_name",
-        "source_column__source_column_physical_name",
+        "staging_column__source_column__source_column_physical_name",
     ]
     readonly_fields = ["hub_source_mapping_id", "created_at", "updated_at"]
-    autocomplete_fields = ["hub_column", "source_column"]
+    autocomplete_fields = ["hub_column", "staging_column"]
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """Rename staging_column to Input Column in the admin form."""
+        if db_field.name == "staging_column":
+            db_field.verbose_name = "Input Column"
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     @admin.display(description="Hub", ordering="hub_column__hub__hub_physical_name")
     def get_hub(self, obj: HubSourceMapping) -> str:
@@ -350,19 +375,20 @@ class SatelliteColumnInline(admin.TabularInline):
     model = SatelliteColumn
     extra = 1
     fields = [
-        "source_column",
+        "staging_column",
         "target_column_name",
         "is_multi_active_key",
         "include_in_delta_detection",
         "target_column_transformation",
     ]
-    autocomplete_fields = ["source_column"]
+    autocomplete_fields = ["staging_column"]
     verbose_name = "Satellite Column"
     verbose_name_plural = "Satellite Columns"
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        """Filter source_column choices to only show columns from satellite's source_table."""
-        if db_field.name == "source_column":
+        """Rename staging_column and filter choices if possible."""
+        if db_field.name == "staging_column":
+            db_field.verbose_name = "Input Column"
             # Get the satellite being edited
             if request.resolver_match and request.resolver_match.kwargs.get(
                 "object_id"
@@ -372,8 +398,8 @@ class SatelliteColumnInline(admin.TabularInline):
                         pk=request.resolver_match.kwargs["object_id"]
                     )
                     if satellite.source_table:
-                        # Filter to only columns from this satellite's source table
-                        kwargs["queryset"] = satellite.source_table.columns.all()
+                        # Filter to only staging columns from this satellite's source table
+                        kwargs["queryset"] = StagingColumn.objects.filter(source_table=satellite.source_table)
                 except Satellite.DoesNotExist:
                     pass
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
@@ -469,7 +495,7 @@ class SatelliteColumnAdmin(admin.ModelAdmin):
 
     list_display = [
         "get_satellite",
-        "get_source_column",
+        "staging_column",
         "target_column_name",
         "is_multi_active_key",
         "include_in_delta_detection",
@@ -482,11 +508,16 @@ class SatelliteColumnAdmin(admin.ModelAdmin):
     ]
     search_fields = [
         "satellite__satellite_physical_name",
-        "source_column__source_column_physical_name",
+        "staging_column__source_column__source_column_physical_name",
         "target_column_name",
     ]
     readonly_fields = ["satellite_column_id", "created_at", "updated_at"]
-    autocomplete_fields = ["satellite", "source_column"]
+    autocomplete_fields = ["satellite", "staging_column"]
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "staging_column":
+            db_field.verbose_name = "Input Column"
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     @admin.display(
         description="Satellite", ordering="satellite__satellite_physical_name"
@@ -494,11 +525,6 @@ class SatelliteColumnAdmin(admin.ModelAdmin):
     def get_satellite(self, obj: SatelliteColumn) -> str:
         """Return the satellite name."""
         return obj.satellite.satellite_physical_name
-
-    @admin.display(description="Source Column")
-    def get_source_column(self, obj: SatelliteColumn) -> str:
-        """Return the source column reference."""
-        return str(obj.source_column)
 
 
 # Import link models
@@ -528,8 +554,8 @@ class LinkHubSourceMappingInline(admin.TabularInline):
 
     model = LinkHubSourceMapping
     extra = 1
-    fields = ["standard_hub_column", "source_column", "prejoin_extraction_column"]
-    autocomplete_fields = ["source_column", "prejoin_extraction_column"]
+    fields = ["standard_hub_column", "staging_column"]
+    autocomplete_fields = ["staging_column"]
     verbose_name = "Hub Key Mapping"
     verbose_name_plural = "Hub Key Mappings"
 
@@ -569,10 +595,15 @@ class LinkSourceMappingInline(admin.TabularInline):
 
     model = LinkSourceMapping
     extra = 1
-    fields = ["source_column"]
-    autocomplete_fields = ["source_column"]
-    verbose_name = "Source Mapping"
-    verbose_name_plural = "Source Mappings"
+    fields = ["staging_column"]
+    autocomplete_fields = ["staging_column"]
+    verbose_name = "Input Mapping"
+    verbose_name_plural = "Input Mappings"
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "staging_column":
+            db_field.verbose_name = "Input Column"
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 @admin.register(Link)
@@ -651,17 +682,22 @@ class LinkSourceMappingAdmin(admin.ModelAdmin):
 
     list_display = [
         "link_column",
-        "source_column",
+        "staging_column",
         "get_link",
         "created_at",
     ]
     list_filter = ["link_column__link__project"]
     search_fields = [
         "link_column__column_name",
-        "source_column__source_column_physical_name",
+        "staging_column__source_column__source_column_physical_name",
     ]
     readonly_fields = ["link_source_mapping_id", "created_at", "updated_at"]
-    autocomplete_fields = ["link_column", "source_column"]
+    autocomplete_fields = ["link_column", "staging_column"]
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "staging_column":
+            db_field.verbose_name = "Input Column"
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     @admin.display(description="Link", ordering="link_column__link__link_physical_name")
     def get_link(self, obj: LinkSourceMapping) -> str:
@@ -693,7 +729,7 @@ class LinkHubSourceMappingAdmin(admin.ModelAdmin):
     list_display = [
         "link_hub_reference",
         "standard_hub_column",
-        "get_source_display",
+        "staging_column",
         "created_at",
     ]
     list_filter = ["link_hub_reference__link__project"]
@@ -701,17 +737,14 @@ class LinkHubSourceMappingAdmin(admin.ModelAdmin):
     autocomplete_fields = [
         "link_hub_reference",
         "standard_hub_column",
-        "source_column",
-        "prejoin_extraction_column",
+        "staging_column",
     ]
 
-    @admin.display(description="Mapped Source")
-    def get_source_display(self, obj: LinkHubSourceMapping) -> str:
-        if obj.source_column:
-            return str(obj.source_column)
-        elif obj.prejoin_extraction_column:
-            return f"[Prejoin] {obj.prejoin_extraction_column}"
-        return "-"
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """Rename staging_column to Input Column in the admin form."""
+        if db_field.name == "staging_column":
+            db_field.verbose_name = "Input Column"
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 # ==============================================================================
@@ -991,6 +1024,10 @@ class PrejoinExtractionColumnAdmin(admin.ModelAdmin):
     ]
     readonly_fields = ["extraction_id", "created_at", "updated_at"]
     autocomplete_fields = ["prejoin", "source_column"]
+
+    @admin.display(description="Physical Column")
+    def get_column_name(self, obj: PrejoinExtractionColumn) -> str:
+        return obj.source_column.source_column_physical_name
 
     fieldsets = [
         (

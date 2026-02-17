@@ -170,7 +170,7 @@ class ModelBuilder:
         from engine.models import Hub, HubColumn
 
         hubs = Hub.objects.filter(project=self.project).prefetch_related(
-            "columns__source_mappings__source_column__source_table__source_system"
+            "columns__source_mappings__staging_column"
         )
 
         result = []
@@ -239,7 +239,7 @@ class ModelBuilder:
 
         for column in hub.columns.filter(column_type=HubColumn.ColumnType.BUSINESS_KEY):
             for mapping in column.source_mappings.all():
-                table = mapping.source_column.source_table
+                table = mapping.staging_column.source_table
                 table_key = table.physical_table_name
 
                 source_table_map[table_key]["source_system"] = table.source_system.name
@@ -247,7 +247,7 @@ class ModelBuilder:
                     "stage_name"
                 ] = f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}"
                 source_table_map[table_key]["columns"].append(
-                    mapping.source_column.source_column_physical_name
+                    mapping.staging_column.physical_name
                 )
 
         # Also process REFERENCE_KEY columns for reference hubs
@@ -255,7 +255,7 @@ class ModelBuilder:
             column_type=HubColumn.ColumnType.REFERENCE_KEY
         ):
             for mapping in column.source_mappings.all():
-                table = mapping.source_column.source_table
+                table = mapping.staging_column.source_table
                 table_key = table.physical_table_name
 
                 source_table_map[table_key]["source_system"] = table.source_system.name
@@ -264,7 +264,7 @@ class ModelBuilder:
                 ] = f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}"
 
                 # Append if not already present
-                col_name = mapping.source_column.source_column_physical_name
+                col_name = mapping.staging_column.physical_name
                 if col_name not in source_table_map[table_key]["columns"]:
                     source_table_map[table_key]["columns"].append(col_name)
 
@@ -358,13 +358,13 @@ class ModelBuilder:
 
         satellites = Satellite.objects.filter(
             source_table=source_table
-        ).prefetch_related("columns__source_column")
+        ).prefetch_related("columns__staging_column")
 
         result = []
         for sat in satellites:
             # Get columns that should be included in hashdiff
             hashdiff_columns = [
-                col.target_column_name or col.source_column.source_column_physical_name
+                col.target_column_name or col.staging_column.physical_name
                 for col in sat.columns.all()
                 if col.include_in_delta_detection
             ]
@@ -404,7 +404,7 @@ class ModelBuilder:
                 satellite_type=Satellite.SatelliteType.MULTI_ACTIVE,
             )
             .select_related("parent_hub")
-            .prefetch_related("columns__source_column")
+            .prefetch_related("columns__staging_column")
             .first()
         )
 
@@ -413,7 +413,7 @@ class ModelBuilder:
 
         # Get multi-active key columns
         ma_key_columns = [
-            col.target_column_name or col.source_column.source_column_physical_name
+            col.target_column_name or col.staging_column.physical_name
             for col in multi_active_sat.columns.all()
             if col.is_multi_active_key
         ]
@@ -480,12 +480,12 @@ class ModelBuilder:
 
         satellites = Satellite.objects.filter(
             source_table=source_table
-        ).prefetch_related("columns__source_column")
+        ).prefetch_related("columns__staging_column")
 
         result = []
         for sat in satellites:
             for col in sat.columns.all():
-                source_col_name = col.source_column.source_column_physical_name
+                source_col_name = col.staging_column.physical_name
                 target_col_name = col.target_column_name or source_col_name
                 transformation = col.target_column_transformation
 
@@ -605,8 +605,8 @@ class ModelBuilder:
 
         # Find all hub source mappings where source column is from this table
         hub_mappings = HubSourceMapping.objects.filter(
-            source_column__source_table=source_table
-        ).select_related("hub_column__hub", "source_column")
+            staging_column__source_table=source_table
+        ).select_related("hub_column__hub", "staging_column")
 
         # Group by hub to build hashkey definitions
         hub_columns_map: dict[str, dict] = defaultdict(
@@ -623,7 +623,7 @@ class ModelBuilder:
             if mapping.hub_column.column_type == HubColumn.ColumnType.BUSINESS_KEY:
                 hub_columns_map[hub_key]["source_columns"].append(
                     {
-                        "source_column": mapping.source_column.source_column_physical_name,
+                        "source_column": mapping.staging_column.physical_name,
                         "sort_order": mapping.hub_column.sort_order or 0,
                     }
                 )
@@ -658,21 +658,13 @@ class ModelBuilder:
         # ========================================================================
 
         # Find all link hub source mappings where source column is from this table
-        # This includes both direct source_column and prejoin_extraction_column
         link_hub_mappings = LinkHubSourceMapping.objects.filter(
-            source_column__source_table=source_table
+            staging_column__source_table=source_table
         ).select_related(
             "link_hub_reference__link",
             "link_hub_reference__hub",
             "standard_hub_column",
-            "source_column",
-        ) | LinkHubSourceMapping.objects.filter(
-            prejoin_extraction_column__prejoin__source_table=source_table
-        ).select_related(
-            "link_hub_reference__link",
-            "link_hub_reference__hub",
-            "standard_hub_column",
-            "prejoin_extraction_column__source_column",
+            "staging_column",
         )
 
         # Group by link to build link hashkey definitions
@@ -692,16 +684,8 @@ class ModelBuilder:
 
             link_columns_map[link_key]["link"] = link
 
-            # Get the source column (either direct or from prejoin)
-            if mapping.source_column:
-                source_col_name = mapping.source_column.source_column_physical_name
-            elif mapping.prejoin_extraction_column:
-                source_col_name = (
-                    mapping.prejoin_extraction_column.prejoin_target_column_alias
-                    or mapping.prejoin_extraction_column.source_column.source_column_physical_name
-                )
-            else:
-                continue  # Skip invalid mappings
+            # Get the source column name from the unified staging column
+            source_col_name = mapping.staging_column.physical_name
 
             # Add to hub source columns with proper sorting (for Link Hashkey)
             link_columns_map[link_key]["hub_source_columns"].append(
@@ -722,9 +706,9 @@ class ModelBuilder:
 
         # Now find dependent child keys for each link from this source table
         link_source_mappings = LinkSourceMapping.objects.filter(
-            source_column__source_table=source_table,
+            staging_column__source_table=source_table,
             link_column__column_type=LinkColumn.ColumnType.DEPENDANT_CHILD_KEY,
-        ).select_related("link_column__link", "source_column")
+        ).select_related("link_column__link", "staging_column")
 
         for mapping in link_source_mappings:
             link = mapping.link_column.link
@@ -741,7 +725,7 @@ class ModelBuilder:
 
             link_columns_map[link_key]["dependent_child_keys"].append(
                 {
-                    "source_column": mapping.source_column.source_column_physical_name,
+                    "source_column": mapping.staging_column.physical_name,
                     "sort_order": mapping.link_column.sort_order or 0,
                 }
             )
@@ -827,7 +811,7 @@ class ModelBuilder:
         from engine.models import Satellite
 
         satellites = Satellite.objects.filter(project=self.project).prefetch_related(
-            "columns__source_column__source_table", "parent_hub", "parent_link"
+            "columns__staging_column__source_table", "parent_hub", "parent_link"
         )
 
         result = []
@@ -868,7 +852,7 @@ class ModelBuilder:
             for col in sat.columns.all():
                 columns.append(
                     SatelliteColumnDef(
-                        source_column=col.source_column.source_column_physical_name,
+                        source_column=col.staging_column.physical_name,
                         target_column_name=col.target_column_name,
                         is_multi_active_key=col.is_multi_active_key,
                         include_in_delta_detection=col.include_in_delta_detection,
@@ -905,10 +889,9 @@ class ModelBuilder:
         from engine.models import Link, LinkColumn
 
         links = Link.objects.filter(project=self.project).prefetch_related(
-            "hub_references__source_mappings__source_column__source_table__source_system",
-            "hub_references__source_mappings__prejoin_extraction_column__source_column__source_table__source_system",
+            "hub_references__source_mappings__staging_column__source_table__source_system",
             "hub_references__source_mappings__standard_hub_column",
-            "columns__source_mappings__source_column__source_table__source_system",
+            "columns__source_mappings__staging_column__source_table__source_system",
         )
 
         result = []
@@ -951,23 +934,9 @@ class ModelBuilder:
 
             for column in link.columns.all():
                 for mapping in column.source_mappings.all():
-                    # Handle both direct source columns and prejoin extraction columns
-                    if mapping.source_column:
-                        # Direct source column mapping
-                        table = mapping.source_column.source_table
-                        source_col_name = (
-                            mapping.source_column.source_column_physical_name
-                        )
-                    elif mapping.prejoin_extraction_column:
-                        # Prejoin extraction column mapping
-                        table = mapping.prejoin_extraction_column.prejoin.source_table
-                        source_col_name = (
-                            mapping.prejoin_extraction_column.prejoin_target_column_alias
-                            or mapping.prejoin_extraction_column.source_column.source_column_physical_name
-                        )
-                    else:
-                        # Skip invalid mappings (should not happen due to validation)
-                        continue
+                    # Handle unified staging column
+                    table = mapping.staging_column.source_table
+                    source_col_name = mapping.staging_column.physical_name
 
                     table_key = table.physical_table_name
 
@@ -991,23 +960,9 @@ class ModelBuilder:
             # Process hub references to add source tables for business keys
             for hub_ref in hub_refs:
                 for mapping in hub_ref.source_mappings.all():
-                    # Handle both direct source columns and prejoin extraction columns
-                    if mapping.source_column:
-                        # Direct source column mapping
-                        table = mapping.source_column.source_table
-                        source_col_name = (
-                            mapping.source_column.source_column_physical_name
-                        )
-                    elif mapping.prejoin_extraction_column:
-                        # Prejoin extraction column mapping
-                        # Use the source table of the prejoin (the one being staged)
-                        table = mapping.prejoin_extraction_column.prejoin.source_table
-                        source_col_name = (
-                            mapping.prejoin_extraction_column.prejoin_target_column_alias
-                            or mapping.prejoin_extraction_column.source_column.source_column_physical_name
-                        )
-                    else:
-                        continue
+                    # Handle unified staging column
+                    table = mapping.staging_column.source_table
+                    source_col_name = mapping.staging_column.physical_name
 
                     table_key = table.physical_table_name
 

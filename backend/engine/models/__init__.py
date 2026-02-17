@@ -23,6 +23,7 @@ from engine.models.reference_table import (
 from engine.models.satellites import Satellite, SatelliteColumn
 from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
 from engine.models.source_metadata import SourceColumn, SourceSystem, SourceTable
+from engine.models.staging import StagingColumn
 from engine.models.templates import ModelTemplate, TemplateCategory
 
 __all__ = [
@@ -48,6 +49,7 @@ __all__ = [
     "PIT",
     "PrejoinDefinition",
     "PrejoinExtractionColumn",
+    "StagingColumn",
     "TemplateCategory",
     "ModelTemplate",
 ]

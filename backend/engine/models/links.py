@@ -258,11 +258,11 @@ class LinkSourceMapping(models.Model):
         help_text="Link column being mapped",
     )
 
-    source_column = models.ForeignKey(
-        SourceColumn,
+    staging_column = models.ForeignKey(
+        "engine.StagingColumn",
         on_delete=models.CASCADE,
         related_name="link_column_mappings",
-        help_text="Source column mapped to this link column",
+        help_text="Unified staging column for this link mapping",
     )
 
     created_at = models.DateTimeField(
@@ -280,7 +280,7 @@ class LinkSourceMapping(models.Model):
         verbose_name_plural = "Link Source Mappings"
 
     def __str__(self) -> str:
-        return f"{self.link_column} <- {self.source_column}"
+        return f"{self.link_column} <- {self.staging_column}"
 
 
 class LinkHubSourceMapping(models.Model):
@@ -311,22 +311,11 @@ class LinkHubSourceMapping(models.Model):
         help_text="Hub column of the referenced standard hub",
     )
 
-    source_column = models.ForeignKey(
-        SourceColumn,
+    staging_column = models.ForeignKey(
+        "engine.StagingColumn",
         on_delete=models.CASCADE,
         related_name="link_hub_mappings",
-        blank=True,
-        null=True,
-        help_text="Direct source column (XOR with prejoin_extraction_column)",
-    )
-
-    prejoin_extraction_column = models.ForeignKey(
-        "engine.PrejoinExtractionColumn",
-        on_delete=models.CASCADE,
-        related_name="link_hub_mappings",
-        blank=True,
-        null=True,
-        help_text="Prejoin extraction column (XOR with source_column)",
+        help_text="Unified staging column for this hub key mapping",
     )
 
     created_at = models.DateTimeField(
@@ -343,31 +332,5 @@ class LinkHubSourceMapping(models.Model):
         verbose_name = "Link Hub Source Mapping"
         verbose_name_plural = "Link Hub Source Mappings"
 
-    def clean(self) -> None:
-        """Validate XOR: exactly one of source_column or prejoin_extraction_column."""
-        super().clean()
-
-        has_source = self.source_column is not None
-        has_prejoin = self.prejoin_extraction_column is not None
-
-        if not (has_source or has_prejoin):
-            raise ValidationError(
-                {
-                    "source_column": "Either source_column or prejoin_extraction_column must be specified."
-                }
-            )
-
-        if has_source and has_prejoin:
-            raise ValidationError(
-                {
-                    "source_column": "Cannot specify both source_column and prejoin_extraction_column."
-                }
-            )
-
     def __str__(self) -> str:
-        target = f"{self.link_hub_reference} ({self.standard_hub_column.column_name})"
-        if self.source_column:
-            return f"{target} <- {self.source_column}"
-        elif self.prejoin_extraction_column:
-            return f"{target} <- [prejoin] {self.prejoin_extraction_column}"
-        return f"{target} <- (no source)"
+        return f"{self.link_hub_reference} ({self.standard_hub_column.column_name}) <- {self.staging_column}"

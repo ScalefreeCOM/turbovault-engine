@@ -147,11 +147,11 @@ class SatelliteColumn(models.Model):
         help_text="Satellite this column belongs to",
     )
 
-    source_column = models.ForeignKey(
-        SourceColumn,
+    staging_column = models.ForeignKey(
+        "engine.StagingColumn",
         on_delete=models.CASCADE,
         related_name="satellite_columns",
-        help_text="Source column providing the data",
+        help_text="Unified staging column for this satellite column",
     )
 
     is_multi_active_key = models.BooleanField(
@@ -187,23 +187,21 @@ class SatelliteColumn(models.Model):
 
     class Meta:
         db_table = "satellite_column"
-        unique_together = [["satellite", "source_column"]]
-        ordering = ["satellite", "source_column"]
+        unique_together = [["satellite", "staging_column"]]
+        ordering = ["satellite", "staging_column"]
 
     def clean(self) -> None:
-        """Validate that source column comes from satellite's source table."""
+        """Validate that staging column comes from satellite's source table."""
         super().clean()
 
-        if self.source_column and self.satellite:
-            if self.source_column.source_table != self.satellite.source_table:
+        if self.staging_column and self.satellite:
+            if self.staging_column.source_table != self.satellite.source_table:
                 raise ValidationError(
                     {
-                        "source_column": f"Source column must come from satellite's source table ({self.satellite.source_table.physical_table_name})"
+                        "staging_column": f"Staging column must come from satellite's source table ({self.satellite.source_table.physical_table_name})"
                     }
                 )
 
     def __str__(self) -> str:
-        target = (
-            self.target_column_name or self.source_column.source_column_physical_name
-        )
+        target = self.target_column_name or self.staging_column.physical_name
         return f"{self.satellite.satellite_physical_name}.{target}"
