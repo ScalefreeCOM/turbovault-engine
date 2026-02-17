@@ -19,7 +19,6 @@ from engine.models import (
     SourceColumn,
     SourceSystem,
     SourceTable,
-    StagingColumn,
 )
 
 
@@ -124,16 +123,6 @@ class SourceColumnAdmin(admin.ModelAdmin):
     def get_source_system(self, obj: SourceColumn) -> str:
         """Return the source system name for this column."""
         return obj.source_table.source_system.name
-
-
-@admin.register(StagingColumn)
-class StagingColumnAdmin(admin.ModelAdmin):
-    """Admin configuration for StagingColumn model."""
-
-    list_display = ["physical_name", "datatype", "source_table", "project"]
-    list_filter = ["source_table", "project"]
-    search_fields = ["source_column__source_column_physical_name", "prejoin_column__prejoin_target_column_alias"]
-    autocomplete_fields = ["project", "source_table", "source_column", "prejoin_column"]
 
 
 # Import hub models
