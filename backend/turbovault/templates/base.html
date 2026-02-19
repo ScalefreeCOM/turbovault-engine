@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}TurboVault Engine{% endblock %}</title>
+    <meta name="description"
+        content="Transform source metadata into production-ready Data Vault dbt projects with TurboVault Engine.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+    {% block extra_head %}{% endblock %}
+</head>
+
+<body>
+    <div class="background-gradient"></div>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+
+        <footer class="footer">
+            {% block footer %}
+            <p>Built by <a href="https://scalefree.com" target="_blank" rel="noopener">Scalefree</a></p>
+            <p class="version">CLI-first Django Engine for Data Vault Automation</p>
+            {% endblock %}
+        </footer>
+    </main>
+
+    {% block extra_scripts %}{% endblock %}
+</body>
+
+</html>

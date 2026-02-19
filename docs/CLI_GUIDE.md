@@ -18,7 +18,7 @@ TurboVault CLI provides the following main commands:
 
 - `turbovault init` - Initialize a new project
 - `turbovault generate` - Generate dbt project and/or export Data Vault model to JSON
-- `turbovault serve` - Start Django admin server
+- `turbovault serve` - Start Django admin server (and Web Initializer)
 - `turbovault reset` - Reset the database
 - `turbovault --help` - Show help for all commands
 
@@ -240,7 +240,9 @@ This starts the server on `http://127.0.0.1:8000/`
 
 **Access points:**
 - Admin: `http://127.0.0.1:8000/admin/`
-- Home: `http://127.0.0.1:8000/`
+- Home / Web Initializer: `http://127.0.0.1:8000/`
+
+The landing page (`/`) provides a guided wizard for creating new projects, which is the recommended starting point for first-time users.
 
 #### Custom Port and Host
 

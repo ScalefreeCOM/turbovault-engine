@@ -44,8 +44,8 @@ The following are explicitly out of scope for the initial Engine (Pre-MVP) and a
 
 - **User management & authentication**  
   No multi-user system, logins, or authorization; the Engine is a local tool operated by a single user.
-- **HTTP API / Web UI**  
-  No REST endpoints or user interface; the Engine is accessed via CLI and configuration files.
+- **HTTP API / Web UI (v0.3 Update)**  
+  Initially a non-goal, a **Web Initializer** has been introduced for guided project creation and metadata import. A full-featured REST API and Studio UI remain long-term goals.
 - **Cloud storage & Git integration**  
   No S3 uploads, no Git push; output is purely local (directory + optional ZIP). Studio will later handle S3/Git.
 - **Highly dynamic runtime configuration management**  
@@ -90,7 +90,7 @@ TurboVault Studio (the future web application) will:
   - HTTP endpoints.
   - Background tasks.
 
-The Engine thus acts as the **platform foundation** for Studio.
+The Engine thus acts as the **platform foundation** for Studio, providing both CLI and web-based initialization utilities.
 
 ---
 
@@ -114,7 +114,7 @@ TurboVault Engine is built around three main layers:
    - Provides user-friendly commands (e.g. `turbovault run`) that orchestrate domain services.
    - Runs as a Django management command and/or a dedicated CLI entry point (Typer/Click).
 
-Internally, Django is used **without any HTTP views** in the Engine phase. Only ORM, management commands, and configuration loading are used.
+Internally, Django provides the core ORM, management commands, and a **dynamic web-based initialization wizard** accessible via the root URL.
 
 ### 4.2 Component Breakdown
 

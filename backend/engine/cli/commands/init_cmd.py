@@ -217,47 +217,62 @@ def _run_interactive_init() -> None:
         elif source_type == "sqlite":
             source_path = questionary.path("Path to SQLite database (.db):").ask()
 
-    # Stage schema
-    stage_schema = questionary.text("Stage schema name:", default="stage").ask()
-
-    # Stage database
-    stage_database = questionary.text("Stage database (optional):", default="").ask()
-
-    # RDV schema
-    rdv_schema = questionary.text("RDV schema name:", default="rdv").ask()
-
-    # RDV database
-    rdv_database = questionary.text("RDV database (optional):", default="").ask()
-
-    # Output directory
-    output_dir = questionary.text(
-        "dbt project output directory:", default="./generated/dbt_project"
-    ).ask()
-
-    # Create ZIP
-    create_zip = questionary.confirm(
-        "Create ZIP archive of generated project?", default=False
-    ).ask()
-
-    # Naming standards
-    overwrite_naming = questionary.confirm(
-        "Do you want to overwrite default naming conventions?", default=False
-    ).ask()
-
+    # Output defaults
+    stage_schema = "stage"
+    stage_database = ""
+    rdv_schema = "rdv"
+    rdv_database = ""
+    output_dir = "./generated/dbt_project"
+    create_zip = False
     naming_config = {}
-    if overwrite_naming:
-        naming_config["hashdiff_naming"] = questionary.text(
-            "Hashdiff naming pattern:", default="hd_[[ satellite_name ]]"
+
+    # Ask for modifications
+    modify_defaults = questionary.confirm(
+        "Do you want to modify default settings (schema names, output paths, etc.)?",
+        default=False,
+    ).ask()
+
+    if modify_defaults:
+        # Stage schema
+        stage_schema = questionary.text("Stage schema name:", default="stage").ask()
+
+        # Stage database
+        stage_database = questionary.text("Stage database (optional):", default="").ask()
+
+        # RDV schema
+        rdv_schema = questionary.text("RDV schema name:", default="rdv").ask()
+
+        # RDV database
+        rdv_database = questionary.text("RDV database (optional):", default="").ask()
+
+        # Output directory
+        output_dir = questionary.text(
+            "dbt project output directory:", default="./generated/dbt_project"
         ).ask()
-        naming_config["hashkey_naming"] = questionary.text(
-            "Hashkey naming pattern:", default="hk_[[ entity_name ]]"
+
+        # Create ZIP
+        create_zip = questionary.confirm(
+            "Create ZIP archive of generated project?", default=False
         ).ask()
-        naming_config["satellite_v0_naming"] = questionary.text(
-            "Satellite V0 naming pattern:", default="[[ satellite_name ]]_v0"
+
+        # Naming standards
+        overwrite_naming = questionary.confirm(
+            "Do you want to overwrite default naming conventions?", default=False
         ).ask()
-        naming_config["satellite_v1_naming"] = questionary.text(
-            "Satellite V1 naming pattern:", default="[[ satellite_name ]]_v1"
-        ).ask()
+
+        if overwrite_naming:
+            naming_config["hashdiff_naming"] = questionary.text(
+                "Hashdiff naming pattern:", default="hd_[[ satellite_name ]]"
+            ).ask()
+            naming_config["hashkey_naming"] = questionary.text(
+                "Hashkey naming pattern:", default="hk_[[ entity_name ]]"
+            ).ask()
+            naming_config["satellite_v0_naming"] = questionary.text(
+                "Satellite V0 naming pattern:", default="[[ satellite_name ]]_v0"
+            ).ask()
+            naming_config["satellite_v1_naming"] = questionary.text(
+                "Satellite V1 naming pattern:", default="[[ satellite_name ]]_v1"
+            ).ask()
 
     # Generate config dictionary
     config_dict = {
