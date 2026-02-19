@@ -93,22 +93,27 @@ def _init_from_config(config_path: Path) -> None:
     ) as progress:
         task = progress.add_task("Creating project...", total=None)
 
+        # Create project in database (without config JSON)
         project = Project.objects.create(
             name=config.project.name,
             description=config.project.description or "",
-            config={
-                "stage_schema": config.configuration.stage_schema,
-                "rdv_schema": config.configuration.rdv_schema,
-                "hashdiff_naming": config.configuration.hashdiff_naming,
-                "hashkey_naming": config.configuration.hashkey_naming,
-                "satellite_v0_naming": config.configuration.satellite_v0_naming,
-                "satellite_v1_naming": config.configuration.satellite_v1_naming,
-            },
         )
 
         progress.update(task, completed=True)
 
     print_success(f"Created project: {project.name}")
+
+    # Initialize project folder structure and create config.yml
+    from engine.services.project_config import initialize_project_folder
+
+    print_info("Creating project folder and config.yml...")
+    try:
+        project_path = initialize_project_folder(project, config)
+        print_success(f"Project folder created: {project_path}")
+    except Exception as e:
+        print_error(f"Failed to create project folder: {e}")
+        project.delete()
+        raise typer.Exit(1)
 
     # Create default snapshot controls for the new project
     skip_snapshots = (
@@ -133,6 +138,7 @@ def _init_from_config(config_path: Path) -> None:
                 print_error(f"Metadata import failed: {e}")
         elif config.source.type == "sqlite":
             import sqlite3
+
             from engine.services.sqlite_import import SqliteImportService
 
             print_info(f"Importing metadata from {config.source.path}...")
@@ -198,7 +204,9 @@ def _run_interactive_init() -> None:
     description = questionary.text("Project description (optional):", default="").ask()
 
     # Source type
-    import_metadata = questionary.confirm("Import existing metadata?", default=False).ask()
+    import_metadata = questionary.confirm(
+        "Import existing metadata?", default=False
+    ).ask()
 
     source_path = None
     source_type = None
@@ -237,7 +245,9 @@ def _run_interactive_init() -> None:
         stage_schema = questionary.text("Stage schema name:", default="stage").ask()
 
         # Stage database
-        stage_database = questionary.text("Stage database (optional):", default="").ask()
+        stage_database = questionary.text(
+            "Stage database (optional):", default=""
+        ).ask()
 
         # RDV schema
         rdv_schema = questionary.text("RDV schema name:", default="rdv").ask()
@@ -345,15 +355,37 @@ def _run_interactive_init() -> None:
     project = Project.objects.create(
         name=project_name,
         description=description or "",
-        config={
-            "stage_schema": stage_schema,
-            "rdv_schema": rdv_schema,
-            "source_path": str(source_path) if source_path else None,
-            **naming_config,
-        },
     )
 
     print_success(f"Created project: {project.name}")
+
+    # Create config object and initialize project folder
+    from engine.services.config_schema import (
+        OutputConfiguration,
+        ProjectConfiguration,
+        ProjectInfo,
+        TurboVaultConfig,
+    )
+    from engine.services.project_config import initialize_project_folder
+
+    config = TurboVaultConfig(
+        project=ProjectInfo(name=project_name, description=description or ""),
+        configuration=ProjectConfiguration(
+            stage_schema=stage_schema,
+            rdv_schema=rdv_schema,
+            **naming_config,
+        ),
+        output=OutputConfiguration(dbt_project_dir="./dbt_project"),
+    )
+
+    print_info("Creating project folder and config.yml...")
+    try:
+        project_path = initialize_project_folder(project, config)
+        print_success(f"Project folder: {project_path}")
+    except Exception as e:
+        print_error(f"Failed to create project folder: {e}")
+        project.delete()
+        raise typer.Exit(1)
 
     # Import metadata if source is defined
     if source_path:
@@ -369,6 +401,7 @@ def _run_interactive_init() -> None:
                 print_error(f"Metadata import failed: {e}")
         elif source_type == "sqlite":
             import sqlite3
+
             from engine.services.sqlite_import import SqliteImportService
 
             print_info(f"Importing metadata from {source_path}...")

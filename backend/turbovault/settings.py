@@ -72,37 +72,38 @@ WSGI_APPLICATION = "turbovault.wsgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-# Dynamic database configuration based on config.yml or environment variables
+# Database configuration loaded from turbovault.yml (global application config)
 
 
 def get_database_config() -> dict[str, dict[str, str | int | dict]]:
     """
-    Get database configuration from config.yml or use default SQLite.
+    Get database configuration from turbovault.yml.
 
-    Checks for TURBOVAULT_CONFIG_PATH environment variable to load database
-    settings from config.yml. Falls back to SQLite if not configured.
+    Loads application-level database config from turbovault.yml.
+    Auto-creates turbovault.yml with SQLite defaults if not present.
 
     Returns:
         Django DATABASES configuration dictionary
     """
-    import os
+    from engine.services.app_config_loader import load_application_config
 
-    from engine.services.config_loader import load_config_from_path
+    try:
+        app_config = load_application_config()
+        if app_config.database:
+            return {"default": app_config.database.to_django_config(BASE_DIR)}
+    except Exception as e:
+        # If config loading fails, fall back to default SQLite
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            f"Failed to load database config from turbovault.yml: {e}. "
+            "Using default SQLite."
+        )
+
+    # Fallback: Default SQLite configuration
     from engine.services.config_schema import DatabaseConfig, DatabaseEngine
 
-    config_path = os.environ.get("TURBOVAULT_CONFIG_PATH")
-
-    # Try to load database config from config.yml
-    if config_path and Path(config_path).exists():
-        try:
-            config = load_config_from_path(config_path)
-            if config.database:
-                return {"default": config.database.to_django_config(BASE_DIR)}
-        except Exception:
-            # If config loading fails, fall back to default SQLite
-            pass
-
-    # Default SQLite configuration
     default_db = DatabaseConfig(
         engine=DatabaseEngine.SQLITE,
         name=str(BASE_DIR / "db.sqlite3"),
