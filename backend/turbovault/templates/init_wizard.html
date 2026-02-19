@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Initialize Project - TurboVault Engine{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/init_wizard.css' %}">
+{% endblock %}
+
+{% block content %}
+<header class="hero" style="margin-bottom: 2rem;">
+    <h1 class="title" style="font-size: 2.5rem;">Project Initialization</h1>
+</header>
+
+<div class="wizard-card">
+    <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill"></div>
+    </div>
+
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <p id="loading-text">Creating project...</p>
+    </div>
+
+    <form id="wizard-form" enctype="multipart/form-data">
+        <!-- Step 1: Project Details -->
+        <div class="step active" data-step="1">
+            <div class="step-header">
+                <h2 class="step-title">Project Details</h2>
+                <p class="step-description">Start by giving your project a name and description.</p>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Project Name</label>
+                <input type="text" name="name" id="project-name-input" class="form-input"
+                    placeholder="e.g. Sales_Data_Vault" required>
+                <p class="validation-error" id="name-error">A project with this name already exists.</p>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Description (Optional)</label>
+                <input type="text" name="description" class="form-input" placeholder="What is this project about?">
+            </div>
+        </div>
+
+        <!-- Step 2: Metadata Import -->
+        <div class="step" data-step="2">
+            <div class="step-header">
+                <h2 class="step-title">Metadata Import</h2>
+                <p class="step-description">Do you want to import existing metadata from a file?</p>
+            </div>
+            <div class="form-group">
+                <div class="radio-group">
+                    <div class="radio-option">
+                        <input type="radio" id="import-yes" name="import_metadata" value="true">
+                        <label for="import-yes" class="radio-label">Yes, Import</label>
+                    </div>
+                    <div class="radio-option">
+                        <input type="radio" id="import-no" name="import_metadata" value="false" checked>
+                        <label for="import-no" class="radio-label">No, Start Fresh</label>
+                    </div>
+                </div>
+            </div>
+
+            <div id="source-details" style="display: none; margin-top: 2rem;">
+                <div class="form-group">
+                    <label class="form-label">Source Type</label>
+                    <select name="source_type" class="form-input form-select" id="source-type-select">
+                        <option value="excel">Excel file (.xlsx)</option>
+                        <option value="sqlite">SQLite database (.db)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" id="file-label">Excel File</label>
+                    <input type="file" name="source_file" class="form-input" id="source-file-input" accept=".xlsx">
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: Default Settings Check -->
+        <div class="step" data-step="3">
+            <div class="step-header">
+                <h2 class="step-title">Configuration</h2>
+                <p class="step-description">Would you like to modify the default schema and naming settings?</p>
+            </div>
+            <div class="form-group">
+                <div class="radio-group">
+                    <div class="radio-option">
+                        <input type="radio" id="modify-yes" name="modify_defaults" value="true">
+                        <label for="modify-yes" class="radio-label">Yes, Customize</label>
+                    </div>
+                    <div class="radio-option">
+                        <input type="radio" id="modify-no" name="modify_defaults" value="false" checked>
+                        <label for="modify-no" class="radio-label">No, Use Defaults</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 4: Advanced Configuration (Optional) -->
+        <div class="step" data-step="4" id="advanced-step">
+            <div class="step-header">
+                <h2 class="step-title">Advanced Settings</h2>
+                <p class="step-description">Customize schemas and naming conventions.</p>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                    <label class="form-label">Stage Schema</label>
+                    <input type="text" name="stage_schema" class="form-input" value="stage">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">RDV Schema</label>
+                    <input type="text" name="rdv_schema" class="form-input" value="rdv">
+                </div>
+            </div>
+            <hr style="border: none; border-top: 1px solid var(--card-border); margin: 1.5rem 0;">
+            <div class="form-group">
+                <label class="form-label">Hashdiff Naming Pattern</label>
+                <input type="text" name="hashdiff_naming" class="form-input" value="hd_[[ satellite_name ]]">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Hashkey Naming Pattern</label>
+                <input type="text" name="hashkey_naming" class="form-input" value="hk_[[ entity_name ]]">
+            </div>
+        </div>
+
+        <!-- Final Step: Success / Result -->
+        <div class="step" id="success-step">
+            <div class="step-header">
+                <div class="success-checkmark">✓</div>
+                <h2 class="step-title">Initialization Complete!</h2>
+                <p class="step-description" id="success-message">Project was successfully created.</p>
+            </div>
+            <div style="text-align: center; margin-top: 2rem;">
+                <a href="/admin/" class="btn btn-primary">Go to Admin Interface</a>
+                <p style="margin-top: 1.5rem; color: var(--text-muted); font-size: 0.85rem;">
+                    You can now define your Data Vault model in the admin area.
+                </p>
+            </div>
+        </div>
+
+        <div class="wizard-footer" id="wizard-navigation">
+            <button type="button" class="btn btn-secondary" id="prev-btn" disabled>Back</button>
+            <button type="button" class="btn btn-primary" id="next-btn">Next</button>
+            <button type="submit" class="btn btn-primary" id="submit-btn" style="display: none;">Initialize
+                Project</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block footer %}
+<p><a href="/">Back to Home</a></p>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{% static 'js/init_wizard.js' %}"></script>
+{% endblock %}
