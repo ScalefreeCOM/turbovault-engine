@@ -58,6 +58,7 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
 
 ### 🖥️ Developer Experience
 - **Modern CLI** - Built with Typer and Rich for beautiful terminal output
+- **Web Initializer** - Interactive, multi-step project creation wizard
 - **Django Admin** - Full web interface for model and template management
 - **Config-Driven** - YAML configuration for automation and CI/CD
 - **Comprehensive Testing** - pytest test suite with 20+ tests
@@ -134,6 +135,12 @@ docker-compose up
 
 ### Initialize Your First Project
 
+**Option 1: Web Wizard (Recommended for beginners)**
+1. Start the server: `turbovault serve`
+2. Open `http://localhost:8000/` in your browser
+3. Click **Initialize New Project** and follow the guide
+
+**Option 2: CLI Interface**
 ```bash
 # Interactive mode - guided setup wizard
 turbovault init --interactive
@@ -484,7 +491,7 @@ Generates ready-to-use dbt project with:
 ### 📋 Planned Features
 
 #### Near-Term
-- 🔲 **Excel metadata import** - Bulk import from spreadsheet templates
+- ✅ **Excel metadata import** - Bulk import via Web Initializer (v0.3)
 - 🔲 **Database catalog import** - Import metadata directly from databases
 - 🔲 **DBML export** - Database modeling language output
 - 🔲 **Template versioning** - Track template changes over time

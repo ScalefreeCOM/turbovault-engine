@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Initialize Project - TurboVault Engine</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+    <style>
+        .wizard-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 3rem;
+            backdrop-filter: blur(15px);
+            max-width: 700px;
+            margin: 2rem auto;
+            width: 100%;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .step {
+            display: none;
+            animation: fadeIn 0.4s ease;
+        }
+
+        .step.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .step-header {
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+
+        .step-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+
+        .step-description {
+            color: var(--text-secondary);
+            font-size: 1rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.875rem 1rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 1rem;
+            transition: var(--transition-smooth);
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent-petrol);
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 0 4px rgba(0, 170, 190, 0.1);
+        }
+
+        .form-select {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
+            background-size: 1.5rem;
+        }
+
+        .radio-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .radio-option {
+            position: relative;
+        }
+
+        .radio-option input {
+            position: absolute;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .radio-label {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            font-weight: 500;
+        }
+
+        .radio-option input:checked+.radio-label {
+            background: rgba(0, 170, 190, 0.15);
+            border-color: var(--accent-petrol);
+            color: var(--text-primary);
+        }
+
+        .wizard-footer {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 3rem;
+        }
+
+        .btn {
+            padding: 0.875rem 1.75rem;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            font-size: 0.95rem;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--accent-gradient);
+            color: white;
+            box-shadow: 0 4px 15px rgba(0, 170, 190, 0.2);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 170, 190, 0.3);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .progress-bar {
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            margin-bottom: 3rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            position: absolute;
+            height: 100%;
+            background: var(--accent-gradient);
+            width: 0%;
+            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        #loading-overlay {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(15, 15, 26, 0.8);
+            backdrop-filter: blur(5px);
+            z-index: 100;
+            border-radius: 20px;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--accent-petrol);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .success-checkmark {
+            color: #4BB543;
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+
+        .validation-error {
+            color: var(--accent-red);
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+            display: none;
+        }
+
+        .form-input.invalid {
+            border-color: var(--accent-red);
+            box-shadow: 0 0 0 4px rgba(235, 90, 80, 0.1);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="background-gradient"></div>
+
+    <main class="container">
+        <header class="hero" style="margin-bottom: 2rem;">
+            <h1 class="title" style="font-size: 2.5rem;">Project Initialization</h1>
+        </header>
+
+        <div class="wizard-card">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+
+            <div id="loading-overlay">
+                <div class="spinner"></div>
+                <p id="loading-text">Creating project...</p>
+            </div>
+
+            <form id="wizard-form" enctype="multipart/form-data">
+                <!-- Step 1: Project Details -->
+                <div class="step active" data-step="1">
+                    <div class="step-header">
+                        <h2 class="step-title">Project Details</h2>
+                        <p class="step-description">Start by giving your project a name and description.</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Project Name</label>
+                        <input type="text" name="name" id="project-name-input" class="form-input"
+                            placeholder="e.g. Sales_Data_Vault" required>
+                        <p class="validation-error" id="name-error">A project with this name already exists.</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Description (Optional)</label>
+                        <input type="text" name="description" class="form-input"
+                            placeholder="What is this project about?">
+                    </div>
+                </div>
+
+                <!-- Step 2: Metadata Import -->
+                <div class="step" data-step="2">
+                    <div class="step-header">
+                        <h2 class="step-title">Metadata Import</h2>
+                        <p class="step-description">Do you want to import existing metadata from a file?</p>
+                    </div>
+                    <div class="form-group">
+                        <div class="radio-group">
+                            <div class="radio-option">
+                                <input type="radio" id="import-yes" name="import_metadata" value="true">
+                                <label for="import-yes" class="radio-label">Yes, Import</label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" id="import-no" name="import_metadata" value="false" checked>
+                                <label for="import-no" class="radio-label">No, Start Fresh</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="source-details" style="display: none; margin-top: 2rem;">
+                        <div class="form-group">
+                            <label class="form-label">Source Type</label>
+                            <select name="source_type" class="form-input form-select" id="source-type-select">
+                                <option value="excel">Excel file (.xlsx)</option>
+                                <option value="sqlite">SQLite database (.db)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" id="file-label">Excel File</label>
+                            <input type="file" name="source_file" class="form-input" id="source-file-input"
+                                accept=".xlsx">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Default Settings Check -->
+                <div class="step" data-step="3">
+                    <div class="step-header">
+                        <h2 class="step-title">Configuration</h2>
+                        <p class="step-description">Would you like to modify the default schema and naming settings?</p>
+                    </div>
+                    <div class="form-group">
+                        <div class="radio-group">
+                            <div class="radio-option">
+                                <input type="radio" id="modify-yes" name="modify_defaults" value="true">
+                                <label for="modify-yes" class="radio-label">Yes, Customize</label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" id="modify-no" name="modify_defaults" value="false" checked>
+                                <label for="modify-no" class="radio-label">No, Use Defaults</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 4: Advanced Configuration (Optional) -->
+                <div class="step" data-step="4" id="advanced-step">
+                    <div class="step-header">
+                        <h2 class="step-title">Advanced Settings</h2>
+                        <p class="step-description">Customize schemas and naming conventions.</p>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-group">
+                            <label class="form-label">Stage Schema</label>
+                            <input type="text" name="stage_schema" class="form-input" value="stage">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">RDV Schema</label>
+                            <input type="text" name="rdv_schema" class="form-input" value="rdv">
+                        </div>
+                    </div>
+                    <hr style="border: none; border-top: 1px solid var(--card-border); margin: 1.5rem 0;">
+                    <div class="form-group">
+                        <label class="form-label">Hashdiff Naming Pattern</label>
+                        <input type="text" name="hashdiff_naming" class="form-input" value="hd_[[ satellite_name ]]">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Hashkey Naming Pattern</label>
+                        <input type="text" name="hashkey_naming" class="form-input" value="hk_[[ entity_name ]]">
+                    </div>
+                </div>
+
+                <!-- Final Step: Success / Result -->
+                <div class="step" id="success-step">
+                    <div class="step-header">
+                        <div class="success-checkmark">✓</div>
+                        <h2 class="step-title">Initialization Complete!</h2>
+                        <p class="step-description" id="success-message">Project was successfully created.</p>
+                    </div>
+                    <div style="text-align: center; margin-top: 2rem;">
+                        <a href="/admin/" class="btn btn-primary">Go to Admin Interface</a>
+                        <p style="margin-top: 1.5rem; color: var(--text-muted); font-size: 0.85rem;">
+                            You can now define your Data Vault model in the admin area.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="wizard-footer" id="wizard-navigation">
+                    <button type="button" class="btn btn-secondary" id="prev-btn" disabled>Back</button>
+                    <button type="button" class="btn btn-primary" id="next-btn">Next</button>
+                    <button type="submit" class="btn btn-primary" id="submit-btn" style="display: none;">Initialize
+                        Project</button>
+                </div>
+            </form>
+        </div>
+
+        <footer class="footer">
+            <p><a href="/">Back to Home</a></p>
+        </footer>
+    </main>
+
+    <script>
+        const form = document.getElementById('wizard-form');
+        const steps = Array.from(document.querySelectorAll('.step[data-step]'));
+        const nextBtn = document.getElementById('next-btn');
+        const prevBtn = document.getElementById('prev-btn');
+        const submitBtn = document.getElementById('submit-btn');
+        const progressFill = document.getElementById('progress-fill');
+        const overlay = document.getElementById('loading-overlay');
+        const successStep = document.getElementById('success-step');
+        const navigation = document.getElementById('wizard-navigation');
+
+        let currentStep = 1;
+        const totalSteps = 3; // Logical steps: 1, 2, 3 (Optional 4 is injected)
+        let nameExists = false;
+
+        // Real-time name check
+        const nameInput = document.getElementById('project-name-input');
+        const nameError = document.getElementById('name-error');
+        let nameTimeout;
+
+        nameInput.addEventListener('input', () => {
+            clearTimeout(nameTimeout);
+            const name = nameInput.value.trim();
+
+            if (!name) {
+                nameInput.classList.remove('invalid');
+                nameError.style.display = 'none';
+                nameExists = false;
+                return;
+            }
+
+            nameTimeout = setTimeout(async () => {
+                try {
+                    const response = await fetch(`/init/check-name/?name=${encodeURIComponent(name)}`);
+                    const data = await response.json();
+
+                    if (data.exists) {
+                        nameInput.classList.add('invalid');
+                        nameError.style.display = 'block';
+                        nameExists = true;
+                    } else {
+                        nameInput.classList.remove('invalid');
+                        nameError.style.display = 'none';
+                        nameExists = false;
+                    }
+                } catch (err) {
+                    console.error('Error checking name:', err);
+                }
+            }, 300);
+        });
+
+        // Handle Metadata Import UI toggle
+        const importRadios = document.querySelectorAll('input[name="import_metadata"]');
+        const sourceDetails = document.getElementById('source-details');
+        importRadios.forEach(radio => {
+            radio.addEventListener('change', () => {
+                sourceDetails.style.display = radio.value === 'true' ? 'block' : 'none';
+            });
+        });
+
+        const sourceTypeSelect = document.getElementById('source-type-select');
+        const fileLabel = document.getElementById('file-label');
+        const fileInput = document.getElementById('source-file-input');
+
+        sourceTypeSelect.addEventListener('change', () => {
+            if (sourceTypeSelect.value === 'excel') {
+                fileLabel.textContent = 'Excel File (.xlsx)';
+                fileInput.accept = '.xlsx';
+            } else {
+                fileLabel.textContent = 'SQLite Database (.db)';
+                fileInput.accept = '.db';
+            }
+        });
+
+        function updateProgress() {
+            const percentage = ((currentStep - 1) / totalSteps) * 100;
+            progressFill.style.width = `${percentage}%`;
+        }
+
+        function showStep(stepNum) {
+            steps.forEach(s => s.classList.remove('active'));
+            const stepToShow = document.querySelector(`.step[data-step="${stepNum}"]`);
+            if (stepToShow) stepToShow.classList.add('active');
+
+            prevBtn.disabled = stepNum === 1;
+
+            const modifyDefaults = document.querySelector('input[name="modify_defaults"]:checked').value === 'true';
+
+            if (stepNum === 3) {
+                if (modifyDefaults) {
+                    nextBtn.style.display = 'inline-flex';
+                    submitBtn.style.display = 'none';
+                } else {
+                    nextBtn.style.display = 'none';
+                    submitBtn.style.display = 'inline-flex';
+                }
+            } else if (stepNum === 4) {
+                nextBtn.style.display = 'none';
+                submitBtn.style.display = 'inline-flex';
+            } else {
+                nextBtn.style.display = 'inline-flex';
+                submitBtn.style.display = 'none';
+            }
+
+            updateProgress();
+        }
+
+        nextBtn.addEventListener('click', () => {
+            // Validation for Step 1
+            if (currentStep === 1) {
+                const name = nameInput.value.trim();
+                if (!name) {
+                    alert('Project name is required');
+                    return;
+                }
+                if (nameExists) {
+                    alert('Please choose a different project name.');
+                    return;
+                }
+            }
+
+            // Step logic
+            if (currentStep === 3) {
+                const modifyDefaults = document.querySelector('input[name="modify_defaults"]:checked').value === 'true';
+                if (modifyDefaults) {
+                    currentStep = 4;
+                } else {
+                    // This case is handled by showStep toggle logic above (submit btn visible)
+                    return;
+                }
+            } else {
+                currentStep++;
+            }
+            showStep(currentStep);
+        });
+
+        prevBtn.addEventListener('click', () => {
+            if (currentStep === 4) {
+                currentStep = 3;
+            } else {
+                currentStep--;
+            }
+            showStep(currentStep);
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            overlay.style.display = 'flex';
+
+            const formData = new FormData(form);
+
+            try {
+                const response = await fetch('/init/create/', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    // Show success
+                    steps.forEach(s => s.classList.remove('active'));
+                    successStep.classList.add('active');
+                    navigation.style.display = 'none';
+                    progressFill.style.width = '100%';
+                    document.getElementById('success-message').textContent = result.message;
+                } else {
+                    alert('Error: ' + result.message);
+                }
+            } catch (err) {
+                alert('An unexpected error occurred: ' + err.message);
+            } finally {
+                overlay.style.display = 'none';
+            }
+        });
+
+        updateProgress();
+    </script>
+</body>
+
+</html>

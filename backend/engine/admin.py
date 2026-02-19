@@ -146,10 +146,6 @@ class StagingColumnAdmin(admin.ModelAdmin):
         """Prevent manual modification of staging columns."""
         return False
 
-    def has_delete_permission(self, request, obj: StagingColumn | None = None) -> bool:
-        """Prevent manual deletion of staging columns."""
-        return False
-
 
 # Import hub models
 from engine.models import Hub, HubColumn, HubSourceMapping
