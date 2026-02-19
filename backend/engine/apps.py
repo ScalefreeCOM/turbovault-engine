@@ -18,7 +18,11 @@ class EngineConfig(AppConfig):
         admin.site.index_title = "Turbovault Engine Administration"
 
         # Import admin_site to apply monkey patch for model grouping
-        from engine import admin_site  # noqa: F401
-
         # Register signals
         import engine.models.signals  # noqa: F401
+        from engine import admin_site  # noqa: F401
+
+        # Auto-create admin user from turbovault.yml if configured
+        from engine.utils.admin_utils import create_admin_user_if_configured
+
+        create_admin_user_if_configured()

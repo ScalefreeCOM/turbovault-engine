@@ -35,10 +35,11 @@ class Project(models.Model):
         blank=True, null=True, help_text="Optional longer description of the project"
     )
 
-    config = models.JSONField(
+    project_directory = models.CharField(
+        max_length=512,
         blank=True,
         null=True,
-        help_text="Optional JSON for project-level configuration parameters",
+        help_text="Relative path to project directory (e.g., 'projects/customer_mdm')",
     )
 
     created_at = models.DateTimeField(
@@ -56,15 +57,79 @@ class Project(models.Model):
     def __str__(self) -> str:
         return self.name
 
+    def get_config_path(self):
+        """
+        Get absolute path to this project's config.yml.
+
+        Returns:
+            Path object pointing to config.yml
+
+        Raises:
+            ValueError: If project_directory is not set
+        """
+
+        from engine.services.app_config_loader import resolve_project_path
+
+        if not self.project_directory:
+            raise ValueError(
+                f"Project '{self.name}' has no project_directory set. "
+                "Cannot locate config.yml."
+            )
+
+        return resolve_project_path(self.project_directory) / "config.yml"
+
+    def load_config(self):
+        """
+        Load and return this project's configuration from YAML.
+
+        Returns:
+            TurboVaultConfig: Validated project configuration
+
+        Raises:
+            FileNotFoundError: If config.yml doesn't exist
+            ConfigValidationError: If config is invalid
+        """
+        from engine.services.config_loader import load_config_from_path
+
+        config_path = self.get_config_path()
+        return load_config_from_path(config_path)
+
     def get_naming_pattern(self, pattern_key: str) -> str:
-        """Get the raw naming pattern from config or its default."""
+        """
+        Resolve a naming pattern for satellites, hashkeys, or hashdiffs.
+
+        Loads the configuration from YAML and retrieves the naming pattern.
+        If not found in config, returns a hardcoded default.
+
+        Args:
+            pattern_key: The key of the pattern to retrieve.
+                         (e.g., 'satellite_v0_naming', 'hashkey_naming')
+
+        Returns:
+            The naming pattern string with placeholders.
+
+        Examples:
+            >>> project.get_naming_pattern('satellite_v0_naming')
+            'sat_{entity_name}_v0'
+        """
+        # Load from YAML config
+        try:
+            config = self.load_config()
+            pattern_value = getattr(config.configuration, pattern_key, None)
+            if pattern_value:
+                return pattern_value
+        except Exception:
+            pass  # Config loading failed, use defaults
+
+        # Hardcoded defaults
         defaults = {
-            "hashdiff_naming": "hd_[[ satellite_name ]]",
-            "hashkey_naming": "hk_[[ entity_name ]]",
-            "satellite_v0_naming": "[[ satellite_name ]]_v0",
-            "satellite_v1_naming": "[[ satellite_name ]]_v1",
+            "satellite_v0_naming": "sat_{entity_name}_v0",
+            "satellite_v1_naming": "sat_{entity_name}_v1",
+            "hashkey_naming": "hk_{entity_name}",
+            "hashdiff_naming": "hd_{entity_name}",
         }
-        return (self.config or {}).get(pattern_key) or defaults.get(pattern_key, "")
+
+        return defaults.get(pattern_key, f"{{{pattern_key}}}")
 
     def resolve_naming_pattern(self, pattern_key: str, entity_name: str) -> str:
         """

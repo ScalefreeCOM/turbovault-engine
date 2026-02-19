@@ -1,115 +1,76 @@
-# TurboVault Engine Configuration
-# This file defines project settings, source metadata, and output options
+# TurboVault Project Configuration Example
+# This is a PER-PROJECT configuration file
+# Located at: projects/<project_name>/config.yml
 
-# Project information
+# YAML is the single source of truth - edit this file, changes apply immediately!
+
+# ============================================================================
+# Project Metadata
+# ============================================================================
 project:
-  name: "my_datavault_project"
-  description: "My Data Vault implementation"
+  name: "customer_mdm"
+  description: "Customer Master Data Management Data Vault"
 
-# Optional: Import metadata from Excel
-# Comment out or remove this section to start from scratch
-source:
-  type: excel
-  path: "./metadata/source_metadata.xlsx"
+# ============================================================================
+# Source Metadata Import (Optional)
+# ============================================================================
+# Uncomment to import source metadata from Excel:
+# source:
+#   type: excel
+#   path: ./metadata/sources.xlsx
 
-# Optional: Database configuration
-# By default, TurboVault uses SQLite (no configuration needed)
-# Configure an external database for production or multi-user scenarios
-# database:
-#   # SQLite (default - usually no need to specify)
-#   engine: sqlite3
-#   name: "db.sqlite3"
-#
-#   # PostgreSQL example
-#   engine: postgresql
-#   name: "turbovault_db"
-#   user: "turbovault_user"
-#   password: "your_password"
-#   host: "localhost"
-#   port: 5432
-#   options:
-#     sslmode: "require"
-#
-#   # MySQL/MariaDB example
-#   engine: mysql
-#   name: "turbovault_db"
-#   user: "turbovault_user"
-#   password: "your_password"
-#   host: "localhost"
-#   port: 3306
-#   options:
-#     charset: "utf8mb4"
-#
-#   # SQL Server example
-#   engine: mssql
-#   name: "turbovault_db"
-#   user: "turbovault_user"
-#   password: "your_password"
-#   host: "localhost"
-#   port: 1433
-#   options:
-#     driver: "ODBC Driver 17 for SQL Server"
-#
-#   # Oracle example
-#   engine: oracle
-#   name: "xe"
-#   user: "turbovault_user"
-#   password: "your_password"
-#   host: "localhost"
-#   port: 1521
-#
-#   # Snowflake example
-#   engine: snowflake
-#   name: "turbovault_db"
-#   user: "turbovault_user"
-#   password: "your_password"
-#   host: "your_account.snowflakecomputing.com"
-#   options:
-#     account: "your_account"
-#     warehouse: "COMPUTE_WH"
-#     database: "TURBOVAULT_DB"
-#     schema: "PUBLIC"
-
-# Project-level Data Vault configuration
+# ============================================================================
+# Data Vault Configuration
+# ============================================================================
 configuration:
-  # Staging layer schema name
+  # Schema names (REQUIRED)
   stage_schema: "stage"
-  # Optional: Staging database name
-  stage_database: "dv_raw"
-
-  # Raw Data Vault layer schema name
   rdv_schema: "rdv"
-  # Optional: RDV database name
-  rdv_database: "dv_core"
 
-  # Optional: Hashdiff naming pattern (for future use, not implemented yet)
-  hashdiff_naming_pattern: ""
+  # Database names (optional - uses default connection if not specified)
+  stage_database: "raw_vault"
+  rdv_database: "core_vault"
 
-# dbt project output settings
+  # Naming patterns (optional - uses defaults if not specified)
+  # Placeholders: {entity_name} will be replaced with actual entity name
+  hashdiff_naming: "hd_{entity_name}"
+  hashkey_naming: "hk_{entity_name}"
+  satellite_v0_naming: "sat_{entity_name}_v0"
+  satellite_v1_naming: "sat_{entity_name}_v1"
+
+# ============================================================================
+# Output Configuration
+# ============================================================================
 output:
-  # Directory where dbt project will be generated (required)
-  dbt_project_dir: "./generated/dbt_project"
+  # Where to generate dbt project (relative to project folder)
+  dbt_project_dir: "./dbt_project"
 
-  # Optional: dbt project name (defaults to project.name)
-  dbt_project_name: null
-
-  # Whether to create a ZIP archive of the generated project
+  # Create ZIP archive of generated project
   create_zip: false
 
-  # Export control options
-  export_sources: true      # Include source system definitions in export
-  generate_tests: true      # Generate dbt tests (for future dbt generation)
-  generate_dbml: false      # Generate DBML file (for future use)
+  # Include source system definitions in export
+  export_sources: true
 
-
-# Example: Minimal config (start from scratch, no Excel import)
-# ---
+# ============================================================================
+# Minimal Example
+# ============================================================================
+# The simplest valid config:
+#
 # project:
-#   name: "minimal_project"
+#   name: "my_project"
+#
+# configuration:
+#   stage_schema: "stage"
+#   rdv_schema: "rdv"
 #
 # output:
-#   dbt_project_dir: "./dbt_output"
+#   dbt_project_dir: "./dbt_project"
 
-# Note: TurboVault automatically creates default snapshot controls on first database initialization
-# including common patterns (Daily, Weekly, Monthly, Quarterly, Yearly).
-# To disable this, set environment variable: TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS=true
+# ============================================================================
+# Notes
+# ============================================================================
+# - YAML is the source of truth (not stored in database)
+# - Edit this file anytime - changes apply immediately
+# - No restart or reload needed
+# - Database config is in turbovault.yml (global), not here
+# - See docs/configuration.md for complete documentation

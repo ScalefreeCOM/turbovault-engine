@@ -213,3 +213,8 @@ output/
 config_*.yml
 config.yml
 .venv*
+
+# TurboVault workspace config (user-specific, not to be committed)
+turbovault.yml
+projects/
+db.sqlite3

@@ -1,0 +1,73 @@
+# TurboVault Engine - Global Application Configuration
+# This file defines application-level settings (not project-specific)
+
+# TurboVault Global Configuration
+# This file must be in the root of your turbovault workspace (like .git/)
+
+# ============================================================================
+# Database Configuration (REQUIRED)
+# ============================================================================
+database:
+  # SQLite (default - recommended for single-user or development)
+  engine: sqlite3
+  name: db.sqlite3  # Relative to this directory
+
+  # PostgreSQL (recommended for teams/production)
+  # engine: postgresql
+  # name: turbovault_db
+  # user: postgres
+  # password: your_password
+  # host: localhost
+  # port: 5432
+
+  # MySQL
+  # engine: mysql
+  # name: turbovault_db
+  # user: root
+  # password: your_password
+  # host: localhost
+  # port: 3306
+
+  # SQL Server
+  # engine: mssql
+  # name: turbovault_db
+  # user: sa
+  # password: YourPassword123
+  # host: localhost
+  # port: 1433
+  # options:
+  #   driver: "ODBC Driver 17 for SQL Server"
+
+  # Snowflake
+  # engine: snowflake
+  # account: myaccount
+  # user: myuser
+  # password: secret
+  # database: turbovault_db
+  # schema: public
+  # warehouse: compute_wh
+
+# ============================================================================
+# Project Root (OPTIONAL - defaults to current directory)
+# ============================================================================
+# Where project folders are located (relative to this turbovault.yml)
+# Use "." for current directory - makes entire workspace portable!
+project_root: "."
+
+# ============================================================================
+# Admin User Auto-Creation (OPTIONAL)
+# ============================================================================
+# Uncomment to auto-create admin user on first startup
+# admin:
+#   username: admin
+#   password: changeme123
+#   email: admin@example.com
+
+# Optional: Global defaults for new projects
+defaults:
+  stage_schema: stage
+  rdv_schema: rdv
+  # hashdiff_naming: "hd_[[ satellite_name ]]"
+  # hashkey_naming: "hk_[[ entity_name ]]"
+  # satellite_v0_naming: "[[ satellite_name ]]_v0"
+  # satellite_v1_naming: "[[ satellite_name ]]_v1"

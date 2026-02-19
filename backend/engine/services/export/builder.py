@@ -91,16 +91,17 @@ class ModelBuilder:
         Returns:
             ProjectExport with all definitions
         """
+        # Load project configuration from YAML
+        config = self.project.load_config()
+        stage_schema = config.configuration.stage_schema
+        rdv_schema = config.configuration.rdv_schema
+
         return ProjectExport(
             project_name=self.project.name,
             project_description=self.project.description or None,
             generated_at=datetime.now(),
-            stage_schema=(
-                self.project.config.get("stage_schema") if self.project.config else None
-            ),
-            rdv_schema=(
-                self.project.config.get("rdv_schema") if self.project.config else None
-            ),
+            stage_schema=stage_schema,
+            rdv_schema=rdv_schema,
             export_sources=export_sources,
             generate_tests=generate_tests,
             generate_dbml=generate_dbml,
