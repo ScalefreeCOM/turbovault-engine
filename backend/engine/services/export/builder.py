@@ -708,7 +708,7 @@ class ModelBuilder:
         # Now find dependent child keys for each link from this source table
         link_source_mappings = LinkSourceMapping.objects.filter(
             staging_column__source_table=source_table,
-            link_column__column_type=LinkColumn.ColumnType.DEPENDANT_CHILD_KEY,
+            link_column__column_type=LinkColumn.ColumnType.dependent_CHILD_KEY,
         ).select_related("link_column__link", "staging_column")
 
         for mapping in link_source_mappings:
