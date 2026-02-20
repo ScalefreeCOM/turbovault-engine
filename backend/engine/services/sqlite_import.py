@@ -601,7 +601,7 @@ class SqliteImportService:
                 hk_def = r.get("target_primary_key_physical_name")
                 is_key = bool(hk_def and not _is_empty(hk_def))
                 col_type = (
-                    LinkColumn.ColumnType.DEPENDANT_CHILD_KEY
+                    LinkColumn.ColumnType.dependent_CHILD_KEY
                     if is_key
                     else LinkColumn.ColumnType.PAYLOAD
                 )
