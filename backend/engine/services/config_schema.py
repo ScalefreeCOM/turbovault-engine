@@ -173,6 +173,8 @@ class ExcelSourceConfig(BaseModel):
                 stacklevel=2,
             )
         return v
+
+
 class SqliteSourceConfig(BaseModel):
     """Configuration for importing metadata from SQLite."""
 
@@ -241,9 +243,22 @@ class ProjectConfiguration(BaseModel):
 class OutputConfiguration(BaseModel):
     """dbt project output configuration."""
 
-    dbt_project_dir: Path = Field(
-        ..., description="Directory where dbt project will be generated"
+    # Output path overrides — all are optional.
+    # When absent the generate command falls back to the convention:
+    #   exports/dbt_project/  exports/json/  exports/dbml/
+    dbt_project_dir: Path | None = Field(
+        None,
+        description="Custom directory for generated dbt project (default: exports/dbt_project/)",
     )
+    json_output_dir: Path | None = Field(
+        None,
+        description="Custom directory for JSON exports (default: exports/json/)",
+    )
+    dbml_output_dir: Path | None = Field(
+        None,
+        description="Custom directory for DBML exports (default: exports/dbml/)",
+    )
+
     dbt_project_name: str | None = Field(
         None, description="Name of the dbt project (defaults to project.name)"
     )
@@ -264,12 +279,6 @@ class OutputConfiguration(BaseModel):
         False,
         description="Whether to generate DBML file alongside dbt project (for future use)",
     )
-
-    @field_validator("dbt_project_dir")
-    @classmethod
-    def normalize_path(cls, v: Path) -> Path:
-        """Normalize path and ensure it's absolute."""
-        return v.expanduser().resolve()
 
 
 class TurboVaultConfig(BaseModel):
@@ -292,7 +301,8 @@ class TurboVaultConfig(BaseModel):
         description="Project-level Data Vault configuration",
     )
     output: OutputConfiguration = Field(
-        ..., description="dbt project output configuration"
+        default_factory=OutputConfiguration,
+        description="dbt project output configuration",
     )
 
     @model_validator(mode="after")

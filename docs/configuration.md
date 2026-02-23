@@ -4,47 +4,62 @@
 
 TurboVault uses a **YAML-only configuration system** with two types of config files:
 
-1. **`turbovault.yml`** - Global application settings (database, project root, admin credentials)
-2. **`projects/<name>/config.yml`** - Per-project configurations (schemas, naming patterns, output settings)
+1. **`turbovault.yml`** — Global workspace settings (database connection, schema defaults)
+2. **`projects/<name>/config.yml`** — Per-project settings (schemas, naming patterns, output overrides)
 
 ---
 
 ## Quick Start
 
-### 1. Create Global Config
+### 1. Initialise a Workspace
 
-Run TurboVault for the first time - it will auto-create `~/.turbovault.yml`:
-
-```yaml
-database:
-  engine: sqlite3
-  name: db.sqlite3
-
-project_root: .
-```
-
-### 2. Initialize a Project
+Run once in your working directory to create `turbovault.yml` and set up the database:
 
 ```bash
-turbovault init --interactive
+turbovault workspace init
+
+# Or fully non-interactive:
+turbovault workspace init --db-engine sqlite3 --db-name db.sqlite3 \
+  --stage-schema stage --rdv-schema rdv --skip-admin
+```
+
+### 2. Create a Project
+
+```bash
+turbovault project init --interactive
 
 # Or non-interactive with flags:
-turbovault init --name my_project --source ./data.xlsx --stage-schema stage --rdv-schema rdv
-
+turbovault project init --name my_project --source ./data.xlsx \
+  --stage-schema stage --rdv-schema rdv
 ```
 
 This creates:
 ```
 projects/my_project/
-  ├── config.yml      # Project-specific config
-  ├── dbt_project/    # Generated dbt files
-  └── exports/        # Exports and artifacts
+├── config.yml      # Project-specific settings
+└── exports/        # All generated export artifacts (created lazily per type)
 ```
 
-### 3. Edit Configuration
+> **Note:** The `exports/` sub-folders are created on demand the first time you run
+> `turbovault generate` with the respective export type.
 
-Edit `projects/my_project/config.yml` to customize schemas, naming patterns, etc.
-Changes take effect immediately - no reload needed!
+### 3. Generate Exports
+
+```bash
+# dbt project → projects/my_project/exports/dbt_project/
+turbovault generate --project my_project
+
+# JSON export → projects/my_project/exports/json/
+turbovault generate --project my_project --type json
+
+# DBML / ER diagram → projects/my_project/exports/dbml/
+turbovault generate --project my_project --type dbml
+```
+
+### 4. Edit Configuration
+
+Edit `projects/my_project/config.yml` to customise schemas, naming patterns, or output paths.
+Changes take effect immediately — no reload needed.
 
 ---
 
@@ -52,11 +67,8 @@ Changes take effect immediately - no reload needed!
 
 ### Location
 
-TurboVault searches for config in this order:
-1. `./turbovault.yml` (current directory)
-2. `~/.turbovault.yml` (user home)
-
-The first file found is used.
+`turbovault.yml` is searched for in the current working directory. Run all TurboVault
+commands from the directory that contains this file (your **workspace root**).
 
 ### Complete Example
 
@@ -70,16 +82,7 @@ database:
   host: localhost
   port: 5432
 
-# Project root directory (optional, defaults to current directory)
-project_root: /home/user/turbovault_workspace
-
-# Auto-create admin user on first startup (optional)
-admin:
-  username: admin
-  password: changeme123
-  email: admin@example.com
-
-# Global defaults for new projects (optional)
+# Global defaults applied to new projects (optional)
 defaults:
   stage_schema: stage
   rdv_schema: rdv
@@ -87,13 +90,15 @@ defaults:
   hashkey_naming: "hk_{entity_name}"
 ```
 
+> **Note:** `turbovault.yml` is created automatically by `turbovault workspace init`.
+
 ### Database Engines
 
 #### SQLite (Default)
 ```yaml
 database:
   engine: sqlite3
-  name: db.sqlite3  # Relative to project_root
+  name: db.sqlite3  # Relative to workspace root (where turbovault.yml lives)
 ```
 
 #### PostgreSQL
@@ -123,7 +128,7 @@ database:
 database:
   engine: mssql
   name: turbovault_db
- user: sa
+  user: sa
   password: YourPassword123
   host: localhost
   port: 1433
@@ -135,12 +140,10 @@ database:
 ```yaml
 database:
   engine: snowflake
-  account: myaccount
+  name: turbovault_db
   user: myuser
   password: secret
-  database: turbovault_db
-  schema: public
-  warehouse: compute_wh
+  host: myaccount.snowflakecomputing.com
 ```
 
 ---
@@ -165,27 +168,33 @@ configuration:
   # Schema names (required)
   stage_schema: stage_customer
   rdv_schema: rdv_customer
-  
-  # Database names (optional, uses default if not specified)
+
+  # Database names (optional)
   stage_database: raw_vault
   rdv_database: core_vault
-  
-  # Naming patterns (optional, uses defaults if not specified)
+
+  # Naming patterns (optional – uses defaults if omitted)
   hashdiff_naming: "hd_{entity_name}"
   hashkey_naming: "hk_{entity_name}"
   satellite_v0_naming: "sat_{entity_name}_v0"
   satellite_v1_naming: "sat_{entity_name}_v1"
 
-# Output configuration
+# Output configuration (all fields optional)
 output:
-  dbt_project_dir: ./dbt_project    # Where to generate dbt files
-  create_zip: true                   # Create ZIP archive
-  export_sources: true               # Include source definitions
+  create_zip: false          # Create a ZIP archive of the generated dbt project
+  export_sources: true       # Include source system definitions in JSON export
+
+  # Custom output directories (optional)
+  # When omitted, the generate command uses the convention-based defaults below.
+  # dbt_project_dir: ./custom/dbt_output
+  # json_output_dir: ./custom/json_exports
+  # dbml_output_dir: ./custom/dbml_exports
 ```
 
 ### Required Fields
 
-Only these are required:
+Only these are required — everything else has sensible defaults:
+
 ```yaml
 project:
   name: my_project
@@ -193,19 +202,42 @@ project:
 configuration:
   stage_schema: stage
   rdv_schema: rdv
-
-output:
-  dbt_project_dir: ./dbt_project
 ```
 
-All other fields have sensible defaults.
+### Output Paths
+
+TurboVault uses **convention-based output directories** inside your project folder.
+You can override any of them in `config.yml` or with CLI flags.
+
+| Export type | Default path | Config key | CLI flag |
+|---|---|---|---|
+| dbt project | `exports/dbt_project/` | `output.dbt_project_dir` | `--output` |
+| JSON export | `exports/json/` | `output.json_output_dir` | `--json-output` |
+| DBML / ER diagram | `exports/dbml/` | `output.dbml_output_dir` | `--dbml-output` |
+
+**Priority order** (highest → lowest):
+
+1. CLI flag (`--output`, `--json-output`, `--dbml-output`)
+2. Config value in `config.yml` (`output.dbt_project_dir`, etc.)
+3. Convention default (`exports/<type>/` inside the project folder)
+
+**Example: custom output dirs in `config.yml`:**
+
+```yaml
+output:
+  dbt_project_dir: /shared/dbt/customer_mdm
+  json_output_dir: ./exports/json
+  dbml_output_dir: ./exports/dbml
+```
+
+Both relative and absolute paths are supported.
 
 ### Naming Patterns
 
 Naming patterns use placeholders:
 
 | Placeholder | Description | Example |
-|-------------|-------------|---------|
+|---|---|---|
 | `{entity_name}` | Hub/link/satellite name | `customer` → `hk_customer` |
 
 **Default patterns:**
@@ -220,51 +252,44 @@ Naming patterns use placeholders:
 
 ### How It Works
 
-1. **Global config** loaded once at Django startup
-2. **Project configs** loaded on-demand from YAML (always fresh)
-3. **No caching** - edit YAML, changes apply immediately
-4. **No database storage** - YAML is the single source of truth
+1. **Global config** (`turbovault.yml`) is loaded once at Django startup
+2. **Project configs** (`config.yml`) are loaded on-demand from YAML — always fresh
+3. **No caching** — edit YAML and changes apply on the next command run
+4. **No database storage** — YAML is the single source of truth for configuration
 
-### In Code
+### `turbovault serve` and the Database
 
-```python
-from engine.models import Project
-
-# Get project
-project = Project.objects.get(name="customer_mdm")
-
-# Load config from YAML
-config = project.load_config()
-
-# Access values
-print(config.configuration.stage_schema)
-print(config.output.dbt_project_dir)
-```
+`turbovault serve` launches the Django admin as a subprocess. It automatically
+passes the workspace path to Django via the `TURBOVAULT_CONFIG_PATH` environment
+variable, so the admin always connects to the database defined in **your workspace's
+`turbovault.yml`** regardless of how the process is started.
 
 ---
 
-## Project Folder Structure
+## Workspace Folder Structure
 
 ```
-{PROJECT_ROOT}/
-├── turbovault.yml          # Global config
-├── projects/
-│   ├── customer_mdm/
-│   │   ├── config.yml      # Project config
-│   │   ├── dbt_project/    # Generated dbt files
-│   │   ├── exports/        # JSON/ZIP exports
-│   │   └── metadata/       # Optional: source files
-│   └── supplier_vault/
-│       ├── config.yml
-│       └── ...
-└── db.sqlite3              # SQLite database (if using SQLite)
+{WORKSPACE_ROOT}/
+├── turbovault.yml              # Global workspace config (database, defaults)
+├── db.sqlite3                  # SQLite database (when using sqlite3 engine)
+└── projects/
+    ├── customer_mdm/
+    │   ├── config.yml          # Project config (schemas, naming, output overrides)
+    │   └── exports/            # All generated artifacts
+    │       ├── dbt_project/    # Generated dbt project (created on first generate --type dbt)
+    │       ├── json/           # JSON exports    (created on first generate --type json)
+    │       └── dbml/           # DBML exports    (created on first generate --type dbml)
+    └── supplier_vault/
+        ├── config.yml
+        └── exports/
+            └── ...
 ```
 
 **Key points:**
-- `PROJECT_ROOT` defined in `turbovault.yml`
-- Each project has its own folder  
-- Config.yml is the source of truth for project settings
-- Generated files stay within project folder
+- Only `exports/` is created at `project init` time — sub-folders are created lazily on first use
+- Each project is fully self-contained under its own folder
+- `config.yml` is the source of truth for all project-level settings
+- Generated files never leave the project folder (unless you set a custom absolute path)
 
 ---
 
@@ -272,74 +297,105 @@ print(config.output.dbt_project_dir)
 
 For teams sharing a database:
 
-**User A's turbovault.yml:**
+**User A's `turbovault.yml`:**
 ```yaml
 database:
   engine: postgresql
   name: shared_db
   host: db.company.com
-  
-project_root: /home/alice/turbovault
+  user: alice
+  password: secret
 ```
 
-**User B's turbovault.yml:**
+**User B's `turbovault.yml`:**
 ```yaml
 database:
   engine: postgresql
   name: shared_db
   host: db.company.com
-  
-project_root: /home/bob/my_vault
+  user: bob
+  password: secret
 ```
 
 - Both share the same database (metadata, models)
-- Each has their own project folders locally
+- Each generates output into their own local project folders
 - Database stores only relative paths (`projects/customer_mdm`)
-- Resolved to absolute paths at runtime
 
 ---
 
 ## Common Workflows
 
-### Initialize New Project
+### Initialise New Workspace
 
 ```bash
-turbovault init --interactive
+turbovault workspace init --db-engine sqlite3 --db-name db.sqlite3 \
+  --stage-schema stage --rdv-schema rdv --skip-admin
 ```
 
-### Initialize from Existing Config
+### Create a Project
 
 ```bash
-turbovault init --config ./my_config.yml
+turbovault project init --name customer_mdm --stage-schema stage --rdv-schema rdv
+```
+
+### Create from Existing Config File
+
+```bash
+turbovault project init --config ./my_config.yml
 ```
 
 ### Generate dbt Project
 
 ```bash
+# Default: exports/dbt_project/ inside the project folder
 turbovault generate --project customer_mdm
+
+# Custom output directory via CLI flag
+turbovault generate --project customer_mdm --output /shared/dbt/customer_mdm
 ```
 
 ### Export to JSON
 
 ```bash
+# Default: exports/json/ inside the project folder
 turbovault generate --project customer_mdm --type json
+
+# Custom output file
+turbovault generate --project customer_mdm --type json --json-output ./my_export.json
+```
+
+### Export to DBML
+
+```bash
+# Default: exports/dbml/ inside the project folder
+turbovault generate --project customer_mdm --type dbml
+
+# Custom output file
+turbovault generate --project customer_mdm --type dbml --dbml-output ./erd.dbml
 ```
 
 ---
 
 ## Troubleshooting
 
+### "Not a TurboVault workspace"
+
+**Cause:** `turbovault.yml` not found in the current directory.
+
+**Solution:** Either change to your workspace directory, or run `turbovault workspace init`
+to initialise a new workspace here.
+
 ### "Config file not found"
 
-**Cause:** Project exists in database but config.yml is missing
+**Cause:** Project exists in the database but `config.yml` is missing from the project folder.
 
-**Solution:** TurboVault auto-creates minimal config. Check logs for the generated file location.
+**Solution:** TurboVault auto-creates a minimal config. Check the logs for the generated file location.
 
 ### "Cannot locate config.yml"
 
-**Cause:** `project_directory` not set in database
+**Cause:** `project_directory` not set in the database record.
 
-**Solution:** This shouldn't happen for new projects. For old projects, set it manually:
+**Solution:** For old projects, set it manually:
 ```python
 project.project_directory = "projects/customer_mdm"
 project.save()
@@ -347,53 +403,43 @@ project.save()
 
 ### Changes not taking effect
 
-**Cause:** Editing wrong config file
+**Cause:** Editing the wrong config file.
 
-**Solution:** Ensure you're editing `projects/<name>/config.yml`, not `turbovault.yml`
+**Solution:** Ensure you're editing `projects/<name>/config.yml`, not `turbovault.yml`.
+
+### `turbovault serve` connects to wrong database
+
+**Cause:** Running `turbovault serve` from outside the workspace directory, or an old
+installation where `TURBOVAULT_CONFIG_PATH` is not passed to the subprocess.
+
+**Solution:** Always run `turbovault serve` from your workspace root (the directory
+containing `turbovault.yml`). The current version passes the workspace path automatically.
 
 ### Database connection error
 
-**Cause:** Incorrect database config in `turbovault.yml`
+**Cause:** Incorrect database config in `turbovault.yml`.
 
-**Solution:** Verify database credentials and connectivity
+**Solution:** Verify database credentials and connectivity, then re-run `turbovault workspace init --overwrite`.
 
 ---
 
 ## Best Practices
 
 ✅ **DO:**
-- Store `turbovault.yml` in user home (`~/.turbovault.yml`)
-- Keep project configs in version control
-- Use descriptive project names
+- Run all TurboVault commands from your workspace root
+- Keep `projects/<name>/config.yml` in version control
+- Use descriptive project names (they become folder names)
 - Set clear schema names per environment
 
 ❌ **DON'T:**
-- Put passwords in version-controlled configs (use env vars)
-- Edit generated dbt files manually
-- Share `turbovault.yml` between users (each needs their own)
-
----
-
-## Migration from Old System
-
-**If you have projects from before the YAML-only refactor:**
-
-1. **Fresh start** (recommended):
-   ```bash
-   turbovault reset  # Clears database
-   turbovault init --interactive  # Start fresh
-   ```
-
-2. **Manual migration** (if needed):
-   - Extract old config from database
-   - Create `projects/<name>/config.yml` manually
-   - Set `project.project_directory` in database
-   - Test with `turbovault generate`
+- Put passwords in version-controlled configs (use environment variables or a secrets manager)
+- Edit generated dbt files manually — re-run `generate` instead
+- Share `turbovault.yml` between users when database credentials differ
 
 ---
 
 ## See Also
 
-- [README.md](../README.md) - General usage
-- [turbovault.example.yml](../turbovault.example.yml) - Global config example
-- [config.example.yml](../config.example.yml) - Project config example
+- [README.md](../README.md) — General usage and quick start
+- [CLI_GUIDE.md](CLI_GUIDE.md) — Full CLI command reference
+- [workspace.md](workspace.md) — Workspace setup and management
