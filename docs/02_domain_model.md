@@ -270,7 +270,7 @@ Describes columns in a link (payload or additional).
 | link_column_id | identifier | PK       | Unique identifier of the link column.                           |
 | link_id        | identifier | ✓ (FK)  | FK to `link.link_id`.                                         |
 | column_name    | string     | ✓       | Logical/target column name in the link.                         |
-| column_type    | string     | ✓       | `payload`, `additional_column`, or `dependant_child_key`. |
+| column_type    | string     | ✓       | `payload`, `additional_column`, or `dependent_child_key`. |
 | sort_order     | integer    |          | Order of appearance. Lower values appear first.                 |
 | created_at     | datetime   | ✓       | Timestamp when the record was created.                          |
 | updated_at     | datetime   | ✓       | Timestamp when the record was last updated.                     |
