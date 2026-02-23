@@ -231,15 +231,91 @@ def ensure_templates_populated() -> None:
         )
 
 
+def initialise_workspace_db(
+    admin_username: str | None = None,
+    admin_email: str | None = None,
+    admin_password: str | None = None,
+    prompt_admin: bool = True,
+) -> None:
+    """
+    Fully initialise the workspace database for the first time.
+
+    Runs all pending migrations, populates default templates, and
+    optionally creates the Django superuser. This is called exclusively
+    by 'turbovault workspace init'.
+
+    Args:
+        admin_username: Superuser username (skips prompt if provided)
+        admin_email: Superuser email (skips prompt if provided)
+        admin_password: Superuser password (skips prompt if provided)
+        prompt_admin: If True and no credentials supplied, prompt interactively.
+                      Set to False to skip admin creation entirely.
+    """
+    from django.conf import settings
+
+    from engine.cli.utils.debug import debug_print
+
+    debug_print("initialise_workspace_db() started")
+
+    db_config = settings.DATABASES["default"]
+    is_sqlite = db_config["ENGINE"] == "django.db.backends.sqlite3"
+
+    if is_sqlite:
+        db_path = Path(db_config["NAME"])
+        if not db_path.exists():
+            console.print("\n[cyan]Creating database tables...[/cyan]")
+        else:
+            console.print("\n[cyan]Checking database...[/cyan]")
+
+    _run_migrations(
+        initial=(
+            is_sqlite and not Path(db_config["NAME"]).exists() if is_sqlite else False
+        )
+    )
+    console.print("[green]✓ Database initialized successfully[/green]\n")
+
+    ensure_templates_populated()
+
+    # Admin user handling
+    if admin_username and admin_password:
+        # Non-interactive: create directly
+        _create_superuser_direct(admin_username, admin_email or "", admin_password)
+    elif prompt_admin:
+        _ensure_superuser_exists()
+
+
+def _create_superuser_direct(username: str, email: str, password: str) -> None:
+    """
+    Create a superuser non-interactively from explicit credentials.
+
+    Args:
+        username: Admin username
+        email: Admin email
+        password: Admin password
+    """
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+
+    if User.objects.filter(is_superuser=True).exists():
+        console.print("[dim]Admin user already exists, skipping.[/dim]")
+        return
+
+    try:
+        User.objects.create_superuser(username=username, email=email, password=password)
+        console.print(f"[green]✓ Admin user '{username}' created[/green]")
+    except Exception as e:
+        console.print(f"[red]✗ Failed to create admin user: {e}[/red]")
+
+
 def ensure_database_ready() -> None:
     """
-    Ensure the database is initialized and all migrations are applied.
+    Ensure the database has all migrations applied.
 
-    This function:
-    1. Checks if the database file exists (for SQLite)
-    2. Creates and initializes the database if it doesn't exist
-    3. Checks for and applies any pending migrations
-    4. Populates templates if needed
+    Called on every command *except* 'workspace init'. Checks for pending
+    migrations and applies them, and ensures templates are present. For
+    SQLite, emits a friendly error if the file doesn't exist yet
+    (user hasn't run 'workspace init').
 
     Raises:
         SystemExit: If migrations fail to apply
@@ -261,12 +337,15 @@ def ensure_database_ready() -> None:
         debug_print(f"SQLite database exists: {db_exists}")
 
         if not db_exists:
-            console.print("\n[yellow]⚠️  Database not found. Initializing...[/yellow]")
-            _run_migrations(initial=True)
-            console.print("[green]✓ Database initialized successfully[/green]\n")
-            ensure_templates_populated()
-            debug_print("Returning after initial setup")
-            return
+            console.print(
+                "\n[red]✗ Database not initialised![/red]\n"
+                "\n  No database found at: "
+                f"[bold]{db_path}[/bold]\n"
+                "\n  Run [bold]turbovault workspace init[/bold] first to set up this workspace.\n"
+            )
+            import sys
+
+            sys.exit(1)
 
     # DB exists - check for any pending migrations and apply them
     if _has_pending_migrations():

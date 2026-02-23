@@ -15,7 +15,13 @@ import typer
 backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
-from engine.cli.commands import generate_cmd, init_cmd, reset_cmd, serve_cmd
+from engine.cli.commands import generate_cmd, reset_cmd, serve_cmd
+from engine.cli.commands.project_cmd import project_app, project_init, project_list
+from engine.cli.commands.workspace_cmd import (
+    workspace_app,
+    workspace_init,
+    workspace_status,
+)
 from engine.cli.utils.console import console
 from engine.cli.utils.debug import debug_print, set_debug_mode
 
@@ -42,7 +48,7 @@ def main(
     """
     TurboVault Engine - Data Vault Automation Tool.
 
-    Use the commands below to initialize projects, generate dbt code,
+    Use the commands below to manage workspaces, create projects, generate dbt code,
     and manage your Data Vault implementation.
     """
     debug_print("Main callback invoked")
@@ -64,9 +70,8 @@ def main(
         # Skip Django setup for help commands
         if "--help" not in sys.argv and "-h" not in sys.argv:
             debug_print("Setting up Django...")
-            # Only check migrations for init command
-            check_migrations = ctx.invoked_subcommand == "init"
-            _setup_django(check_migrations=check_migrations)
+            # workspace init is the only command that does NOT require an existing DB
+            _setup_django()
             debug_print("Django setup complete, proceeding to command")
         else:
             debug_print("Skipping Django setup for help command")
@@ -89,12 +94,8 @@ def _print_banner() -> None:
     console.print(f"[bold cyan]{banner}[/bold cyan]")
 
 
-def _setup_django(check_migrations: bool = False) -> None:
-    """Initialize Django for CLI context.
-
-    Args:
-        check_migrations: If True, check for and apply pending migrations
-    """
+def _setup_django() -> None:
+    """Initialize Django for CLI context."""
     from engine.cli.utils.debug import debug_print
 
     debug_print("_setup_django() called")
@@ -118,29 +119,30 @@ def _setup_django(check_migrations: bool = False) -> None:
         traceback.print_exc()
         raise typer.Exit(1)
 
-    # Check and run migrations if needed (only for init command)
-    if check_migrations:
-        try:
-            debug_print("Importing ensure_database_ready...")
-            from engine.cli.utils.db_utils import ensure_database_ready
-
-            debug_print("Calling ensure_database_ready()...")
-            ensure_database_ready()
-            debug_print("ensure_database_ready() completed")
-        except Exception as e:
-            console.print(f"[red]✗ Database setup failed: {e}[/red]")
-            import traceback
-
-            traceback.print_exc()
-            raise typer.Exit(1)
-    else:
-        debug_print("Skipping migration checks (not init command)")
-
     debug_print("_setup_django() returning")
 
 
-# Register commands
-app.command(name="init", help="Initialize a new TurboVault project")(init_cmd.init)
+# ─── Command groups ──────────────────────────────────────────────────────────
+
+# workspace sub-group
+workspace_app.command(
+    name="init", help="Initialise the current directory as a TurboVault workspace"
+)(workspace_init)
+workspace_app.command(name="status", help="Show status of the current workspace")(
+    workspace_status
+)
+app.add_typer(workspace_app)
+
+# project sub-group
+project_app.command(
+    name="init", help="Create a new Data Vault project in the current workspace"
+)(project_init)
+project_app.command(name="list", help="List all projects in the current workspace")(
+    project_list
+)
+app.add_typer(project_app)
+
+# Top-level utility commands
 app.command(
     name="generate", help="Generate dbt project and/or export Data Vault model to JSON"
 )(generate_cmd.generate)

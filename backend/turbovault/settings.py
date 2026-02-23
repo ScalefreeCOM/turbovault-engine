@@ -80,17 +80,29 @@ def get_database_config() -> dict[str, dict[str, str | int | dict]]:
     Get database configuration from turbovault.yml.
 
     Loads application-level database config from turbovault.yml.
-    Auto-creates turbovault.yml with SQLite defaults if not present.
+    Falls back to default SQLite (db.sqlite3 next to turbovault.yml) if not found.
+
+    The workspace directory is derived from the location of turbovault.yml,
+    which is resolved via ``TURBOVAULT_CONFIG_PATH`` or cwd.  This ensures
+    the correct database is used even when Django is started as a subprocess
+    (e.g. ``turbovault serve``) with a different working directory.
 
     Returns:
         Django DATABASES configuration dictionary
     """
-    from engine.services.app_config_loader import load_application_config
+    from engine.services.app_config_loader import (
+        find_turbovault_config,
+        load_application_config,
+    )
+
+    # Resolve workspace root from where turbovault.yml lives.
+    config_file = find_turbovault_config()
+    workspace_dir = config_file.parent if config_file else Path.cwd()
 
     try:
         app_config = load_application_config()
         if app_config.database:
-            return {"default": app_config.database.to_django_config(Path.cwd())}
+            return {"default": app_config.database.to_django_config(workspace_dir)}
     except Exception as e:
         # If config loading fails, fall back to default SQLite
         import logging
@@ -101,14 +113,14 @@ def get_database_config() -> dict[str, dict[str, str | int | dict]]:
             "Using default SQLite."
         )
 
-    # Fallback: Default SQLite configuration in current directory (workspace)
+    # Fallback: Default SQLite configuration next to turbovault.yml (the workspace root)
     from engine.services.config_schema import DatabaseConfig, DatabaseEngine
 
     default_db = DatabaseConfig(
         engine=DatabaseEngine.SQLITE,
-        name="db.sqlite3",  # Relative to cwd (the user's workspace)
+        name="db.sqlite3",
     )
-    return {"default": default_db.to_django_config(Path.cwd())}
+    return {"default": default_db.to_django_config(workspace_dir)}
 
 
 DATABASES = get_database_config()

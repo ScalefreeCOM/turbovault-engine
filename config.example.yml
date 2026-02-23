@@ -14,10 +14,14 @@ project:
 # ============================================================================
 # Source Metadata Import (Optional)
 # ============================================================================
-# Uncomment to import source metadata from Excel:
+# Uncomment to import source metadata from Excel or SQLite:
 # source:
 #   type: excel
 #   path: ./metadata/sources.xlsx
+#
+# source:
+#   type: sqlite
+#   path: ./metadata/sources.db
 
 # ============================================================================
 # Data Vault Configuration
@@ -39,22 +43,33 @@ configuration:
   satellite_v1_naming: "sat_{entity_name}_v1"
 
 # ============================================================================
-# Output Configuration
+# Output Configuration (all fields optional)
 # ============================================================================
+# By default, turbovault generate uses convention-based output directories:
+#
+#   exports/dbt_project/   ← generated dbt project (--type dbt)
+#   exports/json/          ← JSON exports          (--type json)
+#   exports/dbml/          ← DBML / ER diagrams    (--type dbml)
+#
+# Override any path below. Both relative and absolute paths are supported.
+# Priority: CLI flag (--output / --json-output / --dbml-output)
+#           > config value below
+#           > convention default above
+#
 output:
-  # Where to generate dbt project (relative to project folder)
-  dbt_project_dir: "./dbt_project"
+  # General options
+  create_zip: false       # Create a ZIP archive of the generated dbt project
+  export_sources: true    # Include source system definitions in JSON export
 
-  # Create ZIP archive of generated project
-  create_zip: false
-
-  # Include source system definitions in export
-  export_sources: true
+  # Optional output path overrides (comment out to use convention defaults):
+  # dbt_project_dir: "./custom/dbt_output"
+  # json_output_dir: "./custom/json_exports"
+  # dbml_output_dir: "./custom/dbml_exports"
 
 # ============================================================================
-# Minimal Example
+# Minimal Valid Config
 # ============================================================================
-# The simplest valid config:
+# The absolute minimum you need to get started:
 #
 # project:
 #   name: "my_project"
@@ -62,15 +77,12 @@ output:
 # configuration:
 #   stage_schema: "stage"
 #   rdv_schema: "rdv"
-#
-# output:
-#   dbt_project_dir: "./dbt_project"
 
 # ============================================================================
 # Notes
 # ============================================================================
 # - YAML is the source of truth (not stored in database)
-# - Edit this file anytime - changes apply immediately
+# - Edit this file anytime - changes apply immediately on the next run
 # - No restart or reload needed
-# - Database config is in turbovault.yml (global), not here
+# - Database config is in turbovault.yml (workspace-level), not here
 # - See docs/configuration.md for complete documentation

@@ -74,7 +74,7 @@ def init(
     output_dir: Annotated[
         str,
         typer.Option("--output", "-o", help="dbt project output directory"),
-    ] = "./dbt_project",
+    ] = "./dbt_project",  # unused; kept for backward compat with --config files
     create_zip: Annotated[
         bool,
         typer.Option(
@@ -109,19 +109,34 @@ def init(
     ] = False,
 ) -> None:
     """
-    Initialize a new TurboVault project.
+    Create a new Data Vault project in the current workspace.
+
+    The workspace must be initialised first:
+
+      turbovault workspace init
 
     Three ways to use this command:
 
     1. From a config file:
-       turbovault init --config config.yml
+       turbovault project init --config config.yml
 
     2. With flags (fully non-interactive, great for CI/scripts):
-       turbovault init --name my_project --source ./data.xlsx --stage-schema stage --rdv-schema rdv
+       turbovault project init --name my_project --source ./data.xlsx
 
     3. Interactive wizard:
-       turbovault init --interactive
+       turbovault project init --interactive
     """
+    from engine.services.app_config_loader import (
+        WorkspaceNotFoundError,
+        require_workspace,
+    )
+
+    try:
+        require_workspace()
+    except WorkspaceNotFoundError as e:
+        console.print(f"\n[red]✗ {e}[/red]\n")
+        raise typer.Exit(1)
+
     if config:
         _init_from_config(config, overwrite=overwrite)
     elif interactive:
@@ -145,15 +160,15 @@ def init(
         print_error("Please provide --name, --config, or --interactive")
         console.print("\n[bold]Examples:[/bold]")
         console.print(
-            "  turbovault init --name my_project --stage-schema stage --rdv-schema rdv",
+            "  turbovault project init --name my_project --stage-schema stage --rdv-schema rdv",
             style="dim",
         )
         console.print(
-            "  turbovault init --name my_project --source ./metadata.xlsx",
+            "  turbovault project init --name my_project --source ./metadata.xlsx",
             style="dim",
         )
-        console.print("  turbovault init --config config.yml", style="dim")
-        console.print("  turbovault init --interactive", style="dim")
+        console.print("  turbovault project init --config config.yml", style="dim")
+        console.print("  turbovault project init --interactive", style="dim")
         raise typer.Exit(1)
 
 
@@ -309,15 +324,6 @@ def _create_project(config, *, overwrite: bool = False) -> None:
     if config.source:
         _import_metadata(project, config.source)
 
-    # Ensure templates and admin user
-    from engine.cli.utils.db_utils import (
-        _ensure_superuser_exists,
-        ensure_templates_populated,
-    )
-
-    ensure_templates_populated()
-    _ensure_superuser_exists()
-
     print_step(3, 3, "Project initialization complete!")
 
     summary = f"""
@@ -326,7 +332,6 @@ def _create_project(config, *, overwrite: bool = False) -> None:
 [bold]Source:[/bold] {f"{config.source.type} ({config.source.path})" if config.source else "None (start from scratch)"}
 [bold]Stage Schema:[/bold] {config.configuration.stage_schema}
 [bold]RDV Schema:[/bold] {config.configuration.rdv_schema}
-[bold]Output:[/bold] {config.output.dbt_project_dir}
 """
     print_panel("Project Summary", summary.strip(), style="success")
 
