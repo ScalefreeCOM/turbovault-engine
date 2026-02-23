@@ -170,7 +170,7 @@ class LinkColumn(models.Model):
     Represents a column within a link.
 
     Link columns can be:
-    - dependant_child_key: Columns that should be used for link hashkey calculation, but are not pointing to another hub.
+    - dependent_child_key: Columns that should be used for link hashkey calculation, but are not pointing to another hub.
     - payload: Descriptive data about the relationship
     - additional_column: Other metadata columns
 
@@ -180,7 +180,7 @@ class LinkColumn(models.Model):
     class ColumnType(models.TextChoices):
         PAYLOAD = "payload", "Payload"
         ADDITIONAL_COLUMN = "additional_column", "Additional Column"
-        DEPENDANT_CHILD_KEY = "dependant_child_key", "Dependant Child Key"
+        dependent_CHILD_KEY = "dependent_child_key", "dependent Child Key"
 
     link_column_id = models.UUIDField(
         primary_key=True,
