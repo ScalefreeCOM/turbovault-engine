@@ -23,8 +23,12 @@ cd C:\Users\yourname\Documents\
 mkdir my_turbovault
 cd my_turbovault
 
-# Initialize (creates turbovault.yml)
+# Initialize (interactive)
 turbovault init --interactive
+
+# Or non-interactive:
+turbovault init --name my_project --source ./data.xlsx --stage-schema stage --rdv-schema rdv
+
 ```
 
 This creates:

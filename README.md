@@ -145,6 +145,10 @@ docker-compose up
 # Interactive mode - guided setup wizard
 turbovault init --interactive
 
+# Non-interactive mode (perfect for scripts/CI)
+turbovault init --name my_project --source ./metadata.xlsx \
+  --stage-schema stage --rdv-schema rdv
+
 # Or use a config file
 turbovault init --config config.example.yml
 ```

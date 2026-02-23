@@ -101,6 +101,7 @@ def generate(
 
     # Lazy imports to avoid loading before Django setup
     from engine.models import Project
+    from engine.services.app_config_loader import resolve_project_path
     from engine.services.export.builder import ModelBuilder
     from engine.services.generation import DbtProjectGenerator, GenerationConfig
     from engine.services.generation.validators import validate_export
@@ -162,8 +163,17 @@ def generate(
 
     # Determine output path for dbt if needed
     if should_generate_dbt and not output:
-        safe_name = selected_project.name.lower().replace(" ", "_")
-        output = Path("./output") / safe_name
+        if selected_project.project_directory:
+            try:
+                project_path = resolve_project_path(selected_project.project_directory)
+                output = project_path / "dbt_project"
+            except Exception:
+                # Fallback if resolving fails
+                safe_name = selected_project.name.lower().replace(" ", "_")
+                output = Path("./output") / safe_name
+        else:
+            safe_name = selected_project.name.lower().replace(" ", "_")
+            output = Path("./output") / safe_name
 
     # Calculate total steps
     total_steps = 2  # Build + Complete

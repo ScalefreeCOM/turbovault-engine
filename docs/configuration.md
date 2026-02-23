@@ -27,6 +27,10 @@ project_root: .
 
 ```bash
 turbovault init --interactive
+
+# Or non-interactive with flags:
+turbovault init --name my_project --source ./data.xlsx --stage-schema stage --rdv-schema rdv
+
 ```
 
 This creates:
