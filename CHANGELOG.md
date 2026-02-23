@@ -5,6 +5,21 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.7.3...turbovault-engine-v0.8.0) (2026-02-23)
+
+
+### Features
+
+* Introduce a new YAML-based configuration system, workspace management, and initial CLI commands ([418ab77](https://github.com/ScalefreeCOM/turbovault-engine/commit/418ab77b66147981faf5718f7c1b1c69c2fe46fe))
+* Introduce workspace and project CLI commands, refactor applicat… ([#83](https://github.com/ScalefreeCOM/turbovault-engine/issues/83)) ([23dd9bb](https://github.com/ScalefreeCOM/turbovault-engine/commit/23dd9bb08039bebdc5f02c3045d35d1352c8d8a2))
+* Introduce workspace and project CLI commands, refactor application configuration, and update documentation ([23dd9bb](https://github.com/ScalefreeCOM/turbovault-engine/commit/23dd9bb08039bebdc5f02c3045d35d1352c8d8a2))
+* YAML-only configuration system with workspace-based approach ([8e5e74d](https://github.com/ScalefreeCOM/turbovault-engine/commit/8e5e74d13f2c9a165c1047e8a6828cb38d9c2d9d))
+
+
+### Bug Fixes
+
+* **typo:** dependent child key ([#82](https://github.com/ScalefreeCOM/turbovault-engine/issues/82)) ([0b30270](https://github.com/ScalefreeCOM/turbovault-engine/commit/0b30270c287bb611001907efc1d4d55a49802e4f))
+
 ## [0.7.3](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.7.2...turbovault-engine-v0.7.3) (2026-02-11)
 
 
