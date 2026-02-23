@@ -32,8 +32,11 @@ def initialize_project_folder(project, config) -> Path:
     Creates:
         - {PROJECT_ROOT}/{project_directory}/
         - {PROJECT_ROOT}/{project_directory}/config.yml
-        - {PROJECT_ROOT}/{project_directory}/dbt_project/ (placeholder)
-        - {PROJECT_ROOT}/{project_directory}/exports/ (placeholder)
+        - {PROJECT_ROOT}/{project_directory}/exports/
+
+    Note:
+        exports/dbt_project/, exports/json/, and exports/dbml/ are created
+        lazily on first use by the generate command.
     """
 
     # Determine project directory path (relative to PROJECT_ROOT)
@@ -46,9 +49,9 @@ def initialize_project_folder(project, config) -> Path:
 
     logger.info(f"Creating project folder: {project_path}")
 
-    # Create directory structure
+    # Create directory structure — only exports/ is created eagerly.
+    # dbt_project/, json/, and dbml/ sub-folders are created on first generation.
     project_path.mkdir(parents=True, exist_ok=True)
-    (project_path / "dbt_project").mkdir(exist_ok=True)
     (project_path / "exports").mkdir(exist_ok=True)
 
     # Create config.yml from the loaded config
@@ -82,16 +85,13 @@ def write_project_config(config_path: Path, config) -> None:
             "stage_schema": config.configuration.stage_schema,
             "rdv_schema": config.configuration.rdv_schema,
         },
+        # Output paths are determined by convention (exports/ subfolder).
+        # create_zip / export_sources are still project-level preferences.
         "output": {
-            "dbt_project_dir": "dbt_project",  # Always default to relative dbt_project in config
             "create_zip": config.output.create_zip,
             "export_sources": config.output.export_sources,
         },
     }
-
-    # If user provided a custom path that isn't the default, use it
-    if config.output.dbt_project_dir.name != "dbt_project":
-        config_dict["output"]["dbt_project_dir"] = str(config.output.dbt_project_dir)
 
     # Add optional fields if present
     if config.configuration.stage_database:
@@ -208,7 +208,10 @@ def ensure_project_config_exists(project) -> Path:
                 "stage_schema": app_config.defaults.stage_schema,
                 "rdv_schema": app_config.defaults.rdv_schema,
             },
-            "output": {"dbt_project_dir": "./dbt_project"},
+            "output": {
+                "create_zip": False,
+                "export_sources": True,
+            },
         }
 
         with open(config_path, "w", encoding="utf-8") as f:

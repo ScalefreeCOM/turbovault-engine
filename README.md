@@ -78,87 +78,63 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
   - Oracle: `cx_Oracle`
   - Snowflake: `django-snowflake`
 
-
 ### Installation
 
-```bash
-# Clone the repository
-git clone https://github.com/ScalefreeCOM/turbovault-engine.git
-cd turbovault-engine
+**Install from PyPI** (once the package is published):
 
-# Create and activate virtual environment
+```bash
+pip install turbovault-engine
+```
+
+**Install directly from GitHub** (latest development version):
+
+```bash
+pip install git+https://github.com/ScalefreeCOM/turbovault-engine.git
+```
+
+We recommend installing into a dedicated virtual environment:
+
+```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Option 1: Automated setup (recommended)
-# Windows PowerShell:
-.\scripts\setup-dev.ps1
-
-# Linux/Mac:
-chmod +x scripts/setup-dev.sh
-./scripts/setup-dev.sh
-
-# Option 2: Manual installation
-pip install -e ".[dev]"
-pre-commit install  # Optional but recommended
+pip install turbovault-engine
 ```
 
-> **Note:** The database, admin user, and templates will be automatically set up the first time you run any TurboVault command. No manual setup required!
+### Initialize Your Workspace & First Project
 
-### 🐳 Docker Installation (Alternative)
-
-Use Docker for a pre-configured environment:
+TurboVault uses a **two-step setup**. First, create and enter a dedicated folder for your workspace:
 
 ```bash
-# Option 1: Pull from GitHub Container Registry (after first release)
-docker pull ghcr.io/scalefreecom/turbovault-engine:latest
-
-# Run commands
-docker run ghcr.io/scalefreecom/turbovault-engine:latest turbovault --help
-
-# Option 2: Build locally
-git clone https://github.com/ScalefreeCOM/turbovault-engine.git
-cd turbovault-engine
-docker build -t turbovault-engine .
-docker run turbovault-engine turbovault --help
+mkdir my-turbovault-workspace
+cd my-turbovault-workspace
 ```
 
-**Development with Docker Compose:**
-
+**Step 1 — Initialise the workspace** (once per directory):
 ```bash
-# Start Django admin server
-docker-compose up
+# Interactive (recommended for first time)
+turbovault workspace init
 
-# Access at http://localhost:8000/admin
-# Data persists in Docker volume
+# Or fully non-interactive:
+turbovault workspace init \
+  --db-engine sqlite3 --db-name db.sqlite3 \
+  --stage-schema stage --rdv-schema rdv \
+  --admin-username admin --admin-password changeme --admin-email admin@example.com
 ```
 
-### Initialize Your First Project
+This creates `turbovault.yml`, initialises the database, runs all migrations, and populates default templates.
 
-**Option 1: Web Wizard (Recommended for beginners)**
-1. Start the server: `turbovault serve`
-2. Open `http://localhost:8000/` in your browser
-3. Click **Initialize New Project** and follow the guide
-
-**Option 2: CLI Interface**
+**Step 2 — Create a project** (once per project):
 ```bash
-# Interactive mode - guided setup wizard
-turbovault init --interactive
+# Interactive wizard
+turbovault project init --interactive
 
-# Non-interactive mode (perfect for scripts/CI)
-turbovault init --name my_project --source ./metadata.xlsx \
+# Non-interactive with flags (great for CI/scripts)
+turbovault project init --name my_project --source ./metadata.xlsx \
   --stage-schema stage --rdv-schema rdv
 
-# Or use a config file
-turbovault init --config config.example.yml
+# Or from a config file
+turbovault project init --config config.example.yml
 ```
-
-**On first run, TurboVault will:**
-1. ✅ Create the database
-2. ✅ Run all migrations
-3. ✅ Populate template database from files
-4. ✅ Create default snapshot controls
-5. ✅ Prompt you to create an admin user (optional)
 
 ### Generate Your dbt Project
 
@@ -227,7 +203,10 @@ dbt run
 
 | Command | Description |
 |---------|-------------|
-| `turbovault init` | Initialize a new project (interactive or config-based) |
+| `turbovault workspace init` | Initialise directory as a workspace (creates `turbovault.yml` + DB) |
+| `turbovault workspace status` | Show workspace health (DB, projects, migrations) |
+| `turbovault project init` | Create a new project in the workspace |
+| `turbovault project list` | List all projects in the workspace |
 | `turbovault generate` | Generate dbt project and/or export Data Vault model to JSON |
 | `turbovault serve` | Start Django admin server for model management |
 | `turbovault reset` | Reset the database |
@@ -236,12 +215,25 @@ dbt run
 ### Command Examples
 
 ```bash
-# Interactive project initialization
-turbovault init --interactive
+# --- Workspace ---
+# Initialise workspace (non-interactive)
+turbovault workspace init --db-engine sqlite3 --db-name db.sqlite3 \
+  --stage-schema stage --rdv-schema rdv --skip-admin
 
-# Initialize from YAML config
-turbovault init --config config.yml
+# Check workspace health
+turbovault workspace status
 
+# --- Projects ---
+# Interactive project creation
+turbovault project init --interactive
+
+# Create from YAML config
+turbovault project init --config config.yml
+
+# List all projects
+turbovault project list
+
+# --- Generation ---
 # Generate dbt project with validation
 turbovault generate --project sales_datavault
 
@@ -251,14 +243,8 @@ turbovault generate --project sales_datavault --mode lenient
 # Generate with ZIP and no v1 satellites
 turbovault generate -p sales_datavault --zip --no-v1-satellites
 
-# Export Data Vault model to JSON only
-turbovault generate --json-only --project sales_datavault
-
-# Export JSON alongside dbt project generation
-turbovault generate --export-json --project sales_datavault
-
-# Export JSON with custom output path
-turbovault generate --json-only --json-output ./exports/model.json
+# Export Data Vault model to JSON
+turbovault generate --type json --project sales_datavault
 
 # Start admin on custom port
 turbovault serve --port 9000
@@ -382,7 +368,7 @@ All SQL and YAML templates can be customized:
 3. **Edit any template** to customize generation
 4. **Higher priority templates** are selected first
 
-Templates are automatically populated from files during project initialization.
+Templates are automatically populated from files during `turbovault workspace init`.
 
 ### Manual Template Management
 
@@ -495,16 +481,16 @@ Generates ready-to-use dbt project with:
 ### 📋 Planned Features
 
 #### Near-Term
-- ✅ **Excel metadata import** - Bulk import via Web Initializer (v0.3)
-- 🔲 **Database catalog import** - Import metadata directly from databases
-- 🔲 **DBML export** - Database modeling language output
-- 🔲 **Template versioning** - Track template changes over time
+- ✅ **Excel metadata import** — Bulk import via Excel file (v0.3)
+- ✅ **Workspace/Project split** — Two-step workspace + project init (v0.4)
+- 🔲 **Database catalog import** — Import metadata directly from databases
+- 🔲 **DBML export** — Database modeling language output
+- 🔲 **Template versioning** — Track template changes over time
 
 #### Medium-Term
-- 🔲 **Multi-project workspaces** - Manage multiple projects
-- 🔲 **Model comparison** - Diff and merge capabilities
-- 🔲 **CI/CD integration** - GitHub Actions workflow templates
-- 🔲 **Data lineage tracking** - Source-to-target mapping
+- 🔲 **Model comparison** — Diff and merge capabilities
+- 🔲 **CI/CD integration** — GitHub Actions workflow templates
+- 🔲 **Data lineage tracking** — Source-to-target mapping
 
 #### Long-Term
 - 🔲 **TurboVault Studio** - Web application with UI for modeling
@@ -547,12 +533,7 @@ git clone https://github.com/ScalefreeCOM/turbovault-engine.git
 cd turbovault-engine
 pip install -e ".[dev]"
 
-# Run migrations
-cd backend
-python manage.py migrate
-
 # Run tests
-cd ..
 python -m pytest backend/tests/ -v
 ```
 

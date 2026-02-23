@@ -10,101 +10,164 @@ pip install -e .
 
 This makes the `turbovault` command available in your terminal.
 
-> **Automatic Setup:** TurboVault automatically detects if the database is not initialized and runs all necessary migrations, creates default snapshot controls, and populates templates on first use. No manual setup required!
-
 ## Commands Overview
 
-TurboVault CLI provides the following main commands:
+TurboVault uses a **two-step setup**: initialise the workspace once, then create projects inside it.
 
-- `turbovault init` - Initialize a new project
-- `turbovault generate` - Generate dbt project and/or export Data Vault model to JSON
-- `turbovault serve` - Start Django admin server (and Web Initializer)
-- `turbovault reset` - Reset the database
-- `turbovault --help` - Show help for all commands
+| Command | Description |
+|---|---|
+| `turbovault workspace init` | Initialise directory as a workspace |
+| `turbovault workspace status` | Show DB connection, project count, migration status |
+| `turbovault project init` | Create a new Data Vault project in the workspace |
+| `turbovault project list` | List all projects in the workspace |
+| `turbovault generate` | Generate dbt project / export Data Vault model to JSON |
+| `turbovault serve` | Start Django admin server |
+| `turbovault reset` | Reset the workspace database |
+
 
 ## Command Reference
 
-### turbovault init
+### turbovault workspace init
 
-Initialize a new TurboVault project in the Django database.
+Initialise the current directory as a TurboVault workspace. Run this **once per workspace** before creating any projects.
 
-#### Usage with Config File
+Creates `turbovault.yml`, initialises the database, populates default templates, and optionally creates an admin user.
+
+#### Non-Interactive Mode (Flags)
 
 ```bash
-turbovault init --config config.yml
+turbovault workspace init \
+  --db-engine sqlite3 \
+  --db-name db.sqlite3 \
+  --stage-schema stage \
+  --rdv-schema rdv \
+  --skip-admin
 ```
 
-This will:
-1. Load and validate your config.yml
-2. Create the project in the Django database
-3. Create default snapshot controls
-4. Populate templates into the database
-5. Display a summary of the project configuration
+With PostgreSQL and admin user:
 
-**Example:**
 ```bash
-turbovault init --config examples/my_project_config.yml
+turbovault workspace init \
+  --db-engine postgresql \
+  --db-name company_vault \
+  --db-host db.company.com \
+  --db-port 5432 \
+  --db-user vault_user \
+  --db-password secret \
+  --admin-username admin \
+  --admin-password changeme \
+  --admin-email admin@company.com
 ```
 
 #### Interactive Mode
 
 ```bash
-turbovault init --interactive
+turbovault workspace init
+# or
+turbovault workspace init --interactive
 ```
 
-This launches an interactive wizard that prompts you for:
-- Project name
-- Project description (optional)
-- Whether to import from Excel
-- Excel file path (if applicable)
-- Stage schema name (default: "stage")
-- Stage database (optional)
-- RDV schema name (default: "rdv")
-- RDV database (optional)
-- dbt project output directory
-- Whether to create a ZIP archive
+Prompts for database engine, connection settings, schema defaults, and optional admin user.
 
-**Example:**
+#### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--db-engine STR` | Database backend (`sqlite3`, `postgresql`, `mysql`, `mssql`, `snowflake`) | prompted |
+| `--db-name STR` | Database name or SQLite file path | prompted |
+| `--db-host STR` | Database host (non-SQLite only) | — |
+| `--db-port INT` | Database port (non-SQLite only) | — |
+| `--db-user STR` | Database user (non-SQLite only) | — |
+| `--db-password STR` | Database password (non-SQLite only) | — |
+| `--stage-schema STR` | Default staging schema name | `stage` |
+| `--rdv-schema STR` | Default RDV schema name | `rdv` |
+| `--admin-username STR` | Admin username (skips prompt) | prompted |
+| `--admin-email STR` | Admin email (skips prompt) | prompted |
+| `--admin-password STR` | Admin password (skips prompt) | prompted |
+| `--skip-admin` | Skip admin user creation entirely | `false` |
+| `--overwrite` | Overwrite existing `turbovault.yml` | `false` |
+| `--interactive`, `-i` | Force interactive prompts | `false` |
+
+---
+
+### turbovault workspace status
+
+Show the health of the current workspace.
+
 ```bash
-turbovault init --interactive
+turbovault workspace status
 
-# You'll be prompted:
-? Project name: sales_datavault
-? Project description (optional): Sales Data Vault implementation
-? Import metadata from Excel? Yes
-? Path to Excel file: ./metadata/sales_sources.xlsx
-? Stage schema name: stage
-? RDV schema name: rdv
-? dbt project output directory: ./generated/dbt_project
-? Create ZIP archive of generated project? No
+# Output:
+#   Config file:     turbovault.yml
+#   Database:        sqlite3 / db.sqlite3
+#   DB status:       Connected
+#   Projects:        2
+#   Migrations:      Up to date
 ```
+
+---
+
+### turbovault project init
+
+Create a new Data Vault project inside an existing workspace.
+
+Requires `turbovault workspace init` to have been run first.
 
 #### Non-Interactive Mode (Flags)
 
-Perfect for scripts, CI/CD, or power users who know what they want.
+```bash
+turbovault project init --name my_project --source ./metadata.xlsx \
+  --stage-schema stage --rdv-schema rdv
+```
+
+#### Interactive Mode
 
 ```bash
-turbovault init --name my_project \
-  --source ./metadata.xlsx \
-  --stage-schema stage \
-  --rdv-schema rdv
+turbovault project init --interactive
+```
+
+Prompts for project name, description, source metadata, schema names, naming patterns, and ZIP option.
+
+#### From a Config File
+
+```bash
+turbovault project init --config config.yml
 ```
 
 #### Options
 
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--config PATH` | `-c` | Path to config.yml file |
-| `--interactive` | `-i` | Run interactive setup wizard |
-| `--name NAME` | `-n` | Project name |
-| `--source PATH` | `-s` | Path to Excel/SQLite source metadata |
-| `--stage-schema STR` | | Staging schema name |
-| `--rdv-schema STR` | | Raw Data Vault schema name |
-| `--output DIR` | `-o` | Output directory for dbt project |
-| `--zip` | `-z` | Create ZIP archive |
-| `--overwrite` | | Overwrite existing project without prompting |
-| `--help` | | Show help message |
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--name NAME` | `-n` | Project name | prompted |
+| `--description STR` | | Project description | — |
+| `--source PATH` | `-s` | Source metadata file (`.xlsx` or `.db`) | — |
+| `--stage-schema STR` | | Staging schema name | `stage` |
+| `--rdv-schema STR` | | Raw Data Vault schema name | `rdv` |
+| `--stage-database STR` | | Optional staging database name | — |
+| `--rdv-database STR` | | Optional RDV database name | — |
+| `--hashdiff-naming STR` | | Hashdiff naming pattern | `hd_{entity_name}` |
+| `--hashkey-naming STR` | | Hashkey naming pattern | `hk_{entity_name}` |
+| `--zip` | | Create ZIP of generated dbt project | `false` |
+| `--overwrite` | | Overwrite existing project | `false` |
+| `--interactive` | `-i` | Run interactive setup wizard | `false` |
+| `--config PATH` | `-c` | Load settings from a `config.yml` | — |
 
+---
+
+### turbovault project list
+
+List all projects in the current workspace.
+
+```bash
+turbovault project list
+
+# Output:
+# ┌─────────────┬─────────────┬──────────────────────┐
+# │ Name        │ Description │ Directory            │
+# ├─────────────┼─────────────┼──────────────────────┤
+# │ TestProject │ —           │ projects/testproject │
+# └─────────────┴─────────────┴──────────────────────┘
+```
 
 ---
 
@@ -325,100 +388,79 @@ turbovault reset
 
 ## Complete Workflow Examples
 
-### Example 1: Quick Start - Generate dbt Project
+### Example 1: Quick Start (SQLite)
 
 ```bash
-# 1. Initialize project interactively
-turbovault init --interactive
+# 1. Initialise workspace
+turbovault workspace init --db-engine sqlite3 --db-name db.sqlite3 \
+  --stage-schema stage --rdv-schema rdv \
+  --admin-username admin --admin-password changeme --admin-email admin@example.com
 
-# 2. Start admin server to define your model
+# 2. Create a project
+turbovault project init --name my_project
+
+# 3. Open admin to define your Data Vault model
 turbovault serve
-
-# 3. Define your Data Vault model in admin interface
-# - Navigate to http://127.0.0.1:8000/admin/
-# - Create hubs, links, satellites
+# Navigate to http://127.0.0.1:8000/admin/
 
 # 4. Generate dbt project
 turbovault generate --project my_project
 
-# 5. Use the generated dbt project
-cd output/my_project
-dbt deps
-dbt compile
-dbt run
+# 5. Run the generated dbt project
+cd projects/my_project/dbt_project
+dbt deps && dbt compile && dbt run
 ```
 
-### Example 2: Complete Development Workflow
+### Example 2: Import Metadata from Excel
 
 ```bash
-# 1. Create config.yml
-cat > config.yml << EOF
-project:
-  name: "sales_datavault"
-  description: "Sales Data Vault"
-
-configuration:
-  stage_schema: "stg"
-  rdv_schema: "rdv"
-
-output:
-  dbt_project_dir: "./generated/dbt_sales"
-  create_zip: false
-EOF
-
-# 2. Initialize from config
-turbovault init --config config.yml
-
-# 3. Model in admin (or programmatically)
-turbovault serve
-
-# 4. Export to JSON for review (optional)
-turbovault generate --json-only --project sales_datavault --json-format pretty
-
-# 5. Generate dbt project
-turbovault generate --project sales_datavault --zip
-
-# 6. Deploy generated project
-cd generated/dbt_sales
-dbt deps
-dbt run
+# Workspace already exists:
+turbovault project init \
+  --name sales_datavault \
+  --source ./metadata/sales_sources.xlsx \
+  --stage-schema stage \
+  --rdv-schema rdv
 ```
 
-### Example 3: Template Customization Workflow
+### Example 3: Full Non-Interactive Setup (CI/CD)
 
 ```bash
-# 1. Initialize project
-turbovault init --interactive
+# Step 1: workspace
+turbovault workspace init \
+  --db-engine postgresql \
+  --db-name company_vault \
+  --db-host db.company.com \
+  --db-user vault_user \
+  --db-password "$DB_PASSWORD" \
+  --skip-admin
 
-# 2. Start admin server
-turbovault serve
+# Step 2: project
+turbovault project init \
+  --name ci_project \
+  --config config.yml
 
-# 3. Customize templates
-# - Navigate to Model Templates in admin
-# - Edit SQL or YAML templates
-# - Save changes
-
-# 4. Generate with custom templates
-turbovault generate --project my_project
-
-# Templates from database override file-based defaults
-```
-
-### Example 4: CI/CD Pipeline Example
-
-```bash
-# Skip interactive prompts
-export TURBOVAULT_SKIP_SUPERUSER_PROMPT=1
-export TURBOVAULT_SKIP_TEMPLATE_POPULATION=0
-
-# Initialize project
-turbovault init --config config.yml
-
-# Generate and validate
+# Step 3: generate + archive
 turbovault generate --project ci_project --mode strict --zip
+```
 
-# Archive is ready for deployment
-ls output/ci_project.zip
+### Example 4: Team Workflow
+
+```bash
+# Alice: set up workspace on shared DB and push
+turbovault workspace init --db-engine postgresql --db-host db.company.com ...
+git init && git add turbovault.yml .gitignore && git commit -m "Init workspace"
+git push
+
+# Alice: add a project
+turbovault project init --name customer_vault
+git add projects/customer_vault/config.yml
+git commit -m "Add customer_vault project"
+git push
+
+# Bob: clone and start working
+git clone https://github.com/company/company-datavault.git
+cd company-datavault
+turbovault generate --project customer_vault
 ```
 
 ---
@@ -438,7 +480,10 @@ turbovault --version
 turbovault --help
 
 # Command-specific help
-turbovault init --help
+turbovault workspace --help
+turbovault workspace init --help
+turbovault project --help
+turbovault project init --help
 turbovault generate --help
 turbovault serve --help
 turbovault reset --help

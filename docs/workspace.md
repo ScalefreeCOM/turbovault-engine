@@ -3,35 +3,101 @@
 ## What is a TurboVault Workspace?
 
 A **TurboVault workspace** is a directory containing:
-- `turbovault.yml` - Global configuration
-- `db.sqlite3` - Database (if using SQLite)
-- `projects/` - Subdirectories for each project
+- `turbovault.yml` — Global configuration (database, schema defaults)
+- `db.sqlite3` — SQLite database (or connection to an external DB)
+- `projects/` — One subdirectory per project
 
-Think of it like a **Git repository** - you must be in a workspace to run TurboVault commands.
+Think of it like a **Git repository**: run `turbovault workspace init` once in your target folder, then create as many projects as you need with `turbovault project init`.
 
 ---
 
-## Creating a Workspace
-
-### Option 1: Initialize New Workspace
-
-```bash
-# Navigate to where you want your workspace
-cd C:\Users\yourname\Documents\
-
-# Create workspace directory
-mkdir my_turbovault
-cd my_turbovault
-
-# Initialize (interactive)
-turbovault init --interactive
-
-# Or non-interactive:
-turbovault init --name my_project --source ./data.xlsx --stage-schema stage --rdv-schema rdv
+## Two-Step Setup
 
 ```
+turbovault workspace init    # Step 1: set up the workspace (once per folder)
+turbovault project init      # Step 2: create a project inside it
+```
 
-This creates:
+---
+
+## Step 1 — Creating a Workspace
+
+### Interactive mode
+
+```bash
+cd my_turbovault
+turbovault workspace init
+```
+
+You will be prompted for database engine, schema names, and an optional admin user.
+
+### Non-interactive mode (CI / scripts)
+
+```bash
+turbovault workspace init \
+  --db-engine sqlite3 \
+  --db-name db.sqlite3 \
+  --stage-schema stage \
+  --rdv-schema rdv \
+  --skip-admin
+```
+
+For PostgreSQL:
+
+```bash
+turbovault workspace init \
+  --db-engine postgresql \
+  --db-name company_vault \
+  --db-host db.company.com \
+  --db-port 5432 \
+  --db-user turbovault_user \
+  --db-password secret \
+  --stage-schema stage \
+  --rdv-schema rdv \
+  --admin-username admin \
+  --admin-password changeme \
+  --admin-email admin@company.com
+```
+
+**What this creates:**
+
+```
+my_turbovault/
+├── turbovault.yml         # Created by workspace init
+├── db.sqlite3             # Created by workspace init
+└── projects/              # Created when you add projects
+```
+
+---
+
+## Step 2 — Creating a Project
+
+Once a workspace exists, create projects inside it:
+
+### Interactive mode
+
+```bash
+turbovault project init --interactive
+```
+
+### Non-interactive mode
+
+```bash
+turbovault project init \
+  --name my_project \
+  --source ./metadata.xlsx \
+  --stage-schema stage \
+  --rdv-schema rdv
+```
+
+### From a config file
+
+```bash
+turbovault project init --config config.yml
+```
+
+**What this creates:**
+
 ```
 my_turbovault/
 ├── turbovault.yml
@@ -43,20 +109,44 @@ my_turbovault/
         └── exports/
 ```
 
-### Option 2: Clone Existing Workspace
+---
+
+## Workspace Commands
+
+| Command | Description |
+|---|---|
+| `turbovault workspace init` | Initialise directory as a workspace |
+| `turbovault workspace status` | Show DB connection, project count, migration status |
 
 ```bash
-# Clone team's workspace from Git
-git clone https://github.com/myteam/turbovault-workspace.git
-cd turbovault-workspace
+turbovault workspace status
 
-# You now have:
-# - turbovault.yml
-# - projects/*/config.yml
-# 
-# Database options:
-# - SQLite: Each developer has local db.sqlite3
-# - PostgreSQL: Everyone shares central database
+# Output:
+#   Config file:     turbovault.yml
+#   Database:        sqlite3 / db.sqlite3
+#   DB status:       Connected
+#   Projects:        2
+#   Migrations:      Up to date
+```
+
+---
+
+## Project Commands
+
+| Command | Description |
+|---|---|
+| `turbovault project init` | Create a new project in the workspace |
+| `turbovault project list` | List all projects in the workspace |
+
+```bash
+turbovault project list
+
+# Output:
+# ┌─────────────┬─────────────┬──────────────────────┐
+# │ Name        │ Description │ Directory            │
+# ├─────────────┼─────────────┼──────────────────────┤
+# │ TestProject │ —           │ projects/testproject │
+# └─────────────┴─────────────┴──────────────────────┘
 ```
 
 ---
@@ -66,110 +156,86 @@ cd turbovault-workspace
 ✅ **DO:**
 - Run `turbovault` commands from workspace root
 - Keep `turbovault.yml` in version control
-- Use relative paths (`project_root: "."`)
-- Share workspace via Git
+- Run `turbovault workspace init` before any other command
 
 ❌ **DON'T:**
-- Run `turbovault` from random directories
+- Run `turbovault project init` from a directory without `turbovault.yml`
 - Use absolute paths in config
-- Commit `db.sqlite3` to Git (add to .gitignore)
+- Commit `db.sqlite3` to Git (add to `.gitignore`)
 
 ---
 
 ## Multiple Workspaces
 
-You can have multiple independent workspaces:
+Each workspace is completely isolated — different databases, different projects:
 
 ```
 C:\Users\yourname\Documents\
-├── customer_vault/          # Workspace 1
+├── customer_vault\           # Workspace 1
 │   ├── turbovault.yml
 │   ├── db.sqlite3
-│   └── projects/
-│       └── customers/
-└── supplier_vault/          # Workspace 2
+│   └── projects\
+│       └── customers\
+└── supplier_vault\           # Workspace 2
     ├── turbovault.yml
     ├── db.sqlite3
-    └── projects/
-        └── suppliers/
+    └── projects\
+        └── suppliers\
 ```
-
-Each workspace is completely isolated - different databases, different projects.
 
 ---
 
 ## Team Collaboration
 
-### Setup for Teams
-
-**1. One-time: Create workspace repository**
+### One-time: Create workspace repository
 
 ```bash
 mkdir company-datavault
 cd company-datavault
 
-# Create turbovault.yml
-cat > turbovault.yml << EOF
-database:
-  engine: postgresql
-  name: company_vault
-  user: turbovault_user
-  password: secret
-  host: db.company.com
-  port: 5432
-
-project_root: "."
-
-defaults:
-  stage_schema: stage
-  rdv_schema: rdv
-EOF
-
-# Initialize first project
-turbovault init --interactive
+turbovault workspace init \
+  --db-engine postgresql \
+  --db-name company_vault \
+  --db-host db.company.com \
+  --db-port 5432 \
+  --db-user vault_user \
+  --db-password secret \
+  --admin-username admin \
+  --admin-password changeme \
+  --admin-email admin@company.com
 
 # Create .gitignore
-cat > .gitignore << EOF
-db.sqlite3
-*.pyc
-__pycache__/
-.env
-EOF
+echo "db.sqlite3" > .gitignore
 
-# Commit and push
 git init
-git add .
+git add turbovault.yml .gitignore
 git commit -m "Initial turbovault workspace"
 git push origin main
 ```
 
-**2. Team members: Clone and work**
+### Team members: Clone and work
 
 ```bash
-# Clone workspace
 git clone https://github.com/company/company-datavault.git
 cd company-datavault
 
-# Verify config points to shared database
-cat turbovault.yml
-
-# Start working
-turbovault serve
-turbovault generate --project customers
+turbovault workspace status    # verify DB connection
+turbovault project list        # see existing projects
+turbovault serve               # open Django Admin
 ```
 
-### Workflow
+### Day-to-day workflow
 
 ```bash
-# Alice: Add new project
-turbovault init --name new_project
+# Alice: Add a new project
+turbovault project init --name new_project
 git add projects/new_project/config.yml
 git commit -m "Add new_project"
 git push
 
-# Bob: Get updates
+# Bob: Get updates and generate
 git pull
-turbovault generate --project new_project  # Works immediately!
+turbovault generate --project new_project
 ```
 
 ---
@@ -182,10 +248,8 @@ turbovault generate --project new_project  # Works immediately!
 ```yaml
 database:
   engine: sqlite3
-  name: db.sqlite3  # Local file, each developer has their own
+  name: db.sqlite3    # Local file, each developer has their own
 ```
-
-Each team member has their own database - great for experiments!
 
 ### PostgreSQL (Team/Production)
 
@@ -196,59 +260,40 @@ database:
   name: shared_vault
   host: db.company.com
   user: vault_user
-  password: ${DB_PASSWORD}  # Use environment variable!
+  password: ${DB_PASSWORD}    # Use an environment variable!
 ```
-
-Everyone shares the same database - Data Vault models are centralized.
 
 ---
 
 ## FAQ
 
-### "Config file not found" error?
+### "Not a TurboVault workspace!" error?
 
-**Cause:** You're not in a turbovault workspace.
+You're running a command from a directory without `turbovault.yml`.
 
-**Solution:**
 ```bash
-# Check current directory
-pwd
-
-# Should see turbovault.yml
-ls turbovault.yml
-
-# If not, navigate to workspace
-cd /path/to/workspace
+turbovault workspace init    # initialise first
 ```
 
 ### Can I move my workspace?
 
-**Yes!** Just move the entire folder. Everything is relative:
+**Yes!** Move the entire folder — everything uses relative paths:
 
 ```bash
-# Move workspace
 mv ~/old_location/my_vault ~/new_location/my_vault
 cd ~/new_location/my_vault
-
-# Still works!
-turbovault serve
+turbovault serve    # still works
 ```
 
 ### Can I rename my workspace folder?
 
-**Yes!** The folder name doesn't matter:
-
-```bash
-mv my_vault customer_vault
-cd customer_vault
-turbovault serve  # Works fine
-```
+**Yes!** The folder name doesn't matter.
 
 ---
 
 ## Best Practices
 
-1. **One workspace per team/domain**
+1. **One workspace per team / domain**
    - Customer Data Vault → `customer-vault/`
    - Supplier Data Vault → `supplier-vault/`
 
@@ -259,12 +304,7 @@ turbovault serve  # Works fine
    git commit -m "Initial workspace"
    ```
 
-3. **Keep it portable**
-   - Use relative paths only
-   - `project_root: "."`
-   - Database file relative to workspace
-
-4. **Ignore generated files**
+3. **Ignore generated files**
    ```.gitignore
    db.sqlite3
    projects/*/dbt_project/
@@ -275,5 +315,6 @@ turbovault serve  # Works fine
 
 ## See Also
 
-- [configuration.md](configuration.md) - Configuration reference
-- [README.md](../README.md) - General usage
+- [configuration.md](configuration.md) — Configuration reference
+- [CLI_GUIDE.md](CLI_GUIDE.md) — Full CLI command reference
+- [README.md](../README.md) — General usage

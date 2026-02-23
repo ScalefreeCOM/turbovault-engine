@@ -25,6 +25,16 @@ def serve(
     This starts the Django runserver so you can access the admin
     interface to manage your Data Vault model.
     """
+    from engine.services.app_config_loader import (
+        WorkspaceNotFoundError,
+        require_workspace,
+    )
+
+    try:
+        workspace_config_path = require_workspace()
+    except WorkspaceNotFoundError as e:
+        console.print(f"\n[red]✗ {e}[/red]\n")
+        raise typer.Exit(1)
 
     # Display startup banner
     banner = Text()
@@ -52,6 +62,8 @@ def serve(
 
     # Run Django runserver
     try:
+        import os
+
         from engine.cli.utils.debug import debug_print
 
         cmd = [sys.executable, str(manage_py), "runserver", f"{host}:{port}"]
@@ -59,8 +71,17 @@ def serve(
         debug_print(f"Starting server with command: {' '.join(cmd)}")
         debug_print(f"Working directory: {backend_dir}")
 
+        # Pass the workspace config path via env var so the Django subprocess
+        # can find turbovault.yml (and therefore the correct database) even
+        # though its working directory is set to backend_dir (the repo),
+        # not the user's workspace directory.
+        env = os.environ.copy()
+        env["TURBOVAULT_CONFIG_PATH"] = str(workspace_config_path.resolve())
+
+        debug_print(f"TURBOVAULT_CONFIG_PATH = {env['TURBOVAULT_CONFIG_PATH']}")
+
         # Run the server - this will block until CTRL+C
-        result = subprocess.run(cmd, cwd=str(backend_dir), check=False)
+        result = subprocess.run(cmd, cwd=str(backend_dir), env=env, check=False)
 
         debug_print(f"Server exited with return code: {result.returncode}")
 

@@ -99,6 +99,20 @@ def generate(
 
     debug_print("generate() function called")
 
+    # Guard: must be inside a TurboVault workspace
+    from engine.services.app_config_loader import (
+        WorkspaceNotFoundError,
+        require_workspace,
+    )
+
+    try:
+        require_workspace()
+    except WorkspaceNotFoundError as e:
+        from engine.cli.utils.console import print_error
+
+        print_error(str(e))
+        raise typer.Exit(1)
+
     # Lazy imports to avoid loading before Django setup
     from engine.models import Project
     from engine.services.app_config_loader import resolve_project_path
@@ -161,19 +175,54 @@ def generate(
     if not selected_project:
         raise typer.Exit(0)
 
-    # Determine output path for dbt if needed
-    if should_generate_dbt and not output:
-        if selected_project.project_directory:
-            try:
-                project_path = resolve_project_path(selected_project.project_directory)
-                output = project_path / "dbt_project"
-            except Exception:
-                # Fallback if resolving fails
-                safe_name = selected_project.name.lower().replace(" ", "_")
-                output = Path("./output") / safe_name
+    # Resolve the project directory once — used for all default output paths.
+    _project_dir: Path | None = None
+    if selected_project.project_directory:
+        try:
+            _project_dir = resolve_project_path(selected_project.project_directory)
+        except Exception:
+            _project_dir = None
+
+    # Load project config so we can honor output-path overrides defined in config.yml.
+    _project_config = None
+    if _project_dir:
+        try:
+            from engine.services.project_config import load_project_config
+
+            _project_config = load_project_config(selected_project)
+        except Exception:
+            _project_config = None
+
+    def _default_exports_subdir(
+        subdir: str, config_override: Path | None = None
+    ) -> Path:
+        """
+        Return the output directory for a given export type.
+
+        Priority (highest to lowest):
+          1. CLI flag (handled by the caller before this is invoked)
+          2. config.yml output override  (config_override)
+          3. Convention: exports/<subdir>/ inside the project folder
+          4. Fallback cwd: ./exports/<project>/<subdir>/
+        """
+        if config_override is not None:
+            path = config_override.expanduser().resolve()
+        elif _project_dir:
+            path = _project_dir / "exports" / subdir
         else:
             safe_name = selected_project.name.lower().replace(" ", "_")
-            output = Path("./output") / safe_name
+            path = Path("./exports") / safe_name / subdir
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    # Read per-type config overrides (None when not set)
+    _cfg_dbt_dir = _project_config.output.dbt_project_dir if _project_config else None
+    _cfg_json_dir = _project_config.output.json_output_dir if _project_config else None
+    _cfg_dbml_dir = _project_config.output.dbml_output_dir if _project_config else None
+
+    # Determine output path for dbt if needed (CLI --output takes priority over config)
+    if should_generate_dbt and not output:
+        output = _default_exports_subdir("dbt_project", _cfg_dbt_dir)
 
     # Calculate total steps
     total_steps = 2  # Build + Complete
@@ -214,6 +263,7 @@ def generate(
             selected_project,
             json_output,
             json_format,
+            default_dir=_default_exports_subdir("json", _cfg_json_dir),
         )
 
         # JSON-only: show summary and return
@@ -233,6 +283,7 @@ def generate(
             project_export,
             selected_project,
             dbml_output,
+            default_dir=_default_exports_subdir("dbml", _cfg_dbml_dir),
         )
 
         # DBML-only: show summary and return
@@ -324,6 +375,8 @@ def _export_json(
     selected_project,
     json_output: Path | None,
     json_format: str,
+    *,
+    default_dir: Path,
 ) -> Path:
     """Export the project model to JSON and return the file path."""
     from datetime import datetime
@@ -338,13 +391,13 @@ def _export_json(
     exporter = JSONExporter(indent=indent)
     export_content = exporter.export(project_export)
 
-    # Generate default filename if not provided
+    # Generate default path inside exports/json/ if not overridden
     if not json_output:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = (
             f"{selected_project.name.lower().replace(' ', '_')}_export_{timestamp}.json"
         )
-        json_output = Path(filename)
+        json_output = default_dir / filename
 
     # Write to file
     json_output.parent.mkdir(parents=True, exist_ok=True)
@@ -360,6 +413,8 @@ def _export_dbml(
     project_export,
     selected_project,
     dbml_output: Path | None,
+    *,
+    default_dir: Path,
 ) -> Path:
     """Export the project model to DBML and return the file path."""
     from datetime import datetime
@@ -371,13 +426,13 @@ def _export_dbml(
     exporter = DBMLExporter()
     export_content = exporter.export(project_export)
 
-    # Generate default filename if not provided
+    # Generate default path inside exports/dbml/ if not overridden
     if not dbml_output:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = (
             f"{selected_project.name.lower().replace(' ', '_')}_erd_{timestamp}.dbml"
         )
-        dbml_output = Path(filename)
+        dbml_output = default_dir / filename
 
     # Write to file
     dbml_output.parent.mkdir(parents=True, exist_ok=True)

@@ -23,51 +23,129 @@ class AppConfigError(Exception):
     pass
 
 
+class WorkspaceNotFoundError(AppConfigError):
+    """Raised when a command is run outside a TurboVault workspace."""
+
+    pass
+
+
 def find_turbovault_config() -> Path | None:
     """
     Find the turbovault.yml configuration file.
 
-    Only searches in the current directory - turbovault must be run from
-    a turbovault workspace (similar to how Git requires being in a repo).
+    Search order:
+      1. ``TURBOVAULT_CONFIG_PATH`` environment variable (absolute path to
+         turbovault.yml) — used by ``turbovault serve`` to pass the workspace
+         path to the Django subprocess without changing its working directory.
+      2. Current working directory — the standard interactive case.
 
     Returns:
-        Path to turbovault.yml if found in current directory, None otherwise
+        Path to turbovault.yml if found, None otherwise
     """
-    # Only check current directory
+    import os
+
+    env_path = os.environ.get("TURBOVAULT_CONFIG_PATH")
+    if env_path:
+        p = Path(env_path)
+        if p.exists():
+            return p
+        logger.warning(
+            "TURBOVAULT_CONFIG_PATH is set to '%s' but the file does not exist.",
+            env_path,
+        )
+
     cwd_config = Path.cwd() / "turbovault.yml"
     if cwd_config.exists():
         return cwd_config
-
     return None
 
 
-def ensure_turbovault_config() -> Path:
+def require_workspace() -> Path:
     """
-    Ensure turbovault.yml exists in current directory, creating it with defaults if not.
+    Assert that the current directory is a TurboVault workspace.
 
-    This makes the current directory a "turbovault workspace" - similar to 'git init'.
+    Raises WorkspaceNotFoundError with a clear, actionable message if
+    turbovault.yml is not found so that every CLI command can guard
+    itself with a single call at the top.
 
     Returns:
-        Path to the turbovault.yml file
+        Absolute path to turbovault.yml
+
+    Raises:
+        WorkspaceNotFoundError: If turbovault.yml is not found in cwd
     """
     config_path = find_turbovault_config()
-
     if config_path is None:
-        # Create default config in current directory
-        config_path = Path.cwd() / "turbovault.yml"
-        logger.info(f"Initializing turbovault workspace in {Path.cwd()}")
+        raise WorkspaceNotFoundError(
+            f"Not a TurboVault workspace!\n\n"
+            f"  No turbovault.yml found in {Path.cwd()}\n\n"
+            f"  Run 'turbovault workspace init' to initialise this directory as a workspace."
+        )
+    return config_path
 
-        default_config = {
-            "database": {"engine": "sqlite3", "name": "db.sqlite3"},
-            "project_root": ".",  # Current directory
-            "defaults": {"stage_schema": "stage", "rdv_schema": "rdv"},
-        }
 
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(default_config, f, default_flow_style=False, sort_keys=False)
+def create_workspace_config(
+    *,
+    db_engine: str = "sqlite3",
+    db_name: str = "db.sqlite3",
+    db_host: str | None = None,
+    db_port: int | None = None,
+    db_user: str | None = None,
+    db_password: str | None = None,
+    stage_schema: str = "stage",
+    rdv_schema: str = "rdv",
+    overwrite: bool = False,
+) -> Path:
+    """
+    Create turbovault.yml in the current directory from explicit parameters.
 
-        logger.info(f"Created turbovault.yml in {Path.cwd()}")
+    This is the entry point for 'turbovault workspace init'. It does NOT
+    initialise the database — that is done separately by initialise_workspace_db().
 
+    Args:
+        db_engine: Database engine (sqlite3, postgresql, mysql, mssql, snowflake)
+        db_name: Database name or file path for SQLite
+        db_host: Database host (non-SQLite only)
+        db_port: Database port (non-SQLite only)
+        db_user: Database user (non-SQLite only)
+        db_password: Database password (non-SQLite only)
+        stage_schema: Default staging schema name
+        rdv_schema: Default RDV schema name
+        overwrite: If True, overwrite existing turbovault.yml
+
+    Returns:
+        Path to the created turbovault.yml
+
+    Raises:
+        AppConfigError: If turbovault.yml already exists and overwrite=False
+    """
+    config_path = Path.cwd() / "turbovault.yml"
+
+    if config_path.exists() and not overwrite:
+        raise AppConfigError(
+            f"turbovault.yml already exists in {Path.cwd()}. "
+            "Use --overwrite to replace it."
+        )
+
+    config_dict: dict = {
+        "database": {"engine": db_engine, "name": db_name},
+        "defaults": {"stage_schema": stage_schema, "rdv_schema": rdv_schema},
+    }
+
+    if db_engine != "sqlite3":
+        if db_host:
+            config_dict["database"]["host"] = db_host
+        if db_port:
+            config_dict["database"]["port"] = db_port
+        if db_user:
+            config_dict["database"]["user"] = db_user
+        if db_password:
+            config_dict["database"]["password"] = db_password
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
+
+    logger.info(f"Created turbovault.yml in {Path.cwd()}")
     return config_path
 
 
@@ -75,13 +153,19 @@ def load_application_config() -> ApplicationConfig:
     """
     Load and validate the application configuration from turbovault.yml.
 
+    Loads from the current directory only. Call require_workspace() first
+    if you want a clear error when not in a workspace.
+
     Returns:
         Validated ApplicationConfig object
 
     Raises:
         AppConfigError: If config is invalid or cannot be loaded
     """
-    config_path = ensure_turbovault_config()
+    config_path = find_turbovault_config()
+    if config_path is None:
+        # Fallback: use defaults (no turbovault.yml present — settings.py path)
+        return ApplicationConfig()
 
     try:
         with open(config_path, encoding="utf-8") as f:
