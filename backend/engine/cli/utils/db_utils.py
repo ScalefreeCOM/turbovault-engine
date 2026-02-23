@@ -238,7 +238,8 @@ def ensure_database_ready() -> None:
     This function:
     1. Checks if the database file exists (for SQLite)
     2. Creates and initializes the database if it doesn't exist
-    3. Populates templates if needed
+    3. Checks for and applies any pending migrations
+    4. Populates templates if needed
 
     Raises:
         SystemExit: If migrations fail to apply
@@ -249,7 +250,6 @@ def ensure_database_ready() -> None:
 
     debug_print("ensure_database_ready() started")
 
-    # For SQLite, check if database file exists
     db_config = settings.DATABASES["default"]
     is_sqlite = db_config["ENGINE"] == "django.db.backends.sqlite3"
 
@@ -264,15 +264,40 @@ def ensure_database_ready() -> None:
             console.print("\n[yellow]⚠️  Database not found. Initializing...[/yellow]")
             _run_migrations(initial=True)
             console.print("[green]✓ Database initialized successfully[/green]\n")
-            # Populate templates after initial setup
             ensure_templates_populated()
             debug_print("Returning after initial setup")
             return
 
-    # Database exists - just ensure templates are populated
-    debug_print("Database exists, ensuring templates are populated...")
+    # DB exists - check for any pending migrations and apply them
+    if _has_pending_migrations():
+        debug_print("Pending migrations found, applying...")
+        _run_migrations(initial=False)
+    else:
+        debug_print("No pending migrations")
+
     ensure_templates_populated()
     debug_print("ensure_database_ready() completed")
+
+
+def _has_pending_migrations() -> bool:
+    """
+    Check whether any unapplied migrations exist.
+
+    Returns:
+        True if there are pending migrations, False otherwise.
+    """
+    from django.db import DEFAULT_DB_ALIAS, connections
+    from django.db.migrations.executor import MigrationExecutor
+
+    try:
+        connection = connections[DEFAULT_DB_ALIAS]
+        executor = MigrationExecutor(connection)
+        targets = executor.loader.graph.leaf_nodes()
+        plan = executor.migration_plan(targets)
+        return bool(plan)
+    except Exception:
+        # If we can't check (e.g. django_migrations table missing), assume pending
+        return True
 
 
 def _run_migrations(initial: bool = False) -> None:

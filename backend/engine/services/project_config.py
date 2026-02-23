@@ -83,11 +83,15 @@ def write_project_config(config_path: Path, config) -> None:
             "rdv_schema": config.configuration.rdv_schema,
         },
         "output": {
-            "dbt_project_dir": str(config.output.dbt_project_dir),
+            "dbt_project_dir": "dbt_project",  # Always default to relative dbt_project in config
             "create_zip": config.output.create_zip,
             "export_sources": config.output.export_sources,
         },
     }
+
+    # If user provided a custom path that isn't the default, use it
+    if config.output.dbt_project_dir.name != "dbt_project":
+        config_dict["output"]["dbt_project_dir"] = str(config.output.dbt_project_dir)
 
     # Add optional fields if present
     if config.configuration.stage_database:
@@ -118,7 +122,7 @@ def write_project_config(config_path: Path, config) -> None:
     # Add source if present
     if config.source:
         config_dict["source"] = {
-            "type": config.source.type,
+            "type": config.source.type.value,
             "path": str(config.source.path),
         }
 

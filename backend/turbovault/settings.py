@@ -90,7 +90,7 @@ def get_database_config() -> dict[str, dict[str, str | int | dict]]:
     try:
         app_config = load_application_config()
         if app_config.database:
-            return {"default": app_config.database.to_django_config(BASE_DIR)}
+            return {"default": app_config.database.to_django_config(Path.cwd())}
     except Exception as e:
         # If config loading fails, fall back to default SQLite
         import logging
@@ -101,14 +101,14 @@ def get_database_config() -> dict[str, dict[str, str | int | dict]]:
             "Using default SQLite."
         )
 
-    # Fallback: Default SQLite configuration
+    # Fallback: Default SQLite configuration in current directory (workspace)
     from engine.services.config_schema import DatabaseConfig, DatabaseEngine
 
     default_db = DatabaseConfig(
         engine=DatabaseEngine.SQLITE,
-        name=str(BASE_DIR / "db.sqlite3"),
+        name="db.sqlite3",  # Relative to cwd (the user's workspace)
     )
-    return {"default": default_db.to_django_config(BASE_DIR)}
+    return {"default": default_db.to_django_config(Path.cwd())}
 
 
 DATABASES = get_database_config()

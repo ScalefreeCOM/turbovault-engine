@@ -79,13 +79,32 @@ turbovault init --interactive
 ? Create ZIP archive of generated project? No
 ```
 
+#### Non-Interactive Mode (Flags)
+
+Perfect for scripts, CI/CD, or power users who know what they want.
+
+```bash
+turbovault init --name my_project \
+  --source ./metadata.xlsx \
+  --stage-schema stage \
+  --rdv-schema rdv
+```
+
 #### Options
 
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--config PATH` | `-c` | Path to config.yml file |
 | `--interactive` | `-i` | Run interactive setup wizard |
+| `--name NAME` | `-n` | Project name |
+| `--source PATH` | `-s` | Path to Excel/SQLite source metadata |
+| `--stage-schema STR` | | Staging schema name |
+| `--rdv-schema STR` | | Raw Data Vault schema name |
+| `--output DIR` | `-o` | Output directory for dbt project |
+| `--zip` | `-z` | Create ZIP archive |
+| `--overwrite` | | Overwrite existing project without prompting |
 | `--help` | | Show help message |
+
 
 ---
 

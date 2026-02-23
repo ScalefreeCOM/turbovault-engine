@@ -134,14 +134,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "config",
-                    models.JSONField(
-                        blank=True,
-                        help_text="Optional JSON for project-level configuration parameters",
-                        null=True,
-                    ),
-                ),
-                (
                     "created_at",
                     models.DateTimeField(
                         auto_now_add=True,
