@@ -145,8 +145,8 @@ turbovault project init --config config.yml
 | `--rdv-schema STR` | | Raw Data Vault schema name | `rdv` |
 | `--stage-database STR` | | Optional staging database name | — |
 | `--rdv-database STR` | | Optional RDV database name | — |
-| `--hashdiff-naming STR` | | Hashdiff naming pattern | `hd_{entity_name}` |
-| `--hashkey-naming STR` | | Hashkey naming pattern | `hk_{entity_name}` |
+| `--hashdiff-naming STR` | | Hashdiff naming pattern | `hd_[[ satellite_name ]]` |
+| `--hashkey-naming STR` | | Hashkey naming pattern | `hd_[[ entity_name ]]` |
 | `--zip` | | Create ZIP of generated dbt project | `false` |
 | `--overwrite` | | Overwrite existing project | `false` |
 | `--interactive` | `-i` | Run interactive setup wizard | `false` |

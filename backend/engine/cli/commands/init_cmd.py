@@ -86,13 +86,13 @@ def init(
         str | None,
         typer.Option(
             "--hashdiff-naming",
-            help="Hashdiff naming pattern (e.g. 'hd_{entity_name}')",
+            help="Hashdiff naming pattern (e.g. 'hd_[[ satellite_name ]]')",
         ),
     ] = None,
     hashkey_naming: Annotated[
         str | None,
         typer.Option(
-            "--hashkey-naming", help="Hashkey naming pattern (e.g. 'hk_{entity_name}')"
+            "--hashkey-naming", help="Hashkey naming pattern (e.g. 'hd_[[ entity_name ]]')"
         ),
     ] = None,
     # ── Overwrite flag ───────────────────────────────────────────────
@@ -452,16 +452,16 @@ def _run_interactive_init() -> None:
 
         if overwrite_naming:
             naming_config["hashdiff_naming"] = questionary.text(
-                "Hashdiff naming pattern:", default="hd_{entity_name}"
+                "Hashdiff naming pattern:", default="hd_[[ satellite_name ]]"
             ).ask()
             naming_config["hashkey_naming"] = questionary.text(
-                "Hashkey naming pattern:", default="hk_{entity_name}"
+                "Hashkey naming pattern:", default="hd_[[ entity_name ]]"
             ).ask()
             naming_config["satellite_v0_naming"] = questionary.text(
-                "Satellite V0 naming pattern:", default="sat_{entity_name}_v0"
+                "Satellite V0 naming pattern:", default="[[ satellite_name ]]_v0"
             ).ask()
             naming_config["satellite_v1_naming"] = questionary.text(
-                "Satellite V1 naming pattern:", default="sat_{entity_name}_v1"
+                "Satellite V1 naming pattern:", default="[[ satellite_name ]]_v1"
             ).ask()
 
     # Build config object
