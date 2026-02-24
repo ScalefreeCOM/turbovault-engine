@@ -5,9 +5,9 @@
 
 /* CSS Variables - Scalefree Brand Colors */
 :root {
-    --bg-dark: #0f0f1a;
-    --bg-gradient-start: #1a1a2e;
-    --bg-gradient-end: #1e1654;
+    --bg-dark: #121021;
+    --bg-gradient-start: #231d45;
+    --bg-gradient-end: #171330;
     --card-bg: rgba(255, 255, 255, 0.03);
     --card-border: rgba(255, 255, 255, 0.08);
     --card-hover-bg: rgba(255, 255, 255, 0.06);
@@ -24,7 +24,9 @@
 }
 
 /* Reset & Base */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
@@ -51,18 +53,21 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    background: 
-        radial-gradient(ellipse at 20% 20%, rgba(45, 35, 130, 0.15) 0%, transparent 50%),
-        radial-gradient(ellipse at 80% 80%, rgba(0, 170, 190, 0.12) 0%, transparent 50%),
+    background:
+        radial-gradient(ellipse at 20% 20%, rgba(45, 35, 130, 0.20) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(0, 170, 190, 0.15) 0%, transparent 50%),
         linear-gradient(180deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
     z-index: -1;
     animation: gradientShift 15s ease infinite;
 }
 
 @keyframes gradientShift {
-    0%, 100% {
+
+    0%,
+    100% {
         opacity: 1;
     }
+
     50% {
         opacity: 0.8;
     }
@@ -89,34 +94,22 @@ body {
     margin-bottom: 2rem;
 }
 
-.logo-placeholder {
-    width: 100px;
-    height: 100px;
-    margin: 0 auto;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    animation: float 3s ease-in-out infinite;
-}
-
-.logo-placeholder svg {
-    width: 100%;
-    height: 100%;
-}
-
 /* For actual logo image */
 .logo-image {
-    max-width: 150px;
+    max-width: 380px;
     height: auto;
     animation: float 3s ease-in-out infinite;
 }
 
 @keyframes float {
-    0%, 100% {
+
+    0%,
+    100% {
         transform: translateY(0);
     }
+
     50% {
-        transform: translateY(-10px);
+        transform: translateY(-5px);
     }
 }
 
