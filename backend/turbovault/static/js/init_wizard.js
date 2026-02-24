@@ -60,6 +60,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // Handle Modify Defaults UI toggle
+    const modifyRadios = document.querySelectorAll('input[name="modify_defaults"]');
+    modifyRadios.forEach(radio => {
+        radio.addEventListener('change', () => {
+            showStep(currentStep); // Re-evaluate button visibility for Step 3
+        });
+    });
+
     const sourceTypeSelect = document.getElementById('source-type-select');
     const fileLabel = document.getElementById('file-label');
     const fileInput = document.getElementById('source-file-input');

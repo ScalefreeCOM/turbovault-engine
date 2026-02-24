@@ -32,7 +32,6 @@ class ProjectAdmin(admin.ModelAdmin):
     readonly_fields = ["project_id", "created_at", "updated_at"]
     fieldsets = [
         (None, {"fields": ["project_id", "name", "description"]}),
-        ("Configuration", {"fields": ["project_directory"], "classes": ["collapse"]}),
         (
             "Timestamps",
             {"fields": ["created_at", "updated_at"], "classes": ["collapse"]},
