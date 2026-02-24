@@ -110,7 +110,7 @@ class Project(models.Model):
 
         Examples:
             >>> project.get_naming_pattern('satellite_v0_naming')
-            'sat_{entity_name}_v0'
+            '[[ satellite_name ]]_v0'
         """
         # Load from YAML config
         try:
@@ -123,10 +123,10 @@ class Project(models.Model):
 
         # Hardcoded defaults
         defaults = {
-            "satellite_v0_naming": "sat_{entity_name}_v0",
-            "satellite_v1_naming": "sat_{entity_name}_v1",
-            "hashkey_naming": "hk_{entity_name}",
-            "hashdiff_naming": "hd_{entity_name}",
+            "satellite_v0_naming": "[[ satellite_name ]]_v0",
+            "satellite_v1_naming": "[[ satellite_name ]]_v1",
+            "hashkey_naming": "hd_[[ entity_name ]]",
+            "hashdiff_naming": "hd_[[ satellite_name ]]",
         }
 
         return defaults.get(pattern_key, f"{{{pattern_key}}}")

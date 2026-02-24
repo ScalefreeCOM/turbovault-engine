@@ -108,8 +108,6 @@ def generate(
     try:
         require_workspace()
     except WorkspaceNotFoundError as e:
-        from engine.cli.utils.console import print_error
-
         print_error(str(e))
         raise typer.Exit(1)
 
