@@ -3,20 +3,8 @@
 {% block content %}
 <header class="hero">
     <div class="logo-container">
-        <!-- Logo placeholder - replace src with actual logo path -->
-        <div class="logo-placeholder" id="logo">
-            <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="32" cy="32" r="28" stroke="url(#logoGradient)" stroke-width="3" />
-                <path d="M20 32L28 40L44 24" stroke="url(#logoGradient)" stroke-width="3" stroke-linecap="round"
-                    stroke-linejoin="round" />
-                <defs>
-                    <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stop-color="#2d2382" />
-                        <stop offset="100%" stop-color="#00aabe" />
-                    </linearGradient>
-                </defs>
-            </svg>
-        </div>
+        {% load static %}
+        <img src="{% static 'images/turbovault_logo.svg' %}" alt="TurboVault By Scalefree" class="logo-image">
     </div>
 
     <h1 class="title">TurboVault Engine</h1>
