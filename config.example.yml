@@ -37,10 +37,10 @@ configuration:
 
   # Naming patterns (optional - uses defaults if not specified)
   # Placeholders: {entity_name} will be replaced with actual entity name
-  hashdiff_naming: "hd_{entity_name}"
-  hashkey_naming: "hk_{entity_name}"
-  satellite_v0_naming: "sat_{entity_name}_v0"
-  satellite_v1_naming: "sat_{entity_name}_v1"
+  hashdiff_naming: "hd_[[ satellite_name ]]"
+  hashkey_naming: "hd_[[ entity_name ]]"
+  satellite_v0_naming: "[[ satellite_name ]]_v0"
+  satellite_v1_naming: "[[ satellite_name ]]_v1"
 
 # ============================================================================
 # Output Configuration (all fields optional)
