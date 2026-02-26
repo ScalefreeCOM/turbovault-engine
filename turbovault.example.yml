@@ -71,3 +71,16 @@ defaults:
   # hashkey_naming: "hk_[[ entity_name ]]"
   # satellite_v0_naming: "[[ satellite_name ]]_v0"
   # satellite_v1_naming: "[[ satellite_name ]]_v1"
+
+# ============================================================================
+# Anonymous Usage Statistics (OPTIONAL)
+# ============================================================================
+# TurboVault sends lightweight anonymous usage events (command name, version,
+# OS family) to help us understand real usage patterns and improve the tool.
+# No personal data, project names, or model content is ever sent.
+#
+# To opt out, uncomment the line below:
+# disable_anonymous_usage_stats: true
+#
+# Alternatively, set the environment variable:
+#   TURBOVAULT_DISABLE_TELEMETRY=1
