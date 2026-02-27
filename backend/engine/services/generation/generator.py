@@ -179,22 +179,25 @@ class DbtProjectGenerator:
             return
 
         template = self.template_resolver.get_project_template("sources.yml")
-        if template:
-            content = template.render(sources=sources)
-            path = (
-                self.folder_config.get_staging_base_path(self.output_path)
-                / "sources.yml"
-            )
-            write_yaml_file(path, content)
-            self.report.add_file(path, "source", "sources", "yaml")
-            logger.debug(f"Generated sources.yml with {len(sources)} source systems")
-        else:
-            self.report.add_warning(
-                entity_type="source",
-                entity_name="sources.yml",
-                message="Template not found, skipping",
-                code="TPL_001",
-            )
+
+        for source in sources:
+            source_name = self.folder_config._sanitize_name(source.name)
+            if template:
+                content = template.render(source=source)
+                path = (
+                    self.folder_config.get_source_path(self.output_path)
+                    / f"source__{source_name}.yml"
+                )
+                write_yaml_file(path, content)
+                self.report.add_file(path, "source", f"source__{source_name}", "yaml")
+                logger.debug(f"Generated 'source__{source_name}' with {len(source.tables)} tables")
+            else:
+                self.report.add_warning(
+                    entity_type="source",
+                    entity_name=f"source__{source_name}",
+                    message="Template not found, skipping",
+                    code="TPL_001",
+                )
 
     def _generate_stages(self, stages: list[StageDefinition]) -> None:
         """Generate stage SQL and YAML models."""

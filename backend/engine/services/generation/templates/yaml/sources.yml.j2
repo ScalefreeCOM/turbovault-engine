@@ -1,9 +1,8 @@
 [# sources.yml Template #]
-[# Defines all source systems and tables for the dbt project #]
+[# Defines source and its tables for the dbt project #]
 version: 2
 
 sources:
-[% for source in sources %]
   - name: [[ source.name | lower | replace(" ", "_") ]]
 [% if source.database_name %]
     database: [[ source.database_name ]]
@@ -17,6 +16,5 @@ sources:
 [% for column in table.columns %]
           - name: [[ column.column_name ]]
             data_type: [[ column.datatype ]]
-[% endfor %]
 [% endfor %]
 [% endfor %]
