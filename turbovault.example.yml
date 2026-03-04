@@ -67,6 +67,7 @@ project_root: "."
 defaults:
   stage_schema: stage
   rdv_schema: rdv
+  bdv_schema: bdv
   # hashdiff_naming: "hd_[[ satellite_name ]]"
   # hashkey_naming: "hk_[[ entity_name ]]"
   # satellite_v0_naming: "[[ satellite_name ]]_v0"

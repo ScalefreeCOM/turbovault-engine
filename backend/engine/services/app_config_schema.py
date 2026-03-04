@@ -44,6 +44,7 @@ class GlobalDefaults(BaseModel):
 
     stage_schema: str = Field("stage", description="Default staging schema name")
     rdv_schema: str = Field("rdv", description="Default RDV schema name")
+    bdv_schema: str = Field("bdv", description="Default BDV schema name")
     hashdiff_naming: str | None = Field(
         None, description="Default hashdiff naming pattern"
     )

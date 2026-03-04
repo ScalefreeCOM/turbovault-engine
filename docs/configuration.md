@@ -86,6 +86,7 @@ database:
 defaults:
   stage_schema: stage
   rdv_schema: rdv
+  bdv_schema: bdv
   hashdiff_naming: "hd_[[ satellite_name ]]"
   hashkey_naming: "hd_[[ entity_name ]]"
 ```
@@ -168,10 +169,12 @@ configuration:
   # Schema names (required)
   stage_schema: stage_customer
   rdv_schema: rdv_customer
+  bdv_schema: bdv_customer
 
   # Database names (optional)
   stage_database: raw_vault
   rdv_database: core_vault
+  bdv_database: core_vault
 
   # Naming patterns (optional – uses defaults if omitted)
   hashdiff_naming: "hd_[[ satellite_name ]]"
@@ -202,6 +205,7 @@ project:
 configuration:
   stage_schema: stage
   rdv_schema: rdv
+  bdv_schema: bdv
 ```
 
 ### Output Paths
