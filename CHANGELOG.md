@@ -5,6 +5,29 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.8.0...turbovault-engine-v0.9.0) (2026-03-04)
+
+
+### Features
+
+* adding version cli flag ([#95](https://github.com/ScalefreeCOM/turbovault-engine/issues/95)) ([3a5f22f](https://github.com/ScalefreeCOM/turbovault-engine/commit/3a5f22fe8f542e45d7a7b2589a085b427a92dab6))
+* **ci:** logo and colors updated ([#86](https://github.com/ScalefreeCOM/turbovault-engine/issues/86)) ([af64e6f](https://github.com/ScalefreeCOM/turbovault-engine/commit/af64e6fb873a4263def7b4ed06f7300ed094fe05))
+* Implement anonymous usage statistics for the CLI with an opt-ou… ([#96](https://github.com/ScalefreeCOM/turbovault-engine/issues/96)) ([0e731d7](https://github.com/ScalefreeCOM/turbovault-engine/commit/0e731d7adc3570a72fea79c3443431cd7c913c8a))
+* Implement anonymous usage statistics for the CLI with an opt-out option ([0e731d7](https://github.com/ScalefreeCOM/turbovault-engine/commit/0e731d7adc3570a72fea79c3443431cd7c913c8a))
+* **sources:** one yml per source ([#97](https://github.com/ScalefreeCOM/turbovault-engine/issues/97)) ([5dd9c5f](https://github.com/ScalefreeCOM/turbovault-engine/commit/5dd9c5f6498f45fd0b234e11feb62939f89b7c6b))
+
+
+### Bug Fixes
+
+* Schema Configs are now properly used in dbt_project.yml ([#100](https://github.com/ScalefreeCOM/turbovault-engine/issues/100)) ([e23dc41](https://github.com/ScalefreeCOM/turbovault-engine/commit/e23dc417900e17155e3106f532e5a450679ad66b))
+* **schema:** bdv_schema added and all propagated to dbt_project.yml ([e23dc41](https://github.com/ScalefreeCOM/turbovault-engine/commit/e23dc417900e17155e3106f532e5a450679ad66b))
+
+
+### CI/CD
+
+* bump actions/download-artifact from 7 to 8 ([#98](https://github.com/ScalefreeCOM/turbovault-engine/issues/98)) ([f71a7c9](https://github.com/ScalefreeCOM/turbovault-engine/commit/f71a7c940a530d4adffa68e1f2760276a5c9ab9c))
+* bump actions/upload-artifact from 6 to 7 ([#99](https://github.com/ScalefreeCOM/turbovault-engine/issues/99)) ([0a5c6fe](https://github.com/ScalefreeCOM/turbovault-engine/commit/0a5c6febc90b35e34548528eae43e59c466f39be))
+
 ## [0.8.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.7.3...turbovault-engine-v0.8.0) (2026-02-23)
 
 
