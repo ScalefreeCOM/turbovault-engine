@@ -89,6 +89,14 @@ class ApplicationConfig(BaseModel):
         description="Global default values for new projects",
     )
 
+    disable_anonymous_usage_stats: bool = Field(
+        False,
+        description=(
+            "Set to true to opt out of anonymous usage statistics. "
+            "Alternatively, set the TURBOVAULT_DISABLE_TELEMETRY=1 environment variable."
+        ),
+    )
+
     @model_validator(mode="after")
     def set_default_database(self) -> ApplicationConfig:
         """Ensure database config exists with SQLite defaults."""
