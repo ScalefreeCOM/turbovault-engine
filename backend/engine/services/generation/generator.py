@@ -143,6 +143,9 @@ class DbtProjectGenerator:
             content = template.render(
                 project_name=self.config.project_name,
                 profile_name=self.config.profile_name,
+                stage_schema=self.config.stage_schema,
+                rdv_schema=self.config.rdv_schema,
+                bdv_schema=self.config.bdv_schema,
             )
             path = self.output_path / "dbt_project.yml"
             write_yaml_file(path, content)

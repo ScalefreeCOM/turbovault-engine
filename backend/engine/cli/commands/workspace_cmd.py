@@ -64,6 +64,10 @@ def workspace_init(  # noqa: PLR0913
         str,
         typer.Option("--rdv-schema", help="Default RDV schema name"),
     ] = "",
+    bdv_schema: Annotated[
+        str,
+        typer.Option("--bdv-schema", help="Default BDV schema name"),
+    ] = "",
     # Admin user
     admin_username: Annotated[
         str | None,
@@ -99,7 +103,7 @@ def workspace_init(  # noqa: PLR0913
 
     Run this once per workspace before creating any projects.
     """
-    is_non_interactive = bool(db_engine or db_name or stage_schema or rdv_schema)
+    is_non_interactive = bool(db_engine or db_name or stage_schema or rdv_schema or bdv_schema)
 
     if is_non_interactive and not interactive:
         _init_from_flags(
@@ -111,6 +115,7 @@ def workspace_init(  # noqa: PLR0913
             db_password=db_password,
             stage_schema=stage_schema or "stage",
             rdv_schema=rdv_schema or "rdv",
+            bdv_schema=bdv_schema or "bdv",
             admin_username=admin_username,
             admin_email=admin_email,
             admin_password=admin_password,
@@ -137,6 +142,7 @@ def _init_from_flags(
     db_password: str | None,
     stage_schema: str,
     rdv_schema: str,
+    bdv_schema: str,
     admin_username: str | None,
     admin_email: str | None,
     admin_password: str | None,
@@ -161,6 +167,7 @@ def _init_from_flags(
             db_password=db_password,
             stage_schema=stage_schema,
             rdv_schema=rdv_schema,
+            bdv_schema=bdv_schema,
             overwrite=overwrite,
         )
         console.print(f"[green]✓ Created turbovault.yml at {config_path}[/green]")
@@ -180,6 +187,7 @@ def _init_from_flags(
         db_name=db_name,
         stage_schema=stage_schema,
         rdv_schema=rdv_schema,
+        bdv_schema=bdv_schema,
     )
 
 
@@ -247,11 +255,13 @@ def _init_interactive(
     ).ask()
     stage_schema = "stage"
     rdv_schema = "rdv"
+    bdv_schema = "bdv"
     if modify_schemas:
         stage_schema = (
             questionary.text("Stage schema:", default="stage").ask() or "stage"
         )
         rdv_schema = questionary.text("RDV schema:", default="rdv").ask() or "rdv"
+        bdv_schema = questionary.text("BDV schema:", default="bdv").ask() or "bdv"
 
     # Create turbovault.yml
     console.print("\n[bold cyan][1/3] Creating turbovault.yml...[/bold cyan]")
@@ -265,6 +275,7 @@ def _init_interactive(
             db_password=db_password,
             stage_schema=stage_schema,
             rdv_schema=rdv_schema,
+            bdv_schema=bdv_schema,
             overwrite=overwrite,
         )
         console.print(f"[green]✓ Created {config_path}[/green]")
@@ -296,6 +307,7 @@ def _init_interactive(
         db_name=db_name,
         stage_schema=stage_schema,
         rdv_schema=rdv_schema,
+        bdv_schema=bdv_schema,
     )
 
 
@@ -350,6 +362,7 @@ def _print_workspace_summary(
     db_name: str,
     stage_schema: str,
     rdv_schema: str,
+    bdv_schema: str,
 ) -> None:
     """Print a summary panel after successful workspace initialisation."""
     from rich.panel import Panel
@@ -360,6 +373,7 @@ def _print_workspace_summary(
         f"[bold]Database:[/bold]     {db_engine} / {db_name}",
         f"[bold]Stage schema:[/bold] {stage_schema}",
         f"[bold]RDV schema:[/bold]   {rdv_schema}",
+        f"[bold]BDV schema:[/bold]   {bdv_schema}",
         "",
         "[dim]Next step: [bold]turbovault project init --name <name>[/bold][/dim]",
     ]
