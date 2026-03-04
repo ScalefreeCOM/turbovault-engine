@@ -539,6 +539,7 @@ class ProjectExport(BaseModel):
     # Configuration
     stage_schema: str | None = None
     rdv_schema: str | None = None
+    bdv_schema: str | None = None
 
     # Export configuration
     export_sources: bool = True

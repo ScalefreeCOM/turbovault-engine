@@ -62,6 +62,7 @@ def create_project(request: HttpRequest) -> HttpResponse:
 
         stage_schema = request.POST.get("stage_schema", "stage").strip() or "stage"
         rdv_schema = request.POST.get("rdv_schema", "rdv").strip() or "rdv"
+        bdv_schema = request.POST.get("bdv_schema", "bdv").strip() or "bdv"
 
         # Optional naming standards
         config_section: dict = {}
@@ -91,6 +92,7 @@ def create_project(request: HttpRequest) -> HttpResponse:
             "configuration": {
                 "stage_schema": stage_schema,
                 "rdv_schema": rdv_schema,
+                "bdv_schema": bdv_schema,
                 **config_section,
             },
             "output": {

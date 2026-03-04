@@ -95,6 +95,7 @@ class ModelBuilder:
         config = self.project.load_config()
         stage_schema = config.configuration.stage_schema
         rdv_schema = config.configuration.rdv_schema
+        bdv_schema = config.configuration.bdv_schema
 
         return ProjectExport(
             project_name=self.project.name,
@@ -102,6 +103,7 @@ class ModelBuilder:
             generated_at=datetime.now(),
             stage_schema=stage_schema,
             rdv_schema=rdv_schema,
+            bdv_schema=bdv_schema,
             export_sources=export_sources,
             generate_tests=generate_tests,
             generate_dbml=generate_dbml,

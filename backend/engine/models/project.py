@@ -147,3 +147,33 @@ class Project(models.Model):
         )
 
         return resolved
+
+    def get_schema(self, schema_type: str) -> str:
+        """
+        Get the schema name for a specific schema type.
+
+        Args:
+            schema_type: The type of schema to retrieve.
+                         ('stage', 'rdv', 'bdv')
+
+        Returns:
+            The schema name string.
+
+        Raises:
+            ValueError: If the schema type is not found in the configuration.
+        """
+        try:
+            config = self.load_config()
+            schema_name = getattr(config.configuration, f"{schema_type}_schema", None)
+            if schema_name:
+                return schema_name
+        except Exception:
+            pass  # Config loading failed, use defaults
+
+        defaults = {
+            "stage": "stage",
+            "rdv": "rdv",
+            "bdv": "bdv",
+        }
+
+        return defaults.get(schema_type, f"{schema_type}")

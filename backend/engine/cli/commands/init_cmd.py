@@ -62,6 +62,10 @@ def init(
         str,
         typer.Option("--rdv-schema", help="Raw Data Vault schema name"),
     ] = "rdv",
+    bdv_schema: Annotated[
+        str,
+        typer.Option("--bdv-schema", help="Business Vault schema name"),
+    ] = "bdv",
     stage_database: Annotated[
         str | None,
         typer.Option("--stage-database", help="Optional staging database name"),
@@ -148,6 +152,7 @@ def init(
             source_path=source_path,
             stage_schema=stage_schema,
             rdv_schema=rdv_schema,
+            bdv_schema=bdv_schema,
             stage_database=stage_database,
             rdv_database=rdv_database,
             output_dir=output_dir,
@@ -179,6 +184,7 @@ def _init_from_flags(
     source_path: Path | None,
     stage_schema: str,
     rdv_schema: str,
+    bdv_schema: str,
     stage_database: str | None,
     rdv_database: str | None,
     output_dir: str,
@@ -224,6 +230,7 @@ def _init_from_flags(
         configuration=ProjectConfiguration(
             stage_schema=stage_schema,
             rdv_schema=rdv_schema,
+            bdv_schema=bdv_schema,
             stage_database=stage_database or None,
             rdv_database=rdv_database or None,
             **naming_overrides,
@@ -332,6 +339,7 @@ def _create_project(config, *, overwrite: bool = False) -> None:
 [bold]Source:[/bold] {f"{config.source.type} ({config.source.path})" if config.source else "None (start from scratch)"}
 [bold]Stage Schema:[/bold] {config.configuration.stage_schema}
 [bold]RDV Schema:[/bold] {config.configuration.rdv_schema}
+[bold]BDV Schema:[/bold] {config.configuration.bdv_schema}
 """
     print_panel("Project Summary", summary.strip(), style="success")
 
@@ -420,6 +428,7 @@ def _run_interactive_init() -> None:
     # Configuration defaults
     stage_schema = "stage"
     rdv_schema = "rdv"
+    bdv_schema = "bdv"
     stage_database = None
     rdv_database = None
     create_zip = False
@@ -438,6 +447,10 @@ def _run_interactive_init() -> None:
         rdv_schema = questionary.text("RDV schema name:", default="rdv").ask()
         rdv_database = (
             questionary.text("RDV database (optional):", default="").ask() or None
+        )
+        bdv_schema = questionary.text("BDV schema name:", default="bdv").ask()
+        bdv_database = (
+            questionary.text("BDV database (optional):", default="").ask() or None
         )
 
         # Removed dbt output directory prompt - defaults to ./dbt_project inside project folder
@@ -471,6 +484,7 @@ def _run_interactive_init() -> None:
         configuration=ProjectConfiguration(
             stage_schema=stage_schema,
             rdv_schema=rdv_schema,
+            bdv_schema=bdv_schema,
             stage_database=stage_database,
             rdv_database=rdv_database,
             **naming_config,
