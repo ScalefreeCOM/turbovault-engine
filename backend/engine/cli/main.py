@@ -89,6 +89,17 @@ def main(
             # workspace init is the only command that does NOT require an existing DB
             _setup_django()
             debug_print("Django setup complete, proceeding to command")
+
+            # Fire-and-forget telemetry event (non-blocking, never raises)
+            try:
+                from engine.cli.utils.telemetry import send_telemetry_event
+
+                send_telemetry_event(
+                    event="command_invoked",
+                    command=ctx.invoked_subcommand or "unknown",
+                )
+            except Exception:
+                pass
         else:
             debug_print("Skipping Django setup for help command")
 
