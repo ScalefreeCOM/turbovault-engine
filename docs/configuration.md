@@ -444,6 +444,6 @@ containing `turbovault.yml`). The current version passes the workspace path auto
 
 ## See Also
 
-- [README.md](../README.md) — General usage and quick start
+- [README.md](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/README.md) — General usage and quick start
 - [CLI_GUIDE.md](CLI_GUIDE.md) — Full CLI command reference
 - [workspace.md](workspace.md) — Workspace setup and management

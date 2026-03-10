@@ -597,8 +597,8 @@ turbovault generate --project my_project --output ./new_output
 
 ## Next Steps
 
-- Review the [README](README.md) for overview
-- Study [dbt generation documentation](docs/06_dbt_generation.md)
+- Review the [README](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/README.md) for overview
+- Study [dbt generation documentation](06_dbt_generation.md)
 - Learn about [environment variables](ENVIRONMENT_VARIABLES.md)
-- Explore [domain model documentation](docs/02_domain_model.md)
+- Explore [domain model documentation](02_domain_model.md)
 - Check [template customization guide](docs/06_dbt_generation.md#custom-templates)

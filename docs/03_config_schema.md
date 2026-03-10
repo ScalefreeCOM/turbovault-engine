@@ -474,6 +474,6 @@ See the [Database Configuration Guide](DATABASE_CONFIGURATION.md) for detailed t
 ## Further Reading
 
 - [Database Configuration Guide](DATABASE_CONFIGURATION.md)
-- [CLI Guide](../CLI_GUIDE.md)
+- [CLI Guide](CLI_GUIDE.md)
 - [Domain Model Specification](02_domain_model.md)
 - [config.example.yml](../config.example.yml)

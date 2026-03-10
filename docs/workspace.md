@@ -317,4 +317,4 @@ turbovault serve    # still works
 
 - [configuration.md](configuration.md) — Configuration reference
 - [CLI_GUIDE.md](CLI_GUIDE.md) — Full CLI command reference
-- [README.md](../README.md) — General usage
+- [README.md](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/README.md) — General usage

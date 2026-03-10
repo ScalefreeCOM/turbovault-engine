@@ -349,5 +349,5 @@ export TURBOVAULT_DEFAULT_VALIDATION_MODE=strict
 ## See Also
 
 - [CLI Guide](CLI_GUIDE.md) - Complete CLI documentation
-- [README](README.md) - Project overview
-- [dbt Generation Guide](docs/06_dbt_generation.md) - Generation documentation
+- [README](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/README.md) - Project overview
+- [dbt Generation Guide](06_dbt_generation.md) - Generation documentation
