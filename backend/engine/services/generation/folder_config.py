@@ -22,14 +22,19 @@ class FolderConfig:
     """
 
     # Base paths for each layer
-    staging_path: str = "models/staging"
-    raw_vault_path: str = "models/raw_vault"
-    business_vault_path: str = "models/business_vault"
-    control_path: str = "models/control"
+    control_path: str = "models/00_control"
+    source_path: str = "models/01_sources"
+    staging_path: str = "models/02_staging"
+    raw_vault_path: str = "models/03_raw_vault"
+    business_vault_path: str = "models/04_business_vault"
 
     # Business vault subdirectories
     pits_subdir: str = "pits"
     reference_tables_subdir: str = "reference_tables"
+
+    def get_source_path(self, output_root: Path) -> Path:
+        """Get the source directory path."""
+        return output_root / self.source_path
 
     def get_staging_path(self, source_system: str, output_root: Path) -> Path:
         """
@@ -86,6 +91,7 @@ class FolderConfig:
         """
         # Core directories
         directories = [
+            output_root / self.source_path,
             output_root / self.staging_path,
             output_root / self.raw_vault_path,
             output_root / self.business_vault_path / self.pits_subdir,
@@ -129,6 +135,11 @@ class GenerationConfig:
     generate_satellite_v1_views: bool = True
     satellite_v0_naming: str = "[[ satellite_name ]]_v0"
     satellite_v1_naming: str = "[[ satellite_name ]]_v1"
+
+    # Schemas
+    stage_schema: str = "stage"
+    rdv_schema: str = "rdv"
+    bdv_schema: str = "bdv"
 
     def resolve_entity_name(self, pattern: str, entity_name: str) -> str:
         """Resolve a naming pattern with placeholder replacement."""

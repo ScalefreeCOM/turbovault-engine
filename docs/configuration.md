@@ -86,8 +86,9 @@ database:
 defaults:
   stage_schema: stage
   rdv_schema: rdv
-  hashdiff_naming: "hd_{entity_name}"
-  hashkey_naming: "hk_{entity_name}"
+  bdv_schema: bdv
+  hashdiff_naming: "hd_[[ satellite_name ]]"
+  hashkey_naming: "hd_[[ entity_name ]]"
 ```
 
 > **Note:** `turbovault.yml` is created automatically by `turbovault workspace init`.
@@ -168,16 +169,18 @@ configuration:
   # Schema names (required)
   stage_schema: stage_customer
   rdv_schema: rdv_customer
+  bdv_schema: bdv_customer
 
   # Database names (optional)
   stage_database: raw_vault
   rdv_database: core_vault
+  bdv_database: core_vault
 
   # Naming patterns (optional – uses defaults if omitted)
-  hashdiff_naming: "hd_{entity_name}"
-  hashkey_naming: "hk_{entity_name}"
-  satellite_v0_naming: "sat_{entity_name}_v0"
-  satellite_v1_naming: "sat_{entity_name}_v1"
+  hashdiff_naming: "hd_[[ satellite_name ]]"
+  hashkey_naming: "hd_[[ entity_name ]]"
+  satellite_v0_naming: "[[ satellite_name ]]_v0"
+  satellite_v1_naming: "[[ satellite_name ]]_v1"
 
 # Output configuration (all fields optional)
 output:
@@ -202,6 +205,7 @@ project:
 configuration:
   stage_schema: stage
   rdv_schema: rdv
+  bdv_schema: bdv
 ```
 
 ### Output Paths
@@ -241,10 +245,10 @@ Naming patterns use placeholders:
 | `{entity_name}` | Hub/link/satellite name | `customer` → `hk_customer` |
 
 **Default patterns:**
-- `hashdiff_naming`: `hd_{entity_name}`
-- `hashkey_naming`: `hk_{entity_name}`
-- `satellite_v0_naming`: `sat_{entity_name}_v0`
-- `satellite_v1_naming`: `sat_{entity_name}_v1`
+- `hashdiff_naming`: `hd_[[ satellite_name ]]`
+- `hashkey_naming`: `hd_[[ entity_name ]]`
+- `satellite_v0_naming`: `[[ satellite_name ]]_v0`
+- `satellite_v1_naming`: `[[ satellite_name ]]_v1`
 
 ---
 

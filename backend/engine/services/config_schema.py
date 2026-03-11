@@ -210,6 +210,10 @@ class ProjectConfiguration(BaseModel):
     rdv_database: str | None = Field(
         None, description="Optional database name for Raw Data Vault layer"
     )
+    bdv_schema: str = Field("bdv", description="Schema name for Business Data Vault layer")
+    bdv_database: str | None = Field(
+        None, description="Optional database name for Business Data Vault layer"
+    )
     hashdiff_naming: str | None = Field(
         None, description="Naming pattern for hashdiff columns"
     )
@@ -223,7 +227,7 @@ class ProjectConfiguration(BaseModel):
         None, description="Naming pattern for v1 satellite models"
     )
 
-    @field_validator("stage_schema", "rdv_schema")
+    @field_validator("stage_schema", "rdv_schema", "bdv_schema")
     @classmethod
     def validate_schema_name(cls, v: str) -> str:
         """Validate schema name is a valid SQL identifier."""

@@ -94,6 +94,7 @@ def create_workspace_config(
     db_password: str | None = None,
     stage_schema: str = "stage",
     rdv_schema: str = "rdv",
+    bdv_schema: str = "bdv",
     overwrite: bool = False,
 ) -> Path:
     """
@@ -110,7 +111,8 @@ def create_workspace_config(
         db_user: Database user (non-SQLite only)
         db_password: Database password (non-SQLite only)
         stage_schema: Default staging schema name
-        rdv_schema: Default RDV schema name
+        rdv_schema: Default raw vault schema name
+        bdv_schema: Default business vault schema name
         overwrite: If True, overwrite existing turbovault.yml
 
     Returns:
@@ -129,7 +131,7 @@ def create_workspace_config(
 
     config_dict: dict = {
         "database": {"engine": db_engine, "name": db_name},
-        "defaults": {"stage_schema": stage_schema, "rdv_schema": rdv_schema},
+        "defaults": {"stage_schema": stage_schema, "rdv_schema": rdv_schema, "bdv_schema": bdv_schema},
     }
 
     if db_engine != "sqlite3":

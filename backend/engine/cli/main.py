@@ -35,11 +35,31 @@ app = typer.Typer(
 )
 
 
+def version_callback(value: bool) -> None:
+    if value:
+        import importlib.metadata
+
+        try:
+            pkg_version = importlib.metadata.version("turbovault-engine")
+        except importlib.metadata.PackageNotFoundError:
+            pkg_version = "unknown"
+
+        console.print(f"[bold]TurboVault Engine[/bold] version {pkg_version}")
+        raise typer.Exit()
+
+
 @app.callback()
 def main(
     ctx: typer.Context,
     version: Annotated[
-        bool, typer.Option("--version", "-v", help="Show version and exit")
+        bool,
+        typer.Option(
+            "--version",
+            "-v",
+            help="Show version and exit",
+            callback=version_callback,
+            is_eager=True,
+        ),
     ] = False,
     debug: Annotated[
         bool, typer.Option("--debug", "-d", help="Enable debug output")
@@ -58,10 +78,6 @@ def main(
         set_debug_mode(True)
         debug_print("Debug mode enabled")
 
-    if version:
-        console.print("[bold]TurboVault Engine[/bold] version 0.1.0")
-        raise typer.Exit()
-
     # Display ASCII art banner when a command is invoked
     if ctx.invoked_subcommand:
         debug_print(f"Subcommand invoked: {ctx.invoked_subcommand}")
@@ -73,6 +89,17 @@ def main(
             # workspace init is the only command that does NOT require an existing DB
             _setup_django()
             debug_print("Django setup complete, proceeding to command")
+
+            # Fire-and-forget telemetry event (non-blocking, never raises)
+            try:
+                from engine.cli.utils.telemetry import send_telemetry_event
+
+                send_telemetry_event(
+                    event="command_invoked",
+                    command=ctx.invoked_subcommand or "unknown",
+                )
+            except Exception:
+                pass
         else:
             debug_print("Skipping Django setup for help command")
 

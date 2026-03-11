@@ -62,6 +62,10 @@ def init(
         str,
         typer.Option("--rdv-schema", help="Raw Data Vault schema name"),
     ] = "rdv",
+    bdv_schema: Annotated[
+        str,
+        typer.Option("--bdv-schema", help="Business Vault schema name"),
+    ] = "bdv",
     stage_database: Annotated[
         str | None,
         typer.Option("--stage-database", help="Optional staging database name"),
@@ -86,13 +90,13 @@ def init(
         str | None,
         typer.Option(
             "--hashdiff-naming",
-            help="Hashdiff naming pattern (e.g. 'hd_{entity_name}')",
+            help="Hashdiff naming pattern (e.g. 'hd_[[ satellite_name ]]')",
         ),
     ] = None,
     hashkey_naming: Annotated[
         str | None,
         typer.Option(
-            "--hashkey-naming", help="Hashkey naming pattern (e.g. 'hk_{entity_name}')"
+            "--hashkey-naming", help="Hashkey naming pattern (e.g. 'hd_[[ entity_name ]]')"
         ),
     ] = None,
     # ── Overwrite flag ───────────────────────────────────────────────
@@ -148,6 +152,7 @@ def init(
             source_path=source_path,
             stage_schema=stage_schema,
             rdv_schema=rdv_schema,
+            bdv_schema=bdv_schema,
             stage_database=stage_database,
             rdv_database=rdv_database,
             output_dir=output_dir,
@@ -179,6 +184,7 @@ def _init_from_flags(
     source_path: Path | None,
     stage_schema: str,
     rdv_schema: str,
+    bdv_schema: str,
     stage_database: str | None,
     rdv_database: str | None,
     output_dir: str,
@@ -224,6 +230,7 @@ def _init_from_flags(
         configuration=ProjectConfiguration(
             stage_schema=stage_schema,
             rdv_schema=rdv_schema,
+            bdv_schema=bdv_schema,
             stage_database=stage_database or None,
             rdv_database=rdv_database or None,
             **naming_overrides,
@@ -332,6 +339,7 @@ def _create_project(config, *, overwrite: bool = False) -> None:
 [bold]Source:[/bold] {f"{config.source.type} ({config.source.path})" if config.source else "None (start from scratch)"}
 [bold]Stage Schema:[/bold] {config.configuration.stage_schema}
 [bold]RDV Schema:[/bold] {config.configuration.rdv_schema}
+[bold]BDV Schema:[/bold] {config.configuration.bdv_schema}
 """
     print_panel("Project Summary", summary.strip(), style="success")
 
@@ -420,6 +428,7 @@ def _run_interactive_init() -> None:
     # Configuration defaults
     stage_schema = "stage"
     rdv_schema = "rdv"
+    bdv_schema = "bdv"
     stage_database = None
     rdv_database = None
     create_zip = False
@@ -439,6 +448,10 @@ def _run_interactive_init() -> None:
         rdv_database = (
             questionary.text("RDV database (optional):", default="").ask() or None
         )
+        bdv_schema = questionary.text("BDV schema name:", default="bdv").ask()
+        bdv_database = (
+            questionary.text("BDV database (optional):", default="").ask() or None
+        )
 
         # Removed dbt output directory prompt - defaults to ./dbt_project inside project folder
 
@@ -452,16 +465,16 @@ def _run_interactive_init() -> None:
 
         if overwrite_naming:
             naming_config["hashdiff_naming"] = questionary.text(
-                "Hashdiff naming pattern:", default="hd_{entity_name}"
+                "Hashdiff naming pattern:", default="hd_[[ satellite_name ]]"
             ).ask()
             naming_config["hashkey_naming"] = questionary.text(
-                "Hashkey naming pattern:", default="hk_{entity_name}"
+                "Hashkey naming pattern:", default="hd_[[ entity_name ]]"
             ).ask()
             naming_config["satellite_v0_naming"] = questionary.text(
-                "Satellite V0 naming pattern:", default="sat_{entity_name}_v0"
+                "Satellite V0 naming pattern:", default="[[ satellite_name ]]_v0"
             ).ask()
             naming_config["satellite_v1_naming"] = questionary.text(
-                "Satellite V1 naming pattern:", default="sat_{entity_name}_v1"
+                "Satellite V1 naming pattern:", default="[[ satellite_name ]]_v1"
             ).ask()
 
     # Build config object
@@ -471,6 +484,7 @@ def _run_interactive_init() -> None:
         configuration=ProjectConfiguration(
             stage_schema=stage_schema,
             rdv_schema=rdv_schema,
+            bdv_schema=bdv_schema,
             stage_database=stage_database,
             rdv_database=rdv_database,
             **naming_config,

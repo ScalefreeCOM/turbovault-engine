@@ -44,6 +44,10 @@ def project_init(
         str | None,
         typer.Option("--rdv-schema", help="RDV schema name (default: rdv)"),
     ] = None,
+    bdv_schema: Annotated[
+        str | None,
+        typer.Option("--bdv-schema", help="BDV schema name (default: bdv)"),
+    ] = None,
     stage_database: Annotated[
         str | None,
         typer.Option("--stage-database", help="Stage database name (optional)"),
@@ -51,6 +55,10 @@ def project_init(
     rdv_database: Annotated[
         str | None,
         typer.Option("--rdv-database", help="RDV database name (optional)"),
+    ] = None,
+    bdv_database: Annotated[
+        str | None,
+        typer.Option("--bdv-database", help="BDV database name (optional)"),
     ] = None,
     # Naming patterns
     hashdiff_naming: Annotated[
@@ -116,8 +124,10 @@ def project_init(
         source_path=Path(source) if source else None,
         stage_schema=stage_schema or "stage",
         rdv_schema=rdv_schema or "rdv",
+        bdv_schema=bdv_schema or "bdv",
         stage_database=stage_database,
         rdv_database=rdv_database,
+        bdv_database=bdv_database,
         create_zip=zip_output,
         hashdiff_naming=hashdiff_naming,
         hashkey_naming=hashkey_naming,

@@ -110,7 +110,7 @@ class Project(models.Model):
 
         Examples:
             >>> project.get_naming_pattern('satellite_v0_naming')
-            'sat_{entity_name}_v0'
+            '[[ satellite_name ]]_v0'
         """
         # Load from YAML config
         try:
@@ -123,10 +123,10 @@ class Project(models.Model):
 
         # Hardcoded defaults
         defaults = {
-            "satellite_v0_naming": "sat_{entity_name}_v0",
-            "satellite_v1_naming": "sat_{entity_name}_v1",
-            "hashkey_naming": "hk_{entity_name}",
-            "hashdiff_naming": "hd_{entity_name}",
+            "satellite_v0_naming": "[[ satellite_name ]]_v0",
+            "satellite_v1_naming": "[[ satellite_name ]]_v1",
+            "hashkey_naming": "hd_[[ entity_name ]]",
+            "hashdiff_naming": "hd_[[ satellite_name ]]",
         }
 
         return defaults.get(pattern_key, f"{{{pattern_key}}}")
@@ -147,3 +147,33 @@ class Project(models.Model):
         )
 
         return resolved
+
+    def get_schema(self, schema_type: str) -> str:
+        """
+        Get the schema name for a specific schema type.
+
+        Args:
+            schema_type: The type of schema to retrieve.
+                         ('stage', 'rdv', 'bdv')
+
+        Returns:
+            The schema name string.
+
+        Raises:
+            ValueError: If the schema type is not found in the configuration.
+        """
+        try:
+            config = self.load_config()
+            schema_name = getattr(config.configuration, f"{schema_type}_schema", None)
+            if schema_name:
+                return schema_name
+        except Exception:
+            pass  # Config loading failed, use defaults
+
+        defaults = {
+            "stage": "stage",
+            "rdv": "rdv",
+            "bdv": "bdv",
+        }
+
+        return defaults.get(schema_type, f"{schema_type}")

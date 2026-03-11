@@ -23,7 +23,13 @@
 
         <footer class="footer">
             {% block footer %}
-            <p>Built by <a href="https://scalefree.com" target="_blank" rel="noopener">Scalefree</a></p>
+            <p style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                Built by
+                <a href="https://scalefree.com" target="_blank" rel="noopener"
+                    style="display: flex; align-items: center;">
+                    <img src="{% static 'images/scalefree_logo.png' %}" alt="Scalefree" style="height: 24px;">
+                </a>
+            </p>
             <p class="version">CLI-first Django Engine for Data Vault Automation</p>
             {% endblock %}
         </footer>
