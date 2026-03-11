@@ -74,6 +74,10 @@ def init(
         str | None,
         typer.Option("--rdv-database", help="Optional RDV database name"),
     ] = None,
+    bdv_database: Annotated[
+        str | None,
+        typer.Option("--bdv-database", help="Optional BDV database name"),
+    ] = None,
     # ── Output flags ─────────────────────────────────────────────────
     output_dir: Annotated[
         str,
@@ -155,6 +159,7 @@ def init(
             bdv_schema=bdv_schema,
             stage_database=stage_database,
             rdv_database=rdv_database,
+            bdv_database=bdv_database,
             output_dir=output_dir,
             create_zip=create_zip,
             hashdiff_naming=hashdiff_naming,
@@ -187,6 +192,7 @@ def _init_from_flags(
     bdv_schema: str,
     stage_database: str | None,
     rdv_database: str | None,
+    bdv_database: str | None,
     output_dir: str,
     create_zip: bool,
     hashdiff_naming: str | None,
@@ -233,6 +239,7 @@ def _init_from_flags(
             bdv_schema=bdv_schema,
             stage_database=stage_database or None,
             rdv_database=rdv_database or None,
+            bdv_database=bdv_database or None,
             **naming_overrides,
         ),
         output=OutputConfiguration(
