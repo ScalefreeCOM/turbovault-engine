@@ -44,6 +44,7 @@ class GlobalDefaults(BaseModel):
 
     stage_schema: str = Field("stage", description="Default staging schema name")
     rdv_schema: str = Field("rdv", description="Default RDV schema name")
+    bdv_schema: str = Field("bdv", description="Default BDV schema name")
     hashdiff_naming: str | None = Field(
         None, description="Default hashdiff naming pattern"
     )
@@ -87,6 +88,14 @@ class ApplicationConfig(BaseModel):
     defaults: GlobalDefaults = Field(
         default_factory=GlobalDefaults,
         description="Global default values for new projects",
+    )
+
+    disable_anonymous_usage_stats: bool = Field(
+        False,
+        description=(
+            "Set to true to opt out of anonymous usage statistics. "
+            "Alternatively, set the TURBOVAULT_DISABLE_TELEMETRY=1 environment variable."
+        ),
     )
 
     @model_validator(mode="after")

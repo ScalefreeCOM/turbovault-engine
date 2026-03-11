@@ -336,6 +336,7 @@ database:
 configuration:
   stage_schema: "stage"
   rdv_schema: "rdv"
+  bdv_schema: "bdv"
 
 output:
   dbt_project_dir: "./generated/dbt_project"

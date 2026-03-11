@@ -108,8 +108,6 @@ def generate(
     try:
         require_workspace()
     except WorkspaceNotFoundError as e:
-        from engine.cli.utils.console import print_error
-
         print_error(str(e))
         raise typer.Exit(1)
 
@@ -219,6 +217,9 @@ def generate(
     _cfg_dbt_dir = _project_config.output.dbt_project_dir if _project_config else None
     _cfg_json_dir = _project_config.output.json_output_dir if _project_config else None
     _cfg_dbml_dir = _project_config.output.dbml_output_dir if _project_config else None
+
+    # Read schema definitions from project
+    
 
     # Determine output path for dbt if needed (CLI --output takes priority over config)
     if should_generate_dbt and not output:
@@ -335,6 +336,9 @@ def generate(
         satellite_v1_naming=selected_project.get_naming_pattern("satellite_v1_naming"),
         skip_validation=skip_validation,
         create_zip=create_zip,
+        stage_schema=selected_project.get_schema("stage"),
+        rdv_schema=selected_project.get_schema("rdv"),
+        bdv_schema=selected_project.get_schema("bdv")
     )
 
     # Generate dbt project

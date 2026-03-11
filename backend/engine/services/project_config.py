@@ -84,6 +84,7 @@ def write_project_config(config_path: Path, config) -> None:
         "configuration": {
             "stage_schema": config.configuration.stage_schema,
             "rdv_schema": config.configuration.rdv_schema,
+            "bdv_schema": config.configuration.bdv_schema,
         },
         # Output paths are determined by convention (exports/ subfolder).
         # create_zip / export_sources are still project-level preferences.
@@ -207,6 +208,7 @@ def ensure_project_config_exists(project) -> Path:
             "configuration": {
                 "stage_schema": app_config.defaults.stage_schema,
                 "rdv_schema": app_config.defaults.rdv_schema,
+                "bdv_schema": app_config.defaults.bdv_schema,
             },
             "output": {
                 "create_zip": False,

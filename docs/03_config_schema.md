@@ -209,6 +209,8 @@ Project-level Data Vault configuration. If not provided, defaults are used.
 | `stage_database` | string | No | `null` | Database name for staging layer (optional) |
 | `rdv_schema` | string | No | `"rdv"` | Schema name for Raw Data Vault layer |
 | `rdv_database` | string | No | `null` | Database name for Raw Data Vault layer (optional) |
+| `bdv_schema` | string | No | `"bdv"` | Schema name for Business Data Vault layer |
+| `bdv_database` | string | No | `null` | Database name for Business Data Vault layer (optional) |
 | `hashdiff_naming` | string | No | `"hd_[[ satellite_name ]]"` | Naming pattern for hashdiff columns |
 | `hashkey_naming` | string | No | `"hk_[[ entity_name ]]"` | Naming pattern for hub/link hashkey columns |
 | `satellite_v0_naming` | string | No | `"[[ satellite_name ]]_v0"` | Naming pattern for v0 satellite models |
@@ -221,6 +223,7 @@ configuration:
   stage_schema: "stg"
   stage_database: "dw_raw"
   rdv_schema: "raw_vault"
+  bdv_schema: "business_vault"
   hashdiff_naming: "hd_[[ satellite_name ]]"
   hashkey_naming: "hk_[[ entity_name ]]"
   satellite_v0_naming: "[[ satellite_name ]]_v0"
@@ -232,6 +235,7 @@ configuration:
 configuration:
   stage_schema: "stage"
   rdv_schema: "rdv"
+  bdv_schema: "bdv"
 ```
 
 **Validation:**
@@ -320,6 +324,8 @@ configuration:
   stage_database: "dw_staging"
   rdv_schema: "rdv"
   rdv_database: "dw_core"
+  bdv_schema: "bdv"
+  bdv_database: "dw_core"
   hashdiff_naming_pattern: ""
 
 output:

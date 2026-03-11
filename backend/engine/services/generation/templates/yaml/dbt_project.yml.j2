@@ -18,15 +18,15 @@ clean-targets:
 
 models:
   [[ project_name ]]:
-    staging:
-      +schema: stage
-      +materialized: view
-    raw_vault:
-      +schema: rdv
-      +materialized: incremental
-    business_vault:
-      +schema: bdv
-      +materialized: table
-    control:
+    00_control:
       +schema: control
+      +materialized: table
+    02_staging:
+      +schema: [[ stage_schema ]]
+      +materialized: view
+    03_raw_vault:
+      +schema: [[ rdv_schema ]]
+      +materialized: incremental
+    04_business_vault:
+      +schema: [[ bdv_schema ]]
       +materialized: table
