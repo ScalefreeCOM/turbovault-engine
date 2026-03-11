@@ -51,14 +51,7 @@ def serve(
     )
     console.print()
 
-    # Get path to manage.py
     backend_dir = Path(__file__).parent.parent.parent.parent
-    manage_py = backend_dir / "manage.py"
-
-    if not manage_py.exists():
-        console.print("[error]Error: manage.py not found![/error]")
-        console.print(f"Expected location: {manage_py}")
-        raise typer.Exit(1)
 
     # Run Django runserver
     try:
@@ -66,22 +59,27 @@ def serve(
 
         from engine.cli.utils.debug import debug_print
 
-        cmd = [sys.executable, str(manage_py), "runserver", f"{host}:{port}"]
+        manage_py = backend_dir / "manage.py"
+        if manage_py.exists():
+            cmd = [sys.executable, str(manage_py), "runserver", f"{host}:{port}"]
+            cwd = str(backend_dir)
+        else:
+            cmd = [sys.executable, "-m", "django", "runserver", f"{host}:{port}"]
+            cwd = os.getcwd()
 
         debug_print(f"Starting server with command: {' '.join(cmd)}")
-        debug_print(f"Working directory: {backend_dir}")
+        debug_print(f"Working directory: {cwd}")
 
         # Pass the workspace config path via env var so the Django subprocess
-        # can find turbovault.yml (and therefore the correct database) even
-        # though its working directory is set to backend_dir (the repo),
-        # not the user's workspace directory.
+        # can find turbovault.yml (and therefore the correct database).
         env = os.environ.copy()
         env["TURBOVAULT_CONFIG_PATH"] = str(workspace_config_path.resolve())
+        env.setdefault("DJANGO_SETTINGS_MODULE", "turbovault.settings")
 
         debug_print(f"TURBOVAULT_CONFIG_PATH = {env['TURBOVAULT_CONFIG_PATH']}")
 
         # Run the server - this will block until CTRL+C
-        result = subprocess.run(cmd, cwd=str(backend_dir), env=env, check=False)
+        result = subprocess.run(cmd, cwd=cwd, env=env, check=False)
 
         debug_print(f"Server exited with return code: {result.returncode}")
 
