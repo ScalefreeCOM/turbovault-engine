@@ -9,6 +9,7 @@ packages = [
     "engine.cli",
     "engine.cli.commands",
     "engine.cli.utils",
+    "engine.migrations",
     "engine.models",
     "engine.services",
     "engine.services.export",
