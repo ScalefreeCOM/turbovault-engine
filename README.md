@@ -136,6 +136,17 @@ turbovault project init --name my_project --source ./metadata.xlsx \
 turbovault project init --config config.example.yml
 ```
 
+### Populate and Maintain your Data Vault model
+
+You can check, define, and change your Data Vault model via the Django Admin interface. To launch the web interface:
+
+```bash
+# Launch the web interface
+turbovault serve
+```
+
+Sign in via the credentials you set up during workspace initialization.
+
 ### Generate Your dbt Project
 
 ```bash
@@ -150,51 +161,6 @@ turbovault generate --project my_project --zip
 
 # Skip satellite v1 views
 turbovault generate --project my_project --no-v1-satellites
-```
-
-**Generated project structure:**
-```
-output/my_project/
-├── dbt_project.yml
-├── packages.yml
-├── models/
-│   ├── staging/
-│   │   ├── sources.yml
-│   │   └── {source_system}/
-│   │       ├── stg__*.sql
-│   │       └── stg__*.yml
-│   ├── raw_vault/
-│   │   └── {group}/
-│   │       ├── hub_*.sql/yml
-│   │       ├── link_*.sql/yml
-│   │       ├── sat_*_v0.sql/yml
-│   │       └── sat_*_v1.sql/yml
-│   ├── business_vault/
-│   │   ├── pits/
-│   │   └── reference_tables/
-│   └── control/
-│       ├── control_snap_v0.sql/yml
-│       └── control_snap_v1.sql/yml
-├── macros/
-├── tests/
-├── seeds/
-├── analyses/
-└── snapshots/
-```
-
-### Use the Generated Project
-
-```bash
-cd output/my_project
-
-# Install dbt packages (datavault4dbt)
-dbt deps
-
-# Compile to check for errors
-dbt compile
-
-# Run your Data Vault models
-dbt run
 ```
 
 ---
@@ -249,37 +215,6 @@ turbovault generate --type json --project sales_datavault
 # Start admin on custom port
 turbovault serve --port 9000
 ```
-
----
-
-## 📁 Project Structure
-
-```
-turbovault-engine/
-├── backend/                    # Django backend
-│   ├── engine/                 # Main application
-│   │   ├── models/             # Domain models (Hub, Link, Satellite, etc.)
-│   │   ├── services/           # Business logic and services
-│   │   │   ├── export/         # Export builders and exporters
-│   │   │   └── generation/     # dbt project generation
-│   │   │       ├── templates/  # SQL and YAML templates
-│   │   │       ├── generator.py
-│   │   │       ├── validators.py
-│   │   │       └── template_resolver.py
-│   │   ├── cli/                # CLI commands
-│   │   └── admin.py            # Django admin configuration
-│   ├── tests/                  # Test suite
-│   └── turbovault/             # Django project settings
-├── docs/                       # Documentation
-│   ├── 01_overview.md          # Architecture overview
-│   ├── 02_domain_model.md      # Domain model specification
-│   ├── 05_export_flow_specification.md  # Generation spec
-│   └── 06_dbt_generation.md    # Generation usage guide
-├── config.example.yml          # Example configuration file
-├── CLI_GUIDE.md                # Detailed CLI documentation
-└── pyproject.toml              # Python package configuration
-```
-
 ---
 
 ## 🗄️ Domain Model
@@ -354,8 +289,8 @@ output:
 See [config.example.yml](config.example.yml) for a complete example.
 
 **Documentation:**
-- [Configuration Schema Reference](docs/03_config_schema.md) - Complete config.yml reference
-- [Database Configuration Guide](docs/DATABASE_CONFIGURATION.md) - Detailed database setup
+- [Configuration Schema Reference](03_config_schema.md) - Complete config.yml reference
+- [Database Configuration Guide](DATABASE_CONFIGURATION.md) - Detailed database setup
 
 
 ---
@@ -403,28 +338,6 @@ Pre-generation validation catches common errors:
 
 ---
 
-## 🧪 Testing
-
-Run the test suite:
-
-```bash
-# Run all tests
-python -m pytest backend/tests/ -v
-
-# Run specific test file
-python -m pytest backend/tests/test_validators.py -v
-
-# Run with coverage
-python -m pytest backend/tests/ --cov=engine.services.generation
-```
-
-**Test coverage:**
-- 10 validator unit tests
-- 10 generator integration tests
-- All tests passing ✅
-
----
-
 ## 📤 Export Formats
 
 ### JSON Export
@@ -464,44 +377,6 @@ Generates ready-to-use dbt project with:
 
 ---
 
-## 🗺️ Roadmap
-
-### ✅ Completed Features (v0.2)
-- ✅ Project and source metadata management
-- ✅ Hub, Link, Satellite domain models (6 satellite types)
-- ✅ Prejoin definitions for complex links
-- ✅ PIT and Reference table support
-- ✅ Snapshot control configuration
-- ✅ **Complete dbt project generation**
-- ✅ **Template customization via Django Admin**
-- ✅ **Pre-generation validation**
-- ✅ **Comprehensive test suite**
-- ✅ **Rich CLI with progress indicators**
-- ✅ **Automatic template population**
-
-### 📋 Planned Features
-
-#### Near-Term
-- ✅ **Excel metadata import** — Bulk import via Excel file (v0.3)
-- ✅ **Workspace/Project split** — Two-step workspace + project init (v0.4)
-- 🔲 **Database catalog import** — Import metadata directly from databases
-- 🔲 **DBML export** — Database modeling language output
-- 🔲 **Template versioning** — Track template changes over time
-
-#### Medium-Term
-- 🔲 **Model comparison** — Diff and merge capabilities
-- 🔲 **CI/CD integration** — GitHub Actions workflow templates
-- 🔲 **Data lineage tracking** — Source-to-target mapping
-
-#### Long-Term
-- 🔲 **TurboVault Studio** - Web application with UI for modeling
-- 🔲 **Git integration** - Push generated projects to repositories
-- 🔲 **Cloud storage** - S3/GCS artifact storage
-- 🔲 **API endpoints** - REST API for programmatic access
-- 🔲 **Team collaboration** - Multi-user support with permissions
-
----
-
 ## 🤝 Contributing
 
 We welcome and appreciate community contributions! To keep the project sustainable while ensuring the software remains open and accessible, we follow a **Dual-Licensing** model.
@@ -526,30 +401,18 @@ If you wish to use this project in a commercial or proprietary setting without t
 
 Please contact us at **contact@scalefree.com** to discuss a commercial license tailored to your needs.
 
-### Development Setup
-
-```bash
-# Clone and install dev dependencies
-git clone https://github.com/ScalefreeCOM/turbovault-engine.git
-cd turbovault-engine
-pip install -e ".[dev]"
-
-# Run tests
-python -m pytest backend/tests/ -v
-```
-
 ---
 
 ## 📚 Documentation
 
-- [Architecture Overview](docs/01_overview.md)
-- [Domain Model Specification](docs/02_domain_model.md)
-- [Configuration Schema Reference](docs/03_config_schema.md)
-- [Database Configuration Guide](docs/DATABASE_CONFIGURATION.md)
-- [Import Flow Specification](docs/04_import_flow_specification.md)
-- [Export Flow Specification](docs/05_export_flow_specification.md)
-- [dbt Generation Guide](docs/06_dbt_generation.md)
-- [CLI Guide](docs/CLI_GUIDE.md)
+- [Architecture Overview](01_overview.md)
+- [Domain Model Specification](02_domain_model.md)
+- [Configuration Schema Reference](03_config_schema.md)
+- [Database Configuration Guide](DATABASE_CONFIGURATION.md)
+- [Import Flow Specification](04_import_flow_specification.md)
+- [Export Flow Specification](05_export_flow_specification.md)
+- [dbt Generation Guide](06_dbt_generation.md)
+- [CLI Guide](CLI_GUIDE.md)
 
 
 ---
