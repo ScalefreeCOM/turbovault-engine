@@ -286,11 +286,11 @@ output:
 - **Oracle** - `pip install cx_Oracle`
 - **Snowflake** - `pip install django-snowflake`
 
-See [config.example.yml](config.example.yml) for a complete example.
+See [config.example.yml](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/config.example.yml) for a complete example.
 
 **Documentation:**
-- [Configuration Schema Reference](03_config_schema.md) - Complete config.yml reference
-- [Database Configuration Guide](DATABASE_CONFIGURATION.md) - Detailed database setup
+- [Configuration Schema Reference](/docs/03_configuration/03_project-schema.md) - Complete config.yml reference
+- [Database Configuration Guide](/docs/03_configuration/02_database.md) - Detailed database setup
 
 
 ---
@@ -403,23 +403,9 @@ Please contact us at **contact@scalefree.com** to discuss a commercial license t
 
 ---
 
-## 📚 Documentation
-
-- [Architecture Overview](01_overview.md)
-- [Domain Model Specification](02_domain_model.md)
-- [Configuration Schema Reference](03_config_schema.md)
-- [Database Configuration Guide](DATABASE_CONFIGURATION.md)
-- [Import Flow Specification](04_import_flow_specification.md)
-- [Export Flow Specification](05_export_flow_specification.md)
-- [dbt Generation Guide](06_dbt_generation.md)
-- [CLI Guide](CLI_GUIDE.md)
-
-
----
-
 ## 📄 License
 
-This project is licensed under the **GNU Affero General Public License v3 (AGPL-3.0)** - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **GNU Affero General Public License v3 (AGPL-3.0)** - see the [LICENSE](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/LICENSE) file for details.
 
 ---
 
@@ -439,6 +425,6 @@ Built with:
 
 **Built with ❤️ by [Scalefree](https://scalefree.com)**
 
-[Documentation](docs/) · [Report Bug](https://github.com/ScalefreeCOM/turbovault-engine/issues) · [Request Feature](https://github.com/ScalefreeCOM/turbovault-engine/issues)
+[Documentation](https://docs.turbovault.app) · [Report Bug](https://github.com/ScalefreeCOM/turbovault-engine/issues) · [Request Feature](https://github.com/ScalefreeCOM/turbovault-engine/issues)
 
 </div>

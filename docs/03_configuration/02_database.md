@@ -1,3 +1,9 @@
+---
+sidebar_position: 6
+sidebar_label: Backend Database Config
+title: Backend Database Config
+---
+
 # Database Configuration Guide
 
 This guide explains how to configure TurboVault Engine to use external databases like PostgreSQL, MySQL, SQL Server, or Oracle instead of the default SQLite.
@@ -37,7 +43,7 @@ TurboVault supports all Django-compatible database backends:
 
 ### Basic Configuration Structure
 
-Add a `database` section to your `config.yml`:
+Add a `database` section to your `turbovault.yml`:
 
 ```yaml
 database:
@@ -93,7 +99,7 @@ GRANT ALL PRIVILEGES ON DATABASE turbovault_db TO turbovault_user;
 GRANT ALL ON SCHEMA public TO turbovault_user;
 ```
 
-#### 3. Configure config.yml
+#### 3. Configure turbovault.yml
 
 ```yaml
 database:
@@ -107,10 +113,10 @@ database:
     sslmode: prefer  # Options: disable, allow, prefer, require
 ```
 
-#### 4. Run Migrations
+#### 4. Initialize Workspace DB
 
 ```bash
-turbovault init --config config.yml
+turbovault workspace init --overwrite
 ```
 
 ---
@@ -141,7 +147,7 @@ GRANT ALL PRIVILEGES ON turbovault_db.* TO 'turbovault_user'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-#### 3. Configure config.yml
+#### 3. Configure turbovault.yml
 
 ```yaml
 database:
@@ -190,7 +196,7 @@ ALTER ROLE db_owner ADD MEMBER turbovault_user;
 GO
 ```
 
-#### 3. Configure config.yml
+#### 3. Configure turbovault.yml
 
 ```yaml
 database:
@@ -229,7 +235,7 @@ CREATE USER turbovault_user IDENTIFIED BY your_password;
 GRANT CONNECT, RESOURCE, DBA TO turbovault_user;
 ```
 
-#### 3. Configure config.yml
+#### 3. Configure turbovault.yml
 
 ```yaml
 database:
@@ -282,7 +288,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA turbovault_db.publi
 GRANT SELECT, INSERT, UPDATE, DELETE ON FUTURE TABLES IN SCHEMA turbovault_db.public TO USER turbovault_user;
 ```
 
-#### 3. Configure config.yml
+#### 3. Configure turbovault.yml
 
 ```yaml
 database:
@@ -304,10 +310,10 @@ database:
 - `account`, `warehouse`, `database`, and `schema` should be specified in `options`
 - Snowflake identifiers are case-insensitive but typically uppercase
 
-#### 4. Run Migrations
+#### 4. Initialize Workspace DB
 
 ```bash
-turbovault init --config config.yml
+turbovault workspace init --overwrite
 ```
 
 ---
@@ -345,7 +351,7 @@ DB_PASSWORD=your_secret_password
 DB_USER=turbovault_user
 ```
 
-Reference in `config.yml`:
+Reference in `turbovault.yml`:
 ```yaml
 database:
   engine: postgresql
@@ -363,16 +369,16 @@ Keep production config separate:
 
 ```bash
 # Development
-config.dev.yml
+turbovault.dev.yml
 
 # Production (not committed)
-config.prod.yml
+turbovault.prod.yml
 ```
 
 Use different configs per environment:
 ```bash
-turbovault init --config config.dev.yml
-turbovault init --config config.prod.yml
+turbovault workspace init --config turbovault.dev.yml
+turbovault workspace init --config turbovault.prod.yml
 ```
 
 ### 3. Database User Permissions
@@ -510,12 +516,11 @@ If you need to switch databases, you'll need to:
    python manage.py dumpdata > data_backup.json
    ```
 
-2. **Update config.yml** with new database settings
+2. **Update turbovault.yml** with new database settings
 
 3. **Run migrations** on the new database:
    ```bash
-   turbovault reset  # Clear new database
-   turbovault init --config config.yml
+   turbovault workspace init --overwrite
    ```
 
 4. **Import data** (if needed):
@@ -532,7 +537,7 @@ Test your database connection before running migrations:
 
 ```bash
 # Try to connect
-turbovault init --config config.yml
+turbovault workspace status
 ```
 
 If successful, you'll see:
@@ -586,12 +591,3 @@ database:
     ssl:
       ca: /path/to/ca.pem
 ```
-
----
-
-## Further Reading
-
-- [Django Database Documentation](https://docs.djangoproject.com/en/stable/ref/databases/)
-- [PostgreSQL Django Notes](https://docs.djangoproject.com/en/stable/ref/databases/#postgresql-notes)
-- [MySQL Django Notes](https://docs.djangoproject.com/en/stable/ref/databases/#mysql-notes)
-- [Oracle Django Notes](https://docs.djangoproject.com/en/stable/ref/databases/#oracle-notes)
