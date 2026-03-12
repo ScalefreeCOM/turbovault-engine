@@ -14,7 +14,7 @@
 
 ## 🎯 What is TurboVault Engine?
 
-TurboVault Engine is a **CLI-first, Django-based automation engine** that accelerates Data Vault 2.0 implementations. It:
+TurboVault Engine is a **CLI-first, Django-based automation engine** that accelerates Data Vault implementations. It:
 
 - **Ingests** source metadata from Excel files or database catalogs
 - **Maps** metadata into a consistent Data Vault domain model (Hubs, Links, Satellites)
