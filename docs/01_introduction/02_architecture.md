@@ -1,3 +1,9 @@
+---
+sidebar_position: 2
+sidebar_label: Architecture
+title: Architecture
+---
+
 # Architecture
 
 ## High-Level Architecture
@@ -24,7 +30,7 @@ Internally, Django provides the core ORM, management commands, and a **dynamic w
 
 #### Domain Model (Django ORM)
 
-Core entities include (names may be further refined in `02_domain_model.md`):
+Core entities include (names may be further refined in [the data model](/docs/04_concepts/01_domain-model.md)):
 
 The TurboVault Engine domain model is centered around a `Project` and a set of interrelated tables that capture source metadata, Data Vault design, pre-join logic, snapshot configuration, reference modeling, and PIT structures.
 

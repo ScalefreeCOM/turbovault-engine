@@ -1,3 +1,9 @@
+---
+sidebar_position: 8
+sidebar_label: Environment Variables
+title: Environment Variables
+---
+
 # Environment Variables
 
 TurboVault Engine supports the following environment variables for configuration and behavior control.
@@ -344,11 +350,3 @@ export TURBOVAULT_DEFAULT_VALIDATION_MODE=strict
 | `TURBOVAULT_DEFAULT_VALIDATION_MODE` | String | `strict` | Default validation mode |
 | `TURBOVAULT_DEBUG` | Boolean | Empty | Enable debug mode |
 | `DJANGO_SETTINGS_MODULE` | String | `turbovault.settings` | Django settings module |
-
----
-
-## See Also
-
-- [CLI Guide](CLI_GUIDE.md) - Complete CLI documentation
-- [README](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/README.md) - Project overview
-- [dbt Generation Guide](06_dbt_generation.md) - Generation documentation

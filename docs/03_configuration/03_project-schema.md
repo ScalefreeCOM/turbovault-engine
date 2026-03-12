@@ -1,3 +1,9 @@
+---
+sidebar_position: 7
+sidebar_label: Project Config
+title: Project Config
+---
+
 # Configuration Schema Reference
 
 This document provides a complete reference for the `config.yml` configuration file used by TurboVault Engine.
@@ -203,7 +209,7 @@ database:
 - For non-SQLite engines, `user`, `password`, and `host` are required
 - Missing required database drivers will generate a warning with installation instructions
 
-**See Also:** [Database Configuration Guide](DATABASE_CONFIGURATION.md) for detailed setup instructions.
+**See Also:** [Database Configuration Guide](/docs/03_configuration/02_database.md) for detailed setup instructions.
 
 ---
 
@@ -480,13 +486,10 @@ Configuration validation failed:
 
 ### Database Connection Issues
 
-See the [Database Configuration Guide](DATABASE_CONFIGURATION.md) for detailed troubleshooting.
+See the [Database Configuration Guide](/docs/03_configuration/02_database.md) for detailed troubleshooting.
 
 ---
 
 ## Further Reading
 
-- [Database Configuration Guide](DATABASE_CONFIGURATION.md)
-- [CLI Guide](CLI_GUIDE.md)
-- [Domain Model Specification](02_domain_model.md)
-- [config.example.yml](../config.example.yml)
+- [Database Configuration Guide](/docs/03_configuration/02_database.md)

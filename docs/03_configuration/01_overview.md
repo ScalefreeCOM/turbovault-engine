@@ -1,3 +1,9 @@
+---
+sidebar_position: 5
+sidebar_label: Config Overview
+title: Config Overview
+---
+
 # TurboVault Configuration Guide
 
 ## Overview
@@ -439,11 +445,3 @@ containing `turbovault.yml`). The current version passes the workspace path auto
 - Put passwords in version-controlled configs (use environment variables or a secrets manager)
 - Edit generated dbt files manually — re-run `generate` instead
 - Share `turbovault.yml` between users when database credentials differ
-
----
-
-## See Also
-
-- [README.md](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/README.md) — General usage and quick start
-- [CLI_GUIDE.md](CLI_GUIDE.md) — Full CLI command reference
-- [workspace.md](workspace.md) — Workspace setup and management

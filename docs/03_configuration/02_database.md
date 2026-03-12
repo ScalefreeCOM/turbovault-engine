@@ -1,3 +1,9 @@
+---
+sidebar_position: 6
+sidebar_label: Backend Database Config
+title: Backend Database Config
+---
+
 # Database Configuration Guide
 
 This guide explains how to configure TurboVault Engine to use external databases like PostgreSQL, MySQL, SQL Server, or Oracle instead of the default SQLite.
@@ -585,12 +591,3 @@ database:
     ssl:
       ca: /path/to/ca.pem
 ```
-
----
-
-## Further Reading
-
-- [Django Database Documentation](https://docs.djangoproject.com/en/stable/ref/databases/)
-- [PostgreSQL Django Notes](https://docs.djangoproject.com/en/stable/ref/databases/#postgresql-notes)
-- [MySQL Django Notes](https://docs.djangoproject.com/en/stable/ref/databases/#mysql-notes)
-- [Oracle Django Notes](https://docs.djangoproject.com/en/stable/ref/databases/#oracle-notes)

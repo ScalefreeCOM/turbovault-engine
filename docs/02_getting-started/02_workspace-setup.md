@@ -1,3 +1,9 @@
+---
+sidebar_position: 4
+sidebar_label: Workspace Setup
+title: Workspace Setup
+---
+
 # TurboVault Workspace Guide
 
 ## What is a TurboVault Workspace?
@@ -306,11 +312,3 @@ turbovault serve    # still works
    projects/*/dbt_project/
    projects/*/exports/
    ```
-
----
-
-## See Also
-
-- [configuration.md](configuration.md) — Configuration reference
-- [CLI_GUIDE.md](CLI_GUIDE.md) — Full CLI command reference
-- [README.md](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/README.md) — General usage
