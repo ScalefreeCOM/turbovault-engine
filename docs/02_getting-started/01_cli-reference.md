@@ -1,3 +1,9 @@
+---
+sidebar_position: 3
+sidebar_label: CLI Reference
+title: CLI Reference
+---
+
 # TurboVault CLI User Guide
 
 ## Installation
@@ -559,7 +565,7 @@ cd backend
 python manage.py populate_templates
 ```
 
-This is automatically done during `turbovault init` but can be run manually if needed.
+This is automatically done during `turbovault project init` but can be run manually if needed.
 
 ### Generation Validation Errors
 
@@ -593,12 +599,3 @@ On Windows, if you get permission errors:
 turbovault generate --project my_project --output ./new_output
 ```
 
----
-
-## Next Steps
-
-- Review the [README](README.md) for overview
-- Study [dbt generation documentation](docs/06_dbt_generation.md)
-- Learn about [environment variables](ENVIRONMENT_VARIABLES.md)
-- Explore [domain model documentation](docs/02_domain_model.md)
-- Check [template customization guide](docs/06_dbt_generation.md#custom-templates)

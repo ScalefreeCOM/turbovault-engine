@@ -1,3 +1,9 @@
+---
+sidebar_position: 4
+sidebar_label: Workspace Setup
+title: Workspace Setup
+---
+
 # TurboVault Workspace Guide
 
 ## What is a TurboVault Workspace?
@@ -293,28 +299,16 @@ turbovault serve    # still works
 
 ## Best Practices
 
-1. **One workspace per team / domain**
-   - Customer Data Vault → `customer-vault/`
-   - Supplier Data Vault → `supplier-vault/`
-
-2. **Use version control**
+1. **Use version control**
    ```bash
    git init
    git add turbovault.yml projects/
    git commit -m "Initial workspace"
    ```
 
-3. **Ignore generated files**
+2. **Ignore generated files**
    ```.gitignore
    db.sqlite3
    projects/*/dbt_project/
    projects/*/exports/
    ```
-
----
-
-## See Also
-
-- [configuration.md](configuration.md) — Configuration reference
-- [CLI_GUIDE.md](CLI_GUIDE.md) — Full CLI command reference
-- [README.md](../README.md) — General usage

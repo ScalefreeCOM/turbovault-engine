@@ -1,3 +1,9 @@
+---
+sidebar_position: 8
+sidebar_label: Environment Variables
+title: Environment Variables
+---
+
 # Environment Variables
 
 TurboVault Engine supports the following environment variables for configuration and behavior control.
@@ -17,10 +23,10 @@ Skip the automatic admin user creation prompt on first database initialization.
 ```bash
 # Skip admin user prompt
 export TURBOVAULT_SKIP_SUPERUSER_PROMPT=1
-turbovault init --config config.yml
+turbovault workspace init
 
 # Or inline
-TURBOVAULT_SKIP_SUPERUSER_PROMPT=true turbovault init --interactive
+TURBOVAULT_SKIP_SUPERUSER_PROMPT=true turbovault workspace init --interactive
 ```
 
 **When to use:**
@@ -56,10 +62,10 @@ Skip the automatic creation of default snapshot control entries when initializin
 ```bash
 # Skip default snapshot creation
 export TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS=1
-turbovault init --config config.yml
+turbovault project init --name my_project
 
 # Or inline
-TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS=true turbovault init --interactive
+TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS=true turbovault project init --interactive
 ```
 
 **When to use:**
@@ -87,10 +93,10 @@ Skip the automatic population of template files into the database during project
 ```bash
 # Skip template population
 export TURBOVAULT_SKIP_TEMPLATE_POPULATION=1
-turbovault init --config config.yml
+turbovault project init --name my_project
 
 # Or inline
-TURBOVAULT_SKIP_TEMPLATE_POPULATION=true turbovault init --interactive
+TURBOVAULT_SKIP_TEMPLATE_POPULATION=true turbovault project init --interactive
 ```
 
 **When to use:**
@@ -212,7 +218,7 @@ export TURBOVAULT_SKIP_TEMPLATE_POPULATION=1
 export TURBOVAULT_DEFAULT_VALIDATION_MODE=strict
 
 # Initialize and generate
-turbovault init --config config.yml
+turbovault project init --name production_datavault
 turbovault generate --project production_datavault --zip
 
 # Deploy generated ZIP
@@ -240,8 +246,9 @@ export TURBOVAULT_DEFAULT_VALIDATION_MODE=lenient
 # Enable debug mode
 export TURBOVAULT_DEBUG=1
 
-# Initialize project
-turbovault init --interactive
+# Initialize workspace and project
+turbovault workspace init --interactive
+turbovault project init --interactive
 
 # Start admin
 turbovault serve --port 8000
@@ -343,11 +350,3 @@ export TURBOVAULT_DEFAULT_VALIDATION_MODE=strict
 | `TURBOVAULT_DEFAULT_VALIDATION_MODE` | String | `strict` | Default validation mode |
 | `TURBOVAULT_DEBUG` | Boolean | Empty | Enable debug mode |
 | `DJANGO_SETTINGS_MODULE` | String | `turbovault.settings` | Django settings module |
-
----
-
-## See Also
-
-- [CLI Guide](CLI_GUIDE.md) - Complete CLI documentation
-- [README](README.md) - Project overview
-- [dbt Generation Guide](docs/06_dbt_generation.md) - Generation documentation
