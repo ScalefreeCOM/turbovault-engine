@@ -56,6 +56,7 @@ Configuration for importing source metadata from external sources.
 
 **Currently Supported Types:**
 - `excel` - Import from Excel spreadsheet
+- `sqlite` - Import from SQLite database
 
 **Fields for Excel Source:**
 
@@ -63,6 +64,13 @@ Configuration for importing source metadata from external sources.
 |-------|------|----------|-------------|---------|
 | `type` | string | Yes | Must be `"excel"` | `"excel"` |
 | `path` | string | Yes | Path to Excel file (relative or absolute) | `"./metadata/sources.xlsx"` |
+
+**Fields for SQLite Source:**
+
+| Field | Type | Required | Description | Example |
+|-------|------|----------|-------------|---------|
+| `type` | string | Yes | Must be `"sqlite"` | `"sqlite"` |
+| `path` | string | Yes | Path to SQLite database file | `"./metadata/sources.sqlite"` |
 
 **Example:**
 
@@ -74,12 +82,14 @@ source:
 
 **Behavior:**
 - If `source` is not provided, start with an empty project
-- Excel file doesn't need to exist at config load time (warning only)
+- Source file doesn't need to exist at config load time (warning only)
 - Relative paths are resolved from the config file location
 
 ---
 
 ### `database` (Optional)
+
+> **Important Note**: Database configuration should typically be defined at the workspace level in `turbovault.yml` (created via `turbovault workspace init`), not in the project's `config.yml`. This allows all projects in a workspace to share the same database connection. It is documented here for completeness.
 
 Database connection configuration. If not specified, SQLite is used by default.
 
@@ -385,8 +395,11 @@ config.prod.yml
 
 **Usage:**
 ```bash
-turbovault init --config config.dev.yml
-turbovault generate --project my_project --config config.prod.yml
+# Copy the desired environment config to the active config location
+cp config.dev.yml config.yml
+
+# Alternatively use project folders for environments
+turbovault generate --project my_project_dev
 ```
 
 ---

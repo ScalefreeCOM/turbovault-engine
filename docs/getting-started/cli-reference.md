@@ -559,7 +559,7 @@ cd backend
 python manage.py populate_templates
 ```
 
-This is automatically done during `turbovault init` but can be run manually if needed.
+This is automatically done during `turbovault project init` but can be run manually if needed.
 
 ### Generation Validation Errors
 
