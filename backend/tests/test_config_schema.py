@@ -25,7 +25,11 @@ class TestOutputConfiguration:
         config = TurboVaultConfig.model_validate(
             {
                 "project": {"name": "my_project"},
-                "configuration": {"stage_schema": "stage", "rdv_schema": "rdv", "bdv_schema": "bdv"},
+                "configuration": {
+                    "stage_schema": "stage",
+                    "rdv_schema": "rdv",
+                    "bdv_schema": "bdv",
+                },
             }
         )
 

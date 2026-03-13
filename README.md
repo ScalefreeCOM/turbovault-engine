@@ -292,8 +292,19 @@ See [config.example.yml](config.example.yml) for a complete example.
 - [Configuration Schema Reference](03_config_schema.md) - Complete config.yml reference
 - [Database Configuration Guide](DATABASE_CONFIGURATION.md) - Detailed database setup
 
+### 📊 Anonymous Usage Statistics
+
+TurboVault Engine collects lightweight, anonymous usage statistics (command invoked, TurboVault version, Python version, OS family, and install type) to help us understand real-world usage and improve the tool. **No personal data, project names, or Data Vault model content is ever sent.**
+
+Telemetry is enabled by default. To opt out, you can either:
+1. Set the environment variable: `TURBOVAULT_DISABLE_TELEMETRY=1`
+2. Add the following to your `turbovault.yml`:
+   ```yaml
+   disable_anonymous_usage_stats: true
+   ```
 
 ---
+
 
 ## 🎨 Template Customization
 

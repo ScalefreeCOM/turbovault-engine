@@ -25,10 +25,16 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
 
-    - name: Check formatting with Black
+    - name: Format with Black
       run: |
-        black --check backend/ -v
-      continue-on-error: true
+        black backend/ -v
+
+    - name: Auto-Commit Formatting Fixes
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: "style: auto-format code with Black"
+        commit_options: '--no-verify'
+        file_pattern: 'backend/**/*.py'
 
     - name: Lint with Ruff
       run: |

@@ -15,7 +15,6 @@ from django.db import models
 
 from engine.models.hubs import Hub
 from engine.models.project import Project
-from engine.models.source_metadata import SourceColumn
 
 
 class Satellite(models.Model):

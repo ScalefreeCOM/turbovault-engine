@@ -7,8 +7,8 @@ from __future__ import annotations
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from engine.models.source_metadata import SourceColumn
 from engine.models.prejoin import PrejoinExtractionColumn
+from engine.models.source_metadata import SourceColumn
 from engine.services.staging_service import get_or_create_staging_column
 
 
