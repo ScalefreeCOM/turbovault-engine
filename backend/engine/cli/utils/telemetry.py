@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-_TELEMETRY_ENDPOINT = "https://1gngmaobf8.execute-api.eu-west-1.amazonaws.com/v1/events"
+_TELEMETRY_ENDPOINT = "https://telemetry.turbovault.app/v1/events"
 _TELEMETRY_TIMEOUT_SECONDS = 5
 _SCHEMA_VERSION = 1
 
