@@ -56,6 +56,9 @@ jobs:
     permissions:
       contents: write # Needed to upload release assets
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Download distribution packages
         uses: actions/download-artifact@v4
         with:
