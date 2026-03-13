@@ -15,7 +15,6 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from engine.models.project import Project
-from engine.models.source_metadata import SourceColumn
 
 
 class Hub(models.Model):

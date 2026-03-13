@@ -219,7 +219,6 @@ def generate(
     _cfg_dbml_dir = _project_config.output.dbml_output_dir if _project_config else None
 
     # Read schema definitions from project
-    
 
     # Determine output path for dbt if needed (CLI --output takes priority over config)
     if should_generate_dbt and not output:
@@ -338,7 +337,7 @@ def generate(
         create_zip=create_zip,
         stage_schema=selected_project.get_schema("stage"),
         rdv_schema=selected_project.get_schema("rdv"),
-        bdv_schema=selected_project.get_schema("bdv")
+        bdv_schema=selected_project.get_schema("bdv"),
     )
 
     # Generate dbt project

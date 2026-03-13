@@ -131,7 +131,11 @@ def create_workspace_config(
 
     config_dict: dict = {
         "database": {"engine": db_engine, "name": db_name},
-        "defaults": {"stage_schema": stage_schema, "rdv_schema": rdv_schema, "bdv_schema": bdv_schema},
+        "defaults": {
+            "stage_schema": stage_schema,
+            "rdv_schema": rdv_schema,
+            "bdv_schema": bdv_schema,
+        },
     }
 
     if db_engine != "sqlite3":

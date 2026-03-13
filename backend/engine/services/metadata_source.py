@@ -1,10 +1,11 @@
-
-from abc import ABC, abstractmethod
-import pandas as pd
-import sqlite3
 import logging
+import sqlite3
+from abc import ABC, abstractmethod
+
+import pandas as pd
 
 logger = logging.getLogger(__name__)
+
 
 class MetadataSource(ABC):
     @abstractmethod
@@ -14,6 +15,7 @@ class MetadataSource(ABC):
     @abstractmethod
     def get_data(self, sheet_name: str) -> pd.DataFrame:
         pass
+
 
 class ExcelMetadataSource(MetadataSource):
     def __init__(self, file_path: str):
@@ -27,6 +29,7 @@ class ExcelMetadataSource(MetadataSource):
         # Standardize column names (lowercase and stripped)
         df.columns = [str(c).lower().strip() for c in df.columns]
         return df
+
 
 class SqliteMetadataSource(MetadataSource):
     def __init__(self, db_path: str):
@@ -45,5 +48,5 @@ class SqliteMetadataSource(MetadataSource):
         return df
 
     def __del__(self):
-        if hasattr(self, 'conn'):
+        if hasattr(self, "conn"):
             self.conn.close()

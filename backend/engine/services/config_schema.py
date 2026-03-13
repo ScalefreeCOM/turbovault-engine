@@ -210,7 +210,9 @@ class ProjectConfiguration(BaseModel):
     rdv_database: str | None = Field(
         None, description="Optional database name for Raw Data Vault layer"
     )
-    bdv_schema: str = Field("bdv", description="Schema name for Business Data Vault layer")
+    bdv_schema: str = Field(
+        "bdv", description="Schema name for Business Data Vault layer"
+    )
     bdv_database: str | None = Field(
         None, description="Optional database name for Business Data Vault layer"
     )
