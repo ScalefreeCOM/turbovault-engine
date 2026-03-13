@@ -14,8 +14,6 @@ from engine.models import (
     Project,
     ReferenceTable,
     ReferenceTableSatelliteAssignment,
-    ReferenceTable,
-    ReferenceTableSatelliteAssignment,
     SourceColumn,
     SourceSystem,
     SourceTable,
@@ -409,7 +407,9 @@ class SatelliteColumnInline(admin.TabularInline):
                     )
                     if satellite.source_table:
                         # Filter to only staging columns from this satellite's source table
-                        kwargs["queryset"] = StagingColumn.objects.filter(source_table=satellite.source_table)
+                        kwargs["queryset"] = StagingColumn.objects.filter(
+                            source_table=satellite.source_table
+                        )
                 except Satellite.DoesNotExist:
                     pass
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
@@ -1056,11 +1056,6 @@ class PrejoinExtractionColumnAdmin(admin.ModelAdmin):
             {"fields": ["created_at", "updated_at"], "classes": ["collapse"]},
         ),
     ]
-
-    @admin.display(description="Extraction Column")
-    def get_column_name(self, obj: PrejoinExtractionColumn) -> str:
-        """Return the extraction column name."""
-        return obj.source_column.source_column_physical_name
 
 
 # ==============================================================================

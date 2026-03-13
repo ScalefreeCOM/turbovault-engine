@@ -100,7 +100,8 @@ def init(
     hashkey_naming: Annotated[
         str | None,
         typer.Option(
-            "--hashkey-naming", help="Hashkey naming pattern (e.g. 'hd_[[ entity_name ]]')"
+            "--hashkey-naming",
+            help="Hashkey naming pattern (e.g. 'hd_[[ entity_name ]]')",
         ),
     ] = None,
     # ── Overwrite flag ───────────────────────────────────────────────
@@ -456,9 +457,7 @@ def _run_interactive_init() -> None:
             questionary.text("RDV database (optional):", default="").ask() or None
         )
         bdv_schema = questionary.text("BDV schema name:", default="bdv").ask()
-        bdv_database = (
-            questionary.text("BDV database (optional):", default="").ask() or None
-        )
+        questionary.text("BDV database (optional):", default="").ask()
 
         # Removed dbt output directory prompt - defaults to ./dbt_project inside project folder
 

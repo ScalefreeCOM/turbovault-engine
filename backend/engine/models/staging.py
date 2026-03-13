@@ -12,7 +12,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from engine.models.project import Project
-from engine.models.source_metadata import SourceTable, SourceColumn
+from engine.models.source_metadata import SourceColumn, SourceTable
 
 
 class StagingColumn(models.Model):
@@ -92,7 +92,7 @@ class StagingColumn(models.Model):
             raise ValidationError(
                 "Cannot specify both source_column and prejoin_column."
             )
-            
+
     @property
     def physical_name(self) -> str:
         """Returns the physical name of the underlying column."""
@@ -101,7 +101,7 @@ class StagingColumn(models.Model):
         if self.prejoin_column:
             # If alias exists, use it, otherwise use physical name from prejoin's source_column
             return (
-                self.prejoin_column.prejoin_target_column_alias 
+                self.prejoin_column.prejoin_target_column_alias
                 or self.prejoin_column.source_column.source_column_physical_name
             )
         return ""

@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _is_empty(val: Any) -> bool:
     """Return True if *val* is None or a stringified null-marker."""
     if val is None:
@@ -68,7 +69,7 @@ def _rows(conn: sqlite3.Connection, table: str) -> list[dict[str, Any]]:
         col_names = [d[0].lower() for d in description]
         results = []
         for row in cur.fetchall():
-            results.append(dict(zip(col_names, row)))
+            results.append(dict(zip(col_names, row, strict=False)))
         return results
     except sqlite3.OperationalError:
         return []
@@ -86,6 +87,7 @@ def _row_get(row: dict[str, Any], col: str) -> Any:
 # Service
 # ---------------------------------------------------------------------------
 
+
 class SqliteImportService:
     """
     Service to import metadata from a SQLite database.
@@ -97,9 +99,8 @@ class SqliteImportService:
     def __init__(self, conn: sqlite3.Connection):
         self._conn = conn
         # Ensure rows are accessible by name
-        original_factory = self._conn.row_factory
         self._conn.row_factory = sqlite3.Row
-        
+
         # Check available tables
         cur = self._conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         self._available_tables = {row["name"] for row in cur.fetchall()}
@@ -227,9 +228,7 @@ class SqliteImportService:
                     source_system=system,
                     physical_table_name=table_name,
                     alias="",
-                    record_source_value=_clean(
-                        _row_get(row, "record_source_column")
-                    )
+                    record_source_value=_clean(_row_get(row, "record_source_column"))
                     or "",
                     static_part_of_record_source=_clean(
                         _row_get(row, "static_part_of_record_source_column")
@@ -248,16 +247,48 @@ class SqliteImportService:
         columns_to_create: dict[str, set[str]] = {}
 
         sheets_to_scan = [
-            ("standard_hub", "source_table_identifier", ["source_column_physical_name"]),
+            (
+                "standard_hub",
+                "source_table_identifier",
+                ["source_column_physical_name"],
+            ),
             ("ref_hub", "source_table_identifier", ["source_column_physical_name"]),
-            ("standard_link", "source_table_identifier", ["source_column_physical_name"]),
-            ("non_historized_link", "source_table_identifier", ["source_column_physical_name"]),
-            ("standard_satellite", "source_table_identifier", ["source_column_physical_name"]),
+            (
+                "standard_link",
+                "source_table_identifier",
+                ["source_column_physical_name"],
+            ),
+            (
+                "non_historized_link",
+                "source_table_identifier",
+                ["source_column_physical_name"],
+            ),
+            (
+                "standard_satellite",
+                "source_table_identifier",
+                ["source_column_physical_name"],
+            ),
             ("ref_sat", "source_table_identifier", ["source_column_physical_name"]),
-            ("non_historized_satellite", "source_table_identifier", ["source_column_physical_name"]),
-            ("multiactive_satellite", "source_table_identifier", ["source_column_physical_name", "multi_active_attributes"]),
-            ("standard_link", "prejoin_table_identifier", ["prejoin_table_column_name", "prejoin_extraction_column_name"]),
-            ("non_historized_link", "prejoin_table_identifier", ["prejoin_table_column_name", "prejoin_extraction_column_name"]),
+            (
+                "non_historized_satellite",
+                "source_table_identifier",
+                ["source_column_physical_name"],
+            ),
+            (
+                "multiactive_satellite",
+                "source_table_identifier",
+                ["source_column_physical_name", "multi_active_attributes"],
+            ),
+            (
+                "standard_link",
+                "prejoin_table_identifier",
+                ["prejoin_table_column_name", "prejoin_extraction_column_name"],
+            ),
+            (
+                "non_historized_link",
+                "prejoin_table_identifier",
+                ["prejoin_table_column_name", "prejoin_extraction_column_name"],
+            ),
         ]
 
         for sheet_name, table_col, data_cols in sheets_to_scan:
@@ -315,7 +346,8 @@ class SqliteImportService:
                     hub_type=Hub.HubType.STANDARD,
                     hub_hashkey_name=_clean(row["target_primary_key_physical_name"]),
                     create_record_tracking_satellite=(
-                        str(_row_get(row, "record_tracking_satellite")).upper() == "TRUE"
+                        str(_row_get(row, "record_tracking_satellite")).upper()
+                        == "TRUE"
                     ),
                     create_effectivity_satellite=False,
                 )
@@ -416,7 +448,9 @@ class SqliteImportService:
 
     def _process_standard_links(self) -> None:
         """Processes standard_link table."""
-        self._process_links_generic("standard_link", Link.LinkType.STANDARD, "link_identifier")
+        self._process_links_generic(
+            "standard_link", Link.LinkType.STANDARD, "link_identifier"
+        )
 
     def _process_non_historized_links(self) -> None:
         """Processes non_historized_link table."""
@@ -558,9 +592,7 @@ class SqliteImportService:
                             source_col_name = _clean(
                                 r.get("source_column_physical_name")
                             )
-                            prejoin_alias = _clean(
-                                r.get("prejoin_target_column_alias")
-                            )
+                            prejoin_alias = _clean(r.get("prejoin_target_column_alias"))
                             ext_col_name = _clean(
                                 r.get("prejoin_extraction_column_name")
                             )
@@ -584,7 +616,9 @@ class SqliteImportService:
                                 LinkHubSourceMapping.objects.create(
                                     link_hub_reference=lhr,
                                     standard_hub_column=hub_col,
-                                    staging_column=get_or_create_staging_column(source_col or prejoin_ext),
+                                    staging_column=get_or_create_staging_column(
+                                        source_col or prejoin_ext
+                                    ),
                                 )
 
             # === Process Payload ===
@@ -766,7 +800,7 @@ class SqliteImportService:
             for rd in rows_as_dicts:
                 grp_key = tuple(str(rd.get(c) or "") for c in active_group_cols)
                 if grp_key not in last_vals:
-                    last_vals[grp_key] = {pc: None for pc in active_prejoin_cols}
+                    last_vals[grp_key] = dict.fromkeys(active_prejoin_cols)
                 for pc in active_prejoin_cols:
                     if not _is_empty(rd.get(pc)):
                         last_vals[grp_key][pc] = rd[pc]
@@ -842,9 +876,9 @@ class SqliteImportService:
                         source_column=source_col,
                         defaults={"prejoin_target_column_alias": alias},
                     )
-                    self._extractions[
-                        f"{link_name}|{alias or extraction_col_name}"
-                    ] = extraction
+                    self._extractions[f"{link_name}|{alias or extraction_col_name}"] = (
+                        extraction
+                    )
 
     def _process_reference_tables(self) -> None:
         """Processes ref_table table."""
@@ -896,10 +930,8 @@ class SqliteImportService:
                 ).first()
 
             if sat:
-                assignment, _ = (
-                    ReferenceTableSatelliteAssignment.objects.get_or_create(
-                        reference_table=ref_table, reference_satellite=sat
-                    )
+                assignment, _ = ReferenceTableSatelliteAssignment.objects.get_or_create(
+                    reference_table=ref_table, reference_satellite=sat
                 )
 
                 include_str = _clean(_row_get(row, "included_columns"))
@@ -957,13 +989,9 @@ class SqliteImportService:
                 tracked_link=link,
                 snapshot_control_table=self._snapshot_control,
                 snapshot_control_logic=self._snapshot_logic,
-                dimension_key_column_name=_clean(
-                    _row_get(row, "dimension_key_name")
-                ),
+                dimension_key_column_name=_clean(_row_get(row, "dimension_key_name")),
                 pit_type=_clean(_row_get(row, "pit_type")),
-                custom_record_source=_clean(
-                    _row_get(row, "custom_record_source")
-                ),
+                custom_record_source=_clean(_row_get(row, "custom_record_source")),
             )
 
             sat_ids = _row_get(row, "satellite_identifiers")
@@ -985,9 +1013,7 @@ class SqliteImportService:
                     if sat:
                         pit.satellites.add(sat)
 
-    def _create_default_snapshot_control(
-        self, skip_creation: bool = False
-    ) -> None:
+    def _create_default_snapshot_control(self, skip_creation: bool = False) -> None:
         """Creates a default snapshot control table and logic rule."""
         if self._snapshot_control:
             return

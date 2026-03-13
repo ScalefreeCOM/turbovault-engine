@@ -71,9 +71,7 @@ class ExcelImport:
             vals = [str(v).strip() if v is not None else None for v in vals]
             # Replace stringified null markers with actual None
             vals = [
-                None
-                if v is not None and v.strip().lower() in ("none", "")
-                else v
+                None if v is not None and v.strip().lower() in ("none", "") else v
                 for v in vals
             ]
             self._conn.execute(insert_sql, vals)

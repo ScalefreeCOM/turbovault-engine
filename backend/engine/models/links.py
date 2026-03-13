@@ -13,13 +13,11 @@ from __future__ import annotations
 
 import uuid
 
-from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Max
 
 from engine.models.hubs import Hub, HubColumn
 from engine.models.project import Project
-from engine.models.source_metadata import SourceColumn
 
 
 class Link(models.Model):
@@ -180,7 +178,7 @@ class LinkColumn(models.Model):
     class ColumnType(models.TextChoices):
         PAYLOAD = "payload", "Payload"
         ADDITIONAL_COLUMN = "additional_column", "Additional Column"
-        dependent_CHILD_KEY = "dependent_child_key", "dependent Child Key"
+        DEPENDENT_CHILD_KEY = "dependent_child_key", "dependent Child Key"
 
     link_column_id = models.UUIDField(
         primary_key=True,

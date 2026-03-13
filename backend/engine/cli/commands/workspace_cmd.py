@@ -103,7 +103,9 @@ def workspace_init(  # noqa: PLR0913
 
     Run this once per workspace before creating any projects.
     """
-    is_non_interactive = bool(db_engine or db_name or stage_schema or rdv_schema or bdv_schema)
+    is_non_interactive = bool(
+        db_engine or db_name or stage_schema or rdv_schema or bdv_schema
+    )
 
     if is_non_interactive and not interactive:
         _init_from_flags(

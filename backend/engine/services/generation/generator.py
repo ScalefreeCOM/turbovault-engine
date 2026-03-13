@@ -193,7 +193,9 @@ class DbtProjectGenerator:
                 )
                 write_yaml_file(path, content)
                 self.report.add_file(path, "source", f"source__{source_name}", "yaml")
-                logger.debug(f"Generated 'source__{source_name}' with {len(source.tables)} tables")
+                logger.debug(
+                    f"Generated 'source__{source_name}' with {len(source.tables)} tables"
+                )
             else:
                 self.report.add_warning(
                     entity_type="source",
