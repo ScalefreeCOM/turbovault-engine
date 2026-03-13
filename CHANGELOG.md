@@ -5,6 +5,13 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.10.0...turbovault-engine-v0.10.1) (2026-03-13)
+
+
+### CI/CD
+
+* fix gh release upload by adding checkout step ([#113](https://github.com/ScalefreeCOM/turbovault-engine/issues/113)) ([6e9f073](https://github.com/ScalefreeCOM/turbovault-engine/commit/6e9f073ffa3af5497483dc211dea2e6b8c0450de))
+
 ## [0.10.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.9.0...turbovault-engine-v0.10.0) (2026-03-13)
 
 
