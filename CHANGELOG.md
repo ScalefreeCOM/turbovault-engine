@@ -5,6 +5,28 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.9.0...turbovault-engine-v0.10.0) (2026-03-13)
+
+
+### Features
+
+* adding package building and preparing pypi publishing ([#112](https://github.com/ScalefreeCOM/turbovault-engine/issues/112)) ([9ae55cf](https://github.com/ScalefreeCOM/turbovault-engine/commit/9ae55cfe871f4537d0cab6b95d462ca6b19eb062))
+
+
+### Documentation
+
+* generalize data vault version ([#110](https://github.com/ScalefreeCOM/turbovault-engine/issues/110)) ([25bda93](https://github.com/ScalefreeCOM/turbovault-engine/commit/25bda93d28b667e34f89ca9944045c92b98e2bad))
+
+
+### Code Style
+
+* fix black and ruff formatting ([9ae55cf](https://github.com/ScalefreeCOM/turbovault-engine/commit/9ae55cfe871f4537d0cab6b95d462ca6b19eb062))
+
+
+### CI/CD
+
+* auto-commit black formatting fixes ([9ae55cf](https://github.com/ScalefreeCOM/turbovault-engine/commit/9ae55cfe871f4537d0cab6b95d462ca6b19eb062))
+
 ## [0.9.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.8.0...turbovault-engine-v0.9.0) (2026-03-04)
 
 
