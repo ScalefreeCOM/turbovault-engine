@@ -635,7 +635,7 @@ class SqliteImportService:
                 hk_def = r.get("target_primary_key_physical_name")
                 is_key = bool(hk_def and not _is_empty(hk_def))
                 col_type = (
-                    LinkColumn.ColumnType.dependent_CHILD_KEY
+                    LinkColumn.ColumnType.DEPENDENT_CHILD_KEY
                     if is_key
                     else LinkColumn.ColumnType.PAYLOAD
                 )
@@ -677,30 +677,41 @@ class SqliteImportService:
 
     def _process_satellites(self, sheet_type: str) -> None:
         """Processes satellite tables."""
-        for row in _rows(self._conn, sheet_type):
-            sat_name_col = (
-                "target_reference_table_physical_name"
-                if sheet_type == "ref_sat"
-                else "target_satellite_table_physical_name"
-            )
+        all_rows = _rows(self._conn, sheet_type)
+        if not all_rows:
+            return
+
+        sat_name_col = (
+            "target_reference_table_physical_name"
+            if sheet_type == "ref_sat"
+            else "target_satellite_table_physical_name"
+        )
+
+        # Group rows by satellite
+        from collections import defaultdict
+
+        grouped_rows = defaultdict(list)
+        for row in all_rows:
             sat_name = _clean(_row_get(row, sat_name_col))
-            if not sat_name:
-                continue
+            if sat_name:
+                grouped_rows[sat_name].append(row)
 
+        sat_type_map = {
+            "standard_satellite": Satellite.SatelliteType.STANDARD,
+            "ref_sat": Satellite.SatelliteType.REFERENCE,
+            "non_historized_satellite": Satellite.SatelliteType.NON_HISTORIZED,
+            "multiactive_satellite": Satellite.SatelliteType.MULTI_ACTIVE,
+        }
+
+        for sat_name, sat_rows in grouped_rows.items():
             if sat_name not in self._satellites:
-                sat_type_map = {
-                    "standard_satellite": Satellite.SatelliteType.STANDARD,
-                    "ref_sat": Satellite.SatelliteType.REFERENCE,
-                    "non_historized_satellite": Satellite.SatelliteType.NON_HISTORIZED,
-                    "multiactive_satellite": Satellite.SatelliteType.MULTI_ACTIVE,
-                }
-
+                row_sample = sat_rows[0]
                 parent_id = (
-                    _clean(_row_get(row, "parent_identifier"))
-                    or _clean(_row_get(row, "parent_table_identifier"))
-                    or _clean(_row_get(row, "nh_link_identifier"))
-                    or _clean(_row_get(row, "referenced_hub"))
-                    or _clean(_row_get(row, "parent_hub"))
+                    _clean(_row_get(row_sample, "parent_identifier"))
+                    or _clean(_row_get(row_sample, "parent_table_identifier"))
+                    or _clean(_row_get(row_sample, "nh_link_identifier"))
+                    or _clean(_row_get(row_sample, "referenced_hub"))
+                    or _clean(_row_get(row_sample, "parent_hub"))
                 )
 
                 parent_hub = self._hubs.get(parent_id)
@@ -714,7 +725,9 @@ class SqliteImportService:
                         project=self.project, link_physical_name=parent_id
                     ).first()
 
-                source_table_key = _clean(_row_get(row, "source_table_identifier"))
+                source_table_key = _clean(
+                    _row_get(row_sample, "source_table_identifier")
+                )
                 source_table = self._source_tables.get(source_table_key)
 
                 if (parent_hub or parent_link) and source_table:
@@ -736,7 +749,7 @@ class SqliteImportService:
                             else "satellite_identifier"
                         )
                     )
-                    sat_id = _clean(_row_get(row, sat_id_col))
+                    sat_id = _clean(_row_get(row_sample, sat_id_col))
                     if sat_id:
                         self._satellites[sat_id] = satellite
                 else:
@@ -748,37 +761,58 @@ class SqliteImportService:
 
             satellite = self._satellites[sat_name]
 
-            cols_to_add: list[tuple[str, bool]] = []
-            regular_col = _clean(_row_get(row, "source_column_physical_name"))
-            if regular_col:
-                cols_to_add.append((regular_col, False))
-
-            if sheet_type == "multiactive_satellite":
-                ma_attrs = _clean(_row_get(row, "multi_active_attributes"))
-                if ma_attrs:
-                    for s in str(ma_attrs).split(";"):
-                        cols_to_add.append((s.strip(), True))
-
-            for scn, is_ma_key in cols_to_add:
+            # Collect all column tasks for this satellite
+            # tuple: (source_column_name, is_ma_key, target_column_name, sort_order, source_col_instance)
+            tasks = []
+            for row in sat_rows:
                 source_table_key = _clean(_row_get(row, "source_table_identifier"))
-                source_col = self._source_columns.get(f"{source_table_key}|{scn}")
-                if source_col:
-                    target_col_name = scn
-                    if not is_ma_key:
-                        tcn = _clean(_row_get(row, "target_column_physical_name"))
-                        if tcn:
-                            target_col_name = tcn
+                
+                # Check for regular column
+                regular_col = _clean(_row_get(row, "source_column_physical_name"))
+                sort_order_raw = _row_get(row, "target_column_sort_order")
+                sort_order = None
+                if not _is_empty(sort_order_raw):
+                    try:
+                        sort_order = int(float(sort_order_raw))
+                    except (ValueError, TypeError):
+                        sort_order = None
 
-                    SatelliteColumn.objects.get_or_create(
-                        satellite=satellite,
-                        staging_column=get_or_create_staging_column(source_col),
-                        defaults={
-                            "is_multi_active_key": is_ma_key,
-                            "include_in_delta_detection": sheet_type
-                            != "non_historized_satellite",
-                            "target_column_name": target_col_name,
-                        },
-                    )
+                if regular_col:
+                    source_col = self._source_columns.get(f"{source_table_key}|{regular_col}")
+                    if source_col:
+                        tcn = _clean(_row_get(row, "target_column_physical_name")) or regular_col
+                        tasks.append((regular_col, False, tcn, sort_order, source_col))
+
+                # Check for multi-active attributes
+                if sheet_type == "multiactive_satellite":
+                    ma_attrs = _clean(_row_get(row, "multi_active_attributes"))
+                    if ma_attrs:
+                        for s in str(ma_attrs).split(";"):
+                            scn = s.strip()
+                            source_col = self._source_columns.get(f"{source_table_key}|{scn}")
+                            if source_col:
+                                # MA attributes usually don't have separate target names or explicit sort orders in the same row
+                                # but we include them in the tasks
+                                tasks.append((scn, True, scn, None, source_col))
+
+            # Sort tasks so those with explicit sort order are processed FIRST
+            # This prevents UNIQUE constraint collisions with auto-incremented values
+            tasks.sort(key=lambda t: (t[3] is None, t[3] or 0))
+
+            for scn, is_ma_key, target_col_name, sort_order, source_col in tasks:
+                SatelliteColumn.objects.get_or_create(
+                    satellite=satellite,
+                    staging_column=get_or_create_staging_column(source_col),
+                    defaults={
+                        "is_multi_active_key": is_ma_key,
+                        "include_in_delta_detection": sheet_type
+                        != "non_historized_satellite",
+                        "target_column_name": (
+                            target_col_name if target_col_name != scn else None
+                        ),
+                        "column_sort_order": sort_order,
+                    },
+                )
 
     def _process_prejoins(self, sheet: str) -> None:
         """Processes prejoin definitions and extractions from a link table."""
