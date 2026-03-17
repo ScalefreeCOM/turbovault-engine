@@ -176,6 +176,15 @@ class SatelliteColumn(models.Model):
         help_text="Optional transformation expression for derived columns (future use)",
     )
 
+    column_sort_order = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Display/generation order of this column within the satellite "
+            "(1-based, unique per satellite, auto-assigned on creation)."
+        ),
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the satellite column was created"
     )
@@ -186,8 +195,22 @@ class SatelliteColumn(models.Model):
 
     class Meta:
         db_table = "satellite_column"
-        unique_together = [["satellite", "staging_column"]]
-        ordering = ["satellite", "staging_column"]
+        unique_together = [
+            ["satellite", "staging_column"],
+            ["satellite", "column_sort_order"],
+        ]
+        ordering = ["satellite", "column_sort_order"]
+
+    def save(self, *args, **kwargs) -> None:
+        """Auto-assign column_sort_order if not yet set."""
+        if self.column_sort_order is None:
+            existing_max = (
+                SatelliteColumn.objects.filter(satellite=self.satellite)
+                .exclude(pk=self.pk)
+                .aggregate(max_order=models.Max("column_sort_order"))["max_order"]
+            )
+            self.column_sort_order = (existing_max or 0) + 1
+        super().save(*args, **kwargs)
 
     def clean(self) -> None:
         """Validate that staging column comes from satellite's source table."""

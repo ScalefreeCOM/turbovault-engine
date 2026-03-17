@@ -493,7 +493,20 @@ class BaseImportService:
             sat = self._satellites.get(sat_name)
             if not sat:
                 continue
-            for _, row in sat_rows.iterrows():
+
+            # Sort rows so those with explicit sort order are processed FIRST
+            # This prevents UNIQUE constraint collisions with auto-incremented values
+            def get_sort_val(row):
+                v = self._get_val(row, "target_column_sort_order")
+                try:
+                    return (0, int(float(v))) if v is not None else (1, 0)
+                except (ValueError, TypeError):
+                    return (1, 0)
+
+            # We convert to a list of rows to sort easily without pandas index issues
+            sorted_rows = sorted(sat_rows.iterrows(), key=lambda x: get_sort_val(x[1]))
+
+            for _, row in sorted_rows:
                 col_name = self._get_val(
                     row, "target_column_physical_name"
                 ) or self._get_val(row, "source_column_physical_name")
@@ -504,6 +517,15 @@ class BaseImportService:
                     f"{source_table_id}|{self._get_val(row, 'source_column_physical_name')}"
                 )
                 if source_col:
+                    # Read optional sort order from source sheet
+                    sort_order_raw = self._get_val(row, "target_column_sort_order")
+                    sort_order: int | None = None
+                    if sort_order_raw is not None:
+                        try:
+                            sort_order = int(float(sort_order_raw))
+                        except (ValueError, TypeError):
+                            sort_order = None
+
                     SatelliteColumn.objects.get_or_create(
                         satellite=sat,
                         staging_column=get_or_create_staging_column(source_col),
@@ -512,7 +534,8 @@ class BaseImportService:
                                 col_name
                                 if col_name != source_col.source_column_physical_name
                                 else None
-                            )
+                            ),
+                            "column_sort_order": sort_order,
                         },
                     )
 
@@ -615,6 +638,9 @@ class BaseImportService:
 
     def _get_val(self, row, col) -> str | None:
         val = row.get(col)
+        if val is None and col:
+            val = row.get(col.lower())
+
         if pd.isna(val) or val is None or str(val).lower() in ["nan", "none"]:
             return None
         return str(val).strip()

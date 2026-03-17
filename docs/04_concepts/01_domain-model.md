@@ -421,12 +421,15 @@ Maps source columns into a satellite, with extra semantics.
 | satellite_column_id          | identifier | PK       | Unique identifier of the satellite column.                                                                                  |
 | satellite_id                 | identifier | ✓ (FK)  | FK to `satellite.satellite_id`.                                                                                           |
 | source_column_id             | identifier | ✓ (FK)  | FK to `source_column.source_column_id`.                                                                                   |
+| column_sort_order            | int        | ✓       | 1-based position of this column within the satellite. Unique per satellite. Auto-assigned on creation (next available integer). Controls the order of columns in generated hashdiff lists (stage `.sql`) and payload lists (satellite `.sql`/`.yml`). |
 | is_multi_active_key          | boolean    | ✓       | Indicates if this column is part of the multi-active key (default:`false`).                                               |
 | include_in_delta_detection   | boolean    | ✓       | If `true`, column is included in hashdiff/delta detection; if `false`, it is excluded (default: `true`).              |
 | target_column_name           | string     |          | Optional target column name for renaming; default is the physical source column name.                                       |
 | target_column_transformation | string     |          | Optional transformation expression used to derive this column (e.g. placeholders, functions, or COALESCE-like expressions). |
 | created_at                   | datetime   | ✓       | Timestamp when the record was created.                                                                                      |
 | updated_at                   | datetime   | ✓       | Timestamp when the record was last updated.                                                                                 |
+
+> **`column_sort_order` import behaviour:** When importing via SQLite or Excel (sheets `standard_satellite`, `ref_sat`, `non_historized_satellite`, `multiactive_satellite`), the value is read from the column **`Target_Column_Sort_Order`** and stored directly. If the column is absent or blank in the source file the sort order is auto-assigned as the next integer within the satellite.
 
 **Relationships**
 
