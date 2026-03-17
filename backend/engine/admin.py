@@ -383,12 +383,14 @@ class SatelliteColumnInline(admin.TabularInline):
     model = SatelliteColumn
     extra = 1
     fields = [
+        "column_sort_order",
         "staging_column",
         "target_column_name",
         "is_multi_active_key",
         "include_in_delta_detection",
         "target_column_transformation",
     ]
+    ordering = ["column_sort_order"]
     autocomplete_fields = ["staging_column"]
     verbose_name = "Satellite Column"
     verbose_name_plural = "Satellite Columns"
@@ -505,6 +507,7 @@ class SatelliteColumnAdmin(admin.ModelAdmin):
 
     list_display = [
         "get_satellite",
+        "column_sort_order",
         "staging_column",
         "target_column_name",
         "is_multi_active_key",
@@ -523,6 +526,7 @@ class SatelliteColumnAdmin(admin.ModelAdmin):
     ]
     readonly_fields = ["satellite_column_id", "created_at", "updated_at"]
     autocomplete_fields = ["satellite", "staging_column"]
+    ordering = ["satellite", "column_sort_order"]
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "staging_column":

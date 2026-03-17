@@ -368,7 +368,7 @@ class ModelBuilder:
             # Get columns that should be included in hashdiff
             hashdiff_columns = [
                 col.target_column_name or col.staging_column.physical_name
-                for col in sat.columns.all()
+                for col in sat.columns.order_by("column_sort_order")
                 if col.include_in_delta_detection
             ]
 
@@ -710,7 +710,7 @@ class ModelBuilder:
         # Now find dependent child keys for each link from this source table
         link_source_mappings = LinkSourceMapping.objects.filter(
             staging_column__source_table=source_table,
-            link_column__column_type=LinkColumn.ColumnType.dependent_CHILD_KEY,
+            link_column__column_type=LinkColumn.ColumnType.DEPENDENT_CHILD_KEY,
         ).select_related("link_column__link", "staging_column")
 
         for mapping in link_source_mappings:
@@ -852,7 +852,7 @@ class ModelBuilder:
 
             # Build column definitions
             columns = []
-            for col in sat.columns.all():
+            for col in sat.columns.order_by("column_sort_order"):
                 columns.append(
                     SatelliteColumnDef(
                         source_column=col.staging_column.physical_name,
