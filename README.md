@@ -4,7 +4,9 @@
 
 **Transform source metadata into production-ready Data Vault dbt projects**
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/ScalefreeCOM/turbovault-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/ScalefreeCOM/turbovault-engine/actions/workflows/ci.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/ScalefreeCOM/turbovault-engine)](https://github.com/ScalefreeCOM/turbovault-engine/releases/latest)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Django](https://img.shields.io/badge/django-6.0+-green.svg)](https://www.djangoproject.com/)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
@@ -69,7 +71,7 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.12+
 - pip (Python package manager)
 - (Optional) Database drivers if using external databases:
   - PostgreSQL: `psycopg2-binary`
@@ -80,7 +82,7 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
 
 ### Installation
 
-**Install from PyPI** (once the package is published):
+**Install from PyPI:**
 
 ```bash
 pip install turbovault-engine
@@ -173,7 +175,7 @@ turbovault generate --project my_project --no-v1-satellites
 | `turbovault workspace status` | Show workspace health (DB, projects, migrations) |
 | `turbovault project init` | Create a new project in the workspace |
 | `turbovault project list` | List all projects in the workspace |
-| `turbovault generate` | Generate dbt project and/or export Data Vault model to JSON |
+| `turbovault generate` | Generate dbt project or export model to JSON / DBML |
 | `turbovault serve` | Start Django admin server for model management |
 | `turbovault reset` | Reset the database |
 | `turbovault --help` | Show all available commands |
@@ -184,7 +186,7 @@ turbovault generate --project my_project --no-v1-satellites
 # --- Workspace ---
 # Initialise workspace (non-interactive)
 turbovault workspace init --db-engine sqlite3 --db-name db.sqlite3 \
-  --stage-schema stage --rdv-schema rdv --skip-admin
+  --stage-schema stage --rdv-schema rdv
 
 # Check workspace health
 turbovault workspace status
@@ -289,8 +291,8 @@ output:
 See [config.example.yml](config.example.yml) for a complete example.
 
 **Documentation:**
-- [Configuration Schema Reference](03_config_schema.md) - Complete config.yml reference
-- [Database Configuration Guide](DATABASE_CONFIGURATION.md) - Detailed database setup
+- [Configuration Schema Reference](docs/03_configuration/03_project-schema.md) - Complete config.yml reference
+- [Database Configuration Guide](docs/03_configuration/02_database.md) - Detailed database setup
 
 ### 📊 Anonymous Usage Statistics
 
@@ -302,8 +304,6 @@ Telemetry is enabled by default. To opt out, you can either:
    ```yaml
    disable_anonymous_usage_stats: true
    ```
-
----
 
 
 ## 🎨 Template Customization
@@ -318,6 +318,8 @@ All SQL and YAML templates can be customized:
 Templates are automatically populated from files during `turbovault workspace init`.
 
 ### Manual Template Management
+
+> **Advanced / contributor use:** The following commands require access to the `backend/` Django project.
 
 ```bash
 # Populate templates from files
@@ -354,17 +356,14 @@ Pre-generation validation catches common errors:
 ### JSON Export
 
 ```bash
-# Export JSON only (no dbt generation)
-turbovault generate --json-only --project my_project
+# Export full Data Vault model as JSON
+turbovault generate --type json --project my_project
 
-# Export JSON alongside dbt project
-turbovault generate --export-json --project my_project
+# Custom output path
+turbovault generate --type json --project my_project --json-output ./exports/model.json
 
-# Specify custom JSON output path
-turbovault generate --json-only --json-output ./exports/model.json
-
-# Use compact JSON format
-turbovault generate --json-only --json-format compact
+# Compact format
+turbovault generate --type json --project my_project --json-format compact
 ```
 
 Exports complete model to JSON with:
@@ -373,6 +372,18 @@ Exports complete model to JSON with:
 - Stage definitions with hashkeys/hashdiffs
 - PITs and reference tables
 - Snapshot controls
+
+### DBML Export
+
+```bash
+# Export Data Vault model as a DBML diagram
+turbovault generate --type dbml --project my_project
+
+# Custom output path
+turbovault generate --type dbml --project my_project --dbml-output ./exports/model.dbml
+```
+
+Exports the model as [DBML (Database Markup Language)](https://dbml.dbdiagram.io/), which can be rendered in [dbdiagram.io](https://dbdiagram.io) to visualize entity relationships.
 
 ### dbt Project
 
@@ -416,14 +427,24 @@ Please contact us at **contact@scalefree.com** to discuss a commercial license t
 
 ## 📚 Documentation
 
-- [Architecture Overview](01_overview.md)
-- [Domain Model Specification](02_domain_model.md)
-- [Configuration Schema Reference](03_config_schema.md)
-- [Database Configuration Guide](DATABASE_CONFIGURATION.md)
-- [Import Flow Specification](04_import_flow_specification.md)
-- [Export Flow Specification](05_export_flow_specification.md)
-- [dbt Generation Guide](06_dbt_generation.md)
-- [CLI Guide](CLI_GUIDE.md)
+**Getting Started**
+- [CLI Reference](docs/02_getting-started/01_cli-reference.md)
+- [Workspace Setup Guide](docs/02_getting-started/02_workspace-setup.md)
+- [Step-by-Step Example (TPC-H)](docs/02_getting-started/03_step-by-step-example.md)
+- [Django Admin Guide](docs/02_getting-started/04_admin-guide.md)
+
+**Configuration**
+- [Configuration Overview](docs/03_configuration/01_overview.md)
+- [Database Configuration Guide](docs/03_configuration/02_database.md)
+- [Project Config Schema Reference](docs/03_configuration/03_project-schema.md)
+- [Environment Variables Reference](docs/03_configuration/04_env-variables.md)
+
+**Concepts**
+- [Architecture Overview](docs/01_introduction/01_overview.md)
+- [Architecture Details](docs/01_introduction/02_architecture.md)
+- [Domain Model Specification](docs/04_concepts/01_domain-model.md)
+- [Excel Metadata Format](docs/04_concepts/02_excel-metadata-format.md)
+- [Validation Rules Reference](docs/04_concepts/03_validation-rules.md)
 
 
 ---
@@ -448,8 +469,8 @@ Built with:
 
 <div align="center">
 
-**Built with ❤️ by [Scalefree](https://scalefree.com)**
+**Built by [Scalefree](https://scalefree.com)**
 
-[Documentation](docs/) · [Report Bug](https://github.com/ScalefreeCOM/turbovault-engine/issues) · [Request Feature](https://github.com/ScalefreeCOM/turbovault-engine/issues)
+[Documentation](https://docs.turbovault.app) · [Changelog](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/CHANGELOG.md) · [Report Bug](https://github.com/ScalefreeCOM/turbovault-engine/issues) · [Request Feature](https://github.com/ScalefreeCOM/turbovault-engine/issues)
 
 </div>

@@ -300,15 +300,63 @@ turbovault serve    # still works
 ## Best Practices
 
 1. **Use version control**
+
+   Commit your workspace config and project metadata (Excel files and `turbovault.yml`) to Git:
+
    ```bash
    git init
    git add turbovault.yml projects/
    git commit -m "Initial workspace"
    ```
 
-2. **Ignore generated files**
-   ```.gitignore
-   db.sqlite3
-   projects/*/dbt_project/
+2. **Ignore generated files and the local database**
+
+   Add a `.gitignore` to keep generated output and local databases out of version control:
+
+   ```gitignore
+   # Local TurboVault database
+   *.sqlite3
+
+   # Generated dbt project output
    projects/*/exports/
+
+   # ZIP archives
+   *.zip
    ```
+
+3. **Use a dedicated virtual environment**
+
+   Each workspace should have its own Python virtual environment to avoid dependency conflicts:
+
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\activate  # Windows
+   # source .venv/bin/activate  # macOS/Linux
+   pip install turbovault-engine
+   ```
+
+4. **One project per domain or customer**
+
+   TurboVault supports multiple projects in one workspace. Use separate projects for distinct Data Vault scopes (e.g. one per source system, business domain, or customer), rather than mixing them into one large project.
+
+5. **Back up your workspace before resets**
+
+   The `turbovault reset` command drops and recreates the database, removing all model data. Before running it, back up your SQLite file:
+
+   ```bash
+   cp db.sqlite3 db.sqlite3.backup
+   turbovault reset
+   ```
+
+6. **Automate with environment variables in CI/CD**
+
+   In CI environments, suppress interactive prompts with environment variables:
+
+   ```bash
+   export TURBOVAULT_SKIP_SUPERUSER_PROMPT=1
+   export TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS=1
+   turbovault workspace init --db-engine sqlite3 --db-name db.sqlite3 \
+     --stage-schema stage --rdv-schema rdv
+   ```
+
+   See [Environment Variables](../03_configuration/04_env-variables.md) for the full list.

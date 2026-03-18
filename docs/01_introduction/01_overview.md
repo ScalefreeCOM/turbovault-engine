@@ -23,39 +23,6 @@ TurboVault Engine is intended to be:
 
 This document gives a detailed overview of the Engine’s purpose, scope, architecture, and how it will be used both in standalone mode and inside the web application.
 
----
-
-## Goals and Non-Goals
-
-### Goals
-
-TurboVault Engine aims to:
-
-- Provide a **robust, explicit Data Vault metadata model** (Django ORM) that can serve as a single source of truth.
-- Offer a **repeatable, config-driven pipeline** for:
-  - Importing metadata from external sources (Excel, databases, etc.).
-  - Populating the internal domain model.
-  - Generating a dbt project from that model.
-- Be **installable as a Python package** and runnable via a simple CLI:
-  - Example: `turbovault generate --project my_project`
-- Be architected in a way that is **directly reusable** for:
-  - A future web backend.
-  - Celery-based background tasks.
-  - Potential integrations in other tools.
-- Be **open-source** from the start, with a clear and approachable structure.
-
-### Non-Goals (at Pre-MVP / Engine Level)
-
-The following are explicitly out of scope for the initial Engine  and are deferred to later phases:
-
-- **User management & authentication**  
-  No multi-user system, logins, or authorization; the Engine is a local tool operated by a single user.
-- **HTTP API / Web UI (v0.3 Update)**  
-  Initially a non-goal, a **Web Initializer** has been introduced for guided project creation and metadata import. A full-featured REST API and UI remain long-term goals.
-- **Cloud storage & Git integration**  
-  No S3 uploads, no Git push; output is purely local (directory + optional ZIP).
-
----
 
 ## Primary Use Cases
 
@@ -86,7 +53,7 @@ Because the Engine is CLI-driven and deterministic, it can be integrated into:
 
 ## Configuration Model (`config.yml`)
 
-The Engine is driven by a `config.yml` file. While details are defined in `03_config_schema.md`, the high-level structure includes:
+The Engine is driven by a `config.yml` file. While details are defined in the [Configuration Schema Reference](../03_configuration/03_project-schema.md), the high-level structure includes:
 
 - `project`
   - Name, description, optional identifiers.
@@ -134,6 +101,8 @@ Run a generation:
 ```bash
 turbovault generate --project my_project
 ```
+
+> **See also:** The [CLI Reference](../02_getting-started/01_cli-reference.md) documents every command, flag, and workflow example in detail.
 
 ### Local Database Usage
 
