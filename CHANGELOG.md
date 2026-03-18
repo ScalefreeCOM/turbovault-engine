@@ -5,6 +5,15 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.10.1...turbovault-engine-v0.10.2) (2026-03-18)
+
+
+### CI/CD
+
+* bump actions/checkout from 4 to 6 ([#116](https://github.com/ScalefreeCOM/turbovault-engine/issues/116)) ([8e5a0c6](https://github.com/ScalefreeCOM/turbovault-engine/commit/8e5a0c6c4fab3187d7275ddb3c53c591ca5df007))
+* bump actions/download-artifact from 4 to 8 ([#117](https://github.com/ScalefreeCOM/turbovault-engine/issues/117)) ([e304da7](https://github.com/ScalefreeCOM/turbovault-engine/commit/e304da70b0a72b186e5b540998ebdb6a03ffd54b))
+* bump stefanzweifel/git-auto-commit-action from 5 to 7 ([#115](https://github.com/ScalefreeCOM/turbovault-engine/issues/115)) ([34cbf83](https://github.com/ScalefreeCOM/turbovault-engine/commit/34cbf832a645c3f432f952bbfbc47e34d34ec5d6))
+
 ## [0.10.1](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.10.0...turbovault-engine-v0.10.1) (2026-03-13)
 
 
