@@ -8,6 +8,8 @@ title: Environment Variables
 
 TurboVault Engine supports the following environment variables for configuration and behavior control.
 
+> **See also:** [CLI Reference](../02_getting-started/01_cli-reference.md) for all available commands and flags.
+
 ---
 
 ## Database & Setup

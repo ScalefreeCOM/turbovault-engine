@@ -13,6 +13,8 @@ TurboVault uses a **YAML-only configuration system** with two types of config fi
 1. **`turbovault.yml`** — Global workspace settings (database connection, schema defaults)
 2. **`projects/<name>/config.yml`** — Per-project settings (schemas, naming patterns, output overrides)
 
+> **Scope of this document:** This guide explains the configuration system concepts and provides a quick-start reference. For the **complete field-by-field reference** for `config.yml`, see the [Project Config Reference](./03_project-schema.md).
+
 ---
 
 ## Quick Start
@@ -94,7 +96,7 @@ defaults:
   rdv_schema: rdv
   bdv_schema: bdv
   hashdiff_naming: "hd_[[ satellite_name ]]"
-  hashkey_naming: "hd_[[ entity_name ]]"
+  hashkey_naming: "hk_[[ entity_name ]]"
 ```
 
 > **Note:** `turbovault.yml` is created automatically by `turbovault workspace init`.

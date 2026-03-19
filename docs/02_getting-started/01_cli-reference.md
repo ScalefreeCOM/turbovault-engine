@@ -8,25 +8,27 @@ title: CLI Reference
 
 ## Installation
 
-Install TurboVault Engine in development mode:
+Install TurboVault Engine from PyPI:
 
 ```bash
-pip install -e .
+pip install turbovault-engine
 ```
 
 This makes the `turbovault` command available in your terminal.
+
+> **Note for contributors:** If you are working on the engine locally, install in editable mode instead: `pip install -e .`
 
 ## Commands Overview
 
 TurboVault uses a **two-step setup**: initialise the workspace once, then create projects inside it.
 
 | Command | Description |
-|---|---|
+|---------|-------------|
 | `turbovault workspace init` | Initialise directory as a workspace |
 | `turbovault workspace status` | Show DB connection, project count, migration status |
 | `turbovault project init` | Create a new Data Vault project in the workspace |
 | `turbovault project list` | List all projects in the workspace |
-| `turbovault generate` | Generate dbt project / export Data Vault model to JSON |
+| `turbovault generate` | Generate dbt project or export model to JSON / DBML |
 | `turbovault serve` | Start Django admin server |
 | `turbovault reset` | Reset the workspace database |
 
@@ -93,6 +95,8 @@ Prompts for database engine, connection settings, schema defaults, and optional 
 | `--skip-admin` | Skip admin user creation entirely | `false` |
 | `--overwrite` | Overwrite existing `turbovault.yml` | `false` |
 | `--interactive`, `-i` | Force interactive prompts | `false` |
+
+> **See also:** [Database Configuration Guide](../03_configuration/02_database.md) for detailed setup instructions for PostgreSQL, MySQL, SQL Server, and other backends.
 
 ---
 
@@ -216,15 +220,18 @@ Creates both the folder and a `.zip` file.
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
 | `--project NAME` | `-p` | Project name (or interactive selection) | Interactive |
-| `--output PATH` | `-o` | Output directory path (only for type=dbt) | `./output/{project}` |
+| `--output PATH` | `-o` | Output directory path (only for type=dbt) | `exports/dbt_project/` |
 | `--mode MODE` | `-m` | Validation mode: `strict` or `lenient` | `strict` |
 | `--zip` | `-z` | Create ZIP archive after generation (only for type=dbt) | `false` |
 | `--skip-validation` | | Skip pre-generation validation | `false` |
 | `--no-v1-satellites` | | Skip generating satellite _v1 views (only for type=dbt) | `false` |
-| `--type TYPE` | `-t` | Export type: `dbt` or `json` | Interactive |
+| `--type TYPE` | `-t` | Export type: `dbt`, `json`, or `dbml` | Interactive |
 | `--json-output PATH` | | JSON output file path (only for type=json) | Auto-generated |
 | `--json-format FORMAT` | | JSON format: `compact` or `pretty` (only for type=json) | `pretty` |
+| `--dbml-output PATH` | | DBML output file path (only for type=dbml) | Auto-generated |
 | `--help` | | Show help message | |
+
+> **See also:** [Configuration Overview](../03_configuration/01_overview.md) for the full output path priority order (CLI flag → config.yml → convention default) and [Project Config Reference](../03_configuration/03_project-schema.md) for all config.yml fields.
 
 #### Validation Modes
 
@@ -283,7 +290,7 @@ turbovault generate --type json --json-format compact -p sales_datavault
 
 #### Export Types
 
-The `generate` command supports two export types via the `--type` flag:
+The `generate` command supports three export types via the `--type` flag:
 
 **`dbt` - Generate dbt project (default if not specified):**
 ```bash
@@ -295,15 +302,7 @@ Creates a complete dbt project with all models, macros, and configuration.
 ```bash
 turbovault generate --type json --project my_project
 ```
-Exports the complete Data Vault model as JSON for inspection or integration.
-
-**Interactive selection:** If `--type` is not provided, you'll be prompted to choose:
-```bash
-turbovault generate --project my_project
-# ? Select export type:
-#   > dbt - Generate dbt project
-#     json - Export Data Vault model to JSON
-```
+Exports the complete Data Vault model as a structured JSON export for inspection or integration with other tools.
 
 The JSON export includes:
 - Project metadata
@@ -311,6 +310,21 @@ The JSON export includes:
 - Hubs, links, satellites
 - PITs and reference tables
 - Snapshot controls
+
+**`dbml` - Export Data Vault model as DBML diagram:**
+```bash
+turbovault generate --type dbml --project my_project
+```
+Exports the model as [DBML (Database Markup Language)](https://dbml.dbdiagram.io/), which can be rendered in tools like [dbdiagram.io](https://dbdiagram.io) to visualize the entity relationships.
+
+**Interactive selection:** If `--type` is not provided, you'll be prompted to choose:
+```bash
+turbovault generate --project my_project
+# ? Select export type:
+#   > dbt - Generate dbt project
+#     json - Export Data Vault model to JSON
+#     dbml - Export Data Vault model as DBML diagram
+```
 
 ---
 

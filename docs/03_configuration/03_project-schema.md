@@ -6,7 +6,7 @@ title: Project Config
 
 # Configuration Schema Reference
 
-This document provides a complete reference for the `config.yml` configuration file used by TurboVault Engine.
+This document is the **complete field-by-field reference** for the `config.yml` project configuration file. For a conceptual introduction and quick-start examples, see the [Configuration Overview](./01_overview.md).
 
 ## Overview
 
@@ -261,43 +261,50 @@ configuration:
 
 ---
 
-### `output` (Required)
+### `output` (Optional)
 
-dbt project generation and export configuration.
+dbt project generation and export configuration. All fields are optional — when omitted, TurboVault uses **convention-based output directories** inside the project folder.
 
 **Fields:**
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `dbt_project_dir` | string | Yes | - | Directory where dbt project will be generated |
-| `dbt_project_name` | string | No | `project.name` | Name of the dbt project (defaults to project name) |
-| `create_zip` | boolean | No | `false` | Whether to create a ZIP archive of the generated project |
+| `dbt_project_dir` | string | No | `exports/dbt_project/` | Override directory where the dbt project is generated |
+| `json_output_dir` | string | No | `exports/json/` | Override directory for JSON exports |
+| `dbml_output_dir` | string | No | `exports/dbml/` | Override directory for DBML exports |
+| `create_zip` | boolean | No | `false` | Whether to create a ZIP archive of the generated dbt project |
 | `export_sources` | boolean | No | `true` | Include source system definitions in export |
-| `generate_tests` | boolean | No | `true` | Generate dbt tests (for future use) |
-| `generate_dbml` | boolean | No | `false` | Generate DBML file (for future use) |
 
 **Example:**
 
 ```yaml
 output:
-  dbt_project_dir: "./generated/my_dbt_project"
-  dbt_project_name: "customer_dv"
   create_zip: true
   export_sources: true
-  generate_tests: true
-  generate_dbml: false
 ```
 
-**Minimal Example:**
+**Minimal Example (use all convention defaults):**
+```yaml
+# output section can be omitted entirely
+```
+
+**Override specific output paths:**
 ```yaml
 output:
-  dbt_project_dir: "./dbt_output"
+  dbt_project_dir: "/shared/dbt/customer_mdm"
+  json_output_dir: "./exports/json"
+  dbml_output_dir: "./exports/dbml"
 ```
 
 **Path Resolution:**
 - Paths are automatically resolved to absolute paths
 - `~` (home directory) is expanded
-- Relative paths are resolved from the config file location
+- Relative paths are resolved from the project folder location
+
+**Priority order** (highest → lowest):
+1. CLI flag (`--output`, `--json-output`, `--dbml-output`)
+2. Config value in `config.yml` (`output.dbt_project_dir`, etc.)
+3. Convention default (`exports/<type>/` inside the project folder)
 
 ---
 
@@ -342,15 +349,13 @@ configuration:
   rdv_database: "dw_core"
   bdv_schema: "bdv"
   bdv_database: "dw_core"
-  hashdiff_naming_pattern: ""
+  hashdiff_naming: "hd_[[ satellite_name ]]"
+  hashkey_naming: "hk_[[ entity_name ]]"
 
 output:
-  dbt_project_dir: "./generated/enterprise_dv"
-  dbt_project_name: "enterprise_datavault"
+  dbt_project_dir: "/shared/dbt/enterprise_dv"
   create_zip: true
   export_sources: true
-  generate_tests: true
-  generate_dbml: false
 ```
 
 ---

@@ -6,7 +6,7 @@ title: Backend Data Model
 
 # Domain Model
 
-This document describes the **logical domain model** for the TurboVault Engine.It is the blueprint for the Django ORM models and is intended to remain stable so that:
+This document describes the **logical domain model** for the TurboVault Engine. It is the blueprint for the Django ORM models and is intended to remain stable so that:
 
 - the **CLI-based Engine** and
 - future **front-end applications**
@@ -15,21 +15,22 @@ can share the same core data structures.
 
 The focus here is on **entities, fields, relationships, and semantics**, not on exact Django field types or implementation details.
 
+> **See also:** [Architecture Overview](../01_introduction/02_architecture.md) explains how these entities are used by the service and CLI layers at runtime.
+
 ---
 
 ## 1. Conventions
 
-- **identifier**Logical primary key type (e.g. `UUID`, `BIGINT`, or similar). In Django this will typically be a `UUIDField` or `BigAutoField`.
-- **string**Text field (e.g. `CharField` / `TextField` depending on length).
-- **int**Integer number.
-- **boolean**True/False.
-- **date / time**Date-only / time-only fields.
-- **list[...]**Represents a multi-value relationship. In relational / Django terms this will be implemented as:
+- **identifier** — Logical primary key type (e.g. `UUID`, `BIGINT`, or similar). In Django this will typically be a `UUIDField` or `BigAutoField`.
+- **string** — Text field (e.g. `CharField` / `TextField` depending on length).
+- **int** — Integer number.
+- **boolean** — True/False.
+- **date / time** — Date-only / time-only fields.
+- **list[...]** — Represents a multi-value relationship. In relational / Django terms this will be implemented as:
 
   - a many-to-many relation, or
   - a helper table providing multiple rows (depending on the specific case).
-- **FK** (Foreign Key)
-  References another table’s primary key.
+- **FK** (Foreign Key) — References another table’s primary key.
 
 > **Note on Project scoping:**
 > Conceptually, **all DV-related entities are scoped to a `Project`**.
