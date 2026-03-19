@@ -361,7 +361,7 @@ database:
   host: localhost
 ```
 
-> **Note**: TurboVault doesn't automatically expand environment variables in YAML. You'll need to use a tool like `envsubst` or load secrets programmatically.
+> **Note**: The `${VAR}` syntax shown above is a convention for documentation purposes. TurboVault does **not** automatically expand environment variables in YAML at runtime. To use secrets safely, consider preprocessing your config with a tool like `envsubst`, or use a secrets manager that injects values before the command runs.
 
 ### 2. Separate Configuration Files
 
