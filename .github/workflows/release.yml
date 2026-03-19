@@ -86,6 +86,4 @@ jobs:
           path: dist/
 
       - name: Publish package distributions to PyPI
-        # TODO: Uncomment when ready for public release
-        # uses: pypa/gh-action-pypi-publish@release/v1
-        run: echo "PyPI Publishing is disabled for internal releases. Uncomment the action in release.yml when ready."
+        uses: pypa/gh-action-pypi-publish@release/v1
