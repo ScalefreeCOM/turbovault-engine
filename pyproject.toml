@@ -28,21 +28,21 @@ version = "0.12.1"
 description = "CLI-first Django-based engine for Data Vault modeling and dbt project generation"
 readme = "README.md"
 requires-python = ">=3.12"
-license = {text = "AGPL-3.0"}
+license = {file = "LICENSE"}
 authors = [
-    {name = "TurboVault Contributors"}
+    {name = "Scalefree International GmbH", email = "turbovault@scalefree.com"}
 ]
 keywords = ["data-vault", "dbt", "data-warehouse", "data-modeling", "cli"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: AGPL-3.0 License",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Framework :: Django",
-    "Framework :: Django :: 6.0",
+    "Framework :: Django :: 5.1",
     "Topic :: Database",
     "Topic :: Software Development :: Code Generators",
 ]
