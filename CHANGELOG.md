@@ -5,6 +5,13 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.12.1...turbovault-engine-v0.12.2) (2026-03-19)
+
+
+### Bug Fixes
+
+* pyproject.toml fix ([#131](https://github.com/ScalefreeCOM/turbovault-engine/issues/131)) ([10b1c08](https://github.com/ScalefreeCOM/turbovault-engine/commit/10b1c08a6803a23b3f6207250a9ec1b9bdf99827))
+
 ## [0.12.1](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.12.0...turbovault-engine-v0.12.1) (2026-03-19)
 
 
