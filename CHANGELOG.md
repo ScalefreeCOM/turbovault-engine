@@ -5,6 +5,13 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.3](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.12.2...turbovault-engine-v0.12.3) (2026-03-20)
+
+
+### Bug Fixes
+
+* fixing issue with telemetry endpoint ([#133](https://github.com/ScalefreeCOM/turbovault-engine/issues/133)) ([5bbf1dd](https://github.com/ScalefreeCOM/turbovault-engine/commit/5bbf1ddc3dc8acefc293661368bd561124e2bf63))
+
 ## [0.12.2](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.12.1...turbovault-engine-v0.12.2) (2026-03-19)
 
 
