@@ -222,7 +222,10 @@ def _send_payload(endpoint: str, payload: dict[str, Any]) -> None:
         req = urllib_request.Request(
             endpoint,
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": f"turbovault-engine/{_get_package_version()}",
+            },
             method="POST",
         )
         urllib_request.urlopen(req, timeout=_TELEMETRY_TIMEOUT_SECONDS)
@@ -279,9 +282,14 @@ def send_telemetry_event(
         thread = threading.Thread(
             target=_send_payload,
             args=(_TELEMETRY_ENDPOINT, payload),
-            daemon=True,
+            daemon=False,
         )
         thread.start()
+        # Wait for the request to finish (or time out) before the process exits.
+        # Using the same timeout as the HTTP request so we never block longer than
+        # the network call itself. Without this join, the OS kills daemon threads
+        # the instant the main thread returns
+        thread.join(timeout=_TELEMETRY_TIMEOUT_SECONDS)
 
     except Exception as exc:
         # Telemetry must never surface exceptions to the user.
