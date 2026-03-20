@@ -334,7 +334,8 @@ class TestSendTelemetryEvent:
         mock_send.assert_not_called()
 
     def test_thread_started_when_enabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When telemetry is enabled and ID is available, a daemon thread is started."""
+        """When telemetry is enabled and ID is available, a non-daemon thread is started
+        and joined so the HTTP request completes before the process exits."""
         monkeypatch.delenv("TURBOVAULT_DISABLE_TELEMETRY", raising=False)
         with (
             patch(
@@ -352,10 +353,12 @@ class TestSendTelemetryEvent:
             send_telemetry_event(event="command_invoked", command="generate")
 
         mock_thread_cls.assert_called_once()
-        # Verify daemon=True was passed
+        # Thread must be non-daemon so the OS doesn't kill it when the CLI exits
         _, kwargs = mock_thread_cls.call_args
-        assert kwargs.get("daemon") is True
+        assert kwargs.get("daemon") is False
         mock_thread.start.assert_called_once()
+        # join() must be called so the process waits for the request to finish
+        mock_thread.join.assert_called_once()
 
     def test_swallows_unexpected_exception(
         self, monkeypatch: pytest.MonkeyPatch
