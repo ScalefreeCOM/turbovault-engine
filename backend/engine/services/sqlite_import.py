@@ -34,6 +34,7 @@ from engine.models.satellites import Satellite, SatelliteColumn
 from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
 from engine.models.source_metadata import SourceColumn, SourceSystem, SourceTable
 from engine.services.staging_service import get_or_create_staging_column
+from engine.models.group import Group
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,7 @@ class SqliteImportService:
         self._extractions: dict[str, PrejoinExtractionColumn] = {}
         self._snapshot_control: SnapshotControlTable | None = None
         self._snapshot_logic: SnapshotControlLogic | None = None
+        self._groups: dict[str, Group] = {}
 
     def _has_table(self, name: str) -> bool:
         return name in self._available_tables
@@ -339,24 +341,38 @@ class SqliteImportService:
             if not hub_name:
                 continue
 
-            if hub_name not in self._hubs:
-                hub = Hub.objects.create(
-                    project=self.project,
-                    hub_physical_name=hub_name,
-                    hub_type=Hub.HubType.STANDARD,
-                    hub_hashkey_name=_clean(row["target_primary_key_physical_name"]),
-                    create_record_tracking_satellite=(
+            # Get or create the hub, but don't assign the group yet
+            hub, created = Hub.objects.get_or_create(
+                project=self.project,
+                hub_physical_name=hub_name,
+                defaults={
+                    "hub_type": Hub.HubType.STANDARD,
+                    "hub_hashkey_name": _clean(row["target_primary_key_physical_name"]),
+                    "create_record_tracking_satellite": (
                         str(_row_get(row, "record_tracking_satellite")).upper()
                         == "TRUE"
                     ),
-                    create_effectivity_satellite=False,
-                )
-                self._hubs[hub_name] = hub
-                hub_id = _clean(row["hub_identifier"])
-                if hub_id:
-                    self._hubs[hub_id] = hub
+                    "create_effectivity_satellite": False,
+                },
+            )
 
-            hub = self._hubs[hub_name]
+            # Now, handle the group assignment separately to avoid overwrites
+            group_name = _clean(_row_get(row, "group_name"))
+            if group_name:
+                group, _ = Group.objects.get_or_create(
+                    project=self.project, group_name=group_name
+                )
+                self._groups[group_name] = group
+                if hub.group != group:
+                    hub.group = group
+                    hub.save()
+                    print(f"Assigned group '{group_name}' to hub '{hub_name}'")
+
+            # Update cache
+            self._hubs[hub_name] = hub
+            hub_id = _clean(row["hub_identifier"])
+            if hub_id:
+                self._hubs[hub_id] = hub
 
             col_name = _clean(_row_get(row, "business_key_physical_name")) or _clean(
                 _row_get(row, "source_column_physical_name")
@@ -389,7 +405,7 @@ class SqliteImportService:
                 )
 
         # Post-processing: ensure at least one primary source per hub column
-        for hub in Hub.objects.filter(project=self.project):
+        for hub in Hub.objects.filter(project=self.project, hub_type=Hub.HubType.STANDARD):
             for col in hub.columns.all():
                 if not HubSourceMapping.objects.filter(
                     hub_column=col, is_primary_source=True
