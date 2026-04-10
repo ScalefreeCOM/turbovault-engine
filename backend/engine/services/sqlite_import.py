@@ -517,6 +517,19 @@ class SqliteImportService:
                     or f"lk_{link_name}",
                     link_type=link_type,
                 )
+
+            # Handle group assignment
+            group_name = _clean(row_sample.get("group_name"))
+            if group_name:
+                group, _ = Group.objects.get_or_create(
+                    project=self.project, 
+                    group_name=group_name
+                )
+                self._groups[group_name] = group
+                if link.group != group:
+                    link.group = group
+                    link.save()
+            
                 self._links[link_name] = link
                 lid = _clean(row_sample.get(id_col))
                 if lid:
@@ -755,6 +768,18 @@ class SqliteImportService:
                         parent_link=parent_link,
                         source_table=source_table,
                     )
+
+                    # Handle group assignment
+                    group_name = _clean(_row_get(row_sample, "group_name"))
+                    if group_name:
+                        group, _ = Group.objects.get_or_create(
+                            project=self.project, group_name=group_name
+                        )
+                        self._groups[group_name] = group
+                        if satellite.group != group:
+                            satellite.group = group
+                            satellite.save()
+
                     self._satellites[sat_name] = satellite
                     sat_id_col = (
                         "ma_satellite_identifier"
