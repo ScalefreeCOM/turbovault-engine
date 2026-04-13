@@ -431,6 +431,10 @@ class SqliteImportService:
                     create_record_tracking_satellite=False,
                     create_effectivity_satellite=False,
                 )
+                self._hubs[hub_name] = hub
+                hub_id = _clean(_row_get(row, "reference_hub_identifier"))
+                if hub_id:
+                    self._hubs[hub_id] = hub
 
             # Group assignment
             group_name = _clean(_row_get(row, "group_name"))
@@ -442,12 +446,7 @@ class SqliteImportService:
                 if hub.group != group:
                     hub.group = group
                     hub.save()
-
-                self._hubs[hub_name] = hub
-                hub_id = _clean(_row_get(row, "reference_hub_identifier"))
-                if hub_id:
-                    self._hubs[hub_id] = hub
-
+                    
             hub = self._hubs[hub_name]
 
             source_col_name = _clean(row["source_column_physical_name"])
