@@ -342,19 +342,18 @@ class SqliteImportService:
                 continue
 
             # Get or create the hub, but don't assign the group yet
-            hub, created = Hub.objects.get_or_create(
-                project=self.project,
-                hub_physical_name=hub_name,
-                defaults={
-                    "hub_type": Hub.HubType.STANDARD,
-                    "hub_hashkey_name": _clean(row["target_primary_key_physical_name"]),
-                    "create_record_tracking_satellite": (
+            if hub_name not in self._hubs:
+                hub = Hub.objects.create(
+                    project=self.project,
+                    hub_physical_name=hub_name,
+                    hub_type=Hub.HubType.STANDARD,
+                    hub_hashkey_name=_clean(row["target_primary_key_physical_name"]),
+                    create_record_tracking_satellite=(
                         str(_row_get(row, "record_tracking_satellite")).upper()
                         == "TRUE"
                     ),
-                    "create_effectivity_satellite": False,
-                },
-            )
+                    create_effectivity_satellite=False,
+                )
 
             # Now, handle the group assignment separately to avoid overwrites
             group_name = _clean(_row_get(row, "group_name"))
@@ -366,7 +365,6 @@ class SqliteImportService:
                 if hub.group != group:
                     hub.group = group
                     hub.save()
-                    print(f"Assigned group '{group_name}' to hub '{hub_name}'")
 
             # Update cache
             self._hubs[hub_name] = hub
@@ -433,6 +431,18 @@ class SqliteImportService:
                     create_record_tracking_satellite=False,
                     create_effectivity_satellite=False,
                 )
+
+            # Group assignment
+            group_name = _clean(_row_get(row, "group_name"))
+            if group_name:
+                group, _ = Group.objects.get_or_create(
+                    project=self.project, group_name=group_name
+                )
+                self._groups[group_name] = group
+                if hub.group != group:
+                    hub.group = group
+                    hub.save()
+
                 self._hubs[hub_name] = hub
                 hub_id = _clean(_row_get(row, "reference_hub_identifier"))
                 if hub_id:
@@ -519,7 +529,7 @@ class SqliteImportService:
                 )
 
             # Handle group assignment
-            group_name = _clean(row_sample.get("group_name"))
+            group_name = _clean(_row_get(row_sample, "group_name"))
             if group_name:
                 group, _ = Group.objects.get_or_create(
                     project=self.project, 
