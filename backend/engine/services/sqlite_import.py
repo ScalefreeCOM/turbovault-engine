@@ -987,6 +987,15 @@ class SqliteImportService:
                 )
                 continue
 
+            group_name = _clean(_row_get(row, "group_name"))
+            assigned_group = None
+            if group_name:
+                assigned_group, _ = Group.objects.get_or_create(
+                    project=self.project, 
+                    group_name=group_name
+                )
+                self._groups[group_name] = assigned_group
+
             hist_type_map = {
                 "TRUE": ReferenceTable.HistorizationType.FULL,
                 "FALSE": ReferenceTable.HistorizationType.LATEST,
@@ -1000,11 +1009,16 @@ class SqliteImportService:
                 reference_table_physical_name=ref_table_name,
                 defaults={
                     "reference_hub": hub,
+                    "group": assigned_group,
                     "historization_type": hist_type_map.get(
                         hist_val.upper(), ReferenceTable.HistorizationType.LATEST
                     ),
                 },
             )
+
+            if assigned_group and ref_table.group != assigned_group:
+                ref_table.group = assigned_group
+                ref_table.save()
 
             sat_id = _clean(_row_get(row, "referenced_satellite"))
             sat = self._satellites.get(sat_id)
@@ -1063,8 +1077,18 @@ class SqliteImportService:
                 )
                 continue
 
+            group_name = _clean(_row_get(row, "group_name"))
+            assigned_group = None
+            if group_name:
+                assigned_group, _ = Group.objects.get_or_create(
+                    project=self.project, 
+                    group_name=group_name
+                )
+                self._groups[group_name] = assigned_group
+
             pit = PIT.objects.create(
                 project=self.project,
+                group=assigned_group,
                 pit_physical_name=pit_name,
                 tracked_entity_type=(
                     PIT.TrackedEntityType.HUB if hub else PIT.TrackedEntityType.LINK
