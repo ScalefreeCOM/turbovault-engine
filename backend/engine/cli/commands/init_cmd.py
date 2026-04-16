@@ -368,6 +368,10 @@ def _import_metadata(project, source) -> None:
             service = ExcelImport(str(source.path))
             service.import_metadata(project=project, skip_snapshots=True)
             print_success("Metadata successfully imported")
+        except FileNotFoundError:
+            print_error(f"Metadata import failed: The file '{source.path}' was not found.")
+        except (OSError, ValueError):
+            print_error(f"Metadata import failed: '{source.path}' is not a valid file path.")
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
 
@@ -383,6 +387,10 @@ def _import_metadata(project, source) -> None:
             service.import_metadata(project=project, skip_snapshots=True)
             conn.close()
             print_success("Metadata successfully imported")
+        except FileNotFoundError:
+            print_error(f"Metadata import failed: The file '{source.path}' was not found.")
+        except (OSError, ValueError):
+            print_error(f"Metadata import failed: '{source.path}' is not a valid file path.")
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
 
