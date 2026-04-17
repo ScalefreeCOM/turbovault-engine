@@ -1,3 +1,4 @@
+
 """
 Init command for TurboVault CLI.
 
@@ -111,6 +112,14 @@ def init(
             "--overwrite", help="Overwrite existing project without prompting"
         ),
     ] = False,
+    # ── Snapshot controls flag ───────────────────────────────────────
+    snapshot_controls: Annotated[
+        bool,
+        typer.Option(
+            "--snapshot-controls/--no-snapshot-controls",
+            help="Create default snapshot control tables during project init",
+        ),
+    ] = True,
     # ── Interactive mode ─────────────────────────────────────────────
     interactive: Annotated[
         bool,
@@ -147,7 +156,7 @@ def init(
         raise typer.Exit(1)
 
     if config:
-        _init_from_config(config, overwrite=overwrite)
+        _init_from_config(config, overwrite=overwrite, snapshot_controls=snapshot_controls)
     elif interactive:
         _run_interactive_init()
     elif name:
@@ -166,6 +175,7 @@ def init(
             hashdiff_naming=hashdiff_naming,
             hashkey_naming=hashkey_naming,
             overwrite=overwrite,
+            snapshot_controls=snapshot_controls,
         )
     else:
         print_error("Please provide --name, --config, or --interactive")
@@ -199,6 +209,7 @@ def _init_from_flags(
     hashdiff_naming: str | None,
     hashkey_naming: str | None,
     overwrite: bool,
+    snapshot_controls: bool = True,
 ) -> None:
     """Build a TurboVaultConfig from CLI flags and delegate to shared init logic."""
     from engine.services.config_schema import (
@@ -249,10 +260,10 @@ def _init_from_flags(
         ),
     )
 
-    _create_project(config, overwrite=overwrite)
+    _create_project(config, overwrite=overwrite, snapshot_controls=snapshot_controls)
 
 
-def _init_from_config(config_path: Path, *, overwrite: bool = False) -> None:
+def _init_from_config(config_path: Path, *, overwrite: bool = False, snapshot_controls: bool = True) -> None:
     """Initialize project from a config.yml file."""
     print_step(1, 3, "Loading configuration...")
 
@@ -266,10 +277,10 @@ def _init_from_config(config_path: Path, *, overwrite: bool = False) -> None:
         print_error(f"Failed to load config: {str(e)}")
         raise typer.Exit(1)
 
-    _create_project(config, overwrite=overwrite)
+    _create_project(config, overwrite=overwrite, snapshot_controls=snapshot_controls)
 
 
-def _create_project(config, *, overwrite: bool = False) -> None:
+def _create_project(config, *, overwrite: bool = False, snapshot_controls: bool = True) -> None:
     """
     Core project creation logic shared by all init paths.
 
@@ -327,10 +338,8 @@ def _create_project(config, *, overwrite: bool = False) -> None:
         raise typer.Exit(1)
 
     # Create default snapshot controls
-    skip_snapshots = (
-        os.getenv("TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS", "").lower() == "true"
-    )
-    if not skip_snapshots:
+    env_skip = os.getenv("TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS", "").lower() == "true"
+    if snapshot_controls and not env_skip:
         from engine.cli.utils.db_utils import create_default_snapshot_controls
 
         create_default_snapshot_controls(project)
@@ -433,6 +442,11 @@ def _run_interactive_init() -> None:
             if path:
                 source_cfg = SqliteSourceConfig(path=Path(path))
 
+    # Snapshot controls
+    create_snapshot_controls = questionary.confirm(
+        "Create default snapshot control tables?", default=False
+    ).ask()
+
     # Configuration defaults
     stage_schema = "stage"
     rdv_schema = "rdv"
@@ -502,4 +516,4 @@ def _run_interactive_init() -> None:
     )
 
     # Directly create project instead of writing config.yml first
-    _create_project(config)
+    _create_project(config, snapshot_controls=create_snapshot_controls)

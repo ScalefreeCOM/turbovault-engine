@@ -599,6 +599,12 @@ class BaseImportService:
                 ent_id = self._get_val(row, "tracked_entity")
                 hub, link = self._hubs.get(ent_id), self._links.get(ent_id)
                 if hub or link:
+                    if not self._snapshot_logic:
+                        logger.warning(
+                            f"Skipping PIT {name}: no snapshot control exists. "
+                            "Create a snapshot control table first or enable snapshot controls during project init."
+                        )
+                        continue
                     pit = PIT.objects.create(
                         project=self.project,
                         pit_physical_name=name,
@@ -619,8 +625,19 @@ class BaseImportService:
                             pit.satellites.add(sat)
 
     def _create_default_snapshot_control(self, skip_creation: bool = False):
+        existing_table = SnapshotControlTable.objects.filter(
+            project=self.project
+        ).first()
+        if existing_table:
+            self._snapshot_control = existing_table
+            self._snapshot_logic = SnapshotControlLogic.objects.filter(
+                snapshot_control_table=existing_table
+            ).first()
+            return
+
         if skip_creation:
             return
+
         sct, _ = SnapshotControlTable.objects.get_or_create(
             project=self.project, name="control_snap"
         )
