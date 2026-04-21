@@ -18,6 +18,7 @@ class SourceType(str, Enum):
 
     EXCEL = "excel"
     SQLITE = "sqlite"
+    JSON = "json"
 
 
 class DatabaseEngine(str, Enum):
@@ -199,6 +200,30 @@ class SqliteSourceConfig(BaseModel):
         return v
 
 
+class JsonSourceConfig(BaseModel):
+    """Configuration for importing metadata from a TurboVault JSON export."""
+
+    type: Literal[SourceType.JSON] = Field(
+        SourceType.JSON, description="Source type (must be 'json')"
+    )
+    path: Path = Field(
+        ..., description="Path to JSON export file containing project metadata"
+    )
+
+    @field_validator("path")
+    @classmethod
+    def validate_path_exists(cls, v: Path) -> Path:
+        """Warn if file doesn't exist."""
+        if not v.exists():
+            import warnings
+
+            warnings.warn(
+                f"JSON file not found: {v}. It will need to exist before import.",
+                stacklevel=2,
+            )
+        return v
+
+
 class ProjectConfiguration(BaseModel):
     """Project-level Data Vault configuration."""
 
@@ -295,7 +320,7 @@ class TurboVaultConfig(BaseModel):
     """
 
     project: ProjectInfo = Field(..., description="Project information")
-    source: ExcelSourceConfig | SqliteSourceConfig | None = Field(
+    source: ExcelSourceConfig | SqliteSourceConfig | JsonSourceConfig | None = Field(
         None, description="Optional source metadata import configuration"
     )
     database: DatabaseConfig | None = Field(

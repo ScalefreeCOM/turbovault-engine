@@ -150,7 +150,7 @@ turbovault project init --config config.yml
 |--------|-------|-------------|---------|
 | `--name NAME` | `-n` | Project name | prompted |
 | `--description STR` | | Project description | — |
-| `--source PATH` | `-s` | Source metadata file (`.xlsx` or `.db`) | — |
+| `--source PATH` | `-s` | Source metadata file (`.xlsx`, `.db`, or `.json` export) | — |
 | `--stage-schema STR` | | Staging schema name | `stage` |
 | `--rdv-schema STR` | | Raw Data Vault schema name | `rdv` |
 | `--stage-database STR` | | Optional staging database name | — |
@@ -442,7 +442,24 @@ turbovault project init \
   --rdv-schema rdv
 ```
 
-### Example 3: Full Non-Interactive Setup (CI/CD)
+### Example 3: Migrate a Project via JSON Export
+
+Use `turbovault generate --type json` to export a project, then re-import it into another workspace or under a new name:
+
+```bash
+# In the source workspace — export the model
+turbovault generate --type json --project sales_datavault \
+  --json-output ./sales_datavault_export.json
+
+# In the target workspace — import from the JSON export
+turbovault project init \
+  --name sales_datavault \
+  --source ./sales_datavault_export.json
+```
+
+The file extension (`.json`) is detected automatically — no extra flags required.
+
+### Example 4: Full Non-Interactive Setup (CI/CD)
 
 ```bash
 # Step 1: workspace
@@ -463,7 +480,7 @@ turbovault project init \
 turbovault generate --project ci_project --mode strict --zip
 ```
 
-### Example 4: Team Workflow
+### Example 5: Team Workflow
 
 ```bash
 # Alice: set up workspace on shared DB and push

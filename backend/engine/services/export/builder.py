@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from engine.services.export.models import (
     DerivedColumnDef,
     HashkeyDefinition,
+    HubColumnMapping,
     HubDefinition,
     HubSourceInfo,
     LinkColumnMapping,
@@ -237,7 +238,13 @@ class ModelBuilder:
 
         # Group mappings by source table
         source_table_map: dict[str, dict] = defaultdict(
-            lambda: {"source_system": "", "stage_name": "", "columns": []}
+            lambda: {
+                "source_system": "",
+                "stage_name": "",
+                "columns": [],
+                "mappings": [],
+                "is_primary_source": False,
+            }
         )
 
         for column in hub.columns.filter(column_type=HubColumn.ColumnType.BUSINESS_KEY):
@@ -249,9 +256,13 @@ class ModelBuilder:
                 source_table_map[table_key][
                     "stage_name"
                 ] = f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}"
-                source_table_map[table_key]["columns"].append(
-                    mapping.staging_column.physical_name
+                src_col_name = mapping.staging_column.physical_name
+                source_table_map[table_key]["columns"].append(src_col_name)
+                source_table_map[table_key]["mappings"].append(
+                    {"hub_column": column.column_name, "source_column": src_col_name}
                 )
+                if mapping.is_primary_source:
+                    source_table_map[table_key]["is_primary_source"] = True
 
         # Also process REFERENCE_KEY columns for reference hubs
         for column in hub.columns.filter(
@@ -270,6 +281,11 @@ class ModelBuilder:
                 col_name = mapping.staging_column.physical_name
                 if col_name not in source_table_map[table_key]["columns"]:
                     source_table_map[table_key]["columns"].append(col_name)
+                    source_table_map[table_key]["mappings"].append(
+                        {"hub_column": column.column_name, "source_column": col_name}
+                    )
+                if mapping.is_primary_source:
+                    source_table_map[table_key]["is_primary_source"] = True
 
         return [
             HubSourceInfo(
@@ -277,6 +293,13 @@ class ModelBuilder:
                 source_system=info["source_system"],
                 stage_name=info["stage_name"],
                 business_key_columns=info["columns"],
+                is_primary_source=info["is_primary_source"],
+                column_mappings=[
+                    HubColumnMapping(
+                        hub_column=m["hub_column"], source_column=m["source_column"]
+                    )
+                    for m in info["mappings"]
+                ],
             )
             for table_name, info in source_table_map.items()
         ]
