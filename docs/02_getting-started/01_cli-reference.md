@@ -28,6 +28,7 @@ TurboVault uses a **two-step setup**: initialise the workspace once, then create
 | `turbovault workspace status` | Show DB connection, project count, migration status |
 | `turbovault project init` | Create a new Data Vault project in the workspace |
 | `turbovault project list` | List all projects in the workspace |
+| `turbovault model` | Create and inspect Data Vault entities (hubs, links, satellites, PITs) |
 | `turbovault generate` | Generate dbt project or export model to JSON / DBML |
 | `turbovault serve` | Start Django admin server |
 | `turbovault reset` | Reset the workspace database |
@@ -224,6 +225,7 @@ Creates both the folder and a `.zip` file.
 | `--mode MODE` | `-m` | Validation mode: `strict` or `lenient` | `strict` |
 | `--zip` | `-z` | Create ZIP archive after generation (only for type=dbt) | `false` |
 | `--skip-validation` | | Skip pre-generation validation | `false` |
+| `--dry-run` | | Validate model only, no files written — exits 0 if valid | `false` |
 | `--no-v1-satellites` | | Skip generating satellite _v1 views (only for type=dbt) | `false` |
 | `--type TYPE` | `-t` | Export type: `dbt`, `json`, or `dbml` | Interactive |
 | `--json-output PATH` | | JSON output file path (only for type=json) | Auto-generated |
@@ -278,6 +280,9 @@ turbovault generate --type dbt -p sales_datavault --mode lenient --no-v1-satelli
 # Skip validation entirely (not recommended)
 turbovault generate --type dbt -p sales_datavault --skip-validation
 
+# Dry run: validate and report counts without writing any files
+turbovault generate --type dbt -p sales_datavault --dry-run
+
 # Export to JSON
 turbovault generate --type json -p sales_datavault
 
@@ -325,6 +330,208 @@ turbovault generate --project my_project
 #     json - Export Data Vault model to JSON
 #     dbml - Export Data Vault model as DBML diagram
 ```
+
+---
+
+### turbovault model
+
+Manage Data Vault model entities directly from the command line. The `model` subcommands complement the Django Admin interface — they are useful for scripted workflows, CI pipelines, and AI-assisted modeling via the MCP server.
+
+All `model` commands require an initialised workspace (`turbovault workspace init`) with at least one project.
+
+#### Subcommands at a glance
+
+| Subcommand | Description |
+|------------|-------------|
+| `turbovault model create-hub` | Create a new hub |
+| `turbovault model create-link` | Create a new link |
+| `turbovault model create-satellite` | Create a new satellite |
+| `turbovault model create-pit` | Create a new PIT (Point-in-Time) structure |
+| `turbovault model list` | List entities in a project |
+| `turbovault model validate` | Validate the model |
+| `turbovault model import-json` | Bulk-import a model proposal from JSON |
+
+---
+
+#### turbovault model create-hub
+
+Create a new hub in the project.
+
+```bash
+turbovault model create-hub --name HUB_CUSTOMER \
+  --business-keys CUSTOMER_ID \
+  --hashkey hk_customer \
+  --project my_project
+```
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--name NAME` | `-n` | Hub physical name (required) | — |
+| `--project NAME` | `-p` | Project name (auto-selected if only one exists) | — |
+| `--business-keys STR` | | Comma-separated business key column names | — |
+| `--hashkey STR` | | Hashkey column name (leave blank to set later in Admin) | — |
+| `--type STR` | | Hub type: `standard` or `reference` | `standard` |
+| `--group STR` | | Group name for subfolder organisation | — |
+
+---
+
+#### turbovault model create-link
+
+Create a new link connecting two or more existing hubs.
+
+```bash
+turbovault model create-link --name LNK_ORDER_CUSTOMER \
+  --hubs HUB_ORDER,HUB_CUSTOMER \
+  --hashkey hk_order_customer \
+  --project my_project
+```
+
+If a referenced hub is not found in the project, the hub reference is skipped with a warning (the link itself is still created).
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--name NAME` | `-n` | Link physical name (required) | — |
+| `--project NAME` | `-p` | Project name | — |
+| `--hubs STR` | | Comma-separated hub physical names to reference | — |
+| `--hashkey STR` | | Hashkey column name | — |
+| `--type STR` | | Link type: `standard` or `non_historized` | `standard` |
+| `--group STR` | | Group name | — |
+
+---
+
+#### turbovault model create-satellite
+
+Create a new satellite attached to a hub or link.
+
+```bash
+# Hub satellite
+turbovault model create-satellite --name SAT_CUSTOMER_DETAILS \
+  --parent-hub HUB_CUSTOMER \
+  --project my_project
+
+# Link satellite
+turbovault model create-satellite --name SAT_ORDER_CUSTOMER_EFFECTIVITY \
+  --parent-link LNK_ORDER_CUSTOMER \
+  --type effectivity \
+  --project my_project
+```
+
+`--parent-hub` and `--parent-link` are mutually exclusive — exactly one must be provided.
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--name NAME` | `-n` | Satellite physical name (required) | — |
+| `--project NAME` | `-p` | Project name | — |
+| `--parent-hub STR` | | Parent hub physical name (XOR with `--parent-link`) | — |
+| `--parent-link STR` | | Parent link physical name (XOR with `--parent-hub`) | — |
+| `--type STR` | | Satellite type: `standard`, `non_historized`, `multi_active`, `effectivity`, `reference` | `standard` |
+| `--group STR` | | Group name | — |
+
+---
+
+#### turbovault model create-pit
+
+Create a new PIT (Point-in-Time) table structure.
+
+PITs require an existing `SnapshotControlTable` and `SnapshotControlLogic`. If they do not exist yet, create them via the Admin interface first (`turbovault serve`).
+
+```bash
+turbovault model create-pit --name PIT_CUSTOMER \
+  --hub HUB_CUSTOMER \
+  --snapshot-table as_of_dates \
+  --snapshot-logic standard_logic \
+  --satellites SAT_CUSTOMER_DETAILS,SAT_CUSTOMER_ADDRESS \
+  --project my_project
+```
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--name NAME` | `-n` | PIT physical name (required) | — |
+| `--project NAME` | `-p` | Project name | — |
+| `--hub STR` | | Hub to track (XOR with `--link`) | — |
+| `--link STR` | | Link to track (XOR with `--hub`) | — |
+| `--snapshot-table STR` | | Snapshot control table name (required) | — |
+| `--snapshot-logic STR` | | Snapshot control logic name (required) | — |
+| `--satellites STR` | | Comma-separated satellite names to include | — |
+
+---
+
+#### turbovault model list
+
+List all Data Vault entities in a project, displayed as Rich tables.
+
+```bash
+# List all entity types
+turbovault model list --project my_project
+
+# List only hubs
+turbovault model list --project my_project --type hubs
+
+# List only satellites
+turbovault model list --project my_project --type satellites
+```
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--project NAME` | `-p` | Project name | — |
+| `--type STR` | `-t` | `hubs`, `links`, `satellites`, `pits`, or `all` | `all` |
+
+---
+
+#### turbovault model validate
+
+Validate the Data Vault model for a project and print any errors or warnings.
+
+Runs the same validation engine as `turbovault generate --mode strict`. Exits with code `0` if valid, `1` if there are errors.
+
+```bash
+# Human-readable output
+turbovault model validate --project my_project
+
+# JSON output for scripting / CI
+turbovault model validate --project my_project --json
+```
+
+JSON output format:
+```json
+{
+  "project": "my_project",
+  "valid": true,
+  "errors": [],
+  "warnings": [
+    {"code": "HUB_002", "entity_type": "hub", "entity": "HUB_CUSTOMER", "message": "..."}
+  ]
+}
+```
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--project NAME` | `-p` | Project name | — |
+| `--json` | | Output results as JSON (useful for CI / scripting) | `false` |
+
+---
+
+#### turbovault model import-json
+
+Bulk-import a Data Vault model from a JSON file matching the [Model Import Schema](../04_concepts/05_model-import-schema.md). This is the primary way to apply an AI-generated model proposal from the MCP server.
+
+Existing entities with the same name are silently skipped (idempotent). Use `--dry-run` to validate the schema without writing anything.
+
+```bash
+# Import a proposal
+turbovault model import-json --file ./proposal.json --project my_project
+
+# Validate the schema only (no DB writes)
+turbovault model import-json --file ./proposal.json --dry-run
+```
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--file PATH` | `-f` | Path to model proposal JSON file (required) | — |
+| `--project NAME` | `-p` | Project name (not required for `--dry-run`) | — |
+| `--dry-run` | | Validate JSON structure without writing to the database | `false` |
+
+> **See also:** [Model Import Schema](../04_concepts/05_model-import-schema.md) for the full JSON format reference, and [MCP Server](05_mcp-server.md) for AI-assisted model generation.
 
 ---
 
