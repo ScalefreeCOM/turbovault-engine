@@ -144,6 +144,165 @@ class TurboVaultToolset(MCPToolset):
         except Exception as exc:
             return {"status": "error", "message": str(exc)}
 
+    # ── Source metadata ───────────────────────────────────────────────────────
+
+    def list_sources(self, project_name: str) -> dict:
+        """
+        List source systems, tables, and columns in a project.
+
+        Call this before propose_model_from_source to understand what source
+        metadata already exists, and before commit_model to verify that the
+        required source tables and columns are in place for mapping.
+
+        Args:
+            project_name: Name of the project to inspect.
+
+        Returns source_systems (with their tables and column counts) and a
+        flat source_tables list with full column details.
+        """
+        from engine.models import Project, SourceColumn, SourceSystem, SourceTable
+
+        try:
+            project = Project.objects.get(name=project_name)
+        except Project.DoesNotExist:
+            return {"error": f"Project '{project_name}' not found"}
+
+        systems = SourceSystem.objects.filter(project=project).order_by("name")
+        return {
+            "source_systems": [
+                {
+                    "name": ss.name,
+                    "schema_name": ss.schema_name,
+                    "database_name": ss.database_name or None,
+                    "tables": [
+                        {
+                            "physical_name": tbl.physical_table_name,
+                            "record_source": tbl.record_source_value,
+                            "load_date": tbl.load_date_value,
+                            "columns": [
+                                {
+                                    "name": col.source_column_physical_name,
+                                    "datatype": col.source_column_datatype,
+                                }
+                                for col in SourceColumn.objects.filter(
+                                    source_table=tbl
+                                ).order_by("source_column_physical_name")
+                            ],
+                        }
+                        for tbl in SourceTable.objects.filter(
+                            project=project, source_system=ss
+                        ).order_by("physical_table_name")
+                    ],
+                }
+                for ss in systems
+            ]
+        }
+
+    def create_source_metadata(
+        self,
+        project_name: str,
+        source_system_name: str,
+        schema_name: str,
+        source_tables: list[dict],
+        database_name: str = "",
+    ) -> dict:
+        """
+        Create source system, tables, and columns from source table descriptions.
+
+        Call this after propose_model_from_source and before commit_model.
+        Once the source records exist, commit_model will automatically create
+        HubSourceMapping and SatelliteColumn records for any hub/satellite that
+        references a matching source_table in its proposal.
+
+        Existing records are silently skipped (idempotent) — safe to call again
+        if a run is interrupted or columns are added later.
+
+        Args:
+            project_name: Target project name.
+            source_system_name: Name for the source system (e.g. 'CRM').
+            schema_name: Database schema name (e.g. 'public', 'dbo').
+            source_tables: List of source table descriptions, each with:
+                - name (str): physical table name
+                - columns (list[dict]): each with 'name' (str) and 'type' (str)
+                - record_source (str, optional): record source expression.
+                  Defaults to '<source_system_name>.<table_name>'.
+                - load_date (str, optional): load date column name.
+                  Defaults to 'LOAD_DATE'.
+            database_name: Optional database name (default: '').
+
+        Returns counts of created and skipped records.
+        """
+        from engine.models import Project, SourceColumn, SourceSystem, SourceTable
+
+        try:
+            project = Project.objects.get(name=project_name)
+        except Project.DoesNotExist:
+            return {"status": "error", "message": f"Project '{project_name}' not found"}
+
+        try:
+            ss, ss_created = SourceSystem.objects.get_or_create(
+                project=project,
+                name=source_system_name,
+                defaults={"schema_name": schema_name, "database_name": database_name},
+            )
+
+            tables_created = 0
+            tables_skipped = 0
+            columns_created = 0
+            columns_skipped = 0
+
+            for tbl_def in source_tables:
+                tbl_name = tbl_def.get("name", "")
+                if not tbl_name:
+                    continue
+
+                record_source = tbl_def.get(
+                    "record_source", f"{source_system_name}.{tbl_name}"
+                )
+                load_date = tbl_def.get("load_date", "LOAD_DATE")
+
+                tbl, tbl_created = SourceTable.objects.get_or_create(
+                    project=project,
+                    source_system=ss,
+                    physical_table_name=tbl_name,
+                    defaults={
+                        "record_source_value": record_source,
+                        "load_date_value": load_date,
+                    },
+                )
+                if tbl_created:
+                    tables_created += 1
+                else:
+                    tables_skipped += 1
+
+                for col_def in tbl_def.get("columns", []):
+                    col_name = col_def.get("name", "")
+                    col_type = col_def.get("type", "VARCHAR")
+                    if not col_name:
+                        continue
+                    _, col_created = SourceColumn.objects.get_or_create(
+                        source_table=tbl,
+                        source_column_physical_name=col_name,
+                        defaults={"source_column_datatype": col_type},
+                    )
+                    if col_created:
+                        columns_created += 1
+                    else:
+                        columns_skipped += 1
+
+            return {
+                "status": "ok",
+                "source_system": ss.name,
+                "source_system_created": ss_created,
+                "tables_created": tables_created,
+                "tables_skipped": tables_skipped,
+                "columns_created": columns_created,
+                "columns_skipped": columns_skipped,
+            }
+
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
+
     # ── Model inspection ──────────────────────────────────────────────────────
 
     def list_entities(
