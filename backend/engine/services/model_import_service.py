@@ -2,9 +2,11 @@
 Service for importing a Data Vault model from the proposal JSON schema.
 
 Writes Hub, HubColumn, Link, LinkHubReference, and Satellite records in FK-safe
-order. Source-level details (StagingColumn, HubSourceMapping, SatelliteColumn)
-are skipped when no matching SourceTable exists in the project — the user can
-add those later via `turbovault project init` or Django Admin.
+order. When a hub or satellite definition includes a source_table name that
+already exists in the project, staging column mappings are created automatically
+(StagingColumn, HubSourceMapping, SatelliteColumn). If the source table or
+individual source columns are not found, the structural entity is still created
+and the mapping is recorded in ImportResult.skipped.
 """
 
 from __future__ import annotations
@@ -39,10 +41,15 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
     from engine.models import (
         Hub,
         HubColumn,
+        HubSourceMapping,
         Link,
         LinkHubReference,
         Project,
         Satellite,
+        SatelliteColumn,
+        SourceColumn,
+        SourceTable,
+        StagingColumn,
     )
 
     result = ImportResult()
@@ -52,6 +59,22 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
     except Project.DoesNotExist:
         result.errors.append(f"Project '{project_name}' not found")
         return result
+
+    def _resolve_source_table(name: str) -> SourceTable | None:
+        return SourceTable.objects.filter(
+            project=project, physical_table_name__iexact=name
+        ).first()
+
+    def _get_or_create_staging(src_tbl: SourceTable, col_name: str):
+        src_col = SourceColumn.objects.filter(
+            source_table=src_tbl, source_column_physical_name__iexact=col_name
+        ).first()
+        if not src_col:
+            return None
+        staging, _ = StagingColumn.objects.get_or_create(
+            project=project, source_table=src_tbl, source_column=src_col
+        )
+        return staging
 
     with transaction.atomic():
         # ── 1. Hubs ──────────────────────────────────────────────────────────
@@ -75,12 +98,38 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
 
                 if created:
                     result.hubs_created += 1
+                    hub_columns: list[HubColumn] = []
                     for key_name in hub_def.business_keys:
-                        HubColumn.objects.get_or_create(
+                        col, _ = HubColumn.objects.get_or_create(
                             hub=hub,
                             column_name=key_name,
                             defaults={"column_type": "business_key"},
                         )
+                        hub_columns.append(col)
+
+                    # Source column mappings
+                    if hub_def.source_table:
+                        src_tbl = _resolve_source_table(hub_def.source_table)
+                        if src_tbl:
+                            for hub_col in hub_columns:
+                                staging = _get_or_create_staging(src_tbl, hub_col.column_name)
+                                if staging:
+                                    HubSourceMapping.objects.get_or_create(
+                                        hub_column=hub_col,
+                                        staging_column=staging,
+                                        defaults={"is_primary_source": True},
+                                    )
+                                else:
+                                    result.skipped.append(
+                                        f"Hub '{hub_def.name}': source column "
+                                        f"'{hub_col.column_name}' not found in "
+                                        f"'{hub_def.source_table}' — mapping skipped"
+                                    )
+                        else:
+                            result.skipped.append(
+                                f"Hub '{hub_def.name}': source table "
+                                f"'{hub_def.source_table}' not found — mappings skipped"
+                            )
                 else:
                     result.skipped.append(
                         f"Hub '{hub_def.name}' already exists — skipped"
@@ -156,17 +205,42 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
                         )
                         continue
 
-                _, created = Satellite.objects.get_or_create(
+                # Resolve source table for satellite FK + column mappings
+                src_tbl = None
+                if sat_def.source_table:
+                    src_tbl = _resolve_source_table(sat_def.source_table)
+                    if not src_tbl:
+                        result.skipped.append(
+                            f"Satellite '{sat_def.name}': source table "
+                            f"'{sat_def.source_table}' not found — source FK and column mappings skipped"
+                        )
+
+                sat, created = Satellite.objects.get_or_create(
                     project=project,
                     satellite_physical_name=sat_def.name,
                     defaults={
                         "satellite_type": sat_def.satellite_type,
                         "parent_hub": parent_hub,
                         "parent_link": parent_link,
+                        "source_table": src_tbl,
                     },
                 )
                 if created:
                     result.satellites_created += 1
+                    if src_tbl and sat_def.columns:
+                        for col_name in sat_def.columns:
+                            staging = _get_or_create_staging(src_tbl, col_name)
+                            if staging:
+                                SatelliteColumn.objects.get_or_create(
+                                    satellite=sat,
+                                    staging_column=staging,
+                                    defaults={"include_in_delta_detection": True},
+                                )
+                            else:
+                                result.skipped.append(
+                                    f"Satellite '{sat_def.name}': source column "
+                                    f"'{col_name}' not found in '{sat_def.source_table}' — column mapping skipped"
+                                )
                 else:
                     result.skipped.append(
                         f"Satellite '{sat_def.name}' already exists — skipped"
