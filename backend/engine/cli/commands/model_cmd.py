@@ -250,6 +250,103 @@ def _get_or_create_staging_column(project, source_table, column_name: str):
     return staging_col, created
 
 
+def _resolve_or_create_staging_column(
+    project,
+    source_table,
+    column_name: str,
+    interactive: bool,
+    force: bool,
+) -> "tuple[object | None, str]":
+    """
+    Ensure a StagingColumn exists for column_name in source_table.
+
+    Resolution order:
+    1. Column found by name → return existing StagingColumn.
+    2. force=True → auto-create SourceColumn (VARCHAR) + StagingColumn, log it.
+    3. interactive=True → prompt: create / map to existing / skip.
+    4. Otherwise → return (None, column_name) so the caller can warn.
+
+    Returns (staging_column_or_None, resolved_column_name).
+    """
+    from engine.models import SourceColumn, StagingColumn
+
+    # Happy path — column already exists
+    staging, _ = _get_or_create_staging_column(project, source_table, column_name)
+    if staging:
+        return staging, column_name
+
+    table_name = source_table.physical_table_name
+
+    # --force: auto-create as VARCHAR
+    if force:
+        src_col = SourceColumn.objects.create(
+            source_table=source_table,
+            source_column_physical_name=column_name,
+            source_column_datatype="VARCHAR",
+        )
+        staging, _ = StagingColumn.objects.get_or_create(
+            project=project,
+            source_table=source_table,
+            source_column=src_col,
+        )
+        print_info(f"Auto-created source column '{column_name}' (VARCHAR) in '{table_name}'")
+        return staging, column_name
+
+    # Interactive: offer create / map / skip
+    if interactive:
+        action = _ask_choice(
+            f"Source column '{column_name}' not found in '{table_name}'. What would you like to do?",
+            [
+                f"Create source column '{column_name}'",
+                f"Map to an existing column in '{table_name}'",
+                "Skip",
+            ],
+        )
+
+        if action.startswith("Create"):
+            datatype = _ask(f"Data type for '{column_name}' (default: VARCHAR):") or "VARCHAR"
+            src_col = SourceColumn.objects.create(
+                source_table=source_table,
+                source_column_physical_name=column_name,
+                source_column_datatype=datatype.strip().upper(),
+            )
+            staging, _ = StagingColumn.objects.get_or_create(
+                project=project,
+                source_table=source_table,
+                source_column=src_col,
+            )
+            print_success(f"Source column '{column_name}' ({src_col.source_column_datatype}) created")
+            return staging, column_name
+
+        if action.startswith("Map"):
+            existing = list(
+                SourceColumn.objects.filter(source_table=source_table).order_by(
+                    "source_column_physical_name"
+                )
+            )
+            if not existing:
+                print_warning(f"No columns in '{table_name}' yet — skipping.")
+                return None, column_name
+            chosen = _ask_choice(
+                f"Select existing column to use as '{column_name}':",
+                [c.source_column_physical_name for c in existing],
+            )
+            src_col = next(
+                c for c in existing if c.source_column_physical_name == chosen
+            )
+            staging, _ = StagingColumn.objects.get_or_create(
+                project=project,
+                source_table=source_table,
+                source_column=src_col,
+            )
+            return staging, chosen
+
+        # "Skip"
+        return None, column_name
+
+    return None, column_name
+
+
 # ─── create-source-system ────────────────────────────────────────────────────
 
 
@@ -513,6 +610,13 @@ def create_hub(
     interactive: Annotated[
         bool, typer.Option("--interactive", "-i", help="Prompt for all values interactively")
     ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Auto-create any missing source columns as VARCHAR (non-interactive scripting)",
+        ),
+    ] = False,
 ) -> None:
     """Create a new hub in the project."""
     from engine.models import Group, Hub, HubColumn, HubSourceMapping
@@ -558,34 +662,37 @@ def create_hub(
             col = HubColumn.objects.create(hub=hub, column_name=key, column_type="business_key")
             hub_columns.append(col)
 
-    # Source column mappings
-    mapped: list[str] = []
-    unmapped: list[str] = []
-    if src_tbl:
-        for hub_col in hub_columns:
-            staging_col, _ = _get_or_create_staging_column(project, src_tbl, hub_col.column_name)
-            if staging_col:
-                HubSourceMapping.objects.get_or_create(
-                    hub_column=hub_col,
-                    staging_column=staging_col,
-                    defaults={"is_primary_source": True},
-                )
-                mapped.append(hub_col.column_name)
-            else:
-                unmapped.append(hub_col.column_name)
-
     msg = f"Hub '{hub.hub_physical_name}' created"
     if hub.hub_hashkey_name:
         msg += f" (hashkey: {hub.hub_hashkey_name})"
     if bk_list:
         msg += f" with business keys: {', '.join(bk_list)}"
     print_success(msg)
+
+    # Source column mappings
+    mapped: list[str] = []
+    unmapped: list[str] = []
+    if src_tbl:
+        for hub_col in hub_columns:
+            staging_col, resolved_name = _resolve_or_create_staging_column(
+                project, src_tbl, hub_col.column_name, interactive, force
+            )
+            if staging_col:
+                HubSourceMapping.objects.get_or_create(
+                    hub_column=hub_col,
+                    staging_column=staging_col,
+                    defaults={"is_primary_source": True},
+                )
+                mapped.append(resolved_name)
+            else:
+                unmapped.append(hub_col.column_name)
+
     if mapped:
         print_info(f"Source mappings created: {', '.join(mapped)}")
     if unmapped:
         print_warning(
-            f"Source columns not found in '{src_tbl.physical_table_name}' "
-            f"(add them with create-source-column): {', '.join(unmapped)}"
+            f"Source columns not mapped for: {', '.join(unmapped)} "
+            f"— run 'turbovault model create-source-column' or re-run with --force"
         )
 
 
@@ -734,6 +841,13 @@ def create_satellite(
     interactive: Annotated[
         bool, typer.Option("--interactive", "-i", help="Prompt for all values interactively")
     ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Auto-create any missing source columns as VARCHAR (non-interactive scripting)",
+        ),
+    ] = False,
 ) -> None:
     """Create a new satellite attached to a hub or link."""
     from engine.models import Group, Hub, Link, Satellite, SatelliteColumn
@@ -838,33 +952,36 @@ def create_satellite(
         group=grp,
     )
 
+    parent_label = f"hub '{parent_hub}'" if parent_hub else f"link '{parent_link}'"
+    print_success(f"Satellite '{name}' ({sat_type}) created on {parent_label}")
+    if src_tbl:
+        print_info(f"Source table: {src_tbl.physical_table_name}")
+
     # Create satellite column mappings
     mapped: list[str] = []
     unmapped: list[str] = []
     if src_tbl and columns:
         col_names = [c.strip() for c in columns.split(",") if c.strip()]
         for col_name in col_names:
-            staging_col, _ = _get_or_create_staging_column(project, src_tbl, col_name)
+            staging_col, resolved_name = _resolve_or_create_staging_column(
+                project, src_tbl, col_name, interactive, force
+            )
             if staging_col:
                 SatelliteColumn.objects.get_or_create(
                     satellite=sat,
                     staging_column=staging_col,
                     defaults={"include_in_delta_detection": True},
                 )
-                mapped.append(col_name)
+                mapped.append(resolved_name)
             else:
                 unmapped.append(col_name)
 
-    parent_label = f"hub '{parent_hub}'" if parent_hub else f"link '{parent_link}'"
-    print_success(f"Satellite '{name}' ({sat_type}) created on {parent_label}")
-    if src_tbl:
-        print_info(f"Source table: {src_tbl.physical_table_name}")
     if mapped:
         print_info(f"Column mappings created: {', '.join(mapped)}")
     if unmapped:
         print_warning(
-            f"Source columns not found in '{src_tbl.physical_table_name}' "
-            f"(add them with create-source-column): {', '.join(unmapped)}"
+            f"Source columns not mapped for: {', '.join(unmapped)} "
+            f"— run 'turbovault model create-source-column' or re-run with --force"
         )
 
 
