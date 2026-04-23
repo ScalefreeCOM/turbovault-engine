@@ -22,6 +22,7 @@ from engine.cli.utils.console import (
     print_success,
 )
 from engine.services.config_loader import ConfigValidationError, load_config_from_path
+from engine.services.exceptions import MetadataSchemaError
 
 
 def init(
@@ -374,6 +375,12 @@ def _import_metadata(project, source) -> None:
             service = ExcelImport(str(source.path))
             service.import_metadata(project=project, skip_snapshots=True)
             print_success("Metadata successfully imported")
+        except MetadataSchemaError as e:
+            print_error(str(e))
+        except FileNotFoundError:
+            print_error(f"Metadata import failed: The file '{source.path}' was not found.")
+        except (OSError, ValueError):
+            print_error(f"Metadata import failed: '{source.path}' is not a valid file path.")
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
 
@@ -389,6 +396,12 @@ def _import_metadata(project, source) -> None:
             service.import_metadata(project=project, skip_snapshots=True)
             conn.close()
             print_success("Metadata successfully imported")
+        except MetadataSchemaError as e:
+            print_error(str(e))
+        except FileNotFoundError:
+            print_error(f"Metadata import failed: The file '{source.path}' was not found.")
+        except (OSError, ValueError):
+            print_error(f"Metadata import failed: '{source.path}' is not a valid file path.")
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
 
