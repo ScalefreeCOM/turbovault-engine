@@ -57,6 +57,13 @@ class HashkeyDefinition(BaseModel):
     )
 
 
+class HubColumnMapping(BaseModel):
+    """Explicit mapping from a hub column name to its source column name."""
+
+    hub_column: str
+    source_column: str
+
+
 class HubSourceInfo(BaseModel):
     """Information about a source table feeding a hub."""
 
@@ -65,6 +72,14 @@ class HubSourceInfo(BaseModel):
     stage_name: str = Field(description="Stage model name for this source table")
     business_key_columns: list[str] = Field(
         default_factory=list, description="Source columns mapped to business keys"
+    )
+    is_primary_source: bool = Field(
+        default=True,
+        description="Whether this source table is the primary source for this hub",
+    )
+    column_mappings: list[HubColumnMapping] = Field(
+        default_factory=list,
+        description="Explicit hub column → source column mappings for round-trip import",
     )
 
 
