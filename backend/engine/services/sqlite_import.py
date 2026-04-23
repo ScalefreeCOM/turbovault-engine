@@ -34,6 +34,7 @@ from engine.models.satellites import Satellite, SatelliteColumn
 from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
 from engine.models.source_metadata import SourceColumn, SourceSystem, SourceTable
 from engine.services.staging_service import get_or_create_staging_column
+from engine.services.exceptions import MetadataSchemaError
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,19 @@ class SqliteImportService:
 
     def _has_table(self, name: str) -> bool:
         return name in self._available_tables
-
+    
+    def _validate_schema(self):
+        """Checks available tables against REQUIRED_COLUMNS in the exception class."""
+        for table_name, required_cols in MetadataSchemaError.REQUIRED_COLUMNS.items():
+            if self._has_table(table_name):
+                # Get actual columns from the SQLite table
+                cur = self._conn.execute(f"SELECT * FROM [{table_name}] LIMIT 0")
+                actual_cols = {d[0].lower() for d in cur.description}
+                
+                missing = [c for c in required_cols if c.lower() not in actual_cols]
+                if missing:
+                    raise MetadataSchemaError(table_name, missing)
+                    
     @transaction.atomic
     def import_metadata(
         self,
@@ -132,6 +145,8 @@ class SqliteImportService:
     ) -> Project:
         """Main entry point for importing metadata from SQLite."""
         logger.info("Starting import from SQLite database")
+
+        self._validate_schema()
 
         # 1. Create or Use Project
         if project:
