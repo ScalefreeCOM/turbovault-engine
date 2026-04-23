@@ -90,7 +90,7 @@ Open **Claude Desktop → Settings → Developer → MCP Servers** and add:
 
 ## Available Tools
 
-The MCP server exposes nine tools grouped by workflow stage.
+The MCP server exposes ten tools grouped by workflow stage.
 
 ### Workspace & Project
 
@@ -99,6 +99,13 @@ The MCP server exposes nine tools grouped by workflow stage.
 | `workspace_status` | Health check: DB connection, project count, workspace path |
 | `project_list` | List all projects with name, description, and schema configuration |
 | `project_create` | Create a new project by importing source metadata (`.xlsx`, `.db`, or `.json`) |
+
+### Source Metadata
+
+| Tool | Description |
+|------|-------------|
+| `list_sources` | List source systems, tables, and columns in a project |
+| `create_source_metadata` | Idempotently create a source system, tables, and columns |
 
 ### Model Inspection
 
@@ -110,7 +117,6 @@ The MCP server exposes nine tools grouped by workflow stage.
 
 | Tool | Description |
 |------|-------------|
-| `propose_model_from_source` | Return the schema template and source table summaries so Claude can reason about and propose a Data Vault model |
 | `commit_model` | Write an approved model proposal to the project database |
 
 ### Validation & Generation
@@ -126,15 +132,15 @@ The MCP server exposes nine tools grouped by workflow stage.
 ```
 1. workspace_status          ← verify workspace is healthy
 2. project_list              ← find the target project
-3. list_entities             ← inspect existing model (if any)
-4. propose_model_from_source ← Claude analyses source tables, proposes model
-5.  ↳ user reviews and refines iteratively (no DB writes yet)
+3. list_entities             ← inspect existing model (hubs available for integration)
+4. list_sources              ← inspect existing source metadata
+5. create_source_metadata    ← register source system, tables, and columns
 6. commit_model              ← write approved proposal to database
 7. validate_model            ← check for errors / warnings
 8. generate_dbt              ← produce the dbt project
 ```
 
-Steps 4–5 can loop as many times as needed before committing.
+Steps 5–6 can be called multiple times as you add more sources or refine the model.
 
 ## Tool Reference
 
@@ -230,15 +236,55 @@ List Data Vault entities in a project.
 
 ---
 
-### propose_model_from_source
+### list_sources
 
-This tool does **not** write anything. It returns the empty proposal schema and a summary of the source tables so that Claude can reason about the Data Vault model and fill in the proposal. The filled-in proposal is then passed to `commit_model`.
+List source systems, tables, and columns in a project. Use this to understand what source metadata already exists before deciding what to register.
 
 **Input:**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `source_tables` | array | yes | Source table descriptions (see below) |
+| `project_name` | string | yes | Project name |
+
+**Output:**
+```json
+{
+  "source_systems": [
+    {
+      "name": "CRM",
+      "schema_name": "public",
+      "database_name": null,
+      "tables": [
+        {
+          "physical_name": "customers",
+          "record_source": "CRM.customers",
+          "load_date": "LOAD_DATE",
+          "columns": [
+            {"name": "id", "datatype": "INTEGER"},
+            {"name": "name", "datatype": "VARCHAR"}
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### create_source_metadata
+
+Register a source system, its tables, and their columns. Existing records are silently skipped (idempotent) — safe to call again if a run is interrupted or new columns are added later.
+
+**Input:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_name` | string | yes | Target project name |
+| `source_system_name` | string | yes | Name for the source system (e.g. `CRM`) |
+| `schema_name` | string | yes | Database schema (e.g. `public`, `dbo`) |
+| `source_tables` | array | yes | Table descriptions (see below) |
+| `database_name` | string | no | Optional database name |
 
 Each `source_table` entry:
 
@@ -246,34 +292,29 @@ Each `source_table` entry:
 {
   "name": "customers",
   "columns": [
-    {"name": "id", "type": "integer", "is_pk": true},
-    {"name": "name", "type": "varchar"},
-    {"name": "email", "type": "varchar"},
-    {"name": "country_code", "type": "char(2)"},
-    {"name": "created_at", "type": "timestamp"}
+    {"name": "id", "type": "INTEGER"},
+    {"name": "name", "type": "VARCHAR"},
+    {"name": "email", "type": "VARCHAR"},
+    {"name": "country_code", "type": "CHAR(2)"},
+    {"name": "created_at", "type": "TIMESTAMP"}
   ],
-  "record_source": "CRM",
-  "load_date_column": "created_at"
+  "record_source": "CRM.customers",
+  "load_date": "created_at"
 }
 ```
 
-**Output:** Returns the `schema_template` (the shape of the proposal Claude must fill in) and the original `source_tables` for reference:
-
+**Output:**
 ```json
 {
-  "instructions": "Analyse the source_tables below and produce a Data Vault model...",
-  "schema_template": {
-    "hubs": [{"name": "HUB_<ENTITY>", "business_keys": ["<natural_key_column>"], ...}],
-    "links": [...],
-    "satellites": [...],
-    "reasoning": "<explain your modeling decisions here>",
-    "reference_candidates": ["<column_names_that_look_like_lookup_data>"]
-  },
-  "source_tables": [...]
+  "status": "ok",
+  "source_system": "CRM",
+  "source_system_created": true,
+  "tables_created": 2,
+  "tables_skipped": 0,
+  "columns_created": 9,
+  "columns_skipped": 0
 }
 ```
-
-Claude fills in the template and calls `commit_model` with the completed proposal.
 
 ---
 
@@ -375,37 +416,77 @@ Generate a complete dbt project from the Data Vault model.
 The following is a complete example of an AI-assisted modeling session.
 
 **Step 1 — Check workspace:**
-> "Use workspace_status to confirm TurboVault is running."
+> "Use workspace_status to confirm TurboVault is running, then show me the projects."
 
-**Step 2 — Describe your sources:**
-> "I have two source tables from our CRM system: `customers` (id, name, email, country_code, created_at) and `orders` (order_id, customer_id, order_date, total_amount, status). Use propose_model_from_source to design a Data Vault model."
+Claude calls `workspace_status` and `project_list`.
 
-Claude calls `propose_model_from_source` with the table descriptions and returns a proposal:
+**Step 2 — Inspect existing model:**
+> "Show me the existing hubs in project 'sales_dv' and any source tables already registered."
+
+Claude calls `list_entities` and `list_sources` to understand what already exists — relevant for integrating a new source into an existing hub.
+
+**Step 3 — Register source metadata:**
+> "I have two source tables from our CRM system: `customers` (id, name, email, country_code, created_at) and `orders` (order_id, customer_id, order_date, total_amount, status). Register them."
+
+Claude calls `create_source_metadata`:
 
 ```json
 {
-  "hubs": [
-    {"name": "HUB_CUSTOMER", "business_keys": ["id"], "hashkey": "hk_customer"},
-    {"name": "HUB_ORDER", "business_keys": ["order_id"], "hashkey": "hk_order"}
-  ],
-  "links": [
-    {"name": "LNK_ORDER_CUSTOMER", "hubs": ["HUB_ORDER", "HUB_CUSTOMER"], "hashkey": "hk_order_customer"}
-  ],
-  "satellites": [
-    {"name": "SAT_CUSTOMER_DETAILS", "parent_hub": "HUB_CUSTOMER", "columns": ["name", "email", "created_at"]},
-    {"name": "SAT_ORDER_DETAILS", "parent_hub": "HUB_ORDER", "columns": ["order_date", "total_amount", "status"]}
-  ],
-  "reference_candidates": ["country_code", "status"],
-  "reasoning": "id and order_id are natural business keys. The customer→order relationship is a standard link. country_code and status look like lookup data."
+  "project_name": "sales_dv",
+  "source_system_name": "CRM",
+  "schema_name": "public",
+  "source_tables": [
+    {
+      "name": "customers",
+      "columns": [
+        {"name": "id", "type": "INTEGER"},
+        {"name": "name", "type": "VARCHAR"},
+        {"name": "email", "type": "VARCHAR"},
+        {"name": "country_code", "type": "CHAR(2)"},
+        {"name": "created_at", "type": "TIMESTAMP"}
+      ]
+    },
+    {
+      "name": "orders",
+      "columns": [
+        {"name": "order_id", "type": "INTEGER"},
+        {"name": "customer_id", "type": "INTEGER"},
+        {"name": "order_date", "type": "DATE"},
+        {"name": "total_amount", "type": "DECIMAL"},
+        {"name": "status", "type": "VARCHAR"}
+      ]
+    }
+  ]
 }
 ```
 
-**Step 3 — Refine (optional):**
-> "Add a reference hub for country codes."
+**Step 4 — Commit the model:**
+> "Now commit a Data Vault model for these sources."
 
-Claude updates the proposal and calls `commit_model` once approved.
+Claude calls `commit_model` with a proposal:
 
-**Step 4 — Validate and generate:**
+```json
+{
+  "project_name": "sales_dv",
+  "proposal": {
+    "hubs": [
+      {"name": "HUB_CUSTOMER", "business_keys": ["id"], "hashkey": "hk_customer", "source_table": "customers"},
+      {"name": "HUB_ORDER", "business_keys": ["order_id"], "hashkey": "hk_order", "source_table": "orders"}
+    ],
+    "links": [
+      {"name": "LNK_ORDER_CUSTOMER", "hubs": ["HUB_ORDER", "HUB_CUSTOMER"], "hashkey": "hk_order_customer"}
+    ],
+    "satellites": [
+      {"name": "SAT_CUSTOMER_DETAILS", "parent_hub": "HUB_CUSTOMER", "columns": ["name", "email", "created_at"], "source_table": "customers"},
+      {"name": "SAT_ORDER_DETAILS", "parent_hub": "HUB_ORDER", "columns": ["order_date", "total_amount", "status"], "source_table": "orders"}
+    ]
+  }
+}
+```
+
+Because `create_source_metadata` was called first, column mappings (`HubSourceMapping`, `SatelliteColumn`) are created automatically.
+
+**Step 5 — Validate and generate:**
 > "Validate the model, then generate the dbt project."
 
 Claude calls `validate_model` (check for errors), then `generate_dbt`.

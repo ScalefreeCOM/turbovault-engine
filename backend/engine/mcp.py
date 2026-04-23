@@ -150,9 +150,9 @@ class TurboVaultToolset(MCPToolset):
         """
         List source systems, tables, and columns in a project.
 
-        Call this before propose_model_from_source to understand what source
-        metadata already exists, and before commit_model to verify that the
-        required source tables and columns are in place for mapping.
+        Call this to understand what source metadata already exists, and before
+        commit_model to verify that the required source tables and columns are
+        in place for mapping.
 
         Args:
             project_name: Name of the project to inspect.
@@ -209,10 +209,10 @@ class TurboVaultToolset(MCPToolset):
         """
         Create source system, tables, and columns from source table descriptions.
 
-        Call this after propose_model_from_source and before commit_model.
-        Once the source records exist, commit_model will automatically create
-        HubSourceMapping and SatelliteColumn records for any hub/satellite that
-        references a matching source_table in its proposal.
+        Call this before commit_model. Once the source records exist,
+        commit_model will automatically create HubSourceMapping and
+        SatelliteColumn records for any hub/satellite that references a
+        matching source_table in its proposal.
 
         Existing records are silently skipped (idempotent) — safe to call again
         if a run is interrupted or columns are added later.
@@ -401,69 +401,6 @@ class TurboVaultToolset(MCPToolset):
         return result
 
     # ── Model building ────────────────────────────────────────────────────────
-
-    def propose_model_from_source(self, source_tables: list[dict]) -> dict:
-        """
-        Return the ModelImportSchema structure for the given source tables.
-
-        This tool does NOT write anything. It returns the empty proposal schema
-        and a description of each source table so that you (the LLM) can reason
-        about the Data Vault model and fill in the proposal, which you can then
-        pass to commit_model.
-
-        Data Vault naming conventions:
-        - Hubs: HUB_<ENTITY> with business keys (natural identifiers)
-        - Links: LNK_<ENTITY1>_<ENTITY2> connecting two or more hubs
-        - Satellites: SAT_<ENTITY>_<CONTEXT> capturing descriptive attributes
-        - Reference data (small lookup tables) → reference hub type
-
-        Args:
-            source_tables: List of source table descriptions, each with:
-                - name (str): physical table name
-                - columns (list[dict]): each with 'name', 'type', optionally 'is_pk'
-                - record_source (str, optional): source system identifier
-                - load_date_column (str, optional): column used as load date
-
-        Returns the proposal schema template and source table summaries.
-        """
-        from engine.services.model_import_schema import ModelImportSchema
-
-        schema_example = {
-            "hubs": [
-                {
-                    "name": "HUB_<ENTITY>",
-                    "business_keys": ["<natural_key_column>"],
-                    "hashkey": "hk_<entity>",
-                    "hub_type": "standard",
-                }
-            ],
-            "links": [
-                {
-                    "name": "LNK_<ENTITY1>_<ENTITY2>",
-                    "hubs": ["HUB_<ENTITY1>", "HUB_<ENTITY2>"],
-                    "link_type": "standard",
-                }
-            ],
-            "satellites": [
-                {
-                    "name": "SAT_<ENTITY>_<CONTEXT>",
-                    "parent_hub": "HUB_<ENTITY>",
-                    "satellite_type": "standard",
-                    "columns": ["<descriptive_col1>", "<descriptive_col2>"],
-                }
-            ],
-            "reasoning": "<explain your modeling decisions here>",
-            "reference_candidates": ["<column_names_that_look_like_lookup_data>"],
-        }
-
-        return {
-            "instructions": (
-                "Analyse the source_tables below and produce a Data Vault model proposal "
-                "matching the schema_template. Then call commit_model with your proposal."
-            ),
-            "schema_template": schema_example,
-            "source_tables": source_tables,
-        }
 
     def commit_model(self, project_name: str, proposal: dict) -> dict:
         """
