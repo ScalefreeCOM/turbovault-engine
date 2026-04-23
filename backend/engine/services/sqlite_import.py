@@ -34,11 +34,8 @@ from engine.models.satellites import Satellite, SatelliteColumn
 from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
 from engine.models.source_metadata import SourceColumn, SourceSystem, SourceTable
 from engine.services.staging_service import get_or_create_staging_column
-<<<<<<< feat/subfolder_groups
 from engine.models.group import Group
-=======
 from engine.services.exceptions import MetadataSchemaError
->>>>>>> main
 
 logger = logging.getLogger(__name__)
 
