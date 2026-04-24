@@ -348,7 +348,7 @@ def _create_project(config, *, overwrite: bool = False, snapshot_controls: bool 
     ).lower() == "true" or (
         config.source is not None and getattr(config.source, "type", None) == "json"
     )
-    if not skip_snapshots:
+    if snapshot_controls and not skip_snapshots:
         from engine.cli.utils.db_utils import create_default_snapshot_controls
 
         create_default_snapshot_controls(project)
@@ -475,6 +475,10 @@ def _run_interactive_init() -> None:
             path = questionary.path("Path to SQLite database (.db):").ask()
             if path:
                 source_cfg = SqliteSourceConfig(path=Path(path))
+        elif source_type == "json":
+            path = questionary.path("Path to JSON export file (.json):").ask()
+            if path:
+                source_cfg = JsonSourceConfig(path=Path(path))
 
     # Snapshot controls
     create_snapshot_controls = questionary.confirm(
