@@ -428,6 +428,7 @@ class ReferenceTableDefinition(BaseModel):
     """Reference table definition."""
 
     table_name: str = Field(description="Physical name of the reference table")
+    group: str | None = None
     reference_hub_name: str = Field(
         description="Name of the reference hub this table is based on"
     )
@@ -449,6 +450,7 @@ class PITDefinition(BaseModel):
     """Point-in-Time structure definition."""
 
     pit_name: str = Field(description="Physical name of the PIT structure")
+    group: str | None = None
     tracked_entity_type: str = Field(description="Type of tracked entity: hub or link")
     tracked_entity_name: str = Field(description="Name of the tracked hub or link")
     tracked_hashkey: str = Field(description="Hashkey name of the tracked hub or link")

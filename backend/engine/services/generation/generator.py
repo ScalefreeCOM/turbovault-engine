@@ -521,7 +521,7 @@ class DbtProjectGenerator:
         for pit in pits:
             try:
                 output_dir = self.folder_config.get_business_vault_pits_path(
-                    self.output_path
+                    pit.group, self.output_path
                 )
 
                 # Generate SQL file
@@ -574,8 +574,8 @@ class DbtProjectGenerator:
         for ref_table in ref_tables:
             try:
                 output_dir = (
-                    self.folder_config.get_business_vault_reference_tables_path(
-                        self.output_path
+                    self.folder_config.get_raw_vault_path(
+                        ref_table.group, self.output_path
                     )
                 )
 

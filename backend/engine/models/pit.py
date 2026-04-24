@@ -45,6 +45,15 @@ class PIT(models.Model):
         help_text="Project this PIT belongs to",
     )
 
+    group = models.ForeignKey(
+        "Group",
+        on_delete=models.SET_NULL,
+        related_name="pits",
+        blank=True,
+        null=True,
+        help_text="Optional group for organizing pits into subfolders",
+    )
+
     pit_physical_name = models.CharField(
         max_length=255, help_text="Physical name of the PIT structure"
     )

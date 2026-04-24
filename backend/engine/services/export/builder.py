@@ -1177,6 +1177,7 @@ class ModelBuilder:
             result.append(
                 ReferenceTableDefinition(
                     table_name=ref_table.reference_table_physical_name,
+                    group=ref_table.group.group_name if ref_table.group else None,
                     reference_hub_name=ref_table.reference_hub.hub_physical_name,
                     historization_type=ref_table.historization_type,
                     snapshot_control_table=snapshot_table_name,
@@ -1241,6 +1242,7 @@ class ModelBuilder:
             result.append(
                 PITDefinition(
                     pit_name=pit.pit_physical_name,
+                    group=pit.group.group_name if pit.group else None,
                     tracked_entity_type=pit.tracked_entity_type,
                     tracked_entity_name=tracked_entity_name,
                     tracked_hashkey=tracked_hashkey,
