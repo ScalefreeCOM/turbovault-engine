@@ -1100,6 +1100,13 @@ class SqliteImportService:
                     group_name=group_name
                 )
                 self._groups[group_name] = assigned_group
+                
+            if not self._snapshot_logic:
+                logger.warning(
+                    f"Skipping PIT {pit_name}: no snapshot control exists. "
+                    "Create a snapshot control table first or enable snapshot controls during project init."
+                )
+                continue
 
             pit = PIT.objects.create(
                 project=self.project,
