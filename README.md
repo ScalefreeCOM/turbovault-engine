@@ -25,13 +25,7 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
 
 **Perfect for:** Data Engineers looking to rapidly prototype, standardize, or automate their Data Vault implementations.
 
-```
-┌──────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   Source         │ --> │  TurboVault      │ --> │  dbt Project    │
-│  Metadata        │     │  Engine          │     │  (Ready to Run) │
-│  (Excel/DB/JSON) │     │                  │     │                 │
-└──────────────────┘     └──────────────────┘     └─────────────────┘
-```
+![Architecture Diagram](docs/assets/turbovault_engine_overview.png)
 
 ---
 
@@ -137,9 +131,11 @@ turbovault project init --name my_project --source ./metadata.xlsx \
 # Import from a previously exported JSON file (round-trip)
 turbovault project init --name my_project --source ./exports/model.json
 
-# Or from a config file
+# Or from a per-project config file
 turbovault project init --config config.example.yml
 ```
+
+This creates `projects/my_project/config.yml` and the `projects/my_project/exports/` folder.
 
 ### Populate and Maintain your Data Vault model
 
@@ -252,19 +248,36 @@ TurboVault Engine uses a comprehensive Data Vault domain model:
 
 ## ⚙️ Configuration
 
-TurboVault Engine is configured via `config.yml`:
+TurboVault uses **two config files** with clearly separated responsibilities:
+
+```
+{workspace}/
+├── turbovault.yml              ← workspace-level: database, global defaults
+└── projects/
+    └── my_project/
+        └── config.yml          ← project-level: schemas, naming patterns, output
+```
+
+### `turbovault.yml` — Workspace Config
+
+Created once by `turbovault workspace init`. Contains the database connection and optional global defaults:
 
 ```yaml
-project:
-  name: "my_datavault"
-  description: "My Data Vault Implementation"
+# Database connection (required)
+database:
+  engine: sqlite3       # sqlite3 | postgresql | mysql | mssql | snowflake
+  name: db.sqlite3
 
-source:
-  type: excel          # "excel", "sqlite", or "json"
-  path: "./metadata/sources.xlsx"
+# Optional: global defaults applied to every new project
+defaults:
+  stage_schema: stage
+  rdv_schema: rdv
+  bdv_schema: bdv
+```
 
-# Optional: Configure external database (PostgreSQL, MySQL, etc.)
-# Default is SQLite if not specified
+PostgreSQL example:
+
+```yaml
 database:
   engine: postgresql
   name: turbovault_db
@@ -272,6 +285,29 @@ database:
   password: your_password
   host: localhost
   port: 5432
+```
+
+**Supported Databases:**
+- **SQLite** (default) — no extra packages needed
+- **PostgreSQL** — `pip install psycopg2-binary`
+- **MySQL/MariaDB** — `pip install mysqlclient`
+- **SQL Server** — `pip install mssql-django`
+- **Oracle** — `pip install cx_Oracle`
+- **Snowflake** — `pip install django-snowflake`
+
+### `projects/<name>/config.yml` — Project Config
+
+Created once by `turbovault project init`. Contains everything specific to one project:
+
+```yaml
+project:
+  name: "my_datavault"
+  description: "My Data Vault Implementation"
+
+# Optional: import source metadata on project init
+source:
+  type: excel          # excel | sqlite | json
+  path: "./metadata/sources.xlsx"
 
 configuration:
   stage_schema: "stage"
@@ -279,23 +315,15 @@ configuration:
   bdv_schema: "bdv"
 
 output:
-  dbt_project_dir: "./generated/dbt_project"
   create_zip: false
 ```
 
-**Supported Databases:**
-- **SQLite** (default) - No configuration needed
-- **PostgreSQL** - `pip install psycopg2-binary`
-- **MySQL/MariaDB** - `pip install mysqlclient`
-- **SQL Server** - `pip install mssql-django`
-- **Oracle** - `pip install cx_Oracle`
-- **Snowflake** - `pip install django-snowflake`
-
-See [config.example.yml](config.example.yml) for a complete example.
+See [config.example.yml](config.example.yml) for the full set of options.
 
 **Documentation:**
-- [Configuration Schema Reference](docs/03_configuration/03_project-schema.md) - Complete config.yml reference
-- [Database Configuration Guide](docs/03_configuration/02_database.md) - Detailed database setup
+- [Configuration Overview](docs/03_configuration/01_overview.md) - Two-config system explained with folder structure
+- [Project Config Schema Reference](docs/03_configuration/03_project-schema.md) - Complete `config.yml` field reference
+- [Database Configuration Guide](docs/03_configuration/02_database.md) - Detailed `turbovault.yml` database setup
 
 ### 📊 Anonymous Usage Statistics
 
