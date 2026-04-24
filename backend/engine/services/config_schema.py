@@ -6,6 +6,7 @@ Defines Pydantic models for validating config.yml structure with strong typing.
 
 from __future__ import annotations
 
+import os
 from enum import Enum
 from pathlib import Path
 from typing import Literal
@@ -13,11 +14,30 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+def _sanitize_path_string(v: object) -> str:
+    """
+    Normalise a raw path value before Pydantic coerces it to ``Path``.
+
+    Handles the common issues that arise when users paste or drag-and-drop
+    paths on Windows/macOS:
+    - Strips surrounding whitespace
+    - Strips one layer of enclosing double- or single-quotes
+      (e.g. ``"C:\\path\\file.xlsx"`` → ``C:\\path\\file.xlsx``)
+    - Expands ``~`` (user home) and ``%ENV_VAR%`` / ``$ENV_VAR`` references
+    """
+    raw = str(v).strip()
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ('"', "'"):
+        raw = raw[1:-1].strip()
+    raw = os.path.expanduser(os.path.expandvars(raw))
+    return raw
+
+
 class SourceType(str, Enum):
     """Supported source metadata types."""
 
     EXCEL = "excel"
     SQLITE = "sqlite"
+    JSON = "json"
 
 
 class DatabaseEngine(str, Enum):
@@ -161,6 +181,12 @@ class ExcelSourceConfig(BaseModel):
     )
     path: Path = Field(..., description="Path to Excel file containing source metadata")
 
+    @field_validator("path", mode="before")
+    @classmethod
+    def sanitize_path(cls, v: object) -> str:
+        """Strip quotes, whitespace, and expand user/env-var references."""
+        return _sanitize_path_string(v)
+
     @field_validator("path")
     @classmethod
     def validate_path_exists(cls, v: Path) -> Path:
@@ -185,6 +211,12 @@ class SqliteSourceConfig(BaseModel):
         ..., description="Path to SQLite database containing source metadata"
     )
 
+    @field_validator("path", mode="before")
+    @classmethod
+    def sanitize_path(cls, v: object) -> str:
+        """Strip quotes, whitespace, and expand user/env-var references."""
+        return _sanitize_path_string(v)
+
     @field_validator("path")
     @classmethod
     def validate_path_exists(cls, v: Path) -> Path:
@@ -194,6 +226,30 @@ class SqliteSourceConfig(BaseModel):
 
             warnings.warn(
                 f"SQLite database not found: {v}. It will need to exist before import.",
+                stacklevel=2,
+            )
+        return v
+
+
+class JsonSourceConfig(BaseModel):
+    """Configuration for importing metadata from a TurboVault JSON export."""
+
+    type: Literal[SourceType.JSON] = Field(
+        SourceType.JSON, description="Source type (must be 'json')"
+    )
+    path: Path = Field(
+        ..., description="Path to JSON export file containing project metadata"
+    )
+
+    @field_validator("path")
+    @classmethod
+    def validate_path_exists(cls, v: Path) -> Path:
+        """Warn if file doesn't exist."""
+        if not v.exists():
+            import warnings
+
+            warnings.warn(
+                f"JSON file not found: {v}. It will need to exist before import.",
                 stacklevel=2,
             )
         return v
@@ -295,7 +351,7 @@ class TurboVaultConfig(BaseModel):
     """
 
     project: ProjectInfo = Field(..., description="Project information")
-    source: ExcelSourceConfig | SqliteSourceConfig | None = Field(
+    source: ExcelSourceConfig | SqliteSourceConfig | JsonSourceConfig | None = Field(
         None, description="Optional source metadata import configuration"
     )
     database: DatabaseConfig | None = Field(

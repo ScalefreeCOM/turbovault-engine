@@ -1,3 +1,4 @@
+
 """
 Init command for TurboVault CLI.
 
@@ -24,6 +25,7 @@ from engine.cli.utils.console import (
     print_success,
 )
 from engine.services.config_loader import ConfigValidationError, load_config_from_path
+from engine.services.exceptions import MetadataSchemaError
 
 
 def init(
@@ -52,7 +54,7 @@ def init(
         typer.Option(
             "--source",
             "-s",
-            help="Path to source metadata file (Excel .xlsx or SQLite .db)",
+            help="Path to source metadata file (Excel .xlsx, SQLite .db, or JSON export .json)",
         ),
     ] = None,
     # ── Schema flags ─────────────────────────────────────────────────
@@ -113,6 +115,14 @@ def init(
             "--overwrite", help="Overwrite existing project without prompting"
         ),
     ] = False,
+    # ── Snapshot controls flag ───────────────────────────────────────
+    snapshot_controls: Annotated[
+        bool,
+        typer.Option(
+            "--snapshot-controls/--no-snapshot-controls",
+            help="Create default snapshot control tables during project init",
+        ),
+    ] = True,
     # ── Interactive mode ─────────────────────────────────────────────
     interactive: Annotated[
         bool,
@@ -149,7 +159,7 @@ def init(
         raise typer.Exit(1)
 
     if config:
-        _init_from_config(config, overwrite=overwrite)
+        _init_from_config(config, overwrite=overwrite, snapshot_controls=snapshot_controls)
     elif interactive:
         _run_interactive_init()
     elif name:
@@ -168,6 +178,7 @@ def init(
             hashdiff_naming=hashdiff_naming,
             hashkey_naming=hashkey_naming,
             overwrite=overwrite,
+            snapshot_controls=snapshot_controls,
         )
     else:
         print_error("Please provide --name, --config, or --interactive")
@@ -201,10 +212,12 @@ def _init_from_flags(
     hashdiff_naming: str | None,
     hashkey_naming: str | None,
     overwrite: bool,
+    snapshot_controls: bool = True,
 ) -> None:
     """Build a TurboVaultConfig from CLI flags and delegate to shared init logic."""
     from engine.services.config_schema import (
         ExcelSourceConfig,
+        JsonSourceConfig,
         OutputConfiguration,
         ProjectConfiguration,
         ProjectInfo,
@@ -220,9 +233,11 @@ def _init_from_flags(
             source_cfg = ExcelSourceConfig(path=source_path)
         elif suffix in (".db", ".sqlite", ".sqlite3"):
             source_cfg = SqliteSourceConfig(path=source_path)
+        elif suffix == ".json":
+            source_cfg = JsonSourceConfig(path=source_path)
         else:
             print_error(
-                f"Unsupported source file type '{suffix}'. Use .xlsx or .db/.sqlite."
+                f"Unsupported source file type '{suffix}'. Use .xlsx, .db/.sqlite, or .json."
             )
             raise typer.Exit(1)
 
@@ -251,10 +266,10 @@ def _init_from_flags(
         ),
     )
 
-    _create_project(config, overwrite=overwrite)
+    _create_project(config, overwrite=overwrite, snapshot_controls=snapshot_controls)
 
 
-def _init_from_config(config_path: Path, *, overwrite: bool = False) -> None:
+def _init_from_config(config_path: Path, *, overwrite: bool = False, snapshot_controls: bool = True) -> None:
     """Initialize project from a config.yml file."""
     print_step(1, 3, "Loading configuration...")
 
@@ -268,10 +283,10 @@ def _init_from_config(config_path: Path, *, overwrite: bool = False) -> None:
         print_error(f"Failed to load config: {str(e)}")
         raise typer.Exit(1)
 
-    _create_project(config, overwrite=overwrite)
+    _create_project(config, overwrite=overwrite, snapshot_controls=snapshot_controls)
 
 
-def _create_project(config, *, overwrite: bool = False) -> None:
+def _create_project(config, *, overwrite: bool = False, snapshot_controls: bool = True) -> None:
     """
     Core project creation logic shared by all init paths.
 
@@ -328,11 +343,14 @@ def _create_project(config, *, overwrite: bool = False) -> None:
         project.delete()
         raise typer.Exit(1)
 
-    # Create default snapshot controls
-    skip_snapshots = (
-        os.getenv("TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS", "").lower() == "true"
+    # Create default snapshot controls, unless a JSON export is the source
+    # (JSON exports already carry their own snapshot control definitions)
+    skip_snapshots = os.getenv(
+        "TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS", ""
+    ).lower() == "true" or (
+        config.source is not None and getattr(config.source, "type", None) == "json"
     )
-    if not skip_snapshots:
+    if snapshot_controls and not skip_snapshots:
         from engine.cli.utils.db_utils import create_default_snapshot_controls
 
         create_default_snapshot_controls(project)
@@ -421,7 +439,7 @@ def _print_import_summary(project) -> None:
 
 
 def _import_metadata(project, source) -> None:
-    """Import metadata from Excel or SQLite source."""
+    """Import metadata from Excel, SQLite, or JSON source."""
     if source.type == "excel":
         from engine.services.excel_sqlite_adapter import ExcelImport
 
@@ -429,7 +447,13 @@ def _import_metadata(project, source) -> None:
         try:
             service = ExcelImport(str(source.path))
             service.import_metadata(project=project, skip_snapshots=True)
-            _print_import_summary(project)
+            print_success("Metadata successfully imported")
+        except MetadataSchemaError as e:
+            print_error(str(e))
+        except FileNotFoundError:
+            print_error(f"Metadata import failed: The file '{source.path}' was not found.")
+        except (OSError, ValueError):
+            print_error(f"Metadata import failed: '{source.path}' is not a valid file path.")
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
 
@@ -444,7 +468,24 @@ def _import_metadata(project, source) -> None:
             service = SqliteImportService(conn)
             service.import_metadata(project=project, skip_snapshots=True)
             conn.close()
-            _print_import_summary(project)
+            print_success("Metadata successfully imported")
+        except MetadataSchemaError as e:
+            print_error(str(e))
+        except FileNotFoundError:
+            print_error(f"Metadata import failed: The file '{source.path}' was not found.")
+        except (OSError, ValueError):
+            print_error(f"Metadata import failed: '{source.path}' is not a valid file path.")
+        except Exception as e:
+            print_error(f"Metadata import failed: {e}")
+
+    elif source.type == "json":
+        from engine.services.json_import import JsonImportService
+
+        print_info(f"Importing metadata from {source.path}...")
+        try:
+            service = JsonImportService(source.path)
+            service.import_metadata(project=project)
+            print_success("Metadata successfully imported")
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
 
@@ -453,6 +494,7 @@ def _run_interactive_init() -> None:
     """Run interactive project setup wizard."""
     from engine.services.config_schema import (
         ExcelSourceConfig,
+        JsonSourceConfig,
         OutputConfiguration,
         ProjectConfiguration,
         ProjectInfo,
@@ -483,6 +525,7 @@ def _run_interactive_init() -> None:
             choices=[
                 questionary.Choice("Excel file (.xlsx)", value="excel"),
                 questionary.Choice("SQLite database (.db)", value="sqlite"),
+                questionary.Choice("JSON export file (.json)", value="json"),
             ],
         ).ask()
 
@@ -494,6 +537,15 @@ def _run_interactive_init() -> None:
             path = questionary.path("Path to SQLite database (.db):").ask()
             if path:
                 source_cfg = SqliteSourceConfig(path=Path(path))
+        elif source_type == "json":
+            path = questionary.path("Path to JSON export file (.json):").ask()
+            if path:
+                source_cfg = JsonSourceConfig(path=Path(path))
+
+    # Snapshot controls
+    create_snapshot_controls = questionary.confirm(
+        "Create default snapshot control tables?", default=False
+    ).ask()
 
     # Configuration defaults
     stage_schema = "stage"
@@ -564,4 +616,4 @@ def _run_interactive_init() -> None:
     )
 
     # Directly create project instead of writing config.yml first
-    _create_project(config)
+    _create_project(config, snapshot_controls=create_snapshot_controls)

@@ -34,6 +34,8 @@ from engine.models.satellites import Satellite, SatelliteColumn
 from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
 from engine.models.source_metadata import SourceColumn, SourceSystem, SourceTable
 from engine.services.staging_service import get_or_create_staging_column
+from engine.models.group import Group
+from engine.services.exceptions import MetadataSchemaError
 
 logger = logging.getLogger(__name__)
 
@@ -118,10 +120,23 @@ class SqliteImportService:
         self._extractions: dict[str, PrejoinExtractionColumn] = {}
         self._snapshot_control: SnapshotControlTable | None = None
         self._snapshot_logic: SnapshotControlLogic | None = None
+        self._groups: dict[str, Group] = {}
 
     def _has_table(self, name: str) -> bool:
         return name in self._available_tables
-
+    
+    def _validate_schema(self):
+        """Checks available tables against REQUIRED_COLUMNS in the exception class."""
+        for table_name, required_cols in MetadataSchemaError.REQUIRED_COLUMNS.items():
+            if self._has_table(table_name):
+                # Get actual columns from the SQLite table
+                cur = self._conn.execute(f"SELECT * FROM [{table_name}] LIMIT 0")
+                actual_cols = {d[0].lower() for d in cur.description}
+                
+                missing = [c for c in required_cols if c.lower() not in actual_cols]
+                if missing:
+                    raise MetadataSchemaError(table_name, missing)
+                    
     @transaction.atomic
     def import_metadata(
         self,
@@ -132,6 +147,8 @@ class SqliteImportService:
     ) -> Project:
         """Main entry point for importing metadata from SQLite."""
         logger.info("Starting import from SQLite database")
+
+        self._validate_schema()
 
         # 1. Create or Use Project
         if project:
@@ -339,6 +356,7 @@ class SqliteImportService:
             if not hub_name:
                 continue
 
+            # Get or create the hub, but don't assign the group yet
             if hub_name not in self._hubs:
                 hub = Hub.objects.create(
                     project=self.project,
@@ -351,12 +369,23 @@ class SqliteImportService:
                     ),
                     create_effectivity_satellite=False,
                 )
-                self._hubs[hub_name] = hub
-                hub_id = _clean(row["hub_identifier"])
-                if hub_id:
-                    self._hubs[hub_id] = hub
 
-            hub = self._hubs[hub_name]
+            # Now, handle the group assignment separately to avoid overwrites
+            group_name = _clean(_row_get(row, "group_name"))
+            if group_name:
+                group, _ = Group.objects.get_or_create(
+                    project=self.project, group_name=group_name
+                )
+                self._groups[group_name] = group
+                if hub.group != group:
+                    hub.group = group
+                    hub.save()
+
+            # Update cache
+            self._hubs[hub_name] = hub
+            hub_id = _clean(row["hub_identifier"])
+            if hub_id:
+                self._hubs[hub_id] = hub
 
             col_name = _clean(_row_get(row, "business_key_physical_name")) or _clean(
                 _row_get(row, "source_column_physical_name")
@@ -389,7 +418,7 @@ class SqliteImportService:
                 )
 
         # Post-processing: ensure at least one primary source per hub column
-        for hub in Hub.objects.filter(project=self.project):
+        for hub in Hub.objects.filter(project=self.project, hub_type=Hub.HubType.STANDARD):
             for col in hub.columns.all():
                 if not HubSourceMapping.objects.filter(
                     hub_column=col, is_primary_source=True
@@ -422,6 +451,17 @@ class SqliteImportService:
                 if hub_id:
                     self._hubs[hub_id] = hub
 
+            # Group assignment
+            group_name = _clean(_row_get(row, "group_name"))
+            if group_name:
+                group, _ = Group.objects.get_or_create(
+                    project=self.project, group_name=group_name
+                )
+                self._groups[group_name] = group
+                if hub.group != group:
+                    hub.group = group
+                    hub.save()
+                    
             hub = self._hubs[hub_name]
 
             source_col_name = _clean(row["source_column_physical_name"])
@@ -501,6 +541,19 @@ class SqliteImportService:
                     or f"lk_{link_name}",
                     link_type=link_type,
                 )
+
+            # Handle group assignment
+            group_name = _clean(_row_get(row_sample, "group_name"))
+            if group_name:
+                group, _ = Group.objects.get_or_create(
+                    project=self.project, 
+                    group_name=group_name
+                )
+                self._groups[group_name] = group
+                if link.group != group:
+                    link.group = group
+                    link.save()
+            
                 self._links[link_name] = link
                 lid = _clean(row_sample.get(id_col))
                 if lid:
@@ -739,6 +792,18 @@ class SqliteImportService:
                         parent_link=parent_link,
                         source_table=source_table,
                     )
+
+                    # Handle group assignment
+                    group_name = _clean(_row_get(row_sample, "group_name"))
+                    if group_name:
+                        group, _ = Group.objects.get_or_create(
+                            project=self.project, group_name=group_name
+                        )
+                        self._groups[group_name] = group
+                        if satellite.group != group:
+                            satellite.group = group
+                            satellite.save()
+
                     self._satellites[sat_name] = satellite
                     sat_id_col = (
                         "ma_satellite_identifier"
@@ -937,6 +1002,15 @@ class SqliteImportService:
                 )
                 continue
 
+            group_name = _clean(_row_get(row, "group_name"))
+            assigned_group = None
+            if group_name:
+                assigned_group, _ = Group.objects.get_or_create(
+                    project=self.project, 
+                    group_name=group_name
+                )
+                self._groups[group_name] = assigned_group
+
             hist_type_map = {
                 "TRUE": ReferenceTable.HistorizationType.FULL,
                 "FALSE": ReferenceTable.HistorizationType.LATEST,
@@ -950,11 +1024,16 @@ class SqliteImportService:
                 reference_table_physical_name=ref_table_name,
                 defaults={
                     "reference_hub": hub,
+                    "group": assigned_group,
                     "historization_type": hist_type_map.get(
                         hist_val.upper(), ReferenceTable.HistorizationType.LATEST
                     ),
                 },
             )
+
+            if assigned_group and ref_table.group != assigned_group:
+                ref_table.group = assigned_group
+                ref_table.save()
 
             sat_id = _clean(_row_get(row, "referenced_satellite"))
             sat = self._satellites.get(sat_id)
@@ -1013,8 +1092,25 @@ class SqliteImportService:
                 )
                 continue
 
+            group_name = _clean(_row_get(row, "group_name"))
+            assigned_group = None
+            if group_name:
+                assigned_group, _ = Group.objects.get_or_create(
+                    project=self.project, 
+                    group_name=group_name
+                )
+                self._groups[group_name] = assigned_group
+                
+            if not self._snapshot_logic:
+                logger.warning(
+                    f"Skipping PIT {pit_name}: no snapshot control exists. "
+                    "Create a snapshot control table first or enable snapshot controls during project init."
+                )
+                continue
+
             pit = PIT.objects.create(
                 project=self.project,
+                group=assigned_group,
                 pit_physical_name=pit_name,
                 tracked_entity_type=(
                     PIT.TrackedEntityType.HUB if hub else PIT.TrackedEntityType.LINK

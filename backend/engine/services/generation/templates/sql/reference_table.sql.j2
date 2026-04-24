@@ -2,7 +2,7 @@
 [# Generates a reference table that combines a reference hub with its satellites #]
 {{ config(
     materialized='view',
-    tags=['reference_table', 'business_vault']
+    tags=['reference_table', 'raw_vault']
 ) }}
 
 {%- set yaml_metadata -%}

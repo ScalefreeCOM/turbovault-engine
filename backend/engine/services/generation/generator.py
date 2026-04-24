@@ -7,6 +7,7 @@ Main module for generating complete dbt projects from TurboVault export data.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -114,6 +115,9 @@ class DbtProjectGenerator:
             # 11. Post-generation validation: check for missing YAML files
             self.report.validate_yaml_files()
 
+            # 12. Prune empty folders
+            self._prune_empty_folders()
+
             logger.info(
                 f"Generation complete. {self.report.total_files} files created."
             )
@@ -134,6 +138,19 @@ class DbtProjectGenerator:
         """Create the dbt project directory structure."""
         self.folder_config.create_project_structure(self.output_path)
         logger.debug("Created folder structure")
+
+    def _prune_empty_folders(self) -> None:
+        """Remove empty directories from the generated project."""
+        # Walk the output path from the bottom up
+        for dirpath, dirnames, filenames in os.walk(self.output_path, topdown=False):
+            # An empty directory has no subdirectories and no files
+            if not dirnames and not filenames:
+                try:
+                    os.rmdir(dirpath)
+                    logger.debug(f"Removed empty directory: {dirpath}")
+                except OSError as e:
+                    # Log an error if the directory could not be removed
+                    logger.error(f"Error removing directory {dirpath}: {e}")
 
     def _generate_project_files(self) -> None:
         """Generate dbt_project.yml and packages.yml."""
@@ -504,7 +521,7 @@ class DbtProjectGenerator:
         for pit in pits:
             try:
                 output_dir = self.folder_config.get_business_vault_pits_path(
-                    self.output_path
+                    pit.group, self.output_path
                 )
 
                 # Generate SQL file
@@ -557,8 +574,8 @@ class DbtProjectGenerator:
         for ref_table in ref_tables:
             try:
                 output_dir = (
-                    self.folder_config.get_business_vault_reference_tables_path(
-                        self.output_path
+                    self.folder_config.get_raw_vault_path(
+                        ref_table.group, self.output_path
                     )
                 )
 
