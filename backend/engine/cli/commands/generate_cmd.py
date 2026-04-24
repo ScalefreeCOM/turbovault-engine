@@ -86,6 +86,13 @@ def generate(
             help="DBML output file path (only for type=dbml, auto-generated if not provided)",
         ),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Validate and render without writing any files to disk. Outputs JSON result.",
+        ),
+    ] = False,
 ) -> None:
     """
     Generate a complete dbt project from Data Vault model.
@@ -251,6 +258,44 @@ def generate(
     except Exception as e:
         print_error(f"Failed to build export: {e}")
         raise typer.Exit(1)
+
+    # Dry-run: validate and report without writing anything
+    if dry_run:
+        import json as _json
+
+        from engine.services.generation.validators import validate_export
+
+        validation_result = validate_export(project_export)
+        payload = {
+            "project": selected_project.name,
+            "dry_run": True,
+            "valid": validation_result.is_valid,
+            "hubs": len(project_export.hubs),
+            "links": len(project_export.links),
+            "satellites": len(project_export.satellites),
+            "stages": len(project_export.stages),
+            "pits": len(project_export.pits),
+            "errors": [
+                {
+                    "code": e.code,
+                    "entity_type": e.entity_type,
+                    "entity": e.entity_name,
+                    "message": e.message,
+                }
+                for e in validation_result.errors
+            ],
+            "warnings": [
+                {
+                    "code": w.code,
+                    "entity_type": w.entity_type,
+                    "entity": w.entity_name,
+                    "message": w.message,
+                }
+                for w in validation_result.warnings
+            ],
+        }
+        console.print_json(_json.dumps(payload))
+        raise typer.Exit(0 if validation_result.is_valid else 1)
 
     # JSON Export (if type is json)
     json_file_path = None

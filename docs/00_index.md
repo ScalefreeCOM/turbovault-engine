@@ -18,20 +18,14 @@
 
 TurboVault Engine is a **CLI-first, Django-based automation engine** that accelerates Data Vault 2.0 implementations. It:
 
-- **Ingests** source metadata from Excel files or database catalogs
+- **Ingests** source metadata from Excel files, database catalogs, or previously exported JSON files
 - **Maps** metadata into a consistent Data Vault domain model (Hubs, Links, Satellites)
 - **Generates** complete, production-ready dbt projects with datavault4dbt macros
 - **Validates** your model before generation with comprehensive error checking
 
 **Perfect for:** Data Engineers looking to rapidly prototype, standardize, or automate their Data Vault implementations.
 
-```
-┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   Source    │ --> │  TurboVault      │ --> │  dbt Project    │
-│  Metadata   │     │  Engine          │     │  (Ready to Run) │
-│  (Excel/DB) │     │                  │     │                 │
-└─────────────┘     └──────────────────┘     └─────────────────┘
-```
+![Architecture Diagram](assets/turbovault_engine_overview.png)
 
 ---
 
@@ -134,9 +128,14 @@ turbovault project init --interactive
 turbovault project init --name my_project --source ./metadata.xlsx \
   --stage-schema stage --rdv-schema rdv
 
-# Or from a config file
+# Import from a previously exported JSON file (round-trip)
+turbovault project init --name my_project --source ./exports/model.json
+
+# Or from a per-project config file
 turbovault project init --config config.example.yml
 ```
+
+This creates `projects/my_project/config.yml` and the `projects/my_project/exports/` folder.
 
 ### Populate and Maintain your Data Vault model
 
@@ -249,19 +248,36 @@ TurboVault Engine uses a comprehensive Data Vault domain model:
 
 ## ⚙️ Configuration
 
-TurboVault Engine is configured via `config.yml`:
+TurboVault uses **two config files** with clearly separated responsibilities:
+
+```
+{workspace}/
+├── turbovault.yml              ← workspace-level: database, global defaults
+└── projects/
+    └── my_project/
+        └── config.yml          ← project-level: schemas, naming patterns, output
+```
+
+### `turbovault.yml` — Workspace Config
+
+Created once by `turbovault workspace init`. Contains the database connection and optional global defaults:
 
 ```yaml
-project:
-  name: "my_datavault"
-  description: "My Data Vault Implementation"
+# Database connection (required)
+database:
+  engine: sqlite3       # sqlite3 | postgresql | mysql | mssql | snowflake
+  name: db.sqlite3
 
-source:
-  type: excel
-  path: "./metadata/sources.xlsx"
+# Optional: global defaults applied to every new project
+defaults:
+  stage_schema: stage
+  rdv_schema: rdv
+  bdv_schema: bdv
+```
 
-# Optional: Configure external database (PostgreSQL, MySQL, etc.)
-# Default is SQLite if not specified
+PostgreSQL example:
+
+```yaml
 database:
   engine: postgresql
   name: turbovault_db
@@ -269,6 +285,29 @@ database:
   password: your_password
   host: localhost
   port: 5432
+```
+
+**Supported Databases:**
+- **SQLite** (default) — no extra packages needed
+- **PostgreSQL** — `pip install psycopg2-binary`
+- **MySQL/MariaDB** — `pip install mysqlclient`
+- **SQL Server** — `pip install mssql-django`
+- **Oracle** — `pip install cx_Oracle`
+- **Snowflake** — `pip install django-snowflake`
+
+### `projects/<name>/config.yml` — Project Config
+
+Created once by `turbovault project init`. Contains everything specific to one project:
+
+```yaml
+project:
+  name: "my_datavault"
+  description: "My Data Vault Implementation"
+
+# Optional: import source metadata on project init
+source:
+  type: excel          # excel | sqlite | json
+  path: "./metadata/sources.xlsx"
 
 configuration:
   stage_schema: "stage"
@@ -276,23 +315,15 @@ configuration:
   bdv_schema: "bdv"
 
 output:
-  dbt_project_dir: "./generated/dbt_project"
   create_zip: false
 ```
 
-**Supported Databases:**
-- **SQLite** (default) - No configuration needed
-- **PostgreSQL** - `pip install psycopg2-binary`
-- **MySQL/MariaDB** - `pip install mysqlclient`
-- **SQL Server** - `pip install mssql-django`
-- **Oracle** - `pip install cx_Oracle`
-- **Snowflake** - `pip install django-snowflake`
-
-See [config.example.yml](config.example.yml) for a complete example.
+See [config.example.yml](config.example.yml) for the full set of options.
 
 **Documentation:**
-- [Configuration Schema Reference](docs/03_configuration/03_project-schema.md) - Complete config.yml reference
-- [Database Configuration Guide](docs/03_configuration/02_database.md) - Detailed database setup
+- [Configuration Overview](docs/03_configuration/01_overview.md) - Two-config system explained with folder structure
+- [Project Config Schema Reference](docs/03_configuration/03_project-schema.md) - Complete `config.yml` field reference
+- [Database Configuration Guide](docs/03_configuration/02_database.md) - Detailed `turbovault.yml` database setup
 
 ### 📊 Anonymous Usage Statistics
 
@@ -373,6 +404,25 @@ Exports complete model to JSON with:
 - PITs and reference tables
 - Snapshot controls
 
+### JSON Import (Round-Trip)
+
+A JSON export can be re-imported as the source for a new project, enabling project migration, backup/restore, and sharing model definitions across workspaces:
+
+```bash
+# 1. Export the model from the source workspace
+turbovault generate --type json --project my_project --json-output ./model.json
+
+# 2. Import it into a new workspace (or project name)
+turbovault project init --name my_project_copy --source ./model.json
+
+# Or use a config.yml:
+# source:
+#   type: json
+#   path: "./model.json"
+```
+
+Everything — hubs, links, satellites, stages, snapshot controls, PITs, reference tables — is restored exactly as it was in the original project.
+
 ### DBML Export
 
 ```bash
@@ -444,6 +494,7 @@ Please contact us at **contact@scalefree.com** to discuss a commercial license t
 - [Architecture Details](docs/01_introduction/02_architecture.md)
 - [Domain Model Specification](docs/04_concepts/01_domain-model.md)
 - [Excel Metadata Format](docs/04_concepts/02_excel-metadata-format.md)
+- [JSON Import (Round-Trip)](docs/04_concepts/04_json-import.md)
 - [Validation Rules Reference](docs/04_concepts/03_validation-rules.md)
 
 
