@@ -37,6 +37,14 @@ class LinkImport(BaseModel):
     link_type: str = Field(
         default="standard", description="'standard' or 'non_historized'"
     )
+    payload_columns: list[str] = Field(
+        default_factory=list,
+        description="Payload column names for non-historized links (creates LinkColumn records with type='payload')",
+    )
+    source_table: str | None = Field(
+        default=None,
+        description="Physical source table name used to resolve payload column mappings (optional)",
+    )
     group: str | None = Field(default=None, description="Group name (optional)")
 
 
@@ -57,6 +65,10 @@ class SatelliteImport(BaseModel):
     columns: list[str] = Field(
         default_factory=list,
         description="Column names (informational — staging mappings require source metadata)",
+    )
+    multi_active_key: str | None = Field(
+        default=None,
+        description="Column name to mark as the multi-active key (sets is_multi_active_key=True on the SatelliteColumn). Only applies to satellite_type='multi_active'.",
     )
     source_table: str | None = Field(
         default=None, description="Physical source table name (optional)"

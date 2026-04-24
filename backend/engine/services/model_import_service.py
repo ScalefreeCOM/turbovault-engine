@@ -43,7 +43,9 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
         HubColumn,
         HubSourceMapping,
         Link,
+        LinkColumn,
         LinkHubReference,
+        LinkSourceMapping,
         Project,
         Satellite,
         SatelliteColumn,
@@ -170,6 +172,34 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
                             result.skipped.append(
                                 f"Link '{link_def.name}': hub '{hub_name}' not found — reference skipped"
                             )
+
+                    if link_def.payload_columns:
+                        src_tbl = None
+                        if link_def.source_table:
+                            src_tbl = _resolve_source_table(link_def.source_table)
+                            if not src_tbl:
+                                result.skipped.append(
+                                    f"Link '{link_def.name}': source table "
+                                    f"'{link_def.source_table}' not found — payload column mappings skipped"
+                                )
+                        for col_name in link_def.payload_columns:
+                            lc, _ = LinkColumn.objects.get_or_create(
+                                link=link,
+                                column_name=col_name,
+                                defaults={"column_type": LinkColumn.ColumnType.PAYLOAD},
+                            )
+                            if src_tbl:
+                                staging = _get_or_create_staging(src_tbl, col_name)
+                                if staging:
+                                    LinkSourceMapping.objects.get_or_create(
+                                        link_column=lc,
+                                        staging_column=staging,
+                                    )
+                                else:
+                                    result.skipped.append(
+                                        f"Link '{link_def.name}': payload column "
+                                        f"'{col_name}' not found in '{link_def.source_table}' — mapping skipped"
+                                    )
                 else:
                     result.skipped.append(
                         f"Link '{link_def.name}' already exists — skipped"
@@ -231,10 +261,17 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
                         for col_name in sat_def.columns:
                             staging = _get_or_create_staging(src_tbl, col_name)
                             if staging:
+                                is_ma_key = (
+                                    sat_def.multi_active_key is not None
+                                    and col_name.lower() == sat_def.multi_active_key.lower()
+                                )
                                 SatelliteColumn.objects.get_or_create(
                                     satellite=sat,
                                     staging_column=staging,
-                                    defaults={"include_in_delta_detection": True},
+                                    defaults={
+                                        "include_in_delta_detection": True,
+                                        "is_multi_active_key": is_ma_key,
+                                    },
                                 )
                             else:
                                 result.skipped.append(
