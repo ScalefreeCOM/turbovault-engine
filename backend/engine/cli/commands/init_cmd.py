@@ -11,7 +11,9 @@ from typing import Annotated
 
 import questionary
 import typer
+from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from engine.cli.utils.console import (
     console,
@@ -358,6 +360,66 @@ def _create_project(config, *, overwrite: bool = False) -> None:
         console.print("  Run: turbovault serve", style="dim")
 
 
+def _print_import_summary(project) -> None:
+    """Print a structured Rich table summarising what was imported."""
+    from engine.models.hubs import Hub
+    from engine.models.links import Link
+    from engine.models.pit import PIT
+    from engine.models.reference_table import ReferenceTable
+    from engine.models.satellites import Satellite
+    from engine.models.source_metadata import SourceSystem, SourceTable
+
+    def _count(model, **filters):
+        return model.objects.filter(project=project, **filters).count()
+
+    def _row(table: Table, label: str, n: int, indent: bool = False) -> None:
+        prefix = "  " if indent else ""
+        style = "dim" if n == 0 else ""
+        table.add_row(f"{prefix}{label}", str(n), style=style)
+
+    tbl = Table.grid(padding=(0, 2))
+    tbl.add_column(no_wrap=True)
+    tbl.add_column(justify="right", style="bold cyan")
+
+    # ── Source layer ────────────────────────────────────────────────
+    tbl.add_row("[bold]Source Layer[/bold]", "")
+    _row(tbl, "Source Systems", _count(SourceSystem), indent=True)
+    _row(tbl, "Source Tables", _count(SourceTable), indent=True)
+
+    # ── Raw Data Vault ──────────────────────────────────────────────
+    tbl.add_row("", "")
+    tbl.add_row("[bold]Raw Data Vault[/bold]", "")
+
+    hub_total = _count(Hub)
+    _row(tbl, f"Hubs  ({hub_total})", hub_total, indent=True)
+    _row(tbl, "Standard", _count(Hub, hub_type=Hub.HubType.STANDARD), indent=True)
+    _row(tbl, "Reference", _count(Hub, hub_type=Hub.HubType.REFERENCE), indent=True)
+
+    link_total = _count(Link)
+    _row(tbl, f"Links  ({link_total})", link_total, indent=True)
+    _row(tbl, "Standard", _count(Link, link_type=Link.LinkType.STANDARD), indent=True)
+    _row(tbl, "Non-Historized", _count(Link, link_type=Link.LinkType.NON_HISTORIZED), indent=True)
+
+    sat_total = _count(Satellite)
+    _row(tbl, f"Satellites  ({sat_total})", sat_total, indent=True)
+    _row(tbl, "Standard", _count(Satellite, satellite_type=Satellite.SatelliteType.STANDARD), indent=True)
+    _row(tbl, "Reference", _count(Satellite, satellite_type=Satellite.SatelliteType.REFERENCE), indent=True)
+    _row(tbl, "Non-Historized", _count(Satellite, satellite_type=Satellite.SatelliteType.NON_HISTORIZED), indent=True)
+    _row(tbl, "Multi-Active", _count(Satellite, satellite_type=Satellite.SatelliteType.MULTI_ACTIVE), indent=True)
+
+    # ── Advanced structures ─────────────────────────────────────────
+    pit_count = _count(PIT)
+    ref_count = _count(ReferenceTable)
+    if pit_count or ref_count:
+        tbl.add_row("", "")
+        tbl.add_row("[bold]Advanced[/bold]", "")
+        _row(tbl, "Reference Tables", ref_count, indent=True)
+        _row(tbl, "PITs", pit_count, indent=True)
+
+    console.print()
+    console.print(Panel(tbl, title="Import Summary", border_style="success"))
+
+
 def _import_metadata(project, source) -> None:
     """Import metadata from Excel or SQLite source."""
     if source.type == "excel":
@@ -367,7 +429,7 @@ def _import_metadata(project, source) -> None:
         try:
             service = ExcelImport(str(source.path))
             service.import_metadata(project=project, skip_snapshots=True)
-            print_success("Metadata successfully imported")
+            _print_import_summary(project)
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
 
@@ -382,7 +444,7 @@ def _import_metadata(project, source) -> None:
             service = SqliteImportService(conn)
             service.import_metadata(project=project, skip_snapshots=True)
             conn.close()
-            print_success("Metadata successfully imported")
+            _print_import_summary(project)
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
 
