@@ -447,7 +447,7 @@ def _import_metadata(project, source) -> None:
         try:
             service = ExcelImport(str(source.path))
             service.import_metadata(project=project, skip_snapshots=True)
-            print_success("Metadata successfully imported")
+            _print_import_summary(project)
         except MetadataSchemaError as e:
             print_error(str(e))
         except FileNotFoundError:
@@ -468,7 +468,7 @@ def _import_metadata(project, source) -> None:
             service = SqliteImportService(conn)
             service.import_metadata(project=project, skip_snapshots=True)
             conn.close()
-            print_success("Metadata successfully imported")
+            _print_import_summary(project)
         except MetadataSchemaError as e:
             print_error(str(e))
         except FileNotFoundError:
@@ -485,7 +485,7 @@ def _import_metadata(project, source) -> None:
         try:
             service = JsonImportService(source.path)
             service.import_metadata(project=project)
-            print_success("Metadata successfully imported")
+            _print_import_summary(project)
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
 
