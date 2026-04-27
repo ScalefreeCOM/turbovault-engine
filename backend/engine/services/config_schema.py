@@ -125,8 +125,16 @@ class DatabaseConfig(BaseModel):
         Returns:
             Dictionary compatible with Django DATABASES setting
         """
+
+        if self.engine.value == "mssql":
+            django_engine = "mssql"
+        elif self.engine.value == "snowflake":
+            django_engine = "django_snowflake"
+        else:
+            django_engine = f"django.db.backends.{self.engine.value}"
+
         config: dict[str, str | int | dict] = {
-            "ENGINE": f"django.db.backends.{self.engine.value}",
+            "ENGINE": django_engine,
             "NAME": self.name,
         }
 
@@ -146,6 +154,15 @@ class DatabaseConfig(BaseModel):
                 config["HOST"] = self.host
             if self.port:
                 config["PORT"] = self.port
+
+        # Add Snowflake mapping
+        if self.engine.value == "snowflake" and self.options:
+            if "account" in self.options:
+                config["ACCOUNT"] = self.options["account"]
+            if "warehouse" in self.options:
+                config["WAREHOUSE"] = self.options["warehouse"]
+            if "schema" in self.options:
+                config["SCHEMA"] = self.options["schema"]
 
         # Add additional options if provided
         if self.options:

@@ -17,6 +17,7 @@ from engine.models.links import Link
 from engine.models.project import Project
 from engine.models.satellites import Satellite
 from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
+from engine.models.fields import ChoiceCharField
 
 
 class PIT(models.Model):
@@ -58,7 +59,7 @@ class PIT(models.Model):
         max_length=255, help_text="Physical name of the PIT structure"
     )
 
-    tracked_entity_type = models.CharField(
+    tracked_entity_type = ChoiceCharField(
         max_length=10,
         choices=TrackedEntityType.choices,
         help_text="Type of entity being tracked (hub or link)",

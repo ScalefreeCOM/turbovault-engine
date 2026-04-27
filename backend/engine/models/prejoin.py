@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from engine.models.fields import ChoiceCharField
+
 if TYPE_CHECKING:
     pass
 
@@ -68,7 +70,7 @@ class PrejoinDefinition(models.Model):
         help_text="Join column(s) from the target table",
     )
 
-    prejoin_operator = models.CharField(
+    prejoin_operator = ChoiceCharField(
         max_length=3,
         choices=JoinOperator.choices,
         default=JoinOperator.AND,

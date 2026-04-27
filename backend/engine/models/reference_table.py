@@ -17,6 +17,7 @@ from engine.models.hubs import Hub
 from engine.models.project import Project
 from engine.models.satellites import Satellite, SatelliteColumn
 from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
+from engine.models.fields import ChoiceCharField
 
 
 class ReferenceTable(models.Model):
@@ -67,7 +68,7 @@ class ReferenceTable(models.Model):
         help_text="Reference hub this table is based on (must be a reference hub)",
     )
 
-    historization_type = models.CharField(
+    historization_type = ChoiceCharField(
         max_length=20,
         choices=HistorizationType.choices,
         default=HistorizationType.LATEST,

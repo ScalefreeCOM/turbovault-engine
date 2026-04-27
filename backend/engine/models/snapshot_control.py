@@ -16,6 +16,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from engine.models.project import Project
+from engine.models.fields import ChoiceCharField
 
 
 def default_snapshot_start_date() -> date:
@@ -145,7 +146,7 @@ class SnapshotControlLogic(models.Model):
         help_text="Column name for this snapshot logic in generated structures",
     )
 
-    snapshot_component = models.CharField(
+    snapshot_component = ChoiceCharField(
         max_length=30,
         choices=SnapshotComponent.choices,
         help_text="When to take snapshots (daily, beginning/end of week/month/quarter/year)",
@@ -157,7 +158,7 @@ class SnapshotControlLogic(models.Model):
         help_text="Duration value for snapshot retention (e.g., 3, 6, 12)",
     )
 
-    snapshot_unit = models.CharField(
+    snapshot_unit = ChoiceCharField(
         max_length=10,
         choices=SnapshotUnit.choices,
         blank=True,

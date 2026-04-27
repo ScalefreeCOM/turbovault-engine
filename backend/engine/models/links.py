@@ -18,6 +18,7 @@ from django.db.models import Max
 
 from engine.models.hubs import Hub, HubColumn
 from engine.models.project import Project
+from engine.models.fields import ChoiceCharField
 
 
 class Link(models.Model):
@@ -64,7 +65,7 @@ class Link(models.Model):
         help_text="Name of the link hashkey column (e.g. hk_customer_order_l)",
     )
 
-    link_type = models.CharField(
+    link_type = ChoiceCharField(
         max_length=20,
         choices=LinkType.choices,
         default=LinkType.STANDARD,
@@ -198,7 +199,7 @@ class LinkColumn(models.Model):
         max_length=255, help_text="Logical/target column name in the link"
     )
 
-    column_type = models.CharField(
+    column_type = ChoiceCharField(
         max_length=20,
         choices=ColumnType.choices,
         help_text="Type of column: payload or additional_column",

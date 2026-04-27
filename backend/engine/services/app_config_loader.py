@@ -92,6 +92,7 @@ def create_workspace_config(
     db_port: int | None = None,
     db_user: str | None = None,
     db_password: str | None = None,
+    db_options: dict | None = None,
     stage_schema: str = "stage",
     rdv_schema: str = "rdv",
     bdv_schema: str = "bdv",
@@ -110,6 +111,7 @@ def create_workspace_config(
         db_port: Database port (non-SQLite only)
         db_user: Database user (non-SQLite only)
         db_password: Database password (non-SQLite only)
+        db_options: Engine-specific options (e.g. account/warehouse/schema for Snowflake)
         stage_schema: Default staging schema name
         rdv_schema: Default raw vault schema name
         bdv_schema: Default business vault schema name
@@ -147,6 +149,8 @@ def create_workspace_config(
             config_dict["database"]["user"] = db_user
         if db_password:
             config_dict["database"]["password"] = db_password
+        if db_options:
+            config_dict["database"]["options"] = db_options
 
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)

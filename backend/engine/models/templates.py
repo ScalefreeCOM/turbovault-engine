@@ -11,6 +11,8 @@ import uuid
 
 from django.db import models
 
+from engine.models.fields import ChoiceCharField
+
 
 class TemplateCategory(models.Model):
     """Categories for organizing templates."""
@@ -101,7 +103,7 @@ class ModelTemplate(models.Model):
         max_length=100, help_text="Template name for identification"
     )
 
-    entity_type = models.CharField(
+    entity_type = ChoiceCharField(
         max_length=50,
         choices=EntityType.choices,
         help_text="Entity type this template applies to",

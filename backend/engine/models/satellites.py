@@ -15,6 +15,7 @@ from django.db import models
 
 from engine.models.hubs import Hub
 from engine.models.project import Project
+from engine.models.fields import ChoiceCharField
 
 
 class Satellite(models.Model):
@@ -59,7 +60,7 @@ class Satellite(models.Model):
         help_text="Physical name of the satellite (e.g. sat_customer_details)",
     )
 
-    satellite_type = models.CharField(
+    satellite_type = ChoiceCharField(
         max_length=20,
         choices=SatelliteType.choices,
         default=SatelliteType.STANDARD,
