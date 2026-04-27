@@ -49,9 +49,7 @@ class LinkImport(BaseModel):
 
 
 class SatelliteImport(BaseModel):
-    name: str = Field(
-        description="Physical satellite name, e.g. SAT_CUSTOMER_DETAILS"
-    )
+    name: str = Field(description="Physical satellite name, e.g. SAT_CUSTOMER_DETAILS")
     satellite_type: str = Field(
         default="standard",
         description="'standard', 'non_historized', 'multi_active', or 'reference'",
@@ -80,9 +78,7 @@ class SatelliteImport(BaseModel):
         if not self.parent_hub and not self.parent_link:
             raise ValueError("Satellite must have either parent_hub or parent_link")
         if self.parent_hub and self.parent_link:
-            raise ValueError(
-                "Satellite cannot have both parent_hub and parent_link"
-            )
+            raise ValueError("Satellite cannot have both parent_hub and parent_link")
         return self
 
 

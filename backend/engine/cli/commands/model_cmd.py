@@ -39,6 +39,7 @@ model_app = typer.Typer(
 
 def _ask(prompt: str, default: str = "") -> str:
     import questionary
+
     result = questionary.text(prompt, default=default).ask()
     if result is None:
         raise typer.Exit(0)
@@ -47,6 +48,7 @@ def _ask(prompt: str, default: str = "") -> str:
 
 def _ask_required(prompt: str) -> str:
     import questionary
+
     while True:
         result = questionary.text(prompt).ask()
         if result is None:
@@ -59,6 +61,7 @@ def _ask_required(prompt: str) -> str:
 
 def _ask_choice(prompt: str, choices: list[str], default: str | None = None) -> str:
     import questionary
+
     result = questionary.select(prompt, choices=choices, default=default).ask()
     if result is None:
         raise typer.Exit(0)
@@ -67,6 +70,7 @@ def _ask_choice(prompt: str, choices: list[str], default: str | None = None) -> 
 
 def _ask_confirm(prompt: str, default: bool = False) -> bool:
     import questionary
+
     result = questionary.confirm(prompt, default=default).ask()
     if result is None:
         raise typer.Exit(0)
@@ -79,7 +83,10 @@ def _ask_confirm(prompt: str, default: bool = False) -> bool:
 def _require_workspace_and_project(project_name: str | None):
     """Return the Project instance, prompting interactively when ambiguous."""
     from engine.models import Project
-    from engine.services.app_config_loader import WorkspaceNotFoundError, require_workspace
+    from engine.services.app_config_loader import (
+        WorkspaceNotFoundError,
+        require_workspace,
+    )
 
     try:
         require_workspace()
@@ -128,7 +135,9 @@ def _create_source_system_interactively(project) -> "SourceSystem":
     return ss
 
 
-def _create_source_table_interactively(project, suggested_name: str = "") -> "SourceTable | None":
+def _create_source_table_interactively(
+    project, suggested_name: str = ""
+) -> "SourceTable | None":
     """
     Prompt for and create a new SourceTable, cascading to source system creation
     when no system exists yet. Returns the created/found instance, or None if
@@ -157,9 +166,12 @@ def _create_source_table_interactively(project, suggested_name: str = "") -> "So
             else next(s for s in systems if s.name == chosen)
         )
 
-    physical_name = _ask_required(
-        f"Physical table name{f' [{suggested_name}]' if suggested_name else ''}:"
-    ) or suggested_name
+    physical_name = (
+        _ask_required(
+            f"Physical table name{f' [{suggested_name}]' if suggested_name else ''}:"
+        )
+        or suggested_name
+    )
     record_source = _ask_required("Record source expression (e.g. 'CRM.customers'):")
     load_date = _ask_required("Load date column or expression (e.g. 'LOAD_DATE'):")
     alias_val = _ask("Table alias (leave blank to skip):")
@@ -168,7 +180,9 @@ def _create_source_table_interactively(project, suggested_name: str = "") -> "So
         project=project, source_system=ss, physical_table_name=physical_name
     ).first()
     if existing:
-        print_info(f"Source table '{physical_name}' already exists under '{ss.name}'. Using it.")
+        print_info(
+            f"Source table '{physical_name}' already exists under '{ss.name}'. Using it."
+        )
         return existing
 
     tbl = SourceTable.objects.create(
@@ -186,6 +200,7 @@ def _create_source_table_interactively(project, suggested_name: str = "") -> "So
 def _resolve_source_table(project, table_name: str) -> "SourceTable | None":
     """Look up SourceTable by physical name within the project."""
     from engine.models import SourceTable
+
     return SourceTable.objects.filter(
         project=project, physical_table_name__iexact=table_name
     ).first()
@@ -212,12 +227,18 @@ def _pick_or_create_source_table(
             return tbl
         print_warning(f"Source table '{given_name}' not found.")
         if _ask_confirm("Create it now?", default=True):
-            return _create_source_table_interactively(project, suggested_name=given_name)
+            return _create_source_table_interactively(
+                project, suggested_name=given_name
+            )
         return None
 
     if interactive:
-        tables = list(SourceTable.objects.filter(project=project).order_by("physical_table_name"))
-        choices = ["(skip)"] + [t.physical_table_name for t in tables] + ["(create new)"]
+        tables = list(
+            SourceTable.objects.filter(project=project).order_by("physical_table_name")
+        )
+        choices = (
+            ["(skip)"] + [t.physical_table_name for t in tables] + ["(create new)"]
+        )
         chosen = _ask_choice("Source table for column mapping:", choices)
         if chosen == "(skip)":
             return None
@@ -289,7 +310,9 @@ def _resolve_or_create_staging_column(
             source_table=source_table,
             source_column=src_col,
         )
-        print_info(f"Auto-created source column '{column_name}' (VARCHAR) in '{table_name}'")
+        print_info(
+            f"Auto-created source column '{column_name}' (VARCHAR) in '{table_name}'"
+        )
         return staging, column_name
 
     # Interactive: offer create / map / skip
@@ -304,7 +327,9 @@ def _resolve_or_create_staging_column(
         )
 
         if action.startswith("Create"):
-            datatype = _ask(f"Data type for '{column_name}' (default: VARCHAR):") or "VARCHAR"
+            datatype = (
+                _ask(f"Data type for '{column_name}' (default: VARCHAR):") or "VARCHAR"
+            )
             src_col = SourceColumn.objects.create(
                 source_table=source_table,
                 source_column_physical_name=column_name,
@@ -315,7 +340,9 @@ def _resolve_or_create_staging_column(
                 source_table=source_table,
                 source_column=src_col,
             )
-            print_success(f"Source column '{column_name}' ({src_col.source_column_datatype}) created")
+            print_success(
+                f"Source column '{column_name}' ({src_col.source_column_datatype}) created"
+            )
             return staging, column_name
 
         if action.startswith("Map"):
@@ -364,7 +391,8 @@ def create_source_system(
         str | None, typer.Option("--database", help="Database name (optional)")
     ] = None,
     interactive: Annotated[
-        bool, typer.Option("--interactive", "-i", help="Prompt for all values interactively")
+        bool,
+        typer.Option("--interactive", "-i", help="Prompt for all values interactively"),
     ] = False,
 ) -> None:
     """Create a new source system (schema/database) in the project."""
@@ -381,7 +409,9 @@ def create_source_system(
         database_name = val or None
 
     if SourceSystem.objects.filter(project=project, name=name).exists():
-        print_error(f"Source system '{name}' already exists in project '{project.name}'")
+        print_error(
+            f"Source system '{name}' already exists in project '{project.name}'"
+        )
         raise typer.Exit(1)
 
     ss = SourceSystem.objects.create(
@@ -408,17 +438,22 @@ def create_source_table(
     ] = None,
     record_source: Annotated[
         str | None,
-        typer.Option("--record-source", help="Record source expression (e.g. 'CRM.customers')"),
+        typer.Option(
+            "--record-source", help="Record source expression (e.g. 'CRM.customers')"
+        ),
     ] = None,
     load_date: Annotated[
         str | None,
-        typer.Option("--load-date", help="Load date column or expression (e.g. 'LOAD_DATE')"),
+        typer.Option(
+            "--load-date", help="Load date column or expression (e.g. 'LOAD_DATE')"
+        ),
     ] = None,
     alias: Annotated[
         str | None, typer.Option("--alias", help="Table alias (optional)")
     ] = None,
     interactive: Annotated[
-        bool, typer.Option("--interactive", "-i", help="Prompt for all values interactively")
+        bool,
+        typer.Option("--interactive", "-i", help="Prompt for all values interactively"),
     ] = False,
 ) -> None:
     """Create a new source table under a source system."""
@@ -448,7 +483,9 @@ def create_source_table(
     else:
         ss = SourceSystem.objects.filter(project=project, name=source_system).first()
         if not ss:
-            print_error(f"Source system '{source_system}' not found in project '{project.name}'")
+            print_error(
+                f"Source system '{source_system}' not found in project '{project.name}'"
+            )
             if _ask_confirm("Create it now?", default=True):
                 ss = _create_source_system_interactively(project)
             else:
@@ -471,9 +508,7 @@ def create_source_table(
     if SourceTable.objects.filter(
         project=project, source_system=ss, physical_table_name=physical_name
     ).exists():
-        print_error(
-            f"Source table '{physical_name}' already exists under '{ss.name}'"
-        )
+        print_error(f"Source table '{physical_name}' already exists under '{ss.name}'")
         raise typer.Exit(1)
 
     tbl = SourceTable.objects.create(
@@ -505,10 +540,13 @@ def create_source_column(
     ] = None,
     datatype: Annotated[
         str | None,
-        typer.Option("--datatype", "-d", help="Column data type (e.g. VARCHAR, INTEGER)"),
+        typer.Option(
+            "--datatype", "-d", help="Column data type (e.g. VARCHAR, INTEGER)"
+        ),
     ] = None,
     interactive: Annotated[
-        bool, typer.Option("--interactive", "-i", help="Prompt for all values interactively")
+        bool,
+        typer.Option("--interactive", "-i", help="Prompt for all values interactively"),
     ] = False,
 ) -> None:
     """Add a source column to an existing source table."""
@@ -518,7 +556,9 @@ def create_source_column(
 
     # Resolve source table — cascade to creation when missing
     if interactive or not source_table:
-        tables = list(SourceTable.objects.filter(project=project).order_by("physical_table_name"))
+        tables = list(
+            SourceTable.objects.filter(project=project).order_by("physical_table_name")
+        )
         if not tables:
             print_info("No source tables found.")
             if not _ask_confirm("Create a source table first?", default=True):
@@ -543,9 +583,13 @@ def create_source_column(
             project=project, physical_table_name__iexact=source_table
         ).first()
         if not tbl:
-            print_error(f"Source table '{source_table}' not found in project '{project.name}'")
+            print_error(
+                f"Source table '{source_table}' not found in project '{project.name}'"
+            )
             if _ask_confirm("Create it now?", default=True):
-                tbl = _create_source_table_interactively(project, suggested_name=source_table)
+                tbl = _create_source_table_interactively(
+                    project, suggested_name=source_table
+                )
                 if not tbl:
                     raise typer.Exit(1)
             else:
@@ -554,7 +598,9 @@ def create_source_column(
     if interactive or not column_name:
         column_name = column_name or _ask_required("Column physical name:")
     if interactive or not datatype:
-        datatype = datatype or _ask_required("Data type (e.g. VARCHAR, INTEGER, TIMESTAMP):")
+        datatype = datatype or _ask_required(
+            "Data type (e.g. VARCHAR, INTEGER, TIMESTAMP):"
+        )
 
     if SourceColumn.objects.filter(
         source_table=tbl, source_column_physical_name__iexact=column_name
@@ -587,7 +633,9 @@ def create_hub(
     ] = None,
     business_keys: Annotated[
         str | None,
-        typer.Option("--business-keys", help="Comma-separated business key column names"),
+        typer.Option(
+            "--business-keys", help="Comma-separated business key column names"
+        ),
     ] = None,
     hashkey: Annotated[
         str | None,
@@ -608,7 +656,8 @@ def create_hub(
         str | None, typer.Option("--group", help="Group name (optional)")
     ] = None,
     interactive: Annotated[
-        bool, typer.Option("--interactive", "-i", help="Prompt for all values interactively")
+        bool,
+        typer.Option("--interactive", "-i", help="Prompt for all values interactively"),
     ] = False,
     force: Annotated[
         bool,
@@ -626,10 +675,14 @@ def create_hub(
     if interactive or not name:
         name = name or _ask_required("Hub physical name (e.g. HUB_CUSTOMER):")
     if interactive and hub_type is None:
-        hub_type = _ask_choice("Hub type:", ["standard", "reference"], default="standard")
+        hub_type = _ask_choice(
+            "Hub type:", ["standard", "reference"], default="standard"
+        )
     hub_type = hub_type or "standard"
     if interactive and not business_keys:
-        business_keys = _ask("Business key column names (comma-separated, e.g. CUSTOMER_ID):")
+        business_keys = _ask(
+            "Business key column names (comma-separated, e.g. CUSTOMER_ID):"
+        )
     if interactive and not hashkey:
         hashkey = _ask("Hashkey column name (leave blank to auto-derive):") or None
     if interactive and not group:
@@ -659,7 +712,9 @@ def create_hub(
     hub_columns: list[HubColumn] = []
     for key in bk_list:
         if key:
-            col = HubColumn.objects.create(hub=hub, column_name=key, column_type="business_key")
+            col = HubColumn.objects.create(
+                hub=hub, column_name=key, column_type="business_key"
+            )
             hub_columns.append(col)
 
     msg = f"Hub '{hub.hub_physical_name}' created"
@@ -722,7 +777,8 @@ def create_link(
         str | None, typer.Option("--group", help="Group name (optional)")
     ] = None,
     interactive: Annotated[
-        bool, typer.Option("--interactive", "-i", help="Prompt for all values interactively")
+        bool,
+        typer.Option("--interactive", "-i", help="Prompt for all values interactively"),
     ] = False,
 ) -> None:
     """Create a new link connecting two or more hubs."""
@@ -739,9 +795,12 @@ def create_link(
     link_type = link_type or "standard"
 
     if interactive and not hubs:
-        existing_hubs = list(Hub.objects.filter(project=project).order_by("hub_physical_name"))
+        existing_hubs = list(
+            Hub.objects.filter(project=project).order_by("hub_physical_name")
+        )
         if existing_hubs:
             import questionary
+
             chosen = questionary.checkbox(
                 "Select hubs to reference (space to toggle):",
                 choices=[h.hub_physical_name for h in existing_hubs],
@@ -808,11 +867,15 @@ def create_satellite(
     ] = None,
     parent_hub: Annotated[
         str | None,
-        typer.Option("--parent-hub", help="Parent hub physical name (XOR with --parent-link)"),
+        typer.Option(
+            "--parent-hub", help="Parent hub physical name (XOR with --parent-link)"
+        ),
     ] = None,
     parent_link: Annotated[
         str | None,
-        typer.Option("--parent-link", help="Parent link physical name (XOR with --parent-hub)"),
+        typer.Option(
+            "--parent-link", help="Parent link physical name (XOR with --parent-hub)"
+        ),
     ] = None,
     sat_type: Annotated[
         str | None,
@@ -839,7 +902,8 @@ def create_satellite(
         str | None, typer.Option("--group", help="Group name (optional)")
     ] = None,
     interactive: Annotated[
-        bool, typer.Option("--interactive", "-i", help="Prompt for all values interactively")
+        bool,
+        typer.Option("--interactive", "-i", help="Prompt for all values interactively"),
     ] = False,
     force: Annotated[
         bool,
@@ -855,13 +919,17 @@ def create_satellite(
     project = _require_workspace_and_project(project_name)
 
     if interactive or not name:
-        name = name or _ask_required("Satellite physical name (e.g. SAT_CUSTOMER_DETAILS):")
+        name = name or _ask_required(
+            "Satellite physical name (e.g. SAT_CUSTOMER_DETAILS):"
+        )
 
     # Interactive parent selection
     if interactive and not parent_hub and not parent_link:
         parent_type = _ask_choice("Parent entity type:", ["hub", "link"])
         if parent_type == "hub":
-            hub_list = list(Hub.objects.filter(project=project).order_by("hub_physical_name"))
+            hub_list = list(
+                Hub.objects.filter(project=project).order_by("hub_physical_name")
+            )
             if not hub_list:
                 print_error("No hubs found. Create one first.")
                 raise typer.Exit(1)
@@ -869,7 +937,9 @@ def create_satellite(
                 "Select parent hub:", [h.hub_physical_name for h in hub_list]
             )
         else:
-            link_list = list(Link.objects.filter(project=project).order_by("link_physical_name"))
+            link_list = list(
+                Link.objects.filter(project=project).order_by("link_physical_name")
+            )
             if not link_list:
                 print_error("No links found. Create one first.")
                 raise typer.Exit(1)
@@ -902,6 +972,7 @@ def create_satellite(
     # Prompt columns once we know the source table
     if interactive and not columns and src_tbl:
         from engine.models import SourceColumn
+
         src_cols = list(
             SourceColumn.objects.filter(source_table=src_tbl).order_by(
                 "source_column_physical_name"
@@ -909,6 +980,7 @@ def create_satellite(
         )
         if src_cols:
             import questionary
+
             chosen = questionary.checkbox(
                 f"Select columns from '{src_tbl.physical_table_name}' to map (space to toggle):",
                 choices=[c.source_column_physical_name for c in src_cols],
@@ -917,9 +989,12 @@ def create_satellite(
                 raise typer.Exit(0)
             columns = ",".join(chosen) if chosen else None
         else:
-            columns = _ask(
-                f"Column names from '{src_tbl.physical_table_name}' to map (comma-separated, blank to skip):"
-            ) or None
+            columns = (
+                _ask(
+                    f"Column names from '{src_tbl.physical_table_name}' to map (comma-separated, blank to skip):"
+                )
+                or None
+            )
 
     if Satellite.objects.filter(project=project, satellite_physical_name=name).exists():
         print_error(f"Satellite '{name}' already exists in project '{project.name}'")
@@ -932,12 +1007,16 @@ def create_satellite(
     hub_obj = None
     link_obj = None
     if parent_hub:
-        hub_obj = Hub.objects.filter(project=project, hub_physical_name=parent_hub).first()
+        hub_obj = Hub.objects.filter(
+            project=project, hub_physical_name=parent_hub
+        ).first()
         if not hub_obj:
             print_error(f"Hub '{parent_hub}' not found in project '{project.name}'")
             raise typer.Exit(1)
     if parent_link:
-        link_obj = Link.objects.filter(project=project, link_physical_name=parent_link).first()
+        link_obj = Link.objects.filter(
+            project=project, link_physical_name=parent_link
+        ).first()
         if not link_obj:
             print_error(f"Link '{parent_link}' not found in project '{project.name}'")
             raise typer.Exit(1)
@@ -1016,11 +1095,19 @@ def create_pit(
         typer.Option("--satellites", help="Comma-separated satellite names to include"),
     ] = None,
     interactive: Annotated[
-        bool, typer.Option("--interactive", "-i", help="Prompt for all values interactively")
+        bool,
+        typer.Option("--interactive", "-i", help="Prompt for all values interactively"),
     ] = False,
 ) -> None:
     """Create a new PIT (Point-in-Time) structure in the project."""
-    from engine.models import Hub, Link, PIT, Satellite, SnapshotControlLogic, SnapshotControlTable
+    from engine.models import (
+        Hub,
+        Link,
+        PIT,
+        Satellite,
+        SnapshotControlLogic,
+        SnapshotControlTable,
+    )
 
     project = _require_workspace_and_project(project_name)
 
@@ -1030,17 +1117,23 @@ def create_pit(
     if interactive and not hub and not link:
         entity_type = _ask_choice("Track a hub or link?", ["hub", "link"])
         if entity_type == "hub":
-            hubs = list(Hub.objects.filter(project=project).order_by("hub_physical_name"))
+            hubs = list(
+                Hub.objects.filter(project=project).order_by("hub_physical_name")
+            )
             if not hubs:
                 print_error("No hubs found.")
                 raise typer.Exit(1)
             hub = _ask_choice("Select hub:", [h.hub_physical_name for h in hubs])
         else:
-            links = list(Link.objects.filter(project=project).order_by("link_physical_name"))
+            links = list(
+                Link.objects.filter(project=project).order_by("link_physical_name")
+            )
             if not links:
                 print_error("No links found.")
                 raise typer.Exit(1)
-            link = _ask_choice("Select link:", [lnk.link_physical_name for lnk in links])
+            link = _ask_choice(
+                "Select link:", [lnk.link_physical_name for lnk in links]
+            )
 
     if not hub and not link:
         print_error("Provide either --hub or --link")
@@ -1118,10 +1211,13 @@ def create_pit(
 
     if interactive and not satellites:
         avail = list(
-            Satellite.objects.filter(project=project).order_by("satellite_physical_name")
+            Satellite.objects.filter(project=project).order_by(
+                "satellite_physical_name"
+            )
         )
         if avail:
             import questionary
+
             chosen = questionary.checkbox(
                 "Select satellites to include (space to toggle):",
                 choices=[s.satellite_physical_name for s in avail],
@@ -1141,7 +1237,9 @@ def create_pit(
         entity_type_str = "hub"
 
     if link:
-        tracked_link = Link.objects.filter(project=project, link_physical_name=link).first()
+        tracked_link = Link.objects.filter(
+            project=project, link_physical_name=link
+        ).first()
         if not tracked_link:
             print_error(f"Link '{link}' not found in project '{project.name}'")
             raise typer.Exit(1)
@@ -1217,7 +1315,9 @@ def list_entities(
             )
         console.print(tbl)
 
-        tables = SourceTable.objects.filter(project=project).order_by("physical_table_name")
+        tables = SourceTable.objects.filter(project=project).order_by(
+            "physical_table_name"
+        )
         tbl2 = Table(title=f"Source Tables — {project.name}", header_style="bold cyan")
         tbl2.add_column("Physical Name")
         tbl2.add_column("Source System")
@@ -1261,7 +1361,9 @@ def list_entities(
         tbl.add_column("Hashkey")
         tbl.add_column("Referenced Hubs")
         for lnk in links:
-            hub_names = lnk.hub_references.values_list("hub__hub_physical_name", flat=True)
+            hub_names = lnk.hub_references.values_list(
+                "hub__hub_physical_name", flat=True
+            )
             tbl.add_row(
                 lnk.link_physical_name,
                 lnk.link_type,
@@ -1271,7 +1373,9 @@ def list_entities(
         console.print(tbl)
 
     if show_all or entity_type == "satellites":
-        sats = Satellite.objects.filter(project=project).order_by("satellite_physical_name")
+        sats = Satellite.objects.filter(project=project).order_by(
+            "satellite_physical_name"
+        )
         tbl = Table(title=f"Satellites — {project.name}", header_style="bold cyan")
         tbl.add_column("Name")
         tbl.add_column("Type")
@@ -1284,8 +1388,16 @@ def list_entities(
                 sat.satellite_physical_name,
                 sat.satellite_type,
                 sat.parent_hub.hub_physical_name if sat.parent_hub else "[dim]—[/dim]",
-                sat.parent_link.link_physical_name if sat.parent_link else "[dim]—[/dim]",
-                sat.source_table.physical_table_name if sat.source_table else "[dim]—[/dim]",
+                (
+                    sat.parent_link.link_physical_name
+                    if sat.parent_link
+                    else "[dim]—[/dim]"
+                ),
+                (
+                    sat.source_table.physical_table_name
+                    if sat.source_table
+                    else "[dim]—[/dim]"
+                ),
                 str(sat.columns.count()),
             )
         console.print(tbl)
@@ -1396,7 +1508,9 @@ def import_json(
     ] = ...,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Validate the JSON without writing to the database"),
+        typer.Option(
+            "--dry-run", help="Validate the JSON without writing to the database"
+        ),
     ] = False,
 ) -> None:
     """
@@ -1471,10 +1585,16 @@ model_app.command(name="create-source-column", help="Add a column to a source ta
 )
 model_app.command(name="create-hub", help="Create a new hub")(create_hub)
 model_app.command(name="create-link", help="Create a new link")(create_link)
-model_app.command(name="create-satellite", help="Create a new satellite")(create_satellite)
+model_app.command(name="create-satellite", help="Create a new satellite")(
+    create_satellite
+)
 model_app.command(name="create-pit", help="Create a new PIT (Point-in-Time) structure")(
     create_pit
 )
 model_app.command(name="list", help="List entities in a project")(list_entities)
-model_app.command(name="validate", help="Validate the Data Vault model for a project")(validate)
-model_app.command(name="import-json", help="Import a model proposal from JSON")(import_json)
+model_app.command(name="validate", help="Validate the Data Vault model for a project")(
+    validate
+)
+model_app.command(name="import-json", help="Import a model proposal from JSON")(
+    import_json
+)

@@ -124,7 +124,7 @@ class SqliteImportService:
 
     def _has_table(self, name: str) -> bool:
         return name in self._available_tables
-    
+
     def _validate_schema(self):
         """Checks available tables against REQUIRED_COLUMNS in the exception class."""
         for table_name, required_cols in MetadataSchemaError.REQUIRED_COLUMNS.items():
@@ -132,11 +132,11 @@ class SqliteImportService:
                 # Get actual columns from the SQLite table
                 cur = self._conn.execute(f"SELECT * FROM [{table_name}] LIMIT 0")
                 actual_cols = {d[0].lower() for d in cur.description}
-                
+
                 missing = [c for c in required_cols if c.lower() not in actual_cols]
                 if missing:
                     raise MetadataSchemaError(table_name, missing)
-                    
+
     @transaction.atomic
     def import_metadata(
         self,
@@ -418,7 +418,9 @@ class SqliteImportService:
                 )
 
         # Post-processing: ensure at least one primary source per hub column
-        for hub in Hub.objects.filter(project=self.project, hub_type=Hub.HubType.STANDARD):
+        for hub in Hub.objects.filter(
+            project=self.project, hub_type=Hub.HubType.STANDARD
+        ):
             for col in hub.columns.all():
                 if not HubSourceMapping.objects.filter(
                     hub_column=col, is_primary_source=True
@@ -461,7 +463,7 @@ class SqliteImportService:
                 if hub.group != group:
                     hub.group = group
                     hub.save()
-                    
+
             hub = self._hubs[hub_name]
 
             source_col_name = _clean(row["source_column_physical_name"])
@@ -546,14 +548,13 @@ class SqliteImportService:
             group_name = _clean(_row_get(row_sample, "group_name"))
             if group_name:
                 group, _ = Group.objects.get_or_create(
-                    project=self.project, 
-                    group_name=group_name
+                    project=self.project, group_name=group_name
                 )
                 self._groups[group_name] = group
                 if link.group != group:
                     link.group = group
                     link.save()
-            
+
                 self._links[link_name] = link
                 lid = _clean(row_sample.get(id_col))
                 if lid:
@@ -831,7 +832,7 @@ class SqliteImportService:
             tasks = []
             for row in sat_rows:
                 source_table_key = _clean(_row_get(row, "source_table_identifier"))
-                
+
                 # Check for regular column
                 regular_col = _clean(_row_get(row, "source_column_physical_name"))
                 sort_order_raw = _row_get(row, "target_column_sort_order")
@@ -843,9 +844,14 @@ class SqliteImportService:
                         sort_order = None
 
                 if regular_col:
-                    source_col = self._source_columns.get(f"{source_table_key}|{regular_col}")
+                    source_col = self._source_columns.get(
+                        f"{source_table_key}|{regular_col}"
+                    )
                     if source_col:
-                        tcn = _clean(_row_get(row, "target_column_physical_name")) or regular_col
+                        tcn = (
+                            _clean(_row_get(row, "target_column_physical_name"))
+                            or regular_col
+                        )
                         tasks.append((regular_col, False, tcn, sort_order, source_col))
 
                 # Check for multi-active attributes
@@ -854,7 +860,9 @@ class SqliteImportService:
                     if ma_attrs:
                         for s in str(ma_attrs).split(";"):
                             scn = s.strip()
-                            source_col = self._source_columns.get(f"{source_table_key}|{scn}")
+                            source_col = self._source_columns.get(
+                                f"{source_table_key}|{scn}"
+                            )
                             if source_col:
                                 # MA attributes usually don't have separate target names or explicit sort orders in the same row
                                 # but we include them in the tasks
@@ -1006,8 +1014,7 @@ class SqliteImportService:
             assigned_group = None
             if group_name:
                 assigned_group, _ = Group.objects.get_or_create(
-                    project=self.project, 
-                    group_name=group_name
+                    project=self.project, group_name=group_name
                 )
                 self._groups[group_name] = assigned_group
 
@@ -1096,11 +1103,10 @@ class SqliteImportService:
             assigned_group = None
             if group_name:
                 assigned_group, _ = Group.objects.get_or_create(
-                    project=self.project, 
-                    group_name=group_name
+                    project=self.project, group_name=group_name
                 )
                 self._groups[group_name] = assigned_group
-                
+
             if not self._snapshot_logic:
                 logger.warning(
                     f"Skipping PIT {pit_name}: no snapshot control exists. "

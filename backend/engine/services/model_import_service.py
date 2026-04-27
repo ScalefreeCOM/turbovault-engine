@@ -114,7 +114,9 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
                         src_tbl = _resolve_source_table(hub_def.source_table)
                         if src_tbl:
                             for hub_col in hub_columns:
-                                staging = _get_or_create_staging(src_tbl, hub_col.column_name)
+                                staging = _get_or_create_staging(
+                                    src_tbl, hub_col.column_name
+                                )
                                 if staging:
                                     HubSourceMapping.objects.get_or_create(
                                         hub_column=hub_col,
@@ -161,13 +163,14 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
                 if created:
                     result.links_created += 1
                     for hub_name in link_def.hubs:
-                        hub = hub_map.get(hub_name) or Hub.objects.filter(
-                            project=project, hub_physical_name=hub_name
-                        ).first()
+                        hub = (
+                            hub_map.get(hub_name)
+                            or Hub.objects.filter(
+                                project=project, hub_physical_name=hub_name
+                            ).first()
+                        )
                         if hub:
-                            LinkHubReference.objects.get_or_create(
-                                link=link, hub=hub
-                            )
+                            LinkHubReference.objects.get_or_create(link=link, hub=hub)
                         else:
                             result.skipped.append(
                                 f"Link '{link_def.name}': hub '{hub_name}' not found — reference skipped"
@@ -214,9 +217,12 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
                 parent_link = None
 
                 if sat_def.parent_hub:
-                    parent_hub = hub_map.get(sat_def.parent_hub) or Hub.objects.filter(
-                        project=project, hub_physical_name=sat_def.parent_hub
-                    ).first()
+                    parent_hub = (
+                        hub_map.get(sat_def.parent_hub)
+                        or Hub.objects.filter(
+                            project=project, hub_physical_name=sat_def.parent_hub
+                        ).first()
+                    )
                     if not parent_hub:
                         result.errors.append(
                             f"Satellite '{sat_def.name}': parent hub '{sat_def.parent_hub}' not found"
@@ -224,11 +230,12 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
                         continue
 
                 if sat_def.parent_link:
-                    parent_link = link_map.get(
-                        sat_def.parent_link
-                    ) or Link.objects.filter(
-                        project=project, link_physical_name=sat_def.parent_link
-                    ).first()
+                    parent_link = (
+                        link_map.get(sat_def.parent_link)
+                        or Link.objects.filter(
+                            project=project, link_physical_name=sat_def.parent_link
+                        ).first()
+                    )
                     if not parent_link:
                         result.errors.append(
                             f"Satellite '{sat_def.name}': parent link '{sat_def.parent_link}' not found"
@@ -263,7 +270,8 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
                             if staging:
                                 is_ma_key = (
                                     sat_def.multi_active_key is not None
-                                    and col_name.lower() == sat_def.multi_active_key.lower()
+                                    and col_name.lower()
+                                    == sat_def.multi_active_key.lower()
                                 )
                                 SatelliteColumn.objects.get_or_create(
                                     satellite=sat,

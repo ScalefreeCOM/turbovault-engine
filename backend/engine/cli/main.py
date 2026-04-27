@@ -4,6 +4,7 @@ TurboVault Engine CLI - Modern Data Vault automation tool.
 
 A powerful command-line interface for Data Vault modeling and dbt project generation.
 """
+
 import os
 import sys
 from pathlib import Path

@@ -50,7 +50,11 @@ class TurboVaultToolset(MCPToolset):
             return {
                 "status": "ok",
                 "workspace": str(config_path.parent) if config_path else None,
-                "database_engine": engine_val.value if hasattr(engine_val, "value") else str(engine_val),
+                "database_engine": (
+                    engine_val.value
+                    if hasattr(engine_val, "value")
+                    else str(engine_val)
+                ),
                 "project_count": project_count,
             }
         except WorkspaceNotFoundError as exc:
@@ -107,17 +111,23 @@ class TurboVaultToolset(MCPToolset):
 
         src = Path(source_path)
         if not src.exists():
-            return {"status": "error", "message": f"Source file not found: {source_path}"}
+            return {
+                "status": "error",
+                "message": f"Source file not found: {source_path}",
+            }
 
         suffix = src.suffix.lower()
         if suffix == ".xlsx":
             from engine.services.config_schema import ExcelSourceConfig
+
             source_cfg = ExcelSourceConfig(path=src)
         elif suffix in (".db", ".sqlite", ".sqlite3"):
             from engine.services.config_schema import SqliteSourceConfig
+
             source_cfg = SqliteSourceConfig(path=src)
         elif suffix == ".json":
             from engine.services.config_schema import JsonSourceConfig
+
             source_cfg = JsonSourceConfig(path=src)
         else:
             return {"status": "error", "message": f"Unsupported source type: {suffix}"}
@@ -134,6 +144,7 @@ class TurboVaultToolset(MCPToolset):
         try:
             project = _create_project(config, overwrite=False)
             from engine.models import Hub, Link, Satellite
+
             return {
                 "status": "ok",
                 "project": project.name,
@@ -336,11 +347,14 @@ class TurboVaultToolset(MCPToolset):
                     "type": h.hub_type,
                     "hashkey": h.hub_hashkey_name,
                     "business_keys": list(
-                        h.columns.filter(column_type="business_key")
-                        .values_list("column_name", flat=True)
+                        h.columns.filter(column_type="business_key").values_list(
+                            "column_name", flat=True
+                        )
                     ),
                 }
-                for h in Hub.objects.filter(project=project).order_by("hub_physical_name")
+                for h in Hub.objects.filter(project=project).order_by(
+                    "hub_physical_name"
+                )
             ]
 
         if show_all or entity_type == "links":
@@ -365,12 +379,12 @@ class TurboVaultToolset(MCPToolset):
                 {
                     "name": sat.satellite_physical_name,
                     "type": sat.satellite_type,
-                    "parent_hub": sat.parent_hub.hub_physical_name
-                    if sat.parent_hub
-                    else None,
-                    "parent_link": sat.parent_link.link_physical_name
-                    if sat.parent_link
-                    else None,
+                    "parent_hub": (
+                        sat.parent_hub.hub_physical_name if sat.parent_hub else None
+                    ),
+                    "parent_link": (
+                        sat.parent_link.link_physical_name if sat.parent_link else None
+                    ),
                 }
                 for sat in Satellite.objects.filter(project=project).order_by(
                     "satellite_physical_name"
@@ -382,15 +396,17 @@ class TurboVaultToolset(MCPToolset):
                 {
                     "name": pit.pit_physical_name,
                     "tracked_type": pit.tracked_entity_type,
-                    "tracked_entity": pit.tracked_hub.hub_physical_name
-                    if pit.tracked_hub
-                    else (
-                        pit.tracked_link.link_physical_name if pit.tracked_link else None
+                    "tracked_entity": (
+                        pit.tracked_hub.hub_physical_name
+                        if pit.tracked_hub
+                        else (
+                            pit.tracked_link.link_physical_name
+                            if pit.tracked_link
+                            else None
+                        )
                     ),
                     "satellites": list(
-                        pit.satellites.values_list(
-                            "satellite_physical_name", flat=True
-                        )
+                        pit.satellites.values_list("satellite_physical_name", flat=True)
                     ),
                 }
                 for pit in PIT.objects.filter(project=project).order_by(
@@ -576,6 +592,7 @@ class TurboVaultToolset(MCPToolset):
         resolved_output = Path(output_path) if output_path else None
         if not resolved_output:
             from engine.services.app_config_loader import resolve_project_path
+
             try:
                 project_dir = resolve_project_path(project.project_directory)
                 resolved_output = project_dir / "exports" / "dbt_project"
@@ -593,7 +610,9 @@ class TurboVaultToolset(MCPToolset):
         )
 
         try:
-            report = DbtProjectGenerator(output_path=resolved_output, config=config).generate(export)
+            report = DbtProjectGenerator(
+                output_path=resolved_output, config=config
+            ).generate(export)
             return {
                 "status": "ok" if report.success else "error",
                 "output_path": str(resolved_output.absolute()),
