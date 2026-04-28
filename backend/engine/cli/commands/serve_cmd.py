@@ -46,7 +46,7 @@ def serve(
     banner.append(f"http://{host}:{port}/admin/\n", style="cyan underline")
     banner.append("MCP:    ", style="bold")
     banner.append(f"http://{host}:{port}/mcp", style="cyan underline")
-    banner.append(" (Claude Code / Claude Desktop)\n\n", style="dim italic")
+    banner.append(" (MCP endpoint for AI tools)\n\n", style="dim italic")
     banner.append("Press CTRL+C to stop the server", style="dim")
 
     console.print(

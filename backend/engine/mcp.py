@@ -4,7 +4,7 @@ TurboVault MCP tools.
 Autodiscovered by django-mcp-server on startup (mirrors the admin.py pattern).
 Available at http://localhost:8000/mcp when `turbovault serve` is running.
 
-Configure in Claude Code / Claude Desktop:
+Configure in any MCP-compatible AI tool (e.g. Claude Code, Claude Desktop, Cursor):
     {
       "mcpServers": {
         "turbovault": {
