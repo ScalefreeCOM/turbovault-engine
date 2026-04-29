@@ -69,7 +69,9 @@ class FolderConfig:
             return base / self._sanitize_name(group)
         return base
 
-    def get_business_vault_pits_path(self, group: str | None, output_root: Path) -> Path:
+    def get_business_vault_pits_path(
+        self, group: str | None, output_root: Path
+    ) -> Path:
         """Get the path for PIT models. With optional group name for subfolder."""
         base = output_root / self.business_vault_path / self.pits_subdir
         if group:

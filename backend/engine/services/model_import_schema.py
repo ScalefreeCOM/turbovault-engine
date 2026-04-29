@@ -37,13 +37,19 @@ class LinkImport(BaseModel):
     link_type: str = Field(
         default="standard", description="'standard' or 'non_historized'"
     )
+    payload_columns: list[str] = Field(
+        default_factory=list,
+        description="Payload column names for non-historized links (creates LinkColumn records with type='payload')",
+    )
+    source_table: str | None = Field(
+        default=None,
+        description="Physical source table name used to resolve payload column mappings (optional)",
+    )
     group: str | None = Field(default=None, description="Group name (optional)")
 
 
 class SatelliteImport(BaseModel):
-    name: str = Field(
-        description="Physical satellite name, e.g. SAT_CUSTOMER_DETAILS"
-    )
+    name: str = Field(description="Physical satellite name, e.g. SAT_CUSTOMER_DETAILS")
     satellite_type: str = Field(
         default="standard",
         description="'standard', 'non_historized', 'multi_active', or 'reference'",
@@ -58,6 +64,10 @@ class SatelliteImport(BaseModel):
         default_factory=list,
         description="Column names (informational — staging mappings require source metadata)",
     )
+    multi_active_key: str | None = Field(
+        default=None,
+        description="Column name to mark as the multi-active key (sets is_multi_active_key=True on the SatelliteColumn). Only applies to satellite_type='multi_active'.",
+    )
     source_table: str | None = Field(
         default=None, description="Physical source table name (optional)"
     )
@@ -68,9 +78,7 @@ class SatelliteImport(BaseModel):
         if not self.parent_hub and not self.parent_link:
             raise ValueError("Satellite must have either parent_hub or parent_link")
         if self.parent_hub and self.parent_link:
-            raise ValueError(
-                "Satellite cannot have both parent_hub and parent_link"
-            )
+            raise ValueError("Satellite cannot have both parent_hub and parent_link")
         return self
 
 

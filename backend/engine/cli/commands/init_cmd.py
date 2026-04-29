@@ -1,4 +1,3 @@
-
 """
 Init command for TurboVault CLI.
 
@@ -159,7 +158,9 @@ def init(
         raise typer.Exit(1)
 
     if config:
-        _init_from_config(config, overwrite=overwrite, snapshot_controls=snapshot_controls)
+        _init_from_config(
+            config, overwrite=overwrite, snapshot_controls=snapshot_controls
+        )
     elif interactive:
         _run_interactive_init()
     elif name:
@@ -269,7 +270,9 @@ def _init_from_flags(
     _create_project(config, overwrite=overwrite, snapshot_controls=snapshot_controls)
 
 
-def _init_from_config(config_path: Path, *, overwrite: bool = False, snapshot_controls: bool = True) -> None:
+def _init_from_config(
+    config_path: Path, *, overwrite: bool = False, snapshot_controls: bool = True
+) -> None:
     """Initialize project from a config.yml file."""
     print_step(1, 3, "Loading configuration...")
 
@@ -286,7 +289,9 @@ def _init_from_config(config_path: Path, *, overwrite: bool = False, snapshot_co
     _create_project(config, overwrite=overwrite, snapshot_controls=snapshot_controls)
 
 
-def _create_project(config, *, overwrite: bool = False, snapshot_controls: bool = True) -> None:
+def _create_project(
+    config, *, overwrite: bool = False, snapshot_controls: bool = True
+) -> None:
     """
     Core project creation logic shared by all init paths.
 
@@ -416,14 +421,39 @@ def _print_import_summary(project) -> None:
     link_total = _count(Link)
     _row(tbl, f"Links  ({link_total})", link_total, indent=True)
     _row(tbl, "Standard", _count(Link, link_type=Link.LinkType.STANDARD), indent=True)
-    _row(tbl, "Non-Historized", _count(Link, link_type=Link.LinkType.NON_HISTORIZED), indent=True)
+    _row(
+        tbl,
+        "Non-Historized",
+        _count(Link, link_type=Link.LinkType.NON_HISTORIZED),
+        indent=True,
+    )
 
     sat_total = _count(Satellite)
     _row(tbl, f"Satellites  ({sat_total})", sat_total, indent=True)
-    _row(tbl, "Standard", _count(Satellite, satellite_type=Satellite.SatelliteType.STANDARD), indent=True)
-    _row(tbl, "Reference", _count(Satellite, satellite_type=Satellite.SatelliteType.REFERENCE), indent=True)
-    _row(tbl, "Non-Historized", _count(Satellite, satellite_type=Satellite.SatelliteType.NON_HISTORIZED), indent=True)
-    _row(tbl, "Multi-Active", _count(Satellite, satellite_type=Satellite.SatelliteType.MULTI_ACTIVE), indent=True)
+    _row(
+        tbl,
+        "Standard",
+        _count(Satellite, satellite_type=Satellite.SatelliteType.STANDARD),
+        indent=True,
+    )
+    _row(
+        tbl,
+        "Reference",
+        _count(Satellite, satellite_type=Satellite.SatelliteType.REFERENCE),
+        indent=True,
+    )
+    _row(
+        tbl,
+        "Non-Historized",
+        _count(Satellite, satellite_type=Satellite.SatelliteType.NON_HISTORIZED),
+        indent=True,
+    )
+    _row(
+        tbl,
+        "Multi-Active",
+        _count(Satellite, satellite_type=Satellite.SatelliteType.MULTI_ACTIVE),
+        indent=True,
+    )
 
     # ── Advanced structures ─────────────────────────────────────────
     pit_count = _count(PIT)
@@ -451,9 +481,13 @@ def _import_metadata(project, source) -> None:
         except MetadataSchemaError as e:
             print_error(str(e))
         except FileNotFoundError:
-            print_error(f"Metadata import failed: The file '{source.path}' was not found.")
+            print_error(
+                f"Metadata import failed: The file '{source.path}' was not found."
+            )
         except (OSError, ValueError):
-            print_error(f"Metadata import failed: '{source.path}' is not a valid file path.")
+            print_error(
+                f"Metadata import failed: '{source.path}' is not a valid file path."
+            )
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
 
@@ -472,9 +506,13 @@ def _import_metadata(project, source) -> None:
         except MetadataSchemaError as e:
             print_error(str(e))
         except FileNotFoundError:
-            print_error(f"Metadata import failed: The file '{source.path}' was not found.")
+            print_error(
+                f"Metadata import failed: The file '{source.path}' was not found."
+            )
         except (OSError, ValueError):
-            print_error(f"Metadata import failed: '{source.path}' is not a valid file path.")
+            print_error(
+                f"Metadata import failed: '{source.path}' is not a valid file path."
+            )
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
 

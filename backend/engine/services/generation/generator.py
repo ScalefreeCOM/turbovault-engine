@@ -573,10 +573,8 @@ class DbtProjectGenerator:
 
         for ref_table in ref_tables:
             try:
-                output_dir = (
-                    self.folder_config.get_raw_vault_path(
-                        ref_table.group, self.output_path
-                    )
+                output_dir = self.folder_config.get_raw_vault_path(
+                    ref_table.group, self.output_path
                 )
 
                 # Generate SQL file
