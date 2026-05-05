@@ -31,7 +31,9 @@ def reset(
     banner.append("  • Run fresh migrations\n\n", style="yellow")
     banner.append("This action cannot be undone!", style="bold red")
 
-    console.print(Panel(banner, border_style="yellow", title="[bold]⚠️  Warning[/bold]"))
+    console.print(
+        Panel(banner, border_style="yellow", title="[bold]⚠️  Warning[/bold]")
+    )
     console.print()
 
     # Confirm with user unless --force is used

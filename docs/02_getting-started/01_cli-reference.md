@@ -550,8 +550,11 @@ This starts the server on `http://127.0.0.1:8000/`
 **Access points:**
 - Admin: `http://127.0.0.1:8000/admin/`
 - Home / Web Initializer: `http://127.0.0.1:8000/`
+- MCP (AI tools): `http://127.0.0.1:8000/mcp`
 
 The landing page (`/`) provides a guided wizard for creating new projects, which is the recommended starting point for first-time users.
+
+> **See also:** [MCP Server guide](05_mcp-server.md) for connecting Claude Code or Claude Desktop.
 
 #### Custom Port and Host
 

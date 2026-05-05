@@ -35,6 +35,9 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # TurboVault Engine app
     "engine.apps.EngineConfig",
+    # MCP server (exposes TurboVault tools at /mcp when turbovault serve is running)
+    "rest_framework",
+    "mcp_server",
 ]
 
 # Middleware required for admin functionality
@@ -146,3 +149,22 @@ STATICFILES_DIRS = [BASE_DIR / "turbovault" / "static"]
 # Default primary key field type
 # https://docs.djangoproject.com/en/6.0/ref/settings/#default-auto-field
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# ─── MCP Server ───────────────────────────────────────────────────────────────
+# Accessible at http://localhost:8000/mcp when turbovault serve is running.
+# Configure Claude Code / Claude Desktop to connect via HTTP transport.
+DJANGO_MCP_GLOBAL_SERVER_CONFIG = {
+    "name": "turbovault",
+    "instructions": (
+        "TurboVault Engine MCP server. Use these tools to inspect, build, "
+        "validate, and generate Data Vault models. "
+        "Typical flow: workspace_status → project_list → list_entities → list_sources → "
+        "create_source_metadata → commit_model → validate_model → generate_dbt. "
+        "Call create_source_metadata before commit_model whenever the proposal includes "
+        "source_table references — this ensures HubSourceMapping and SatelliteColumn "
+        "records are created automatically during the commit."
+    ),
+}
+# No authentication required by default (local dev use-case).
+DJANGO_MCP_AUTHENTICATION_CLASSES = []
+DJANGO_MCP_PERMISSION_CLASSES = []

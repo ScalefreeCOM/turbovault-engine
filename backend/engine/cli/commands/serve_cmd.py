@@ -43,7 +43,10 @@ def serve(
     banner.append(f"http://{host}:{port}/", style="cyan underline")
     banner.append(" (Create projects here!)\n", style="dim italic")
     banner.append("Admin:  ", style="bold")
-    banner.append(f"http://{host}:{port}/admin/\n\n", style="cyan underline")
+    banner.append(f"http://{host}:{port}/admin/\n", style="cyan underline")
+    banner.append("MCP:    ", style="bold")
+    banner.append(f"http://{host}:{port}/mcp", style="cyan underline")
+    banner.append(" (MCP endpoint for AI tools)\n\n", style="dim italic")
     banner.append("Press CTRL+C to stop the server", style="dim")
 
     console.print(

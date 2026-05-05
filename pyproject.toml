@@ -58,6 +58,8 @@ dependencies = [
     "questionary>=2.0,<3.0",
     "pandas>=2.0,<4.0",
     "openpyxl>=3.0,<4.0",
+    "djangorestframework>=3.14,<4.0",
+    "django-mcp-server>=0.5.7",
 ]
 
 [project.optional-dependencies]
