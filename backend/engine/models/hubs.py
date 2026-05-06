@@ -15,7 +15,6 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from engine.models.project import Project
-from engine.models.fields import ChoiceCharField
 
 
 class Hub(models.Model):
@@ -58,7 +57,7 @@ class Hub(models.Model):
         max_length=255, help_text="Physical name of the hub (e.g. hub_customer)"
     )
 
-    hub_type = ChoiceCharField(
+    hub_type = models.CharField(
         max_length=20,
         choices=HubType.choices,
         default=HubType.STANDARD,
@@ -147,7 +146,7 @@ class HubColumn(models.Model):
         max_length=255, help_text="Logical/target column name in the hub"
     )
 
-    column_type = ChoiceCharField(
+    column_type = models.CharField(
         max_length=30,
         choices=ColumnType.choices,
         default=ColumnType.BUSINESS_KEY,

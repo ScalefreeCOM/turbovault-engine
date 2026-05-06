@@ -361,7 +361,7 @@ class SqliteImportService:
                 hub = Hub.objects.create(
                     project=self.project,
                     hub_physical_name=hub_name,
-                    hub_type=Hub.HubType.STANDARD,
+                    hub_type=Hub.HubType.STANDARD.value,
                     hub_hashkey_name=_clean(row["target_primary_key_physical_name"]),
                     create_record_tracking_satellite=(
                         str(_row_get(row, "record_tracking_satellite")).upper()
@@ -396,7 +396,7 @@ class SqliteImportService:
             hub_column, _ = HubColumn.objects.get_or_create(
                 hub=hub,
                 column_name=col_name,
-                defaults={"column_type": HubColumn.ColumnType.BUSINESS_KEY},
+                defaults={"column_type": HubColumn.ColumnType.BUSINESS_KEY.value},
             )
 
             source_table_key = _clean(row["source_table_identifier"])
@@ -419,7 +419,7 @@ class SqliteImportService:
 
         # Post-processing: ensure at least one primary source per hub column
         for hub in Hub.objects.filter(
-            project=self.project, hub_type=Hub.HubType.STANDARD
+            project=self.project, hub_type=Hub.HubType.STANDARD.value
         ):
             for col in hub.columns.all():
                 if not HubSourceMapping.objects.filter(
@@ -443,7 +443,7 @@ class SqliteImportService:
                 hub = Hub.objects.create(
                     project=self.project,
                     hub_physical_name=hub_name,
-                    hub_type=Hub.HubType.REFERENCE,
+                    hub_type=Hub.HubType.REFERENCE.value,
                     hub_hashkey_name=None,
                     create_record_tracking_satellite=False,
                     create_effectivity_satellite=False,
@@ -473,7 +473,7 @@ class SqliteImportService:
             hub_column, _ = HubColumn.objects.get_or_create(
                 hub=hub,
                 column_name=source_col_name,
-                defaults={"column_type": HubColumn.ColumnType.REFERENCE_KEY},
+                defaults={"column_type": HubColumn.ColumnType.REFERENCE_KEY.value},
             )
 
             source_table_key = _clean(row["source_table_identifier"])
@@ -491,13 +491,13 @@ class SqliteImportService:
     def _process_standard_links(self) -> None:
         """Processes standard_link table."""
         self._process_links_generic(
-            "standard_link", Link.LinkType.STANDARD, "link_identifier"
+            "standard_link", Link.LinkType.STANDARD.value, "link_identifier"
         )
 
     def _process_non_historized_links(self) -> None:
         """Processes non_historized_link table."""
         self._process_links_generic(
-            "non_historized_link", Link.LinkType.NON_HISTORIZED, "nh_link_identifier"
+            "non_historized_link", Link.LinkType.NON_HISTORIZED.value, "nh_link_identifier"
         )
 
     def _process_links_generic(
@@ -626,13 +626,13 @@ class SqliteImportService:
 
                         hub_cols = list(
                             hub.columns.filter(
-                                column_type=HubColumn.ColumnType.BUSINESS_KEY
+                                column_type=HubColumn.ColumnType.BUSINESS_KEY.value
                             ).order_by("sort_order")
                         )
                         if not hub_cols:
                             hub_cols = list(
                                 hub.columns.filter(
-                                    column_type=HubColumn.ColumnType.REFERENCE_KEY
+                                    column_type=HubColumn.ColumnType.REFERENCE_KEY.value
                                 ).order_by("sort_order")
                             )
 
@@ -689,9 +689,9 @@ class SqliteImportService:
                 hk_def = r.get("target_primary_key_physical_name")
                 is_key = bool(hk_def and not _is_empty(hk_def))
                 col_type = (
-                    LinkColumn.ColumnType.DEPENDENT_CHILD_KEY
+                    LinkColumn.ColumnType.DEPENDENT_CHILD_KEY.value
                     if is_key
-                    else LinkColumn.ColumnType.PAYLOAD
+                    else LinkColumn.ColumnType.PAYLOAD.value
                 )
 
                 lc, _ = LinkColumn.objects.get_or_create(
@@ -751,10 +751,10 @@ class SqliteImportService:
                 grouped_rows[sat_name].append(row)
 
         sat_type_map = {
-            "standard_satellite": Satellite.SatelliteType.STANDARD,
-            "ref_sat": Satellite.SatelliteType.REFERENCE,
-            "non_historized_satellite": Satellite.SatelliteType.NON_HISTORIZED,
-            "multiactive_satellite": Satellite.SatelliteType.MULTI_ACTIVE,
+            "standard_satellite": Satellite.SatelliteType.STANDARD.value,
+            "ref_sat": Satellite.SatelliteType.REFERENCE.value,
+            "non_historized_satellite": Satellite.SatelliteType.NON_HISTORIZED.value,
+            "multiactive_satellite": Satellite.SatelliteType.MULTI_ACTIVE.value,
         }
 
         for sat_name, sat_rows in grouped_rows.items():
@@ -946,7 +946,7 @@ class SqliteImportService:
                     project=self.project,
                     source_table=source_table,
                     prejoin_target_table=target_table,
-                    prejoin_operator=PrejoinDefinition.JoinOperator.AND,
+                    prejoin_operator=PrejoinDefinition.JoinOperator.AND.value,
                 )
 
                 source_col_name = _clean(rd.get("source_column_physical_name"))
@@ -1019,10 +1019,10 @@ class SqliteImportService:
                 self._groups[group_name] = assigned_group
 
             hist_type_map = {
-                "TRUE": ReferenceTable.HistorizationType.FULL,
-                "FALSE": ReferenceTable.HistorizationType.LATEST,
-                "FULL": ReferenceTable.HistorizationType.FULL,
-                "LATEST": ReferenceTable.HistorizationType.LATEST,
+                "TRUE": ReferenceTable.HistorizationType.FULL.value,
+                "FALSE": ReferenceTable.HistorizationType.LATEST.value,
+                "FULL": ReferenceTable.HistorizationType.FULL.value,
+                "LATEST": ReferenceTable.HistorizationType.LATEST.value,
             }
             hist_val = _clean(_row_get(row, "historized")) or "LATEST"
 
@@ -1033,7 +1033,7 @@ class SqliteImportService:
                     "reference_hub": hub,
                     "group": assigned_group,
                     "historization_type": hist_type_map.get(
-                        hist_val.upper(), ReferenceTable.HistorizationType.LATEST
+                        hist_val.upper(), ReferenceTable.HistorizationType.LATEST.value
                     ),
                 },
             )
@@ -1119,7 +1119,7 @@ class SqliteImportService:
                 group=assigned_group,
                 pit_physical_name=pit_name,
                 tracked_entity_type=(
-                    PIT.TrackedEntityType.HUB if hub else PIT.TrackedEntityType.LINK
+                    PIT.TrackedEntityType.HUB.value if hub else PIT.TrackedEntityType.LINK.value
                 ),
                 tracked_hub=hub,
                 tracked_link=link,
