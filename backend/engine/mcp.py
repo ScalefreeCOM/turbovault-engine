@@ -448,7 +448,9 @@ class TurboVaultToolset(MCPToolset):
         hubs_in = len(proposal.get("hubs", []))
         links_in = len(proposal.get("links", []))
         sats_in = len(proposal.get("satellites", []))
-        _log(f"commit_model started — project='{project_name}' hubs={hubs_in} links={links_in} satellites={sats_in}")
+        _log(
+            f"commit_model started — project='{project_name}' hubs={hubs_in} links={links_in} satellites={sats_in}"
+        )
         t0 = time.monotonic()
 
         try:
@@ -458,7 +460,9 @@ class TurboVaultToolset(MCPToolset):
             return {"status": "error", "message": f"Invalid proposal: {exc}"}
 
         result = import_model(project_name, schema)
-        _log(f"commit_model done in {time.monotonic()-t0:.1f}s — hubs={result.hubs_created} links={result.links_created} sats={result.satellites_created} skipped={len(result.skipped)} errors={len(result.errors)}")
+        _log(
+            f"commit_model done in {time.monotonic()-t0:.1f}s — hubs={result.hubs_created} links={result.links_created} sats={result.satellites_created} skipped={len(result.skipped)} errors={len(result.errors)}"
+        )
 
         return {
             "status": "ok" if result.success else "error",
@@ -499,13 +503,17 @@ class TurboVaultToolset(MCPToolset):
         try:
             _log("validate_model — building model export...")
             export = ModelBuilder(project).build()
-            _log(f"validate_model — model built in {time.monotonic()-t0:.1f}s, running validators...")
+            _log(
+                f"validate_model — model built in {time.monotonic()-t0:.1f}s, running validators..."
+            )
         except Exception as exc:
             _log(f"validate_model error — build failed: {exc}")
             return {"status": "error", "message": f"Failed to build export: {exc}"}
 
         result = validate_export(export)
-        _log(f"validate_model done in {time.monotonic()-t0:.1f}s — valid={result.is_valid}, errors={len(result.errors)}, warnings={len(result.warnings)}")
+        _log(
+            f"validate_model done in {time.monotonic()-t0:.1f}s — valid={result.is_valid}, errors={len(result.errors)}, warnings={len(result.warnings)}"
+        )
         return {
             "valid": result.is_valid,
             "errors": [
@@ -555,9 +563,13 @@ class TurboVaultToolset(MCPToolset):
         try:
             _log("export_model_json — building model export...")
             export = ModelBuilder(project).build()
-            _log(f"export_model_json — model built in {time.monotonic()-t0:.1f}s, running JSONExporter...")
+            _log(
+                f"export_model_json — model built in {time.monotonic()-t0:.1f}s, running JSONExporter..."
+            )
             json_str = JSONExporter(indent=2).export(export)
-            _log(f"export_model_json done in {time.monotonic()-t0:.1f}s — {len(json_str)} bytes")
+            _log(
+                f"export_model_json done in {time.monotonic()-t0:.1f}s — {len(json_str)} bytes"
+            )
             return json.loads(json_str)
         except Exception as exc:
             _log(f"export_model_json error after {time.monotonic()-t0:.1f}s: {exc}")
@@ -588,7 +600,9 @@ class TurboVaultToolset(MCPToolset):
         from engine.services.generation import DbtProjectGenerator, GenerationConfig
         from engine.services.generation.validators import validate_export
 
-        _log(f"generate_dbt started — project='{project_name}' mode={mode} dry_run={dry_run}")
+        _log(
+            f"generate_dbt started — project='{project_name}' mode={mode} dry_run={dry_run}"
+        )
         t0 = time.monotonic()
 
         try:
@@ -600,13 +614,19 @@ class TurboVaultToolset(MCPToolset):
         try:
             _log("generate_dbt — building model export...")
             export = ModelBuilder(project).build()
-            _log(f"generate_dbt — model built in {time.monotonic()-t0:.1f}s, validating...")
+            _log(
+                f"generate_dbt — model built in {time.monotonic()-t0:.1f}s, validating..."
+            )
         except Exception as exc:
-            _log(f"generate_dbt error after {time.monotonic()-t0:.1f}s — build failed: {exc}")
+            _log(
+                f"generate_dbt error after {time.monotonic()-t0:.1f}s — build failed: {exc}"
+            )
             return {"status": "error", "message": f"Failed to build export: {exc}"}
 
         validation = validate_export(export)
-        _log(f"generate_dbt — validation done in {time.monotonic()-t0:.1f}s — valid={validation.is_valid}")
+        _log(
+            f"generate_dbt — validation done in {time.monotonic()-t0:.1f}s — valid={validation.is_valid}"
+        )
 
         if dry_run:
             _log(f"generate_dbt dry_run complete in {time.monotonic()-t0:.1f}s")
@@ -654,7 +674,9 @@ class TurboVaultToolset(MCPToolset):
             report = DbtProjectGenerator(
                 output_path=resolved_output, config=config
             ).generate(export)
-            _log(f"generate_dbt done in {time.monotonic()-t0:.1f}s — {report.total_files} files, success={report.success}")
+            _log(
+                f"generate_dbt done in {time.monotonic()-t0:.1f}s — {report.total_files} files, success={report.success}"
+            )
             return {
                 "status": "ok" if report.success else "error",
                 "output_path": str(resolved_output.absolute()),
