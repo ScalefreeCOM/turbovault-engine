@@ -380,8 +380,8 @@ class BaseImportService:
                 hub_cols = list(
                     hub.columns.filter(
                         column_type__in=[
-                            HubColumn.ColumnType.BUSINESS_KEY,
-                            HubColumn.ColumnType.REFERENCE_KEY,
+                            HubColumn.ColumnType.BUSINESS_KEY.value,
+                            HubColumn.ColumnType.REFERENCE_KEY.value,
                         ]
                     ).order_by("sort_order")
                 )
