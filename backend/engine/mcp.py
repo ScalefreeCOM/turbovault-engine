@@ -18,8 +18,15 @@ Configure in any MCP-compatible AI tool (e.g. Claude Code, Claude Desktop, Curso
 from __future__ import annotations
 
 import json
+import sys
+import time
 
 from mcp_server import MCPToolset
+
+
+def _log(msg: str) -> None:
+    """Write a timestamped progress line to stderr (visible in MCP server logs)."""
+    print(f"[turbovault.mcp] {msg}", file=sys.stderr, flush=True)
 
 
 class TurboVaultToolset(MCPToolset):
@@ -438,12 +445,20 @@ class TurboVaultToolset(MCPToolset):
         from engine.services.model_import_schema import ModelImportSchema
         from engine.services.model_import_service import import_model
 
+        hubs_in = len(proposal.get("hubs", []))
+        links_in = len(proposal.get("links", []))
+        sats_in = len(proposal.get("satellites", []))
+        _log(f"commit_model started — project='{project_name}' hubs={hubs_in} links={links_in} satellites={sats_in}")
+        t0 = time.monotonic()
+
         try:
             schema = ModelImportSchema.model_validate(proposal)
         except ValidationError as exc:
+            _log(f"commit_model error — invalid proposal: {exc}")
             return {"status": "error", "message": f"Invalid proposal: {exc}"}
 
         result = import_model(project_name, schema)
+        _log(f"commit_model done in {time.monotonic()-t0:.1f}s — hubs={result.hubs_created} links={result.links_created} sats={result.satellites_created} skipped={len(result.skipped)} errors={len(result.errors)}")
 
         return {
             "status": "ok" if result.success else "error",
@@ -472,17 +487,25 @@ class TurboVaultToolset(MCPToolset):
         from engine.services.export.builder import ModelBuilder
         from engine.services.generation.validators import validate_export
 
+        _log(f"validate_model started — project='{project_name}'")
+        t0 = time.monotonic()
+
         try:
             project = Project.objects.get(name=project_name)
         except Project.DoesNotExist:
+            _log(f"validate_model error — project not found")
             return {"status": "error", "message": f"Project '{project_name}' not found"}
 
         try:
+            _log("validate_model — building model export...")
             export = ModelBuilder(project).build()
+            _log(f"validate_model — model built in {time.monotonic()-t0:.1f}s, running validators...")
         except Exception as exc:
+            _log(f"validate_model error — build failed: {exc}")
             return {"status": "error", "message": f"Failed to build export: {exc}"}
 
         result = validate_export(export)
+        _log(f"validate_model done in {time.monotonic()-t0:.1f}s — valid={result.is_valid}, errors={len(result.errors)}, warnings={len(result.warnings)}")
         return {
             "valid": result.is_valid,
             "errors": [
@@ -520,16 +543,24 @@ class TurboVaultToolset(MCPToolset):
         from engine.services.export.builder import ModelBuilder
         from engine.services.export.exporters.json_exporter import JSONExporter
 
+        _log(f"export_model_json started — project='{project_name}'")
+        t0 = time.monotonic()
+
         try:
             project = Project.objects.get(name=project_name)
         except Project.DoesNotExist:
+            _log(f"export_model_json error — project not found")
             return {"error": f"Project '{project_name}' not found"}
 
         try:
+            _log("export_model_json — building model export...")
             export = ModelBuilder(project).build()
+            _log(f"export_model_json — model built in {time.monotonic()-t0:.1f}s, running JSONExporter...")
             json_str = JSONExporter(indent=2).export(export)
+            _log(f"export_model_json done in {time.monotonic()-t0:.1f}s — {len(json_str)} bytes")
             return json.loads(json_str)
         except Exception as exc:
+            _log(f"export_model_json error after {time.monotonic()-t0:.1f}s: {exc}")
             return {"error": str(exc)}
 
     def generate_dbt(
@@ -557,19 +588,28 @@ class TurboVaultToolset(MCPToolset):
         from engine.services.generation import DbtProjectGenerator, GenerationConfig
         from engine.services.generation.validators import validate_export
 
+        _log(f"generate_dbt started — project='{project_name}' mode={mode} dry_run={dry_run}")
+        t0 = time.monotonic()
+
         try:
             project = Project.objects.get(name=project_name)
         except Project.DoesNotExist:
+            _log(f"generate_dbt error — project not found")
             return {"status": "error", "message": f"Project '{project_name}' not found"}
 
         try:
+            _log("generate_dbt — building model export...")
             export = ModelBuilder(project).build()
+            _log(f"generate_dbt — model built in {time.monotonic()-t0:.1f}s, validating...")
         except Exception as exc:
+            _log(f"generate_dbt error after {time.monotonic()-t0:.1f}s — build failed: {exc}")
             return {"status": "error", "message": f"Failed to build export: {exc}"}
 
         validation = validate_export(export)
+        _log(f"generate_dbt — validation done in {time.monotonic()-t0:.1f}s — valid={validation.is_valid}")
 
         if dry_run:
+            _log(f"generate_dbt dry_run complete in {time.monotonic()-t0:.1f}s")
             return {
                 "status": "dry_run",
                 "valid": validation.is_valid,
@@ -610,9 +650,11 @@ class TurboVaultToolset(MCPToolset):
         )
 
         try:
+            _log(f"generate_dbt — writing dbt project to {resolved_output} ...")
             report = DbtProjectGenerator(
                 output_path=resolved_output, config=config
             ).generate(export)
+            _log(f"generate_dbt done in {time.monotonic()-t0:.1f}s — {report.total_files} files, success={report.success}")
             return {
                 "status": "ok" if report.success else "error",
                 "output_path": str(resolved_output.absolute()),
@@ -624,4 +666,5 @@ class TurboVaultToolset(MCPToolset):
                 "errors": report.errors[:10],
             }
         except Exception as exc:
+            _log(f"generate_dbt error after {time.monotonic()-t0:.1f}s: {exc}")
             return {"status": "error", "message": str(exc)}
