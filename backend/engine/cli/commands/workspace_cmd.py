@@ -55,6 +55,18 @@ def workspace_init(  # noqa: PLR0913
         str | None,
         typer.Option("--db-password", help="Database password (non-SQLite only)"),
     ] = None,
+    db_account: Annotated[
+        str | None,
+        typer.Option("--db-account", help="Snowflake account identifier"),
+    ] = None,
+    db_warehouse: Annotated[
+        str | None,
+        typer.Option("--db-warehouse", help="Snowflake warehouse name"),
+    ] = None,
+    db_schema: Annotated[
+        str | None,
+        typer.Option("--db-schema", help="Snowflake schema name"),
+    ] = None,
     # Schemas
     stage_schema: Annotated[
         str,
@@ -108,6 +120,18 @@ def workspace_init(  # noqa: PLR0913
     )
 
     if is_non_interactive and not interactive:
+        db_options: dict | None = None
+        if db_engine == "snowflake":
+            db_options = {
+                k: v
+                for k, v in {
+                    "account": db_account,
+                    "warehouse": db_warehouse,
+                    "schema": db_schema,
+                }.items()
+                if v is not None
+            } or None
+
         _init_from_flags(
             db_engine=db_engine or "sqlite3",
             db_name=db_name or "db.sqlite3",
@@ -115,6 +139,7 @@ def workspace_init(  # noqa: PLR0913
             db_port=db_port,
             db_user=db_user,
             db_password=db_password,
+            db_options=db_options,
             stage_schema=stage_schema or "stage",
             rdv_schema=rdv_schema or "rdv",
             bdv_schema=bdv_schema or "bdv",
@@ -142,6 +167,7 @@ def _init_from_flags(
     db_port: int | None,
     db_user: str | None,
     db_password: str | None,
+    db_options: dict | None,
     stage_schema: str,
     rdv_schema: str,
     bdv_schema: str,
@@ -167,6 +193,7 @@ def _init_from_flags(
             db_port=db_port,
             db_user=db_user,
             db_password=db_password,
+            db_options=db_options,
             stage_schema=stage_schema,
             rdv_schema=rdv_schema,
             bdv_schema=bdv_schema,
@@ -229,6 +256,7 @@ def _init_interactive(
             questionary.Choice("PostgreSQL", value="postgresql"),
             questionary.Choice("MySQL / MariaDB", value="mysql"),
             questionary.Choice("MS SQL Server", value="mssql"),
+            questionary.Choice("Oracle", value="oracle"),
             questionary.Choice("Snowflake", value="snowflake"),
         ],
     ).ask()
@@ -237,6 +265,7 @@ def _init_interactive(
 
     db_name = "db.sqlite3"
     db_host = db_port = db_user = db_password = None
+    db_options: dict | None = None
 
     if db_engine_choice == "sqlite3":
         db_name = (
@@ -250,6 +279,17 @@ def _init_interactive(
         db_port = int(db_port_str) if db_port_str and db_port_str.isdigit() else None
         db_user = questionary.text("Username:").ask()
         db_password = questionary.password("Password:").ask()
+
+        if db_engine_choice == "snowflake":
+            db_account = questionary.text("Account identifier:").ask() or ""
+            db_warehouse = questionary.text("Warehouse:").ask() or ""
+            db_schema = questionary.text("Schema:").ask() or ""
+            db_options = {
+                "account": db_account,
+                "warehouse": db_warehouse,
+                "database": db_name,
+                "schema": db_schema,
+            }
 
     # Schema defaults
     modify_schemas = questionary.confirm(
@@ -275,6 +315,7 @@ def _init_interactive(
             db_port=db_port,
             db_user=db_user,
             db_password=db_password,
+            db_options=db_options,
             stage_schema=stage_schema,
             rdv_schema=rdv_schema,
             bdv_schema=bdv_schema,
