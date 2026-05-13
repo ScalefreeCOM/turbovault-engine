@@ -497,7 +497,9 @@ class SqliteImportService:
     def _process_non_historized_links(self) -> None:
         """Processes non_historized_link table."""
         self._process_links_generic(
-            "non_historized_link", Link.LinkType.NON_HISTORIZED.value, "nh_link_identifier"
+            "non_historized_link",
+            Link.LinkType.NON_HISTORIZED.value,
+            "nh_link_identifier",
         )
 
     def _process_links_generic(
@@ -1119,7 +1121,9 @@ class SqliteImportService:
                 group=assigned_group,
                 pit_physical_name=pit_name,
                 tracked_entity_type=(
-                    PIT.TrackedEntityType.HUB.value if hub else PIT.TrackedEntityType.LINK.value
+                    PIT.TrackedEntityType.HUB.value
+                    if hub
+                    else PIT.TrackedEntityType.LINK.value
                 ),
                 tracked_hub=hub,
                 tracked_link=link,

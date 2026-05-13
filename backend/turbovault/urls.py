@@ -17,5 +17,5 @@ urlpatterns = [
     path("init/create/", create_project, name="create_project"),
     path("admin/", admin.site.urls),
     # MCP server endpoint — available at http://localhost:8000/mcp
-    path("mcp/", include("mcp_server.urls")),
+    path("", include("mcp_server.urls")),
 ]

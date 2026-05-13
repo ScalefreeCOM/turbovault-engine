@@ -416,19 +416,51 @@ def _print_import_summary(project) -> None:
     hub_total = _count(Hub)
     _row(tbl, f"Hubs  ({hub_total})", hub_total, indent=True)
     _row(tbl, "Standard", _count(Hub, hub_type=Hub.HubType.STANDARD.value), indent=True)
-    _row(tbl, "Reference", _count(Hub, hub_type=Hub.HubType.REFERENCE.value), indent=True)
+    _row(
+        tbl, "Reference", _count(Hub, hub_type=Hub.HubType.REFERENCE.value), indent=True
+    )
 
     link_total = _count(Link)
     _row(tbl, f"Links  ({link_total})", link_total, indent=True)
-    _row(tbl, "Standard", _count(Link, link_type=Link.LinkType.STANDARD.value), indent=True)
-    _row(tbl, "Non-Historized", _count(Link, link_type=Link.LinkType.NON_HISTORIZED.value), indent=True)
+    _row(
+        tbl,
+        "Standard",
+        _count(Link, link_type=Link.LinkType.STANDARD.value),
+        indent=True,
+    )
+    _row(
+        tbl,
+        "Non-Historized",
+        _count(Link, link_type=Link.LinkType.NON_HISTORIZED.value),
+        indent=True,
+    )
 
     sat_total = _count(Satellite)
     _row(tbl, f"Satellites  ({sat_total})", sat_total, indent=True)
-    _row(tbl, "Standard", _count(Satellite, satellite_type=Satellite.SatelliteType.STANDARD.value), indent=True)
-    _row(tbl, "Reference", _count(Satellite, satellite_type=Satellite.SatelliteType.REFERENCE.value), indent=True)
-    _row(tbl, "Non-Historized", _count(Satellite, satellite_type=Satellite.SatelliteType.NON_HISTORIZED.value), indent=True)
-    _row(tbl, "Multi-Active", _count(Satellite, satellite_type=Satellite.SatelliteType.MULTI_ACTIVE.value), indent=True)
+    _row(
+        tbl,
+        "Standard",
+        _count(Satellite, satellite_type=Satellite.SatelliteType.STANDARD.value),
+        indent=True,
+    )
+    _row(
+        tbl,
+        "Reference",
+        _count(Satellite, satellite_type=Satellite.SatelliteType.REFERENCE.value),
+        indent=True,
+    )
+    _row(
+        tbl,
+        "Non-Historized",
+        _count(Satellite, satellite_type=Satellite.SatelliteType.NON_HISTORIZED.value),
+        indent=True,
+    )
+    _row(
+        tbl,
+        "Multi-Active",
+        _count(Satellite, satellite_type=Satellite.SatelliteType.MULTI_ACTIVE.value),
+        indent=True,
+    )
 
     # ── Advanced structures ─────────────────────────────────────────
     pit_count = _count(PIT)
