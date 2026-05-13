@@ -4,6 +4,7 @@ TurboVault Engine CLI - Modern Data Vault automation tool.
 
 A powerful command-line interface for Data Vault modeling and dbt project generation.
 """
+
 import os
 import sys
 from pathlib import Path
@@ -16,6 +17,7 @@ backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from engine.cli.commands import generate_cmd, reset_cmd, serve_cmd
+from engine.cli.commands.model_cmd import model_app
 from engine.cli.commands.project_cmd import project_app, project_init, project_list
 from engine.cli.commands.workspace_cmd import (
     workspace_app,
@@ -168,6 +170,9 @@ project_app.command(name="list", help="List all projects in the current workspac
     project_list
 )
 app.add_typer(project_app)
+
+# model sub-group (commands registered in model_cmd.py)
+app.add_typer(model_app)
 
 # Top-level utility commands
 app.command(

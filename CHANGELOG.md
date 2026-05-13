@@ -5,6 +5,24 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.12.4...turbovault-engine-v0.13.0) (2026-04-24)
+
+
+### Features
+
+* adding choice option for snapshot contol creation ([#145](https://github.com/ScalefreeCOM/turbovault-engine/issues/145)) ([d8b2751](https://github.com/ScalefreeCOM/turbovault-engine/commit/d8b2751363f146e958baa1a8ec7dda8ffc34e5a2))
+* adding entity summary after import ([#153](https://github.com/ScalefreeCOM/turbovault-engine/issues/153)) ([506879f](https://github.com/ScalefreeCOM/turbovault-engine/commit/506879fd3f67ebb6c491cc032d2dcf6344125114))
+* adding group-based subfolder generation for dbt export   ([#143](https://github.com/ScalefreeCOM/turbovault-engine/issues/143)) ([088b9d7](https://github.com/ScalefreeCOM/turbovault-engine/commit/088b9d79d8635154ba8c8ce20f2360835b9ae881))
+* adding json import ([#146](https://github.com/ScalefreeCOM/turbovault-engine/issues/146)) ([923b38a](https://github.com/ScalefreeCOM/turbovault-engine/commit/923b38a614ba081af3467c22860478f88352dc31))
+* aligning import summary with all metadata input types ([506879f](https://github.com/ScalefreeCOM/turbovault-engine/commit/506879fd3f67ebb6c491cc032d2dcf6344125114))
+* Remove empty folders ([#144](https://github.com/ScalefreeCOM/turbovault-engine/issues/144)) ([4e5e196](https://github.com/ScalefreeCOM/turbovault-engine/commit/4e5e1962671688df989531bbbcedee7176dc7395))
+* turbovault model command group ([#150](https://github.com/ScalefreeCOM/turbovault-engine/issues/150)) ([16f047d](https://github.com/ScalefreeCOM/turbovault-engine/commit/16f047deefcbde76f2f41f6b732256f99711ee2d))
+
+
+### Documentation
+
+* updating docs to current state ([#152](https://github.com/ScalefreeCOM/turbovault-engine/issues/152)) ([3dcf148](https://github.com/ScalefreeCOM/turbovault-engine/commit/3dcf1486f46125a9b9fd201592b882d64aecb0e7))
+
 ## [0.12.4](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.12.3...turbovault-engine-v0.12.4) (2026-03-26)
 
 

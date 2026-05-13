@@ -6,7 +6,7 @@ A static landing page is served at the root URL.
 """
 
 from django.contrib import admin
-from django.urls import path
+from django.urls import include, path
 
 from turbovault.views import check_project_name, create_project, home, init_wizard
 
@@ -16,4 +16,6 @@ urlpatterns = [
     path("init/check-name/", check_project_name, name="check_project_name"),
     path("init/create/", create_project, name="create_project"),
     path("admin/", admin.site.urls),
+    # MCP server endpoint — available at http://localhost:8000/mcp
+    path("", include("mcp_server.urls")),
 ]

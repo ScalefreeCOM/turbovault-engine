@@ -30,7 +30,6 @@ class FolderConfig:
 
     # Business vault subdirectories
     pits_subdir: str = "pits"
-    reference_tables_subdir: str = "reference_tables"
 
     def get_source_path(self, output_root: Path) -> Path:
         """Get the source directory path."""
@@ -70,13 +69,18 @@ class FolderConfig:
             return base / self._sanitize_name(group)
         return base
 
-    def get_business_vault_pits_path(self, output_root: Path) -> Path:
-        """Get the path for PIT models."""
-        return output_root / self.business_vault_path / self.pits_subdir
+    def get_business_vault_pits_path(
+        self, group: str | None, output_root: Path
+    ) -> Path:
+        """Get the path for PIT models. With optional group name for subfolder."""
+        base = output_root / self.business_vault_path / self.pits_subdir
+        if group:
+            return base / self._sanitize_name(group)
+        return base
 
-    def get_business_vault_reference_tables_path(self, output_root: Path) -> Path:
+    def get_raw_vault_reference_tables_path(self, output_root: Path) -> Path:
         """Get the path for reference table models."""
-        return output_root / self.business_vault_path / self.reference_tables_subdir
+        return output_root / self.raw_vault_path
 
     def get_control_path(self, output_root: Path) -> Path:
         """Get the path for control models (snapshot control)."""
@@ -95,7 +99,6 @@ class FolderConfig:
             output_root / self.staging_path,
             output_root / self.raw_vault_path,
             output_root / self.business_vault_path / self.pits_subdir,
-            output_root / self.business_vault_path / self.reference_tables_subdir,
             output_root / self.control_path,
             output_root / "macros",
             output_root / "tests",

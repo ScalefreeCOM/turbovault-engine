@@ -24,7 +24,7 @@ packages = [
 
 [project]
 name = "turbovault-engine"
-version = "0.12.4"
+version = "0.13.0"
 description = "CLI-first Django-based engine for Data Vault modeling and dbt project generation"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -58,6 +58,8 @@ dependencies = [
     "questionary>=2.0,<3.0",
     "pandas>=2.0,<4.0",
     "openpyxl>=3.0,<4.0",
+    "djangorestframework>=3.14,<4.0",
+    "django-mcp-server>=0.5.7",
 ]
 
 [project.optional-dependencies]

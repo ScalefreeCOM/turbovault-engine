@@ -63,6 +63,7 @@ Configuration for importing source metadata from external sources.
 **Currently Supported Types:**
 - `excel` - Import from Excel spreadsheet
 - `sqlite` - Import from SQLite database
+- `json` - Import from a TurboVault JSON export (round-trip restore)
 
 **Fields for Excel Source:**
 
@@ -78,18 +79,34 @@ Configuration for importing source metadata from external sources.
 | `type` | string | Yes | Must be `"sqlite"` | `"sqlite"` |
 | `path` | string | Yes | Path to SQLite database file | `"./metadata/sources.sqlite"` |
 
-**Example:**
+**Fields for JSON Source:**
+
+| Field | Type | Required | Description | Example |
+|-------|------|----------|-------------|---------|
+| `type` | string | Yes | Must be `"json"` | `"json"` |
+| `path` | string | Yes | Path to a TurboVault JSON export file | `"./exports/model.json"` |
+
+**Examples:**
 
 ```yaml
+# Import from Excel
 source:
   type: excel
   path: "./metadata/source_metadata.xlsx"
+```
+
+```yaml
+# Import from a JSON export (round-trip restore)
+source:
+  type: json
+  path: "./exports/model.json"
 ```
 
 **Behavior:**
 - If `source` is not provided, start with an empty project
 - Source file doesn't need to exist at config load time (warning only)
 - Relative paths are resolved from the config file location
+- For the `json` type, the file must be a valid TurboVault JSON export produced by `turbovault generate --type json`; default snapshot controls are not created because the export already contains them
 
 ---
 
