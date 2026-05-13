@@ -11,7 +11,9 @@ from typing import Annotated
 
 import questionary
 import typer
+from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from engine.cli.utils.console import (
     console,
@@ -22,6 +24,7 @@ from engine.cli.utils.console import (
     print_success,
 )
 from engine.services.config_loader import ConfigValidationError, load_config_from_path
+from engine.services.exceptions import MetadataSchemaError
 
 
 def init(
@@ -50,7 +53,7 @@ def init(
         typer.Option(
             "--source",
             "-s",
-            help="Path to source metadata file (Excel .xlsx or SQLite .db)",
+            help="Path to source metadata file (Excel .xlsx, SQLite .db, or JSON export .json)",
         ),
     ] = None,
     # ── Schema flags ─────────────────────────────────────────────────
@@ -111,6 +114,14 @@ def init(
             "--overwrite", help="Overwrite existing project without prompting"
         ),
     ] = False,
+    # ── Snapshot controls flag ───────────────────────────────────────
+    snapshot_controls: Annotated[
+        bool,
+        typer.Option(
+            "--snapshot-controls/--no-snapshot-controls",
+            help="Create default snapshot control tables during project init",
+        ),
+    ] = True,
     # ── Interactive mode ─────────────────────────────────────────────
     interactive: Annotated[
         bool,
@@ -147,7 +158,9 @@ def init(
         raise typer.Exit(1)
 
     if config:
-        _init_from_config(config, overwrite=overwrite)
+        _init_from_config(
+            config, overwrite=overwrite, snapshot_controls=snapshot_controls
+        )
     elif interactive:
         _run_interactive_init()
     elif name:
@@ -166,6 +179,7 @@ def init(
             hashdiff_naming=hashdiff_naming,
             hashkey_naming=hashkey_naming,
             overwrite=overwrite,
+            snapshot_controls=snapshot_controls,
         )
     else:
         print_error("Please provide --name, --config, or --interactive")
@@ -199,10 +213,12 @@ def _init_from_flags(
     hashdiff_naming: str | None,
     hashkey_naming: str | None,
     overwrite: bool,
+    snapshot_controls: bool = True,
 ) -> None:
     """Build a TurboVaultConfig from CLI flags and delegate to shared init logic."""
     from engine.services.config_schema import (
         ExcelSourceConfig,
+        JsonSourceConfig,
         OutputConfiguration,
         ProjectConfiguration,
         ProjectInfo,
@@ -218,9 +234,11 @@ def _init_from_flags(
             source_cfg = ExcelSourceConfig(path=source_path)
         elif suffix in (".db", ".sqlite", ".sqlite3"):
             source_cfg = SqliteSourceConfig(path=source_path)
+        elif suffix == ".json":
+            source_cfg = JsonSourceConfig(path=source_path)
         else:
             print_error(
-                f"Unsupported source file type '{suffix}'. Use .xlsx or .db/.sqlite."
+                f"Unsupported source file type '{suffix}'. Use .xlsx, .db/.sqlite, or .json."
             )
             raise typer.Exit(1)
 
@@ -249,10 +267,12 @@ def _init_from_flags(
         ),
     )
 
-    _create_project(config, overwrite=overwrite)
+    _create_project(config, overwrite=overwrite, snapshot_controls=snapshot_controls)
 
 
-def _init_from_config(config_path: Path, *, overwrite: bool = False) -> None:
+def _init_from_config(
+    config_path: Path, *, overwrite: bool = False, snapshot_controls: bool = True
+) -> None:
     """Initialize project from a config.yml file."""
     print_step(1, 3, "Loading configuration...")
 
@@ -266,10 +286,12 @@ def _init_from_config(config_path: Path, *, overwrite: bool = False) -> None:
         print_error(f"Failed to load config: {str(e)}")
         raise typer.Exit(1)
 
-    _create_project(config, overwrite=overwrite)
+    _create_project(config, overwrite=overwrite, snapshot_controls=snapshot_controls)
 
 
-def _create_project(config, *, overwrite: bool = False) -> None:
+def _create_project(
+    config, *, overwrite: bool = False, snapshot_controls: bool = True
+) -> None:
     """
     Core project creation logic shared by all init paths.
 
@@ -326,11 +348,14 @@ def _create_project(config, *, overwrite: bool = False) -> None:
         project.delete()
         raise typer.Exit(1)
 
-    # Create default snapshot controls
-    skip_snapshots = (
-        os.getenv("TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS", "").lower() == "true"
+    # Create default snapshot controls, unless a JSON export is the source
+    # (JSON exports already carry their own snapshot control definitions)
+    skip_snapshots = os.getenv(
+        "TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS", ""
+    ).lower() == "true" or (
+        config.source is not None and getattr(config.source, "type", None) == "json"
     )
-    if not skip_snapshots:
+    if snapshot_controls and not skip_snapshots:
         from engine.cli.utils.db_utils import create_default_snapshot_controls
 
         create_default_snapshot_controls(project)
@@ -358,8 +383,100 @@ def _create_project(config, *, overwrite: bool = False) -> None:
         console.print("  Run: turbovault serve", style="dim")
 
 
+def _print_import_summary(project) -> None:
+    """Print a structured Rich table summarising what was imported."""
+    from engine.models.hubs import Hub
+    from engine.models.links import Link
+    from engine.models.pit import PIT
+    from engine.models.reference_table import ReferenceTable
+    from engine.models.satellites import Satellite
+    from engine.models.source_metadata import SourceSystem, SourceTable
+
+    def _count(model, **filters):
+        return model.objects.filter(project=project, **filters).count()
+
+    def _row(table: Table, label: str, n: int, indent: bool = False) -> None:
+        prefix = "  " if indent else ""
+        style = "dim" if n == 0 else ""
+        table.add_row(f"{prefix}{label}", str(n), style=style)
+
+    tbl = Table.grid(padding=(0, 2))
+    tbl.add_column(no_wrap=True)
+    tbl.add_column(justify="right", style="bold cyan")
+
+    # ── Source layer ────────────────────────────────────────────────
+    tbl.add_row("[bold]Source Layer[/bold]", "")
+    _row(tbl, "Source Systems", _count(SourceSystem), indent=True)
+    _row(tbl, "Source Tables", _count(SourceTable), indent=True)
+
+    # ── Raw Data Vault ──────────────────────────────────────────────
+    tbl.add_row("", "")
+    tbl.add_row("[bold]Raw Data Vault[/bold]", "")
+
+    hub_total = _count(Hub)
+    _row(tbl, f"Hubs  ({hub_total})", hub_total, indent=True)
+    _row(tbl, "Standard", _count(Hub, hub_type=Hub.HubType.STANDARD.value), indent=True)
+    _row(
+        tbl, "Reference", _count(Hub, hub_type=Hub.HubType.REFERENCE.value), indent=True
+    )
+
+    link_total = _count(Link)
+    _row(tbl, f"Links  ({link_total})", link_total, indent=True)
+    _row(
+        tbl,
+        "Standard",
+        _count(Link, link_type=Link.LinkType.STANDARD.value),
+        indent=True,
+    )
+    _row(
+        tbl,
+        "Non-Historized",
+        _count(Link, link_type=Link.LinkType.NON_HISTORIZED.value),
+        indent=True,
+    )
+
+    sat_total = _count(Satellite)
+    _row(tbl, f"Satellites  ({sat_total})", sat_total, indent=True)
+    _row(
+        tbl,
+        "Standard",
+        _count(Satellite, satellite_type=Satellite.SatelliteType.STANDARD.value),
+        indent=True,
+    )
+    _row(
+        tbl,
+        "Reference",
+        _count(Satellite, satellite_type=Satellite.SatelliteType.REFERENCE.value),
+        indent=True,
+    )
+    _row(
+        tbl,
+        "Non-Historized",
+        _count(Satellite, satellite_type=Satellite.SatelliteType.NON_HISTORIZED.value),
+        indent=True,
+    )
+    _row(
+        tbl,
+        "Multi-Active",
+        _count(Satellite, satellite_type=Satellite.SatelliteType.MULTI_ACTIVE.value),
+        indent=True,
+    )
+
+    # ── Advanced structures ─────────────────────────────────────────
+    pit_count = _count(PIT)
+    ref_count = _count(ReferenceTable)
+    if pit_count or ref_count:
+        tbl.add_row("", "")
+        tbl.add_row("[bold]Advanced[/bold]", "")
+        _row(tbl, "Reference Tables", ref_count, indent=True)
+        _row(tbl, "PITs", pit_count, indent=True)
+
+    console.print()
+    console.print(Panel(tbl, title="Import Summary", border_style="success"))
+
+
 def _import_metadata(project, source) -> None:
-    """Import metadata from Excel or SQLite source."""
+    """Import metadata from Excel, SQLite, or JSON source."""
     if source.type == "excel":
         from engine.services.excel_sqlite_adapter import ExcelImport
 
@@ -367,7 +484,17 @@ def _import_metadata(project, source) -> None:
         try:
             service = ExcelImport(str(source.path))
             service.import_metadata(project=project, skip_snapshots=True)
-            print_success("Metadata successfully imported")
+            _print_import_summary(project)
+        except MetadataSchemaError as e:
+            print_error(str(e))
+        except FileNotFoundError:
+            print_error(
+                f"Metadata import failed: The file '{source.path}' was not found."
+            )
+        except (OSError, ValueError):
+            print_error(
+                f"Metadata import failed: '{source.path}' is not a valid file path."
+            )
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
 
@@ -382,7 +509,28 @@ def _import_metadata(project, source) -> None:
             service = SqliteImportService(conn)
             service.import_metadata(project=project, skip_snapshots=True)
             conn.close()
-            print_success("Metadata successfully imported")
+            _print_import_summary(project)
+        except MetadataSchemaError as e:
+            print_error(str(e))
+        except FileNotFoundError:
+            print_error(
+                f"Metadata import failed: The file '{source.path}' was not found."
+            )
+        except (OSError, ValueError):
+            print_error(
+                f"Metadata import failed: '{source.path}' is not a valid file path."
+            )
+        except Exception as e:
+            print_error(f"Metadata import failed: {e}")
+
+    elif source.type == "json":
+        from engine.services.json_import import JsonImportService
+
+        print_info(f"Importing metadata from {source.path}...")
+        try:
+            service = JsonImportService(source.path)
+            service.import_metadata(project=project)
+            _print_import_summary(project)
         except Exception as e:
             print_error(f"Metadata import failed: {e}")
 
@@ -391,6 +539,7 @@ def _run_interactive_init() -> None:
     """Run interactive project setup wizard."""
     from engine.services.config_schema import (
         ExcelSourceConfig,
+        JsonSourceConfig,
         OutputConfiguration,
         ProjectConfiguration,
         ProjectInfo,
@@ -421,6 +570,7 @@ def _run_interactive_init() -> None:
             choices=[
                 questionary.Choice("Excel file (.xlsx)", value="excel"),
                 questionary.Choice("SQLite database (.db)", value="sqlite"),
+                questionary.Choice("JSON export file (.json)", value="json"),
             ],
         ).ask()
 
@@ -432,6 +582,15 @@ def _run_interactive_init() -> None:
             path = questionary.path("Path to SQLite database (.db):").ask()
             if path:
                 source_cfg = SqliteSourceConfig(path=Path(path))
+        elif source_type == "json":
+            path = questionary.path("Path to JSON export file (.json):").ask()
+            if path:
+                source_cfg = JsonSourceConfig(path=Path(path))
+
+    # Snapshot controls
+    create_snapshot_controls = questionary.confirm(
+        "Create default snapshot control tables?", default=False
+    ).ask()
 
     # Configuration defaults
     stage_schema = "stage"
@@ -502,4 +661,4 @@ def _run_interactive_init() -> None:
     )
 
     # Directly create project instead of writing config.yml first
-    _create_project(config)
+    _create_project(config, snapshot_controls=create_snapshot_controls)
