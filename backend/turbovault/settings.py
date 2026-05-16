@@ -34,7 +34,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     # TurboVault Engine app
-    "engine.apps.EngineConfig",
+    "engine.apps.EngineStandaloneConfig",
     # MCP server (exposes TurboVault tools at /mcp when turbovault serve is running)
     "rest_framework",
     "mcp_server",

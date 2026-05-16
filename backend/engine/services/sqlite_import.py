@@ -15,6 +15,7 @@ from typing import Any
 from django.db import transaction
 from django.utils import timezone
 
+from engine.models.group import Group
 from engine.models.hubs import Hub, HubColumn, HubSourceMapping
 from engine.models.links import (
     Link,
@@ -33,9 +34,8 @@ from engine.models.reference_table import (
 from engine.models.satellites import Satellite, SatelliteColumn
 from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
 from engine.models.source_metadata import SourceColumn, SourceSystem, SourceTable
-from engine.services.staging_service import get_or_create_staging_column
-from engine.models.group import Group
 from engine.services.exceptions import MetadataSchemaError
+from engine.services.staging_service import get_or_create_staging_column
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +161,6 @@ class SqliteImportService:
             self.project = Project.objects.create(
                 name=project_name,
                 description=description or "Imported from SQLite",
-                config={},
             )
 
         # 2. Process Source Data

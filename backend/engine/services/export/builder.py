@@ -41,6 +41,10 @@ from engine.services.export.models import (
     StageHashdiffDef,
     StageHashkeyDef,
 )
+from engine.services.runtime_config import (
+    EngineRuntimeConfig,
+    resolve_runtime_config,
+)
 
 if TYPE_CHECKING:
     from engine.models import Project, SourceTable
@@ -66,20 +70,25 @@ class ModelBuilder:
         # "[[datatype]]": lambda source_col_name, datatype: datatype,
     }
 
-    def __init__(self, project: Project) -> None:
+    def __init__(
+        self, project: Project, runtime_config: EngineRuntimeConfig | None = None
+    ) -> None:
         """
         Initialize the builder for a specific project.
 
         Args:
             project: Django Project model instance
+            runtime_config: Optional project settings supplied by an embedder.
         """
         self.project = project
+        self.runtime_config = resolve_runtime_config(project, runtime_config)
 
     def build(
         self,
         export_sources: bool = True,
         generate_tests: bool = True,
         generate_dbml: bool = False,
+        runtime_config: EngineRuntimeConfig | None = None,
     ) -> ProjectExport:
         """
         Build complete project export from Django models.
@@ -92,11 +101,12 @@ class ModelBuilder:
         Returns:
             ProjectExport with all definitions
         """
-        # Load project configuration from YAML
-        config = self.project.load_config()
-        stage_schema = config.configuration.stage_schema
-        rdv_schema = config.configuration.rdv_schema
-        bdv_schema = config.configuration.bdv_schema
+        config = runtime_config or self.runtime_config
+        if runtime_config is not None:
+            self.runtime_config = runtime_config
+        stage_schema = config.stage_schema
+        rdv_schema = config.rdv_schema
+        bdv_schema = config.bdv_schema
 
         return ProjectExport(
             project_name=self.project.name,
@@ -399,7 +409,7 @@ class ModelBuilder:
                 # Generate hashdiff name using project pattern
                 sat_name = sat.satellite_physical_name
                 hd_name = self.project.resolve_naming_pattern(
-                    "hashdiff_naming", sat_name
+                    "hashdiff_naming", sat_name, runtime_config=self.runtime_config
                 )
 
                 result.append(
@@ -870,7 +880,7 @@ class ModelBuilder:
             # Generate hashdiff name using project pattern
             sat_name = sat.satellite_physical_name
             hashdiff_name = self.project.resolve_naming_pattern(
-                "hashdiff_naming", sat_name
+                "hashdiff_naming", sat_name, runtime_config=self.runtime_config
             )
 
             # Build column definitions
