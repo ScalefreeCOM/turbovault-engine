@@ -5,6 +5,25 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.13.0...turbovault-engine-v0.14.0) (2026-05-16)
+
+
+### Features
+
+* embed MCP server and extend import-json schema ([#154](https://github.com/ScalefreeCOM/turbovault-engine/issues/154)) ([0eb1284](https://github.com/ScalefreeCOM/turbovault-engine/commit/0eb1284bb69c2230da312b3f0a25bdbc3ec01ec6))
+* preparing engine for integration into turbovault studio ([#159](https://github.com/ScalefreeCOM/turbovault-engine/issues/159)) ([683ee59](https://github.com/ScalefreeCOM/turbovault-engine/commit/683ee59bb8e24510b09cd84d531d2235d6402dcc))
+
+
+### Bug Fixes
+
+* external database compatibility ([#155](https://github.com/ScalefreeCOM/turbovault-engine/issues/155)) ([3376e58](https://github.com/ScalefreeCOM/turbovault-engine/commit/3376e584a55e7f7d0b8ee427d275e5c67db04786))
+* resolve MCP endpoint from /mcp/mcp to /mcp ([#157](https://github.com/ScalefreeCOM/turbovault-engine/issues/157)) ([72cba6e](https://github.com/ScalefreeCOM/turbovault-engine/commit/72cba6e9c621121c74a2a800f9db7dc1a714c5ab))
+
+
+### CI/CD
+
+* bump actions/setup-python from 5 to 6 ([#135](https://github.com/ScalefreeCOM/turbovault-engine/issues/135)) ([152493f](https://github.com/ScalefreeCOM/turbovault-engine/commit/152493f4d7d4b7ef88720fcbb2835b9e33269d88))
+
 ## [0.13.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.12.4...turbovault-engine-v0.13.0) (2026-04-24)
 
 
