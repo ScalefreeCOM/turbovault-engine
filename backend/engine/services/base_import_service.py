@@ -65,7 +65,6 @@ class BaseImportService:
             self.project = Project.objects.create(
                 name=project_name,
                 description=description or "Imported metadata",
-                config={},
             )
 
         sheet_names = self.source.get_sheet_names()

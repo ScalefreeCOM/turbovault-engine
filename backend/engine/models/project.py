@@ -94,12 +94,13 @@ class Project(models.Model):
         config_path = self.get_config_path()
         return load_config_from_path(config_path)
 
-    def get_naming_pattern(self, pattern_key: str) -> str:
+    def get_naming_pattern(self, pattern_key: str, runtime_config=None) -> str:
         """
         Resolve a naming pattern for satellites, hashkeys, or hashdiffs.
 
-        Loads the configuration from YAML and retrieves the naming pattern.
-        If not found in config, returns a hardcoded default.
+        Uses an explicit runtime config when provided, otherwise loads the
+        standalone CLI ``config.yml`` if available. If neither exists, returns
+        Engine defaults.
 
         Args:
             pattern_key: The key of the pattern to retrieve.
@@ -112,6 +113,11 @@ class Project(models.Model):
             >>> project.get_naming_pattern('satellite_v0_naming')
             '[[ satellite_name ]]_v0'
         """
+        if runtime_config is not None:
+            value = runtime_config.get_naming_pattern(pattern_key)
+            if value:
+                return value
+
         # Load from YAML config
         try:
             config = self.load_config()
@@ -125,20 +131,22 @@ class Project(models.Model):
         defaults = {
             "satellite_v0_naming": "[[ satellite_name ]]_v0",
             "satellite_v1_naming": "[[ satellite_name ]]_v1",
-            "hashkey_naming": "hd_[[ entity_name ]]",
+            "hashkey_naming": "hk_[[ entity_name ]]",
             "hashdiff_naming": "hd_[[ satellite_name ]]",
         }
 
         return defaults.get(pattern_key, f"{{{pattern_key}}}")
 
-    def resolve_naming_pattern(self, pattern_key: str, entity_name: str) -> str:
+    def resolve_naming_pattern(
+        self, pattern_key: str, entity_name: str, runtime_config=None
+    ) -> str:
         """
         Resolve a naming pattern from the project config with placeholder replacement.
 
         Placeholders:
         - [[ entity_name ]] or [[ satellite_name ]]
         """
-        pattern = self.get_naming_pattern(pattern_key)
+        pattern = self.get_naming_pattern(pattern_key, runtime_config=runtime_config)
 
         # Replace placeholders
         # We accept entity_name or satellite_name for flexibility
@@ -148,7 +156,7 @@ class Project(models.Model):
 
         return resolved
 
-    def get_schema(self, schema_type: str) -> str:
+    def get_schema(self, schema_type: str, runtime_config=None) -> str:
         """
         Get the schema name for a specific schema type.
 
@@ -162,6 +170,9 @@ class Project(models.Model):
         Raises:
             ValueError: If the schema type is not found in the configuration.
         """
+        if runtime_config is not None:
+            return runtime_config.get_schema(schema_type)
+
         try:
             config = self.load_config()
             schema_name = getattr(config.configuration, f"{schema_type}_schema", None)

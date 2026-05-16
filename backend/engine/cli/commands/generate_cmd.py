@@ -121,9 +121,10 @@ def generate(
     # Lazy imports to avoid loading before Django setup
     from engine.models import Project
     from engine.services.app_config_loader import resolve_project_path
-    from engine.services.export.builder import ModelBuilder
     from engine.services.generation import DbtProjectGenerator, GenerationConfig
     from engine.services.generation.validators import validate_export
+    from engine.services.runtime_config import EngineRuntimeConfig
+    from engine.services.workflows import build_project_export
 
     debug_print("Imports complete")
 
@@ -224,6 +225,11 @@ def generate(
     _cfg_dbt_dir = _project_config.output.dbt_project_dir if _project_config else None
     _cfg_json_dir = _project_config.output.json_output_dir if _project_config else None
     _cfg_dbml_dir = _project_config.output.dbml_output_dir if _project_config else None
+    runtime_config = (
+        EngineRuntimeConfig.from_turbovault_config(_project_config)
+        if _project_config
+        else EngineRuntimeConfig.from_project(selected_project)
+    )
 
     # Read schema definitions from project
 
@@ -253,8 +259,10 @@ def generate(
     )
 
     try:
-        builder = ModelBuilder(selected_project)
-        project_export = builder.build()
+        project_export = build_project_export(
+            project=selected_project,
+            runtime_config=runtime_config,
+        )
     except Exception as e:
         print_error(f"Failed to build export: {e}")
         raise typer.Exit(1)
@@ -376,13 +384,17 @@ def generate(
         profile_name="default",
         mode=mode,  # type: ignore
         generate_satellite_v1_views=not no_v1_satellites,
-        satellite_v0_naming=selected_project.get_naming_pattern("satellite_v0_naming"),
-        satellite_v1_naming=selected_project.get_naming_pattern("satellite_v1_naming"),
+        satellite_v0_naming=selected_project.get_naming_pattern(
+            "satellite_v0_naming", runtime_config=runtime_config
+        ),
+        satellite_v1_naming=selected_project.get_naming_pattern(
+            "satellite_v1_naming", runtime_config=runtime_config
+        ),
         skip_validation=skip_validation,
         create_zip=create_zip,
-        stage_schema=selected_project.get_schema("stage"),
-        rdv_schema=selected_project.get_schema("rdv"),
-        bdv_schema=selected_project.get_schema("bdv"),
+        stage_schema=selected_project.get_schema("stage", runtime_config=runtime_config),
+        rdv_schema=selected_project.get_schema("rdv", runtime_config=runtime_config),
+        bdv_schema=selected_project.get_schema("bdv", runtime_config=runtime_config),
     )
 
     # Generate dbt project
