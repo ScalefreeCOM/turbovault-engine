@@ -44,11 +44,13 @@ Key service areas (in `services/`):
   - Parses YAML configuration files (`turbovault.yml` and project `config.yml`).
   - Validates them using Pydantic and returns typed config objects.
 
-- **Import services**
-  - Read metadata according to the source type defined in the project config:
-    - Excel metadata (using `pandas` + `openpyxl`).
-    - SQLite database metadata.
-  - Create or update domain entities: `Project`, `SourceSystem`, `SourceTable`, `SourceColumn`, `Hub`, `Link`, `Satellite`, and their associated mapping tables.
+- **Import pipeline** (`engine/services/imports/`)
+  - A six-stage pipeline — parse → validate → resolve → plan → execute → report — shared by every supported source format (Excel via `openpyxl`, SQLite, and JSON exports).
+  - Computes a diff against the current project state and uses `update_or_create`, so re-imports update existing entities rather than duplicating them.
+  - Supports three conflict strategies (`merge`, `replace_all`, `update_only`) and two error strategies (`best_effort`, `fail_fast`).
+  - Optional `dry_run` skips the execute stage so callers can preview the impact without touching the database.
+  - Every invocation — including dry-runs and failed runs — is persisted as an `ImportRun` audit row. The full structured `ImportReport` is returned to the caller (CLI, web wizard, Studio backend) for rendering and deep linking.
+  - See [Import Pipeline](../04_concepts/06_import-pipeline.md) for the complete behavior reference.
 
 - **Generation services**
   - Read the populated domain model for a given Project.

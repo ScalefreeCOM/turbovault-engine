@@ -28,6 +28,8 @@ TurboVault uses a **two-step setup**: initialise the workspace once, then create
 | `turbovault workspace status` | Show DB connection, project count, migration status |
 | `turbovault project init` | Create a new Data Vault project in the workspace |
 | `turbovault project list` | List all projects in the workspace |
+| `turbovault import` | Run the import pipeline against an existing project (merge / replace / dry-run) |
+| `turbovault import-history` | Show recent import runs for a project |
 | `turbovault model` | Create and inspect Data Vault entities (hubs, links, satellites, PITs) |
 | `turbovault generate` | Generate dbt project or export model to JSON / DBML |
 | `turbovault serve` | Start Django admin server |
@@ -179,6 +181,151 @@ turbovault project list
 # │ TestProject │ —           │ projects/testproject │
 # └─────────────┴─────────────┴──────────────────────┘
 ```
+
+---
+
+### turbovault import
+
+Run the import pipeline against an **existing** project. This is the
+standalone counterpart to `project init --source ...` — use it whenever
+you want to re-import a file, validate a file without writing, or
+import into a project that already has metadata.
+
+The default mode is **`merge`** with **`best-effort`** error handling:
+add or update entities from the file, leave anything not in the file
+alone, and skip individual rows that fail validation (reporting each one
+with full sheet/row/column context). See [Import Pipeline](../04_concepts/06_import-pipeline.md)
+for the full behavior reference.
+
+#### Non-Interactive Mode (Flags)
+
+```bash
+# Merge: update existing entities, add new ones (default)
+turbovault import --project my_project --source ./metadata.xlsx
+
+# Replace: drop anything in the project that isn't in the file
+turbovault import --project my_project --source ./metadata.xlsx --mode replace-all
+
+# Strict: stop at the first validation error, no DB writes
+turbovault import --project my_project --source ./metadata.xlsx --on-error fail-fast
+
+# Dry-run: parse + validate + plan, but never touch the database
+turbovault import --project my_project --source ./metadata.xlsx --dry-run
+```
+
+#### Interactive Mode
+
+```bash
+turbovault import
+# or
+turbovault import --interactive
+```
+
+Prompts for project (chosen from a list of existing projects), source
+file, conflict strategy, error strategy, dry-run, and snapshot control
+behavior.
+
+If only one of `--project` / `--source` is supplied, the command exits
+with a clear error rather than running half-blind — pass both or pass
+neither.
+
+#### Options
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--source PATH` | `-s` | Path to the source metadata file (`.xlsx`, `.db`/`.sqlite`, or `.json`) | prompted |
+| `--project NAME` | `-p` | Target project name (must exist) | prompted |
+| `--mode STR` | | Conflict strategy: `merge`, `replace-all`, or `update-only` | `merge` |
+| `--on-error STR` | | Error strategy: `best-effort` or `fail-fast` | `best-effort` |
+| `--dry-run` | | Validate + plan only; do not write to the database | `false` |
+| `--skip-snapshots` | | Skip creating a default snapshot control table | `false` |
+| `--interactive` | `-i` | Run the interactive import wizard | `false` |
+
+#### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | `success` — no errors |
+| `1` | `partial_success` — some entities skipped, others written |
+| `2` | `validation_failed` or `failed` — nothing was written |
+
+These map cleanly to typical CI conventions.
+
+#### What gets reported
+
+The CLI prints two tables and a status line:
+
+```
+Import Plan
+┌──────────────────┬────────┬────────┬────────┬──────┐
+│ Entity           │ Create │ Update │ Delete │ Skip │
+├──────────────────┼────────┼────────┼────────┼──────┤
+│ source_system    │      1 │      0 │      0 │    0 │
+│ hub              │      2 │      1 │      0 │    0 │
+│ satellite        │      3 │      0 │      0 │    1 │
+│ Total            │      6 │      1 │      0 │    1 │
+└──────────────────┴────────┴────────┴────────┴──────┘
+
+Issues (1)
+┌─────────┬─────────────────────────┬──────────────────────────────┬───────────────────────────────────┐
+│ Sev     │ Code                    │ Location                     │ Message                           │
+├─────────┼─────────────────────────┼──────────────────────────────┼───────────────────────────────────┤
+│ ERROR   │ entity.missing_parent   │ standard_satellite row 5     │ Satellite 'sat_orphan' parent     │
+│         │                         │ <satellite sat_orphan>       │ 'no_such_hub' was not defined.    │
+└─────────┴─────────────────────────┴──────────────────────────────┴───────────────────────────────────┘
+
+⚠ Import partially succeeded: wrote 6 entities, skipped 2 due to 1 error(s)
+  and 0 warning(s). See the Issues table above for details on each skipped item.
+```
+
+> **See also:** [Import Pipeline](../04_concepts/06_import-pipeline.md) for the
+> complete issue-code catalog, conflict-strategy semantics, and dry-run behavior.
+
+---
+
+### turbovault import-history
+
+List recent import runs for a project, newest first. Every invocation of
+the import pipeline — including dry-runs and failed runs — is recorded
+as an `ImportRun` and shows up here.
+
+```bash
+turbovault import-history --project my_project
+turbovault import-history --project my_project --limit 50
+
+# Interactive: pick the project from a list
+turbovault import-history
+turbovault import-history --interactive
+```
+
+If your workspace has exactly one project, `turbovault import-history`
+uses it automatically (no prompt). Pass `--interactive` to always show
+the picker.
+
+#### Options
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--project NAME` | `-p` | Project to show history for | prompted |
+| `--limit INT` | `-l` | Maximum rows to display | `20` |
+| `--interactive` | `-i` | Pick the project interactively | `false` |
+
+#### Output
+
+```
+Import history for 'my_project'
+┌────────────────────┬─────────────────┬──────────┬──────┬───────────────────────┬────────┬──────────┬──────────┐
+│ Started            │ Status          │ Mode     │ Dry? │ Source                │ Errors │ Warnings │ ID       │
+├────────────────────┼─────────────────┼──────────┼──────┼───────────────────────┼────────┼──────────┼──────────┤
+│ 2026-05-23T14:02:11│ partial_success │ merge    │ no   │ excel: metadata.xlsx  │      1 │        0 │ 8c19f5a2 │
+│ 2026-05-23T13:55:08│ success         │ merge    │ yes  │ excel: metadata.xlsx  │      0 │        0 │ 1e0bd72f │
+│ 2026-05-23T11:48:00│ success         │ replace_all │ no│ excel: metadata.xlsx  │      0 │        2 │ a4f2c907 │
+└────────────────────┴─────────────────┴──────────┴──────┴───────────────────────┴────────┴──────────┴──────────┘
+```
+
+The `ID` column is a short prefix of the `ImportRun.import_run_id` UUID;
+full IDs are also stored in `ImportReport.import_run_id` for deep links
+from the Studio frontend.
 
 ---
 
@@ -652,7 +799,31 @@ turbovault project init \
   --rdv-schema rdv
 ```
 
-### Example 3: Migrate a Project via JSON Export
+### Example 3: Iteratively Refining Imported Metadata
+
+The `import` command lets you re-import a file as many times as you need
+to refine your Data Vault model. The default `merge` strategy means
+existing entities get updated with your corrections — no duplicates, no
+data loss.
+
+```bash
+# Initial import via project init
+turbovault project init --name sales_datavault --source ./metadata.xlsx
+
+# Edit the Excel file to fix a hashkey name or add a new hub...
+
+# Re-import — updates existing entities, adds any new ones
+turbovault import --project sales_datavault --source ./metadata.xlsx
+
+# Preview the impact of a destructive replace before committing
+turbovault import --project sales_datavault --source ./metadata.xlsx \
+  --mode replace-all --dry-run
+
+# Inspect the run history (newest first)
+turbovault import-history --project sales_datavault
+```
+
+### Example 4: Migrate a Project via JSON Export
 
 Use `turbovault generate --type json` to export a project, then re-import it into another workspace or under a new name:
 
@@ -669,7 +840,7 @@ turbovault project init \
 
 The file extension (`.json`) is detected automatically — no extra flags required.
 
-### Example 4: Full Non-Interactive Setup (CI/CD)
+### Example 5: Full Non-Interactive Setup (CI/CD)
 
 ```bash
 # Step 1: workspace
@@ -690,7 +861,7 @@ turbovault project init \
 turbovault generate --project ci_project --mode strict --zip
 ```
 
-### Example 5: Team Workflow
+### Example 6: Team Workflow
 
 ```bash
 # Alice: set up workspace on shared DB and push
@@ -731,6 +902,8 @@ turbovault workspace --help
 turbovault workspace init --help
 turbovault project --help
 turbovault project init --help
+turbovault import --help
+turbovault import-history --help
 turbovault generate --help
 turbovault serve --help
 turbovault reset --help

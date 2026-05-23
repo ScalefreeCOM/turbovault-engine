@@ -7,12 +7,9 @@ Studio. They assume Django has already been configured by the host process.
 
 from __future__ import annotations
 
-import sqlite3
 import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
-
-from django.db import transaction
 
 from engine.models import Project
 from engine.services.export.builder import ModelBuilder
@@ -24,6 +21,15 @@ from engine.services.generation import (
     TemplateResolver,
     validate_export,
 )
+from engine.services.imports import (
+    ExcelSource,
+    ImportOptions,
+    ImportReport,
+    JsonSource,
+    SourceInput,
+    SqliteSource,
+)
+from engine.services.imports import import_metadata as _run_import
 from engine.services.runtime_config import (
     EngineRuntimeConfig,
     resolve_runtime_config,
@@ -71,39 +77,39 @@ def import_metadata(
     source_type: str,
     path: str | Path,
     skip_snapshots: bool = True,
-) -> Project:
-    """Import Excel, SQLite, or JSON metadata into an existing Engine project."""
+    conflict_strategy: str = "merge",
+    error_strategy: str = "best_effort",
+    dry_run: bool = False,
+) -> ImportReport:
+    """Import metadata into an existing Engine project.
+
+    Thin wrapper around `engine.services.imports.import_metadata`. Returns the
+    structured report so callers can render plan/issues. The pre-rewrite
+    signature returned a Project on success and raised on failure; callers
+    that want the old "raise on failure" semantics should check
+    `report.has_errors` and act accordingly.
+    """
     source_path = Path(path)
     normalized_type = source_type.lower()
 
-    with transaction.atomic():
-        if normalized_type == "excel":
-            from engine.services.excel_sqlite_adapter import ExcelImport
+    source: SourceInput
+    if normalized_type == "excel":
+        source = ExcelSource(path=source_path)
+    elif normalized_type == "sqlite":
+        source = SqliteSource(path=source_path)
+    elif normalized_type == "json":
+        source = JsonSource(path=source_path)
+    else:
+        raise EngineWorkflowError(f"Unsupported metadata source type: {source_type}")
 
-            service = ExcelImport(str(source_path))
-            return service.import_metadata(
-                project=project, skip_snapshots=skip_snapshots
-            )
+    options = ImportOptions(
+        conflict_strategy=conflict_strategy,  # type: ignore[arg-type]
+        error_strategy=error_strategy,  # type: ignore[arg-type]
+        dry_run=dry_run,
+        skip_snapshots=skip_snapshots,
+    )
 
-        if normalized_type == "sqlite":
-            from engine.services.sqlite_import import SqliteImportService
-
-            conn = sqlite3.connect(str(source_path))
-            try:
-                service = SqliteImportService(conn)
-                return service.import_metadata(
-                    project=project, skip_snapshots=skip_snapshots
-                )
-            finally:
-                conn.close()
-
-        if normalized_type == "json":
-            from engine.services.json_import import JsonImportService
-
-            service = JsonImportService(source_path)
-            return service.import_metadata(project=project)
-
-    raise EngineWorkflowError(f"Unsupported metadata source type: {source_type}")
+    return _run_import(project=project, source=source, options=options)
 
 
 def build_project_export(

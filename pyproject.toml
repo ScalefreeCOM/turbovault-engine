@@ -15,6 +15,9 @@ packages = [
     "engine.services.export",
     "engine.services.export.exporters",
     "engine.services.generation",
+    "engine.services.imports",
+    "engine.services.imports.parsers",
+    "engine.services.imports.validation",
     "engine.utils",
     "turbovault"
 ]

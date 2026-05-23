@@ -6,9 +6,16 @@ title: Validation Rules
 
 # Validation Rules
 
-TurboVault Engine validates your Data Vault model before generating any output. This page lists all validation rules, their error codes, what triggers them, and how to fix them.
+TurboVault Engine validates your Data Vault model at **two different stages**:
 
-> **See also:** [CLI Reference — Validation Modes](../02_getting-started/01_cli-reference.md#validation-modes) for how to control validation behavior during generation.
+1. **Import time** — when a metadata source (Excel, SQLite, JSON) is imported into a project, the [Import Pipeline](06_import-pipeline.md) runs schema, row-level, and cross-entity checks. Problems show up as structured `Issue` objects with stable codes like `schema.missing_column` and `entity.missing_parent` and exact source-file locations.
+2. **Generation time** — when you run `turbovault generate`, the engine validates that the resulting Data Vault model is consistent enough to produce a working dbt project. This page documents the **generation-time** rules.
+
+If your error code starts with `schema.`, `row.`, `source.`, or `entity.`, it came from the import pipeline — see [Import Pipeline → Issue codes](06_import-pipeline.md#issue-codes) for the full reference.
+
+If your error code looks like `HUB_001` or `LNK_002`, you are on the right page — read on.
+
+> **See also:** [CLI Reference — Validation Modes](../02_getting-started/01_cli-reference.md#validation-modes) for how to control generation-time validation, and [Import Pipeline](06_import-pipeline.md) for import-time validation behavior.
 
 ---
 

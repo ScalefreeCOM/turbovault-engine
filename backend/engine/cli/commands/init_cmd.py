@@ -24,7 +24,6 @@ from engine.cli.utils.console import (
     print_success,
 )
 from engine.services.config_loader import ConfigValidationError, load_config_from_path
-from engine.services.exceptions import MetadataSchemaError
 
 
 def init(
@@ -476,63 +475,60 @@ def _print_import_summary(project) -> None:
 
 
 def _import_metadata(project, source) -> None:
-    """Import metadata from Excel, SQLite, or JSON source."""
+    """Import metadata via the new import pipeline.
+
+    On `project init` we treat the project as fresh, so `replace_all` is the
+    natural strategy — any pre-existing rows in the project that aren't in the
+    file should not survive a clean init. We still surface issues to the user.
+    """
+    from engine.services.imports import (
+        ExcelSource,
+        ImportOptions,
+        JsonSource,
+        SqliteSource,
+        import_metadata as run_import,
+    )
+
+    source_input: ExcelSource | SqliteSource | JsonSource
     if source.type == "excel":
-        from engine.services.excel_sqlite_adapter import ExcelImport
-
-        print_info(f"Importing metadata from {source.path}...")
-        try:
-            service = ExcelImport(str(source.path))
-            service.import_metadata(project=project, skip_snapshots=True)
-            _print_import_summary(project)
-        except MetadataSchemaError as e:
-            print_error(str(e))
-        except FileNotFoundError:
-            print_error(
-                f"Metadata import failed: The file '{source.path}' was not found."
-            )
-        except (OSError, ValueError):
-            print_error(
-                f"Metadata import failed: '{source.path}' is not a valid file path."
-            )
-        except Exception as e:
-            print_error(f"Metadata import failed: {e}")
-
+        source_input = ExcelSource(path=source.path)
     elif source.type == "sqlite":
-        import sqlite3
-
-        from engine.services.sqlite_import import SqliteImportService
-
-        print_info(f"Importing metadata from {source.path}...")
-        try:
-            conn = sqlite3.connect(str(source.path))
-            service = SqliteImportService(conn)
-            service.import_metadata(project=project, skip_snapshots=True)
-            conn.close()
-            _print_import_summary(project)
-        except MetadataSchemaError as e:
-            print_error(str(e))
-        except FileNotFoundError:
-            print_error(
-                f"Metadata import failed: The file '{source.path}' was not found."
-            )
-        except (OSError, ValueError):
-            print_error(
-                f"Metadata import failed: '{source.path}' is not a valid file path."
-            )
-        except Exception as e:
-            print_error(f"Metadata import failed: {e}")
-
+        source_input = SqliteSource(path=source.path)
     elif source.type == "json":
-        from engine.services.json_import import JsonImportService
+        source_input = JsonSource(path=source.path)
+    else:
+        print_error(f"Unsupported source type: {source.type}")
+        return
 
-        print_info(f"Importing metadata from {source.path}...")
-        try:
-            service = JsonImportService(source.path)
-            service.import_metadata(project=project)
-            _print_import_summary(project)
-        except Exception as e:
-            print_error(f"Metadata import failed: {e}")
+    print_info(f"Importing metadata from {source.path}...")
+    options = ImportOptions(
+        conflict_strategy="replace_all",
+        error_strategy="best_effort",
+        skip_snapshots=True,
+    )
+    report = run_import(project=project, source=source_input, options=options)
+
+    if report.has_errors:
+        for issue in report.issues:
+            if issue.severity == "error":
+                loc = ""
+                if issue.location:
+                    parts = [
+                        p
+                        for p in (
+                            issue.location.sheet,
+                            f"row {issue.location.row}" if issue.location.row else None,
+                            f"col '{issue.location.column}'" if issue.location.column else None,
+                        )
+                        if p
+                    ]
+                    if parts:
+                        loc = f" [{' '.join(parts)}]"
+                print_error(f"[{issue.code}]{loc} {issue.message}")
+    if report.status in ("success", "partial_success"):
+        _print_import_summary(project)
+    if report.status not in ("success", "partial_success"):
+        print_error("Metadata import failed; no entities were written.")
 
 
 def _run_interactive_init() -> None:
