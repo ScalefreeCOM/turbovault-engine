@@ -17,6 +17,7 @@ backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from engine.cli.commands import generate_cmd, reset_cmd, serve_cmd
+from engine.cli.commands.generation_history_cmd import generation_history
 from engine.cli.commands.history_cmd import import_history
 from engine.cli.commands.import_cmd import import_metadata_cmd
 from engine.cli.commands.model_cmd import model_app
@@ -190,6 +191,10 @@ app.command(
     name="import-history",
     help="Show recent import runs for a project",
 )(import_history)
+app.command(
+    name="generation-history",
+    help="Show recent generation runs for a project",
+)(generation_history)
 
 
 # Main entry point

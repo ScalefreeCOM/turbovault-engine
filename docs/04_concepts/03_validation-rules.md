@@ -9,13 +9,13 @@ title: Validation Rules
 TurboVault Engine validates your Data Vault model at **two different stages**:
 
 1. **Import time** — when a metadata source (Excel, SQLite, JSON) is imported into a project, the [Import Pipeline](06_import-pipeline.md) runs schema, row-level, and cross-entity checks. Problems show up as structured `Issue` objects with stable codes like `schema.missing_column` and `entity.missing_parent` and exact source-file locations.
-2. **Generation time** — when you run `turbovault generate`, the engine validates that the resulting Data Vault model is consistent enough to produce a working dbt project. This page documents the **generation-time** rules.
+2. **Generation time** — when you run `turbovault generate`, the [Generation Pipeline](07_generation-pipeline.md) runs the model-level invariants documented on this page. Problems become `Issue` objects with stable codes like `validate.hub.missing_hashkey` and an entity-scoped location.
 
-If your error code starts with `schema.`, `row.`, `source.`, or `entity.`, it came from the import pipeline — see [Import Pipeline → Issue codes](06_import-pipeline.md#issue-codes) for the full reference.
+If your error code starts with `schema.`, `row.`, `source.`, or `entity.`, it came from the import pipeline — see [Import Pipeline → Issue codes](06_import-pipeline.md#issue-codes).
 
-If your error code looks like `HUB_001` or `LNK_002`, you are on the right page — read on.
+If your error code starts with `validate.`, it came from the generation pipeline — see [Generation Pipeline → Issue code taxonomy](07_generation-pipeline.md#issue-code-taxonomy) for the dot-separated codes. The legacy alphanumeric codes (`HUB_001`, `LNK_002`, …) listed below are still emitted in `Issue.location.field` for backwards-compatible dashboards — read on for what each one means and how to fix it.
 
-> **See also:** [CLI Reference — Validation Modes](../02_getting-started/01_cli-reference.md#validation-modes) for how to control generation-time validation, and [Import Pipeline](06_import-pipeline.md) for import-time validation behavior.
+> **See also:** [CLI Reference — turbovault generate](../02_getting-started/01_cli-reference.md#turbovault-generate) for the `--mode strict` / `--mode lenient` / `--skip-validation` flags, and [Generation Pipeline](07_generation-pipeline.md) for the surrounding pipeline behaviour.
 
 ---
 

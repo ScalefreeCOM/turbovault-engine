@@ -4,6 +4,7 @@ TurboVault Engine domain models.
 This package contains all Django ORM models for the Data Vault domain.
 """
 
+from engine.models.generation_run import GenerationRun
 from engine.models.group import Group
 from engine.models.hubs import Hub, HubColumn, HubSourceMapping
 from engine.models.import_run import ImportRun
@@ -30,6 +31,7 @@ from engine.models.templates import ModelTemplate, TemplateCategory
 __all__ = [
     "Project",
     "Group",
+    "GenerationRun",
     "ImportRun",
     "SourceSystem",
     "SourceTable",

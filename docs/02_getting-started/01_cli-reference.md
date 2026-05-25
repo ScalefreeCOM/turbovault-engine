@@ -31,7 +31,8 @@ TurboVault uses a **two-step setup**: initialise the workspace once, then create
 | `turbovault import` | Run the import pipeline against an existing project (merge / replace / dry-run) |
 | `turbovault import-history` | Show recent import runs for a project |
 | `turbovault model` | Create and inspect Data Vault entities (hubs, links, satellites, PITs) |
-| `turbovault generate` | Generate dbt project or export model to JSON / DBML |
+| `turbovault generate` | Generate dbt project / JSON / DBML (supports selection, dry-run, single-entity preview) |
+| `turbovault generation-history` | Show recent generation runs for a project |
 | `turbovault serve` | Start Django admin server |
 | `turbovault reset` | Reset the workspace database |
 
@@ -331,7 +332,10 @@ from the Studio frontend.
 
 ### turbovault generate
 
-Generate a complete dbt project from your Data Vault model.
+Generate a dbt project, JSON export, or DBML diagram from your Data
+Vault model. The command runs the unified [Generation Pipeline](../04_concepts/07_generation-pipeline.md)
+end-to-end and returns a structured report with per-entity plan counts,
+severity-coded issues, and per-stage timings.
 
 #### Basic Usage
 
@@ -339,15 +343,23 @@ Generate a complete dbt project from your Data Vault model.
 turbovault generate --project my_project
 ```
 
-This will:
-1. Export your Data Vault model
-2. Validate the model (optional)
-3. Generate SQL models with datavault4dbt macros
-4. Generate YAML schemas for all models
-5. Create organized folder structure
-6. Output ready-to-use dbt project
+If `--type` is omitted you'll be prompted to choose. With flags only:
 
-**Output location:** `./output/{project_name}/`
+```bash
+turbovault generate --project sales_datavault --type dbt
+```
+
+**Default output location:**
+
+| Output type | Default path |
+|-------------|--------------|
+| `dbt` | `<workspace>/projects/<project>/exports/dbt_project/` |
+| `json` | `<workspace>/projects/<project>/exports/<project_slug>.json` |
+| `dbml` | `<workspace>/projects/<project>/exports/<project_slug>.dbml` |
+
+Explicit `--output`, `--json-output`, or `--dbml-output` always wins.
+If the project has no `project_directory` configured (ad-hoc / test
+projects), the fallback is `./output/<slug>` under the current directory.
 
 #### Generate to Custom Directory
 
@@ -361,122 +373,189 @@ turbovault generate --project sales_datavault --output ./my_dbt_projects/sales
 turbovault generate --project sales_datavault --zip
 ```
 
-Creates both the folder and a `.zip` file.
+Creates both the folder and a sibling `.zip` archive.
+
+#### Selective Generation
+
+You can narrow the scope of a run by entity type, group, or an explicit
+allowlist. All filters are optional and repeatable.
+
+```bash
+# Only emit hubs and links
+turbovault generate --project sales_datavault \
+    --include-type hub --include-type link
+
+# Skip all satellites
+turbovault generate --project sales_datavault --exclude-type satellite
+
+# Only emit the 'sales' group
+turbovault generate --project sales_datavault --include-group sales
+
+# Emit a single hub (e.g. CI verification, single-model preview)
+turbovault generate --project sales_datavault --only hub:hub_customer
+```
+
+`--only` is an explicit allowlist — when set, it overrides every
+include/exclude rule. See [Generation Pipeline → Selective generation](../04_concepts/07_generation-pipeline.md#selective-generation) for the precise semantics.
+
+#### Dry-run
+
+`--dry-run` runs the full pipeline (build → validate → plan → **render
+in memory**) but skips writing files. Render-time problems (template
+not found, undefined Jinja variable) are surfaced even though nothing
+lands on disk. A `GenerationRun` audit row is still recorded.
+
+```bash
+turbovault generate --project sales_datavault --dry-run
+```
 
 #### Options
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `--project NAME` | `-p` | Project name (or interactive selection) | Interactive |
-| `--output PATH` | `-o` | Output directory path (only for type=dbt) | `exports/dbt_project/` |
-| `--mode MODE` | `-m` | Validation mode: `strict` or `lenient` | `strict` |
-| `--zip` | `-z` | Create ZIP archive after generation (only for type=dbt) | `false` |
-| `--skip-validation` | | Skip pre-generation validation | `false` |
-| `--dry-run` | | Validate model only, no files written — exits 0 if valid | `false` |
-| `--no-v1-satellites` | | Skip generating satellite _v1 views (only for type=dbt) | `false` |
+| `--project NAME` | `-p` | Project name (or interactive picker) | Interactive |
 | `--type TYPE` | `-t` | Export type: `dbt`, `json`, or `dbml` | Interactive |
-| `--json-output PATH` | | JSON output file path (only for type=json) | Auto-generated |
-| `--json-format FORMAT` | | JSON format: `compact` or `pretty` (only for type=json) | `pretty` |
-| `--dbml-output PATH` | | DBML output file path (only for type=dbml) | Auto-generated |
-| `--help` | | Show help message | |
+| `--output PATH` | `-o` | Output directory (dbt) or file (json/dbml) | Workspace convention (see above) |
+| `--mode MODE` | `-m` | Error strategy: `strict` (fail-fast) or `lenient` (best-effort) | `strict` |
+| `--skip-validation` | | Bypass the validate stage entirely | `false` |
+| `--dry-run` | | Run build/validate/plan/render; skip write | `false` |
+| `--zip` | `-z` | Create ZIP archive after dbt generation | `false` |
+| `--no-v1-satellites` | | Skip generating satellite `_v1` views (dbt only) | `false` |
+| `--json-output PATH` | | Alias for `--output` when `--type json` | — |
+| `--dbml-output PATH` | | Alias for `--output` when `--type dbml` | — |
+| `--include-type TYPE` | | Only emit these entity types (repeatable) | — |
+| `--exclude-type TYPE` | | Skip these entity types (repeatable) | — |
+| `--include-group NAME` | | Only emit entities in these groups (repeatable) | — |
+| `--exclude-group NAME` | | Skip entities in these groups (repeatable) | — |
+| `--only TYPE:NAME` | | Explicit allowlist of entities (repeatable) | — |
 
-> **See also:** [Configuration Overview](../03_configuration/01_overview.md) for the full output path priority order (CLI flag → config.yml → convention default) and [Project Config Reference](../03_configuration/03_project-schema.md) for all config.yml fields.
+#### Exit Codes
 
-#### Validation Modes
+| Code | Meaning |
+|------|---------|
+| `0` | `success` — no errors, all artifacts written |
+| `1` | `partial_success` — some entities skipped, others written |
+| `2` | `validation_failed` or `failed` — nothing was written |
 
-**Strict mode (default):**
-- Stops generation on first validation error
-- Ensures all entities are correctly configured
-- Recommended for production
+These map cleanly to typical CI conventions: `0` = OK, `1` = OK with
+warnings to triage, `2` = block.
 
-**Lenient mode:**
-- Skips invalid entities
-- Continues with valid entities
-- Useful for incremental development
+#### Error Strategies
 
-```bash
-# Use lenient mode
-turbovault generate --project my_project --mode lenient
+**Strict (default):**
+- `--mode strict` — maps to `fail_fast`.
+- Aborts at the first error in any stage; no files written.
+- Recommended for CI gates and production runs.
+
+**Lenient:**
+- `--mode lenient` — maps to `best_effort`.
+- Records the issue, skips the entity, keeps going.
+- Useful when iterating on a partial model.
+
+#### What gets reported
+
+The CLI prints two tables and a status line:
+
+```
+                     Plan
+┌─────────────────────────┬───────┐
+│ Entity type             │ Files │
+├─────────────────────────┼───────┤
+│ hub                     │     6 │
+│ link                    │     2 │
+│ project                 │     3 │
+│ satellite               │    14 │
+│ stage                   │     8 │
+│ Total files planned     │    33 │
+└─────────────────────────┴───────┘
+
+                                Issues (1)
+┌────────┬──────────┬───────────────────────────────┬──────────────────────┬────────────────────────────────┐
+│ Sev    │ Stage    │ Code                          │ Entity               │ Message                        │
+├────────┼──────────┼───────────────────────────────┼──────────────────────┼────────────────────────────────┤
+│ WARN   │ validate │ validate.satellite.no_columns │ satellite:sat_legacy │ Satellite has no payload cols. │
+└────────┴──────────┴───────────────────────────────┴──────────────────────┴────────────────────────────────┘
+
+✓ Generation completed successfully. 33 file(s) written.
+Run ID: 7d0c2f8a-...
 ```
 
-#### Skip Satellite V1 Views
+> **See also:** [Generation Pipeline](../04_concepts/07_generation-pipeline.md) for the
+> full issue-code catalog, conflict-strategy semantics, and dry-run behavior.
 
-By default, each satellite generates two models:
-- `sat_*_v0.sql` - Core satellite with incremental logic
-- `sat_*_v1.sql` - View with load_end_date
+#### Examples
 
-Skip v1 generation:
-```bash
-turbovault generate --project my_project --no-v1-satellites
-```
-
-**Examples:**
 ```bash
 # Interactive type selection (default)
 turbovault generate -p sales_datavault
 
-# Generate dbt project
-turbovault generate --type dbt -p sales_datavault
+# dbt project with ZIP, no v1 satellite views
+turbovault generate --type dbt -p sales_datavault --zip --no-v1-satellites
 
-# Generate with custom output and ZIP
-turbovault generate --type dbt -p sales_datavault -o ./dbt_output --zip
+# Lenient mode: import what's valid, report what was skipped
+turbovault generate --type dbt -p sales_datavault --mode lenient
 
-# Generate in lenient mode without v1 satellites
-turbovault generate --type dbt -p sales_datavault --mode lenient --no-v1-satellites
-
-# Skip validation entirely (not recommended)
-turbovault generate --type dbt -p sales_datavault --skip-validation
-
-# Dry run: validate and report counts without writing any files
+# Preview without writing anything
 turbovault generate --type dbt -p sales_datavault --dry-run
 
-# Export to JSON
-turbovault generate --type json -p sales_datavault
+# Single-hub preview (no other files emitted)
+turbovault generate --type dbt -p sales_datavault --only hub:hub_customer --dry-run
 
-# Export JSON to custom path with pretty formatting
-turbovault generate --type json --json-output ./exports/model.json --json-format pretty -p sales_datavault
+# JSON export of just the marketing group
+turbovault generate --type json -p sales_datavault --include-group marketing
 
-# Export compact JSON format
-turbovault generate --type json --json-format compact -p sales_datavault
+# DBML for visualisation
+turbovault generate --type dbml -p sales_datavault
 ```
 
-#### Export Types
+---
 
-The `generate` command supports three export types via the `--type` flag:
+### turbovault generation-history
 
-**`dbt` - Generate dbt project (default if not specified):**
+List recent generation runs for a project, newest first. Every
+invocation of the generation pipeline — including dry-runs and failed
+runs — is recorded as a `GenerationRun` and shows up here.
+
 ```bash
-turbovault generate --type dbt --project my_project
-```
-Creates a complete dbt project with all models, macros, and configuration.
+turbovault generation-history --project my_project
+turbovault generation-history --project my_project --limit 50
+turbovault generation-history --project my_project --type dbt
 
-**`json` - Export Data Vault model to JSON:**
-```bash
-turbovault generate --type json --project my_project
+# Interactive: pick the project from a list
+turbovault generation-history
+turbovault generation-history --interactive
 ```
-Exports the complete Data Vault model as a structured JSON export for inspection or integration with other tools.
 
-The JSON export includes:
-- Project metadata
-- Sources and stages
-- Hubs, links, satellites
-- PITs and reference tables
-- Snapshot controls
+If your workspace has exactly one project, `turbovault generation-history`
+uses it automatically (no prompt). Pass `--interactive` to always show
+the picker.
 
-**`dbml` - Export Data Vault model as DBML diagram:**
-```bash
-turbovault generate --type dbml --project my_project
+#### Options
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--project NAME` | `-p` | Project to show history for | prompted |
+| `--type TYPE` | `-t` | Filter to one output type (`dbt`, `json`, `dbml`) | all |
+| `--limit INT` | `-l` | Maximum rows to display | `20` |
+| `--interactive` | `-i` | Pick the project interactively | `false` |
+
+#### Output
+
 ```
-Exports the model as [DBML (Database Markup Language)](https://dbml.dbdiagram.io/), which can be rendered in tools like [dbdiagram.io](https://dbdiagram.io) to visualize the entity relationships.
-
-**Interactive selection:** If `--type` is not provided, you'll be prompted to choose:
-```bash
-turbovault generate --project my_project
-# ? Select export type:
-#   > dbt - Generate dbt project
-#     json - Export Data Vault model to JSON
-#     dbml - Export Data Vault model as DBML diagram
+              Generation history for 'sales_datavault'
+┌──────────────────────┬─────────────────┬──────┬──────┬─────────────┬───────┬────────┬──────────┬──────────┐
+│ Started              │ Status          │ Type │ Dry? │ Mode        │ Files │ Errors │ Warnings │ ID       │
+├──────────────────────┼─────────────────┼──────┼──────┼─────────────┼───────┼────────┼──────────┼──────────┤
+│ 2026-05-24T11:42:01  │ success         │ dbt  │ no   │ best_effort │    33 │      0 │        1 │ 7d0c2f8a │
+│ 2026-05-24T10:08:15  │ partial_success │ dbt  │ no   │ best_effort │    32 │      1 │        0 │ 4b9ef1c2 │
+│ 2026-05-24T09:55:22  │ success         │ json │ no   │ best_effort │     1 │      0 │        0 │ 2a8c0a40 │
+│ 2026-05-23T17:30:14  │ validation_fail │ dbt  │ yes  │ fail_fast   │     0 │      2 │        0 │ 9f1d3e7a │
+└──────────────────────┴─────────────────┴──────┴──────┴─────────────┴───────┴────────┴──────────┴──────────┘
 ```
+
+The `ID` column is a short prefix of `GenerationRun.generation_run_id`;
+the full UUID is stored in `GenerationReport.generation_run_id` for
+deep-linking from the Studio frontend.
 
 ---
 
@@ -905,6 +984,7 @@ turbovault project init --help
 turbovault import --help
 turbovault import-history --help
 turbovault generate --help
+turbovault generation-history --help
 turbovault serve --help
 turbovault reset --help
 ```

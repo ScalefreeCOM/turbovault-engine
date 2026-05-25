@@ -1,112 +1,130 @@
 """
-Generate command for TurboVault CLI.
+`turbovault generate` — run the new generation pipeline.
 
-Generate a complete dbt project from Data Vault model.
+Supports dbt / json / dbml output types, merge of strict/lenient
+validation with best-effort/fail-fast error handling, `--dry-run` for
+preview, and selective generation via `--include-type` / `--exclude-type`
+/ `--include-group` / `--exclude-group` / `--only TYPE:NAME`.
+
+Exit codes:
+  0 — success (no errors)
+  1 — partial_success (best-effort; some entities skipped)
+  2 — validation_failed or failed
 """
 
-import zipfile
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import questionary
 import typer
+from rich.table import Table
 
 from engine.cli.utils.console import (
     console,
     print_error,
     print_info,
-    print_panel,
-    print_step,
     print_success,
     print_warning,
 )
+
+# Engine imports are deferred to the command body because the CLI module
+# is imported before Django setup. Type-only imports stay at module level.
+if TYPE_CHECKING:
+    from engine.services.generation import GenerationReport
+
+
+SUPPORTED_TYPES = ("dbt", "json", "dbml")
 
 
 def generate(
     project_name: Annotated[
         str | None,
         typer.Option(
-            "--project",
-            "-p",
-            help="Project name (interactive selection if not provided)",
+            "--project", "-p", help="Project name (interactive picker if omitted)"
         ),
     ] = None,
     output: Annotated[
         Path | None,
         typer.Option(
-            "--output",
-            "-o",
-            help="Output directory path (default: ./output/{project_name})",
+            "--output", "-o",
+            help="Output directory for dbt, or output file for json/dbml",
+        ),
+    ] = None,
+    type: Annotated[
+        str | None,
+        typer.Option(
+            "--type", "-t",
+            help="Export type: dbt | json | dbml (interactive if omitted)",
         ),
     ] = None,
     mode: Annotated[
         str,
         typer.Option(
-            "--mode",
-            "-m",
-            help="Validation mode: 'strict' (stop on error) or 'lenient' (skip invalid)",
+            "--mode", "-m",
+            help="Error strategy: strict (fail_fast) or lenient (best_effort)",
         ),
     ] = "strict",
-    create_zip: Annotated[
-        bool, typer.Option("--zip", "-z", help="Create ZIP archive after generation")
-    ] = False,
     skip_validation: Annotated[
-        bool, typer.Option("--skip-validation", help="Skip pre-generation validation")
+        bool,
+        typer.Option("--skip-validation", help="Skip pre-generation validation"),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Validate, plan, and render without writing files",
+        ),
+    ] = False,
+    create_zip: Annotated[
+        bool,
+        typer.Option("--zip", "-z", help="Create a ZIP archive after dbt generation"),
     ] = False,
     no_v1_satellites: Annotated[
         bool,
         typer.Option("--no-v1-satellites", help="Skip generating satellite _v1 views"),
     ] = False,
-    type: Annotated[
-        str | None,
-        typer.Option(
-            "--type",
-            "-t",
-            help="Export type: 'dbt' or 'json' (interactive if not provided)",
-        ),
-    ] = None,
     json_output: Annotated[
         Path | None,
-        typer.Option(
-            "--json-output",
-            help="JSON output file path (only for type=json, auto-generated if not provided)",
-        ),
+        typer.Option("--json-output", help="Alias for --output when type=json"),
     ] = None,
-    json_format: Annotated[
-        str,
-        typer.Option(
-            "--json-format",
-            help="JSON format: 'compact' or 'pretty' (only for type=json)",
-        ),
-    ] = "pretty",
     dbml_output: Annotated[
         Path | None,
+        typer.Option("--dbml-output", help="Alias for --output when type=dbml"),
+    ] = None,
+    include_type: Annotated[
+        list[str] | None,
         typer.Option(
-            "--dbml-output",
-            help="DBML output file path (only for type=dbml, auto-generated if not provided)",
+            "--include-type",
+            help="Only emit these entity types (e.g. hub, link, satellite, pit)",
         ),
     ] = None,
-    dry_run: Annotated[
-        bool,
+    exclude_type: Annotated[
+        list[str] | None,
         typer.Option(
-            "--dry-run",
-            help="Validate and render without writing any files to disk. Outputs JSON result.",
+            "--exclude-type",
+            help="Skip these entity types (e.g. satellite)",
         ),
-    ] = False,
+    ] = None,
+    include_group: Annotated[
+        list[str] | None,
+        typer.Option("--include-group", help="Only emit entities in these groups"),
+    ] = None,
+    exclude_group: Annotated[
+        list[str] | None,
+        typer.Option("--exclude-group", help="Skip entities in these groups"),
+    ] = None,
+    only: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--only",
+            help="Allowlist of TYPE:NAME pairs (e.g. hub:hub_customer); overrides include/exclude",
+        ),
+    ] = None,
 ) -> None:
-    """
-    Generate a complete dbt project from Data Vault model.
-
-    Creates a ready-to-use dbt project with all models (stages, hubs, links,
-    satellites, PITs, reference tables) using datavault4dbt macros.
-
-    Can also export the Data Vault model as JSON using --type json.
-    """
+    """Generate a dbt project, JSON export, or DBML diagram."""
     from engine.cli.utils.debug import debug_print
-
-    debug_print("generate() function called")
-
-    # Guard: must be inside a TurboVault workspace
     from engine.services.app_config_loader import (
         WorkspaceNotFoundError,
         require_workspace,
@@ -114,515 +132,287 @@ def generate(
 
     try:
         require_workspace()
-    except WorkspaceNotFoundError as e:
-        print_error(str(e))
-        raise typer.Exit(1)
+    except WorkspaceNotFoundError as exc:
+        print_error(str(exc))
+        raise typer.Exit(2) from None
 
-    # Lazy imports to avoid loading before Django setup
+    # Deferred to keep this module importable before django.setup().
     from engine.models import Project
-    from engine.services.app_config_loader import resolve_project_path
-    from engine.services.generation import DbtProjectGenerator, GenerationConfig
-    from engine.services.generation.validators import validate_export
-    from engine.services.runtime_config import EngineRuntimeConfig
-    from engine.services.workflows import build_project_export
-
-    debug_print("Imports complete")
-
-    # Interactive type selection if not provided
-    if not type:
-        type = questionary.select(
-            "Select export type:",
-            choices=[
-                questionary.Choice("dbt - Generate dbt project", value="dbt"),
-                questionary.Choice(
-                    "json - Export Data Vault model to JSON", value="json"
-                ),
-                questionary.Choice(
-                    "dbml - Export Data Vault ER diagram to DBML", value="dbml"
-                ),
-            ],
-        ).ask()
-
-        if not type:
-            raise typer.Exit(0)
-
-    # Validate type
-    if type not in ("dbt", "json", "dbml"):
-        print_error(f"Invalid type: {type}. Must be 'dbt', 'json', or 'dbml'.")
-        raise typer.Exit(1)
-
-    # Validate JSON format
-    if json_format not in ("compact", "pretty"):
-        print_error(
-            f"Invalid JSON format: {json_format}. Must be 'compact' or 'pretty'."
-        )
-        raise typer.Exit(1)
-
-    # Validate mode
-    if mode not in ("strict", "lenient"):
-        print_error(f"Invalid mode: {mode}. Must be 'strict' or 'lenient'.")
-        raise typer.Exit(1)
-
-    # Determine what we're doing
-    should_export_json = type == "json"
-    should_export_dbml = type == "dbml"
-    should_generate_dbt = type == "dbt"
-
-    # Get available projects
-    projects = list(Project.objects.all().order_by("name"))
-
-    if not projects:
-        print_error("No projects found in database!")
-        print_info("Create a project first with: turbovault init")
-        raise typer.Exit(1)
-
-    # Select project
-    selected_project = _select_project(projects, project_name)
-    if not selected_project:
-        raise typer.Exit(0)
-
-    # Resolve the project directory once — used for all default output paths.
-    _project_dir: Path | None = None
-    if selected_project.project_directory:
-        try:
-            _project_dir = resolve_project_path(selected_project.project_directory)
-        except Exception:
-            _project_dir = None
-
-    # Load project config so we can honor output-path overrides defined in config.yml.
-    _project_config = None
-    if _project_dir:
-        try:
-            from engine.services.project_config import load_project_config
-
-            _project_config = load_project_config(selected_project)
-        except Exception:
-            _project_config = None
-
-    def _default_exports_subdir(
-        subdir: str, config_override: Path | None = None
-    ) -> Path:
-        """
-        Return the output directory for a given export type.
-
-        Priority (highest to lowest):
-          1. CLI flag (handled by the caller before this is invoked)
-          2. config.yml output override  (config_override)
-          3. Convention: exports/<subdir>/ inside the project folder
-          4. Fallback cwd: ./exports/<project>/<subdir>/
-        """
-        if config_override is not None:
-            path = config_override.expanduser().resolve()
-        elif _project_dir:
-            path = _project_dir / "exports" / subdir
-        else:
-            safe_name = selected_project.name.lower().replace(" ", "_")
-            path = Path("./exports") / safe_name / subdir
-        path.mkdir(parents=True, exist_ok=True)
-        return path
-
-    # Read per-type config overrides (None when not set)
-    _cfg_dbt_dir = _project_config.output.dbt_project_dir if _project_config else None
-    _cfg_json_dir = _project_config.output.json_output_dir if _project_config else None
-    _cfg_dbml_dir = _project_config.output.dbml_output_dir if _project_config else None
-    runtime_config = (
-        EngineRuntimeConfig.from_turbovault_config(_project_config)
-        if _project_config
-        else EngineRuntimeConfig.from_project(selected_project)
+    from engine.services.generation import (
+        EntityRef,
+        EntitySelection,
+        GenerationOptions,
+        generate as run_generate,
     )
 
-    # Read schema definitions from project
+    debug_print("CLI imports complete")
 
-    # Determine output path for dbt if needed (CLI --output takes priority over config)
-    if should_generate_dbt and not output:
-        output = _default_exports_subdir("dbt_project", _cfg_dbt_dir)
-
-    # Calculate total steps
-    total_steps = 2  # Build + Complete
-    if should_export_json:
-        total_steps += 1  # JSON export step
-    if should_export_dbml:
-        total_steps += 1  # DBML export step
-    if should_generate_dbt:
-        if not skip_validation:
-            total_steps += 1  # Validation step
-        total_steps += 1  # Generation step
-
-    current_step = 0
-
-    # Build export
-    current_step += 1
-    print_step(
-        current_step,
-        total_steps,
-        f"Building export for project: [bold]{selected_project.name}[/bold]",
+    project = _resolve_project(project_name)
+    output_type = _resolve_output_type(type)
+    output_path = _resolve_output_path(
+        output_type=output_type,
+        output=output,
+        json_output=json_output,
+        dbml_output=dbml_output,
+        project=project,
+        dry_run=dry_run,
     )
 
-    try:
-        project_export = build_project_export(
-            project=selected_project,
-            runtime_config=runtime_config,
-        )
-    except Exception as e:
-        print_error(f"Failed to build export: {e}")
-        raise typer.Exit(1)
-
-    # Dry-run: validate and report without writing anything
-    if dry_run:
-        import json as _json
-
-        from engine.services.generation.validators import validate_export
-
-        validation_result = validate_export(project_export)
-        payload = {
-            "project": selected_project.name,
-            "dry_run": True,
-            "valid": validation_result.is_valid,
-            "hubs": len(project_export.hubs),
-            "links": len(project_export.links),
-            "satellites": len(project_export.satellites),
-            "stages": len(project_export.stages),
-            "pits": len(project_export.pits),
-            "errors": [
-                {
-                    "code": e.code,
-                    "entity_type": e.entity_type,
-                    "entity": e.entity_name,
-                    "message": e.message,
-                }
-                for e in validation_result.errors
-            ],
-            "warnings": [
-                {
-                    "code": w.code,
-                    "entity_type": w.entity_type,
-                    "entity": w.entity_name,
-                    "message": w.message,
-                }
-                for w in validation_result.warnings
-            ],
-        }
-        console.print_json(_json.dumps(payload))
-        raise typer.Exit(0 if validation_result.is_valid else 1)
-
-    # JSON Export (if type is json)
-    json_file_path = None
-    if should_export_json:
-        current_step += 1
-        json_file_path = _export_json(
-            current_step,
-            total_steps,
-            project_export,
-            selected_project,
-            json_output,
-            json_format,
-            default_dir=_default_exports_subdir("json", _cfg_json_dir),
-        )
-
-        # JSON-only: show summary and return
-        current_step += 1
-        print_step(current_step, total_steps, "Export complete!")
-        _show_json_only_summary(project_export, json_file_path)
-        print_success(f"JSON export saved to: {json_file_path}")
-        return
-
-    # DBML Export (if type is dbml)
-    dbml_file_path = None
-    if should_export_dbml:
-        current_step += 1
-        dbml_file_path = _export_dbml(
-            current_step,
-            total_steps,
-            project_export,
-            selected_project,
-            dbml_output,
-            default_dir=_default_exports_subdir("dbml", _cfg_dbml_dir),
-        )
-
-        # DBML-only: show summary and return
-        current_step += 1
-        print_step(current_step, total_steps, "Export complete!")
-        _show_json_only_summary(project_export, dbml_file_path)
-        print_success(f"DBML export saved to: {dbml_file_path}")
-        return
-
-    # From here on, we're generating dbt
-    # Validate (only if generating dbt)
-    if not skip_validation:
-        current_step += 1
-        print_step(current_step, total_steps, "Validating export data...")
-        validation_result = validate_export(project_export)
-
-        # Show warnings
-        if validation_result.warnings:
-            print_warning(f"Found {len(validation_result.warnings)} warning(s):")
-            for warning in validation_result.warnings:
-                console.print(f"  [yellow]⚠[/yellow] {warning}")
-
-        # Handle errors
-        if not validation_result.is_valid:
-            print_error(f"Found {len(validation_result.errors)} validation error(s):")
-            for error in validation_result.errors:
-                console.print(f"  [red]✗[/red] {error}")
-
-            if mode == "strict":
-                print_error("Generation aborted due to validation errors (strict mode)")
-                print_info("Use --mode lenient to skip invalid entities and continue")
-                raise typer.Exit(1)
-            else:
-                print_warning("Continuing with valid entities only (lenient mode)")
-    else:
-        current_step += 1
-        print_step(current_step, total_steps, "Skipping validation (--skip-validation)")
-
-    # Configure generator
-    current_step += 1
-    print_step(current_step, total_steps, "Generating dbt project...")
-
-    config = GenerationConfig(
-        project_name=selected_project.name.lower().replace(" ", "_"),
-        profile_name="default",
-        mode=mode,  # type: ignore
-        generate_satellite_v1_views=not no_v1_satellites,
-        satellite_v0_naming=selected_project.get_naming_pattern(
-            "satellite_v0_naming", runtime_config=runtime_config
-        ),
-        satellite_v1_naming=selected_project.get_naming_pattern(
-            "satellite_v1_naming", runtime_config=runtime_config
-        ),
+    options = GenerationOptions(
+        error_strategy="fail_fast" if mode == "strict" else "best_effort",
+        dry_run=dry_run,
         skip_validation=skip_validation,
         create_zip=create_zip,
-        stage_schema=selected_project.get_schema("stage", runtime_config=runtime_config),
-        rdv_schema=selected_project.get_schema("rdv", runtime_config=runtime_config),
-        bdv_schema=selected_project.get_schema("bdv", runtime_config=runtime_config),
+        generate_satellite_v1_views=not no_v1_satellites,
+        entity_selection=_build_selection(
+            include_type=include_type,
+            exclude_type=exclude_type,
+            include_group=include_group,
+            exclude_group=exclude_group,
+            only=only,
+            entity_ref_cls=EntityRef,
+            selection_cls=EntitySelection,
+        ),
     )
 
-    # Generate dbt project
-    try:
-        generator = DbtProjectGenerator(
-            output_path=output,
-            config=config,
-        )
-        report = generator.generate(project_export)
-    except Exception as e:
-        print_error(f"Generation failed: {e}")
+    _announce(project=project, output_type=output_type, options=options, output_path=output_path)
+
+    report = run_generate(
+        project=project,
+        output_type=output_type,
+        output_path=output_path,
+        options=options,
+    )
+
+    _render_report(report)
+
+    if report.status == "success":
+        raise typer.Exit(0)
+    if report.status == "partial_success":
         raise typer.Exit(1)
-
-    # Create ZIP if requested
-    zip_path = None
-    if create_zip and report.success:
-        zip_path = _create_zip_archive(output)
-
-    # Show results
-    current_step += 1
-    print_step(current_step, total_steps, "Generation complete!")
-
-    _show_summary(report, output, zip_path, no_v1_satellites)
-
-    if report.success:
-        print_success(f"dbt project generated at: {output.absolute()}")
-        if zip_path:
-            print_success(f"ZIP archive created: {zip_path}")
-    else:
-        print_error("Generation completed with errors")
-        raise typer.Exit(1)
+    raise typer.Exit(2)
 
 
-def _export_json(
-    current_step: int,
-    total_steps: int,
-    project_export,
-    selected_project,
-    json_output: Path | None,
-    json_format: str,
-    *,
-    default_dir: Path,
-) -> Path:
-    """Export the project model to JSON and return the file path."""
-    from datetime import datetime
-
-    from engine.services.export.exporters.json_exporter import JSONExporter
-
-    print_step(current_step, total_steps, "Exporting to JSON format...")
-
-    # Determine indent based on format
-    indent = 2 if json_format == "pretty" else None
-
-    exporter = JSONExporter(indent=indent)
-    export_content = exporter.export(project_export)
-
-    # Generate default path inside exports/json/ if not overridden
-    if not json_output:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = (
-            f"{selected_project.name.lower().replace(' ', '_')}_export_{timestamp}.json"
-        )
-        json_output = default_dir / filename
-
-    # Write to file
-    json_output.parent.mkdir(parents=True, exist_ok=True)
-    with open(json_output, "w") as f:
-        f.write(export_content)
-
-    return json_output
+# ---------------------------------------------------------------------------
+# Resolution helpers
+# ---------------------------------------------------------------------------
 
 
-def _export_dbml(
-    current_step: int,
-    total_steps: int,
-    project_export,
-    selected_project,
-    dbml_output: Path | None,
-    *,
-    default_dir: Path,
-) -> Path:
-    """Export the project model to DBML and return the file path."""
-    from datetime import datetime
-
-    from engine.services.export.exporters.dbml_exporter import DBMLExporter
-
-    print_step(current_step, total_steps, "Exporting to DBML format (ER diagram)...")
-
-    exporter = DBMLExporter()
-    export_content = exporter.export(project_export)
-
-    # Generate default path inside exports/dbml/ if not overridden
-    if not dbml_output:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = (
-            f"{selected_project.name.lower().replace(' ', '_')}_erd_{timestamp}.dbml"
-        )
-        dbml_output = default_dir / filename
-
-    # Write to file
-    dbml_output.parent.mkdir(parents=True, exist_ok=True)
-    with open(dbml_output, "w") as f:
-        f.write(export_content)
-
-    return dbml_output
-
-
-def _show_json_only_summary(project_export, json_path: Path) -> None:
-    """Display summary for JSON-only export."""
-    summary = f"""
-[bold]Project:[/bold] {project_export.project_name}
-[bold]Sources:[/bold] {len(project_export.sources)} system(s)
-[bold]Hubs:[/bold] {len(project_export.hubs)} hub(s)
-[bold]Links:[/bold] {len(project_export.links)} link(s)
-[bold]Satellites:[/bold] {len(project_export.satellites)} satellite(s)
-[bold]Stages:[/bold] {len(project_export.stages)} stage(s)
-[bold]Exported to:[/bold] {json_path.absolute()}
-"""
-    print_panel("Export Summary", summary.strip(), style="success")
-
-
-def _select_project(projects: list, project_name: str | None):
-    """Select a project by name or interactively."""
+def _resolve_project(project_name: str | None):
     from engine.models import Project
 
     if project_name:
-        # Use provided project name
-        selected = Project.objects.filter(name=project_name).first()
-        if not selected:
-            print_error(f"Project '{project_name}' not found!")
-            available = ", ".join(p.name for p in projects)
-            print_info(f"Available projects: {available}")
-            raise typer.Exit(1)
-        return selected
-    elif len(projects) == 1:
-        # Only one project, use it
-        print_info(f"Using project: {projects[0].name}")
+        project = Project.objects.filter(name=project_name).first()
+        if project is None:
+            print_error(f"Project '{project_name}' not found.")
+            raise typer.Exit(2)
+        return project
+
+    projects = list(Project.objects.order_by("name"))
+    if not projects:
+        print_error("No projects exist. Create one with `turbovault project init`.")
+        raise typer.Exit(2)
+    if len(projects) == 1:
         return projects[0]
-    else:
-        # Interactive selection
-        project_choices = [
-            questionary.Choice(
-                title=f"{p.name}"
-                + (
-                    f" - {p.description[:50]}..."
-                    if p.description and len(p.description) > 50
-                    else f" - {p.description}" if p.description else ""
-                ),
-                value=p,
+
+    chosen = questionary.select(
+        "Select a project:", choices=[p.name for p in projects]
+    ).ask()
+    if not chosen:
+        raise typer.Exit(0)
+    return next(p for p in projects if p.name == chosen)
+
+
+def _resolve_output_type(requested: str | None) -> str:
+    if requested:
+        if requested not in SUPPORTED_TYPES:
+            print_error(
+                f"Unknown --type '{requested}'. Use one of: {', '.join(SUPPORTED_TYPES)}."
             )
-            for p in projects
-        ]
-
-        return questionary.select(
-            "Select project to generate:", choices=project_choices
-        ).ask()
-
-
-def _create_zip_archive(output_path: Path) -> Path:
-    """Create a ZIP archive of the generated dbt project."""
-    zip_path = output_path.with_suffix(".zip")
-
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for file in output_path.rglob("*"):
-            if file.is_file():
-                arcname = file.relative_to(output_path.parent)
-                zipf.write(file, arcname)
-
-    return zip_path
+            raise typer.Exit(2)
+        return requested
+    chosen = questionary.select(
+        "Select export type:",
+        choices=[
+            questionary.Choice("dbt — Generate dbt project", value="dbt"),
+            questionary.Choice("json — Export model as JSON", value="json"),
+            questionary.Choice("dbml — Export model as DBML diagram", value="dbml"),
+        ],
+        default="dbt",
+    ).ask()
+    if not chosen:
+        raise typer.Exit(0)
+    return chosen
 
 
-def _show_summary(
-    report, output_path: Path, zip_path: Path | None, no_v1: bool
-) -> None:
-    """Display generation summary."""
-    status = "[green]✓ Success[/green]" if report.success else "[red]✗ Failed[/red]"
+def _resolve_output_path(
+    *,
+    output_type: str,
+    output: Path | None,
+    json_output: Path | None,
+    dbml_output: Path | None,
+    project,
+    dry_run: bool,
+) -> Path | None:
+    """Pick the target path for the artifact.
 
-    # Build entity counts
-    entity_lines = [
-        f"[bold]Stages:[/bold] {report.stages_generated}",
-        f"[bold]Hubs:[/bold] {report.hubs_generated}",
-        f"[bold]Links:[/bold] {report.links_generated}",
-        f"[bold]Satellites (v0):[/bold] {report.satellites_generated}",
-    ]
+    Priority order:
+      1. Type-specific override flags (`--json-output`, `--dbml-output`).
+      2. Generic `--output` / `-o`.
+      3. Workspace convention: `<project_dir>/exports/{dbt_project | <name>.json | <name>.dbml}`.
+      4. Fallback `./output/<slug>` when the project has no `project_directory`
+         set (ad-hoc / test projects).
+    """
+    if dry_run:
+        return None
 
-    if not no_v1:
-        entity_lines.append(
-            f"[bold]Satellite views (v1):[/bold] {report.satellite_views_generated}"
+    if output_type == "json" and json_output:
+        return json_output
+    if output_type == "dbml" and dbml_output:
+        return dbml_output
+    if output:
+        return output
+
+    slug = project.name.lower().replace(" ", "_")
+    exports_dir = _project_exports_dir(project)
+    if exports_dir is None:
+        # No project_directory configured — fall back to cwd-relative output.
+        if output_type == "dbt":
+            return Path(f"./output/{slug}")
+        if output_type == "json":
+            return Path(f"./output/{slug}.json")
+        return Path(f"./output/{slug}.dbml")
+
+    if output_type == "dbt":
+        return exports_dir / "dbt_project"
+    if output_type == "json":
+        return exports_dir / f"{slug}.json"
+    return exports_dir / f"{slug}.dbml"
+
+
+def _project_exports_dir(project) -> Path | None:
+    """Return `<workspace>/projects/<project>/exports`, or None if unknown."""
+    project_directory = getattr(project, "project_directory", None)
+    if not project_directory:
+        return None
+    from engine.services.app_config_loader import resolve_project_path
+
+    try:
+        return resolve_project_path(project_directory) / "exports"
+    except Exception:
+        return None
+
+
+def _build_selection(
+    *,
+    include_type: list[str] | None,
+    exclude_type: list[str] | None,
+    include_group: list[str] | None,
+    exclude_group: list[str] | None,
+    only: list[str] | None,
+    entity_ref_cls,
+    selection_cls,
+):
+    if not any((include_type, exclude_type, include_group, exclude_group, only)):
+        return None
+    only_refs = None
+    if only:
+        only_refs = []
+        for spec in only:
+            if ":" not in spec:
+                print_error(f"--only expects TYPE:NAME, got '{spec}'")
+                raise typer.Exit(2)
+            type_, name = spec.split(":", 1)
+            only_refs.append(entity_ref_cls(type=type_.strip(), name=name.strip()))
+    return selection_cls(
+        include_entity_types=set(include_type) if include_type else None,
+        exclude_entity_types=set(exclude_type) if exclude_type else None,
+        include_groups=set(include_group) if include_group else None,
+        exclude_groups=set(exclude_group) if exclude_group else None,
+        only_entities=only_refs,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Announcement + reporting
+# ---------------------------------------------------------------------------
+
+
+def _announce(*, project, output_type, options, output_path) -> None:
+    verb = "Dry run" if options.dry_run else "Generation"
+    target = f" → {output_path}" if output_path else " (no files will be written)"
+    print_info(
+        f"{verb}: {output_type} for project '{project.name}'{target} "
+        f"(error_strategy={options.error_strategy})"
+    )
+
+
+def _render_report(report) -> None:
+    console.print()
+    _render_plan_table(report)
+    _render_issues_table(report)
+    _render_status_line(report)
+
+
+def _render_plan_table(report) -> None:
+    plan = report.plan
+    table = Table(title="Plan", show_header=True, header_style="bold cyan")
+    table.add_column("Entity type", style="bold")
+    table.add_column("Files", justify="right")
+
+    for entity_type, count in sorted(plan.by_entity_type.items()):
+        table.add_row(entity_type, str(count))
+    table.add_row(
+        "[bold]Total files planned[/bold]", f"[bold]{plan.files_planned}[/bold]"
+    )
+    console.print(table)
+
+
+def _render_issues_table(report) -> None:
+    if not report.issues:
+        console.print("[green]No issues.[/green]")
+        return
+    table = Table(
+        title=f"Issues ({len(report.issues)})",
+        show_header=True,
+        header_style="bold cyan",
+    )
+    table.add_column("Severity")
+    table.add_column("Stage")
+    table.add_column("Code")
+    table.add_column("Entity")
+    table.add_column("Message")
+
+    for issue in report.issues:
+        sev_style = {
+            "error": "[red]ERROR[/red]",
+            "warning": "[yellow]WARN[/yellow]",
+            "info": "[cyan]INFO[/cyan]",
+        }[issue.severity]
+        entity = (
+            f"{issue.entity.type}:{issue.entity.name}" if issue.entity else "—"
         )
+        table.add_row(sev_style, issue.stage, issue.code, entity, issue.message)
+    console.print(table)
 
-    entity_lines.extend(
-        [
-            f"[bold]PITs:[/bold] {report.pits_generated}",
-            f"[bold]Reference tables:[/bold] {report.reference_tables_generated}",
-            f"[bold]Snapshot controls:[/bold] {report.snapshot_controls_generated}",
-        ]
-    )
 
-    summary_content = f"""
-{status}
+def _render_status_line(report) -> None:
+    console.print()
+    files = report.files_generated
+    if report.status == "success":
+        verb = "Dry run completed" if report.is_dry_run else "Generation completed"
+        print_success(f"{verb} successfully. {files} file(s) written.")
+    elif report.status == "partial_success":
+        print_warning(
+            f"Generation partially succeeded: {files} file(s) written, "
+            f"{report.error_count} error(s), {report.warning_count} warning(s)."
+        )
+    elif report.status == "validation_failed":
+        print_error(
+            f"Generation aborted at validation: {report.error_count} error(s). "
+            "No files were written."
+        )
+    else:
+        print_error(f"Generation failed: {report.error_count} error(s).")
 
-[bold]Output path:[/bold] {output_path.absolute()}
-[bold]Total files:[/bold] {report.total_files}
-
-{chr(10).join(entity_lines)}
-"""
-
-    if zip_path:
-        summary_content += f"\n[bold]ZIP archive:[/bold] {zip_path}"
-
-    # Show errors if any
-    if report.errors:
-        summary_content += f"\n\n[red]Errors ({len(report.errors)}):[/red]"
-        for error in report.errors[:5]:  # Show first 5
-            summary_content += f"\n  • {error}"
-        if len(report.errors) > 5:
-            summary_content += f"\n  ... and {len(report.errors) - 5} more"
-
-    # Show skipped if any
-    if report.skipped:
-        summary_content += f"\n\n[yellow]Skipped ({len(report.skipped)}):[/yellow]"
-        for skipped in report.skipped[:5]:
-            summary_content += f"\n  • {skipped}"
-        if len(report.skipped) > 5:
-            summary_content += f"\n  ... and {len(report.skipped) - 5} more"
-
-    print_panel(
-        "Generation Summary",
-        summary_content.strip(),
-        style="success" if report.success else "error",
-    )
+    console.print(f"[dim]Run ID: {report.generation_run_id}[/dim]")

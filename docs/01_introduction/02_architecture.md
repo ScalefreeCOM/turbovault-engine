@@ -52,14 +52,17 @@ Key service areas (in `services/`):
   - Every invocation — including dry-runs and failed runs — is persisted as an `ImportRun` audit row. The full structured `ImportReport` is returned to the caller (CLI, web wizard, Studio backend) for rendering and deep linking.
   - See [Import Pipeline](../04_concepts/06_import-pipeline.md) for the complete behavior reference.
 
-- **Generation services**
-  - Read the populated domain model for a given Project.
-  - Render SQL models and YAML schemas using Jinja2 templates stored in the database.
-  - Write the resulting files to disk as an organized dbt project directory.
-  - Optionally create a ZIP archive and record a `GeneratedArtifact`.
+- **Generation pipeline** (`engine/services/generation/`)
+  - A six-stage pipeline — build → validate → plan → render → write → report — shared by every supported output type (`dbt`, `json`, `dbml`).
+  - Build wraps the existing `ModelBuilder`; validate runs the model-level invariants and emits structured `Issue`s; plan computes per-entity counts and applies `entity_selection`; render produces artifacts in memory (dbt rendering wraps the legacy `DbtProjectGenerator` via a temp dir; JSON/DBML wrap the existing exporters); write places artifacts under `output_path` and optionally creates a ZIP; report persists a `GenerationRun` and returns a structured `GenerationReport`.
+  - Supports two error strategies (`fail_fast`, `best_effort`) and a `dry_run` mode that runs through render in memory before stopping.
+  - First-class `EntitySelection` filter — include/exclude by entity type or group, or an explicit `only_entities` allowlist — used by both CLI flags and the Studio's single-entity preview.
+  - Optional `return_content=True` populates the rendered string on each `GeneratedArtifact` so callers can read model code without touching the filesystem.
+  - Every invocation — including dry-runs and failed runs — is persisted as a `GenerationRun` audit row. The full structured `GenerationReport` is returned to the caller (CLI, Studio backend) for rendering and deep linking.
+  - See [Generation Pipeline](../04_concepts/07_generation-pipeline.md) for the complete behavior reference.
 
 - **Export services**
-  - Serialize the domain model to alternative output formats (JSON, DBML) for inspection or downstream tooling.
+  - Serialize the domain model to alternative output formats (JSON, DBML) for inspection or downstream tooling. Invoked from the generation pipeline's render stage.
 
 All services are designed to be **stateless wrappers around the domain model** and I/O operations, making them suitable for reuse in CLI, Celery, and HTTP contexts.
 
@@ -72,8 +75,8 @@ CLI responsibilities:
 - Internally:
   - Initialize Django.
   - Call `config_loader` to parse the YAML.
-  - Invoke `import_metadata` to persist the model.
-  - Call `generate_dbt` to create the dbt project.
+  - Invoke `import_metadata()` (from `engine.services.imports`) to persist source metadata.
+  - Invoke `generate()` (from `engine.services.generation`) to produce the requested artifact.
 
 The CLI should be thin: it should not embed domain logic, only orchestrate service calls.
 

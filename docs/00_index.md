@@ -60,6 +60,16 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
 - **Audit trail** - Every run (including dry-runs) is recorded; browse with `turbovault import-history`
 - **Structured issues** - Stable machine-readable codes (`schema.missing_column`, `entity.missing_parent`, ...) for CI and tooling
 
+### 📤 Generation Pipeline
+- **Unified pipeline** - Same six-stage flow (build → validate → plan → render → write → report) for `dbt`, `json`, and `dbml` outputs
+- **Selective generation** - Filter by entity type, group, or an explicit `--only TYPE:NAME` allowlist
+- **Single-entity preview** - Render one hub's SQL + YAML to memory (no disk writes) for inline editor previews
+- **Dry-run** - Builds, validates, plans, AND renders in memory — catches template errors before they hit disk
+- **Strict / lenient modes** - `--mode strict` aborts on first error; `--mode lenient` writes what's valid and reports the rest
+- **Per-stage timings** - Every run reports `timings_ms` so you can spot slow stages
+- **Audit trail** - Every run (including dry-runs and failed runs) recorded; browse with `turbovault generation-history`
+- **Structured issues** - Stable dot-separated codes (`validate.hub.missing_hashkey`, `render.template_not_found`, ...) for CI and tooling
+
 ### 🖥️ Developer Experience
 - **Modern CLI** - Built with Typer and Rich for beautiful terminal output
 - **Web Initializer** - Interactive, multi-step project creation wizard
@@ -170,6 +180,18 @@ turbovault generate --project my_project --zip
 
 # Skip satellite v1 views
 turbovault generate --project my_project --no-v1-satellites
+
+# Dry-run: validate + render in memory, no files written
+turbovault generate --project my_project --dry-run
+
+# Selective generation: only emit one group of models
+turbovault generate --project my_project --include-group sales
+
+# Single-entity preview: render just one hub's SQL + YAML
+turbovault generate --project my_project --only hub:hub_customer --dry-run
+
+# Show recent generation runs (real + dry-run + failed)
+turbovault generation-history --project my_project
 ```
 
 ---
@@ -184,7 +206,8 @@ turbovault generate --project my_project --no-v1-satellites
 | `turbovault project list` | List all projects in the workspace |
 | `turbovault import` | Re-import metadata into an existing project (merge / replace / dry-run) |
 | `turbovault import-history` | Show recent import runs for a project |
-| `turbovault generate` | Generate dbt project or export model to JSON / DBML |
+| `turbovault generate` | Generate dbt project / JSON / DBML (supports selection, dry-run, single-entity preview) |
+| `turbovault generation-history` | Show recent generation runs for a project |
 | `turbovault serve` | Start Django admin server for model management |
 | `turbovault reset` | Reset the database |
 | `turbovault --help` | Show all available commands |
@@ -519,6 +542,7 @@ Please contact us at **contact@scalefree.com** to discuss a commercial license t
 - [Excel Metadata Format](docs/04_concepts/02_excel-metadata-format.md)
 - [JSON Import (Round-Trip)](docs/04_concepts/04_json-import.md)
 - [Import Pipeline](docs/04_concepts/06_import-pipeline.md)
+- [Generation Pipeline](docs/04_concepts/07_generation-pipeline.md)
 - [Validation Rules Reference](docs/04_concepts/03_validation-rules.md)
 
 
