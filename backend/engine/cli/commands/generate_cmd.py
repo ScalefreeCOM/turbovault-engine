@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from engine.services.generation import GenerationReport
 
 
-SUPPORTED_TYPES = ("dbt", "json", "dbml")
+SUPPORTED_TYPES = ("dbt", "json", "dbml", "iris")
 
 
 def generate(
@@ -93,6 +93,13 @@ def generate(
         Path | None,
         typer.Option("--dbml-output", help="Alias for --output when type=dbml"),
     ] = None,
+    iris_output: Annotated[
+        Path | None,
+        typer.Option(
+            "--iris-output",
+            help="Output directory for IRiS Excel files (only for type=iris)",
+        ),
+    ] = None,
     include_type: Annotated[
         list[str] | None,
         typer.Option(
@@ -149,6 +156,13 @@ def generate(
 
     project = _resolve_project(project_name)
     output_type = _resolve_output_type(type)
+
+    # IRiS doesn't go through the dbt/json/dbml pipeline (it emits a
+    # directory of Excel files via its own exporter). Handle it here.
+    if output_type == "iris":
+        _export_iris(project=project, iris_output=iris_output, dry_run=dry_run)
+        return
+
     output_path = _resolve_output_path(
         output_type=output_type,
         output=output,
@@ -237,6 +251,7 @@ def _resolve_output_type(requested: str | None) -> str:
             questionary.Choice("dbt — Generate dbt project", value="dbt"),
             questionary.Choice("json — Export model as JSON", value="json"),
             questionary.Choice("dbml — Export model as DBML diagram", value="dbml"),
+            questionary.Choice("iris — Export model to IRiS Excel templates", value="iris"),
         ],
         default="dbt",
     ).ask()
@@ -301,6 +316,64 @@ def _project_exports_dir(project) -> Path | None:
         return resolve_project_path(project_directory) / "exports"
     except Exception:
         return None
+
+
+# ---------------------------------------------------------------------------
+# IRiS export (handled outside the dbt/json/dbml pipeline)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_iris_output_dir(project, iris_output: Path | None) -> Path:
+    if iris_output:
+        return iris_output
+    exports_dir = _project_exports_dir(project)
+    if exports_dir is not None:
+        return exports_dir / "iris"
+    slug = project.name.lower().replace(" ", "_")
+    return Path(f"./output/{slug}_iris")
+
+
+def _export_iris(*, project, iris_output: Path | None, dry_run: bool) -> None:
+    """Export the model to the three IRiS Excel templates.
+
+    Builds the `ProjectExport` directly and calls `IrisExporter`, since
+    IRiS writes a directory of workbooks rather than a single pipeline
+    artifact. Exits with 0 on success, 2 on failure.
+    """
+    from engine.services.export.builder import ModelBuilder
+    from engine.services.export.exporters.iris_exporter import IrisExporter
+    from engine.services.runtime_config import resolve_runtime_config
+
+    runtime_config = resolve_runtime_config(project)
+    project_export = ModelBuilder(project, runtime_config=runtime_config).build(
+        export_sources=runtime_config.export_sources,
+        generate_tests=runtime_config.generate_tests,
+        generate_dbml=runtime_config.generate_dbml,
+    )
+
+    output_dir = _resolve_iris_output_dir(project, iris_output)
+
+    if dry_run:
+        print_warning("Dry run: no IRiS files written.")
+        raise typer.Exit(0)
+
+    result = IrisExporter().export(
+        project_export, output_dir, project_name=project.name
+    )
+
+    for warning in result.warnings:
+        print_warning(warning)
+    for skipped in result.skipped:
+        print_info(f"Skipped: {skipped}")
+
+    if result.success:
+        for file_path in result.files:
+            print_success(f"IRiS file: {file_path}")
+        raise typer.Exit(0)
+
+    for error in result.errors:
+        print_error(error)
+    raise typer.Exit(2)
 
 
 def _build_selection(
