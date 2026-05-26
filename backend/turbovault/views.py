@@ -1,5 +1,4 @@
 import os
-import sqlite3
 import tempfile
 from pathlib import Path
 
@@ -142,30 +141,47 @@ def create_project(request: HttpRequest) -> HttpResponse:
 def _handle_metadata_import(
     project: Project, source_file: UploadedFile, source_type: str
 ) -> None:
-    """Helper to handle metadata import from uploaded file."""
-    # Use the original file extension to ensure compatibility with import services
-    suffix = Path(source_file.name).suffix
+    """Run the import pipeline against an uploaded file.
 
+    Errors from the import are surfaced via the returned ImportReport's
+    issues list rather than as exceptions; the wizard caller decides how
+    to render them. The web wizard currently uses the same defaults the
+    CLI's `project init` uses (replace_all + best_effort) so a failed
+    re-import doesn't leave the project half-loaded.
+    """
+    from engine.services.imports import (
+        ExcelSource,
+        ImportOptions,
+        JsonSource,
+        SqliteSource,
+        import_metadata,
+    )
+
+    suffix = Path(source_file.name).suffix
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         for chunk in source_file.chunks():
             tmp.write(chunk)
-        tmp_path = tmp.name
+        tmp_path = Path(tmp.name)
 
     try:
         if source_type == "excel":
-            from engine.services.excel_sqlite_adapter import ExcelImport
-
-            service = ExcelImport(tmp_path)
-            # Use skip_snapshots=False to match CLI interactive behavior
-            service.import_metadata(project=project, skip_snapshots=False)
+            source = ExcelSource(path=tmp_path, display_name=source_file.name)
         elif source_type == "sqlite":
-            conn = sqlite3.connect(tmp_path)
-            from engine.services.sqlite_import import SqliteImportService
+            source = SqliteSource(path=tmp_path, display_name=source_file.name)
+        elif source_type == "json":
+            source = JsonSource(path=tmp_path, display_name=source_file.name)
+        else:
+            return
 
-            service = SqliteImportService(conn)
-            # Use skip_snapshots=False to match CLI interactive behavior
-            service.import_metadata(project=project, skip_snapshots=False)
-            conn.close()
+        import_metadata(
+            project=project,
+            source=source,
+            options=ImportOptions(
+                conflict_strategy="replace_all",
+                error_strategy="best_effort",
+                skip_snapshots=False,
+            ),
+        )
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)

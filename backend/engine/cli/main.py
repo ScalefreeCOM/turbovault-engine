@@ -17,6 +17,9 @@ backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from engine.cli.commands import generate_cmd, reset_cmd, serve_cmd
+from engine.cli.commands.generation_history_cmd import generation_history
+from engine.cli.commands.history_cmd import import_history
+from engine.cli.commands.import_cmd import import_metadata_cmd
 from engine.cli.commands.model_cmd import model_app
 from engine.cli.commands.project_cmd import project_app, project_init, project_list
 from engine.cli.commands.workspace_cmd import (
@@ -180,6 +183,18 @@ app.command(
 )(generate_cmd.generate)
 app.command(name="serve", help="Start Django admin server")(serve_cmd.serve)
 app.command(name="reset", help="Reset the Django database")(reset_cmd.reset)
+app.command(
+    name="import",
+    help="Import metadata into an existing project (merge / replace / dry-run)",
+)(import_metadata_cmd)
+app.command(
+    name="import-history",
+    help="Show recent import runs for a project",
+)(import_history)
+app.command(
+    name="generation-history",
+    help="Show recent generation runs for a project",
+)(generation_history)
 
 
 # Main entry point

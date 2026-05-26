@@ -46,15 +46,24 @@ Pass the `.json` file directly with the `--source` flag. The file extension is d
 # Export
 turbovault generate --type json --project my_project --json-output ./my_project.json
 
-# Import (new project name, same or different workspace)
+# Import as a brand-new project
 turbovault project init --name my_project_copy --source ./my_project.json
+
+# Re-import into an existing project (merge by default; safe to repeat)
+turbovault import --project my_project_copy --source ./my_project.json
+
+# Preview the impact of a JSON import without writing anything
+turbovault import --project my_project_copy --source ./my_project.json --dry-run
 ```
 
-Interactive wizard also supports JSON:
+Interactive wizards also support JSON:
 
 ```bash
 turbovault project init --interactive
 # Select "JSON export file (.json)" when prompted for source type
+
+turbovault import --interactive
+# Pick the project and provide the .json file when prompted
 ```
 
 ### config.yml
@@ -89,3 +98,16 @@ Snapshot controls embedded in the JSON export are restored as-is. The automatic 
 ## Generating the JSON Export
 
 See [`turbovault generate --type json`](../02_getting-started/01_cli-reference.md#turbovault-generate) for the full set of options controlling the JSON output path and format.
+
+## How JSON imports run
+
+JSON imports flow through the same [Import Pipeline](06_import-pipeline.md) as Excel and SQLite, so the conflict strategy (`merge` / `replace-all` / `update-only`), error strategy (`best-effort` / `fail-fast`), and `--dry-run` flag all behave identically.
+
+For a JSON file produced by `turbovault generate --type json`, validation issues are rare in practice — the export schema is structured and round-trip safe. The most common issues you might see are:
+
+| Code | Trigger |
+|------|---------|
+| `source.invalid_json` | The file is not valid JSON or does not match the Turbovault export schema. |
+| `entity.missing_reference` | The JSON references a snapshot control table that doesn't exist (rare; can happen when manually editing exports). |
+
+The full catalog lives in [Import Pipeline → Issue codes](06_import-pipeline.md#issue-codes).

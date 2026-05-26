@@ -8,7 +8,7 @@ title: Excel Metadata Format
 
 TurboVault Engine can import your Data Vault model definition from an **Excel spreadsheet**. This page describes the required sheet names, their column structure, and how they map to the domain model.
 
-> **See also:** [Domain Model](01_domain-model.md) for full entity definitions. A ready-to-use example file (`TurboVault_TPCH_Data.xlsx`) is included in the repository root.
+> **See also:** [Domain Model](01_domain-model.md) for full entity definitions. A ready-to-use example file (`TurboVault_TPCH_Data.xlsx`) is included in the repository root. For the end-to-end behavior of Excel imports — re-imports, dry-runs, conflict modes, and the structured issue report — see [Import Pipeline](06_import-pipeline.md).
 
 ---
 
@@ -156,9 +156,35 @@ Defines Point-in-Time structures.
 
 - **Carry-forward**: For multi-row entities (links, satellites), only the first row needs the entity name — subsequent rows for the same entity can leave it blank and it will be inherited from the row above.
 - **Identifiers**: The `*_identifier` columns are internal cross-reference keys. They must be unique within the file but are not persisted — they are used only during import to wire entities together.
-- **Case sensitivity**: Column names are matched case-sensitively. Use exactly the column names listed above.
-- **Extra columns**: Any columns not listed above are silently ignored.
-- **Missing sheets**: Missing sheets are skipped without error.
+- **Case sensitivity**: Column names are matched case-insensitively (headers are lowercased before matching).
+- **Unknown columns**: Columns that are not part of the recognized header set produce a `schema.unknown_column` *warning* by default. They are not fatal — the import continues.
+- **Unknown sheets**: Sheets not in the supported list produce a `schema.unknown_sheet` *warning* and are skipped.
+- **Missing sheets**: Sheets that are absent are simply skipped — never an error.
+- **Missing required header columns**: If a present sheet is missing a required *header* column (e.g. `standard_hub` without `source_table_identifier`), that entire sheet is dropped from the import with a `schema.missing_column` error. Other sheets continue. Under `--on-error fail-fast`, this aborts the whole run.
+- **Missing required cell values**: If a single row is missing a required value, only that row is skipped with a `row.required_value_missing` error. Other rows continue.
+
+---
+
+## How errors are reported
+
+Excel imports go through the unified [Import Pipeline](06_import-pipeline.md). Every problem — missing column, malformed row, unresolved hub reference — is surfaced as a structured `Issue` with stable codes and exact location (sheet, row number, column name). The CLI renders these as a colored Rich table; the Studio frontend renders them as a deep-linkable list.
+
+The full catalog of issue codes lives in [Import Pipeline → Issue codes](06_import-pipeline.md#issue-codes).
+
+Re-importing the same Excel file into the same project is fully supported and the default behavior is **merge**: existing entities are updated with the latest values from the file, new entities are created, and anything not in the file is left alone.
+
+```bash
+# Re-import safely (merge is default)
+turbovault import --project my_project --source ./metadata.xlsx
+
+# Preview what an import would do without writing
+turbovault import --project my_project --source ./metadata.xlsx --dry-run
+
+# Make the project match the file exactly (destructive)
+turbovault import --project my_project --source ./metadata.xlsx --mode replace-all
+```
+
+See the [`turbovault import` CLI reference](../02_getting-started/01_cli-reference.md#turbovault-import) for the full set of flags.
 
 ---
 
