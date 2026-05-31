@@ -16,6 +16,7 @@ from __future__ import annotations
 from django.db import IntegrityError, transaction
 
 from engine.models import (
+    PIT,
     Group,
     Hub,
     HubColumn,
@@ -25,7 +26,6 @@ from engine.models import (
     LinkHubReference,
     LinkHubSourceMapping,
     LinkSourceMapping,
-    PIT,
     Project,
     ReferenceTable,
     Satellite,
@@ -37,14 +37,13 @@ from engine.models import (
     SourceTable,
 )
 from engine.services.imports.domain import (
+    DPIT,
     DHub,
     DLink,
     DomainModel,
-    DPIT,
     DReferenceTable,
     DSatellite,
     DSourceSystem,
-    DSourceTable,
 )
 from engine.services.imports.errors import Code, PipelineAbort, make_issue
 from engine.services.imports.planner import (

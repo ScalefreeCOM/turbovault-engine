@@ -16,7 +16,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---------------------------------------------------------------------------
 # Source declaration (discriminated union by `type`)
 # ---------------------------------------------------------------------------
@@ -43,8 +42,23 @@ class JsonSource(_SourceBase):
     type: Literal["json"] = "json"
 
 
+class SourceMetadataSource(_SourceBase):
+    """A versioned JSON document describing source-side metadata only.
+
+    Contract used by external metadata producers (notably the Studio's
+    live-database connector subsystem). Unlike ``JsonSource`` — which
+    consumes a full ``ProjectExport`` of an existing TurboVault project —
+    this format carries **only** source systems → tables → columns, so a
+    ``merge`` import leaves hubs/links/satellites untouched.
+
+    Schema: ``parsers.source_metadata.SourceMetadataV1``.
+    """
+
+    type: Literal["source_metadata"] = "source_metadata"
+
+
 SourceInput = Annotated[
-    ExcelSource | SqliteSource | JsonSource,
+    ExcelSource | SqliteSource | JsonSource | SourceMetadataSource,
     Field(discriminator="type"),
 ]
 
@@ -139,7 +153,7 @@ class EntityRef(BaseModel):
 
     type: EntityType
     name: str
-    parent: "EntityRef | None" = None
+    parent: EntityRef | None = None
 
 
 EntityRef.model_rebuild()

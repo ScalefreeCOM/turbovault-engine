@@ -8,7 +8,7 @@ and what extra columns are recognized (everything else is reported as
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
