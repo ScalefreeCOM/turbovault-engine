@@ -337,6 +337,10 @@ class OutputConfiguration(BaseModel):
         None,
         description="Custom directory for DBML exports (default: exports/dbml/)",
     )
+    iris_output_dir: Path | None = Field(
+        None,
+        description="Custom directory for IRiS exports (default: exports/iris/)",
+    )
 
     dbt_project_name: str | None = Field(
         None, description="Name of the dbt project (defaults to project.name)"
