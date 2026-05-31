@@ -5,6 +5,18 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.14.0...turbovault-engine-v0.15.0) (2026-05-31)
+
+
+### Features
+
+* add iris as output target ([#164](https://github.com/ScalefreeCOM/turbovault-engine/issues/164)) ([11be573](https://github.com/ScalefreeCOM/turbovault-engine/commit/11be573bd8f45b076b23a98650dadb38b037d501))
+* adding support to import source metadata extracted from a datab… ([#167](https://github.com/ScalefreeCOM/turbovault-engine/issues/167)) ([2a0f803](https://github.com/ScalefreeCOM/turbovault-engine/commit/2a0f8031dbcaff4f1609b2bd3dd16d6af88d4255))
+* adding support to import source metadata extracted from a database directly ([2a0f803](https://github.com/ScalefreeCOM/turbovault-engine/commit/2a0f8031dbcaff4f1609b2bd3dd16d6af88d4255))
+* implementing a new export and generation pipeline including detailed validation ([2781267](https://github.com/ScalefreeCOM/turbovault-engine/commit/2781267f3745fe539cb185d1db4f620a4216759f))
+* implementing a new import pipeline including detailed validation and a new command for reimporting metadata ([2781267](https://github.com/ScalefreeCOM/turbovault-engine/commit/2781267f3745fe539cb185d1db4f620a4216759f))
+* new import and generation pipelines ([#162](https://github.com/ScalefreeCOM/turbovault-engine/issues/162)) ([2781267](https://github.com/ScalefreeCOM/turbovault-engine/commit/2781267f3745fe539cb185d1db4f620a4216759f))
+
 ## [0.14.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.13.0...turbovault-engine-v0.14.0) (2026-05-16)
 
 
