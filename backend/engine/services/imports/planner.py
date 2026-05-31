@@ -19,9 +19,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from engine.models import (
+    PIT,
     Hub,
     Link,
-    PIT,
     Project,
     ReferenceTable,
     Satellite,
@@ -32,8 +32,6 @@ from engine.services.imports.domain import (
     DHub,
     DLink,
     DomainModel,
-    DPIT,
-    DReferenceTable,
     DSatellite,
     DSourceSystem,
     DSourceTable,
@@ -45,7 +43,6 @@ from engine.services.imports.types import (
     ImportPlan,
     PlannedEntity,
 )
-
 
 # ---------------------------------------------------------------------------
 # Plan items track create/update/delete on entities, plus carry the resolved

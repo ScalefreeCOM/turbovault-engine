@@ -16,6 +16,7 @@ from collections import defaultdict
 from typing import Any
 
 from engine.services.imports.domain import (
+    DPIT,
     DHub,
     DHubColumn,
     DHubSourceMapping,
@@ -25,7 +26,6 @@ from engine.services.imports.domain import (
     DLinkHubSourceMapping,
     DLinkSourceMapping,
     DomainModel,
-    DPIT,
     DReferenceTable,
     DSatellite,
     DSatelliteColumn,
@@ -34,7 +34,7 @@ from engine.services.imports.domain import (
     DSourceTable,
 )
 from engine.services.imports.errors import Code, make_issue
-from engine.services.imports.ir import IRDocument, IRRow, IRSheet
+from engine.services.imports.ir import IRDocument, IRRow
 from engine.services.imports.parsers.base import truthy
 from engine.services.imports.types import (
     EntityRef,

@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from engine.services.export.models import ProjectExport
 from engine.services.imports.domain import (
+    DPIT,
     DHub,
     DHubColumn,
     DHubSourceMapping,
@@ -23,7 +24,6 @@ from engine.services.imports.domain import (
     DLinkHubSourceMapping,
     DLinkSourceMapping,
     DomainModel,
-    DPIT,
     DPrejoin,
     DPrejoinExtractionColumn,
     DReferenceTable,
