@@ -31,7 +31,7 @@ TurboVault uses a **two-step setup**: initialise the workspace once, then create
 | `turbovault import` | Run the import pipeline against an existing project (merge / replace / dry-run) |
 | `turbovault import-history` | Show recent import runs for a project |
 | `turbovault model` | Create and inspect Data Vault entities (hubs, links, satellites, PITs) |
-| `turbovault generate` | Generate dbt project / JSON / DBML (supports selection, dry-run, single-entity preview) |
+| `turbovault generate` | Generate dbt project / JSON / DBML / IRiS export (supports selection, dry-run, single-entity preview) |
 | `turbovault generation-history` | Show recent generation runs for a project |
 | `turbovault serve` | Start Django admin server |
 | `turbovault reset` | Reset the workspace database |
@@ -332,10 +332,13 @@ from the Studio frontend.
 
 ### turbovault generate
 
-Generate a dbt project, JSON export, or DBML diagram from your Data
-Vault model. The command runs the unified [Generation Pipeline](../04_concepts/07_generation-pipeline.md)
-end-to-end and returns a structured report with per-entity plan counts,
-severity-coded issues, and per-stage timings.
+Generate a dbt project, JSON export, DBML diagram, or IRiS export from
+your Data Vault model. The `dbt`, `json`, and `dbml` types run the
+unified [Generation Pipeline](../04_concepts/07_generation-pipeline.md)
+end-to-end and return a structured report with per-entity plan counts,
+severity-coded issues, and per-stage timings. The `iris` type is served
+by a standalone exporter that writes a directory of Excel workbooks
+instead of going through the pipeline.
 
 #### Basic Usage
 
@@ -356,10 +359,12 @@ turbovault generate --project sales_datavault --type dbt
 | `dbt` | `<workspace>/projects/<project>/exports/dbt_project/` |
 | `json` | `<workspace>/projects/<project>/exports/<project_slug>.json` |
 | `dbml` | `<workspace>/projects/<project>/exports/<project_slug>.dbml` |
+| `iris` | `<workspace>/projects/<project>/exports/iris/` |
 
-Explicit `--output`, `--json-output`, or `--dbml-output` always wins.
-If the project has no `project_directory` configured (ad-hoc / test
-projects), the fallback is `./output/<slug>` under the current directory.
+Explicit `--output`, `--json-output`, `--dbml-output`, or `--iris-output`
+always wins. If the project has no `project_directory` configured (ad-hoc
+/ test projects), the fallback is `./output/<slug>` (`./output/<slug>_iris`
+for `iris`) under the current directory.
 
 #### Generate to Custom Directory
 
@@ -414,7 +419,7 @@ turbovault generate --project sales_datavault --dry-run
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
 | `--project NAME` | `-p` | Project name (or interactive picker) | Interactive |
-| `--type TYPE` | `-t` | Export type: `dbt`, `json`, or `dbml` | Interactive |
+| `--type TYPE` | `-t` | Export type: `dbt`, `json`, `dbml`, or `iris` | Interactive |
 | `--output PATH` | `-o` | Output directory (dbt) or file (json/dbml) | Workspace convention (see above) |
 | `--mode MODE` | `-m` | Error strategy: `strict` (fail-fast) or `lenient` (best-effort) | `strict` |
 | `--skip-validation` | | Bypass the validate stage entirely | `false` |
@@ -423,6 +428,7 @@ turbovault generate --project sales_datavault --dry-run
 | `--no-v1-satellites` | | Skip generating satellite `_v1` views (dbt only) | `false` |
 | `--json-output PATH` | | Alias for `--output` when `--type json` | — |
 | `--dbml-output PATH` | | Alias for `--output` when `--type dbml` | — |
+| `--iris-output PATH` | | Output directory for the IRiS Excel files when `--type iris` | — |
 | `--include-type TYPE` | | Only emit these entity types (repeatable) | — |
 | `--exclude-type TYPE` | | Skip these entity types (repeatable) | — |
 | `--include-group NAME` | | Only emit entities in these groups (repeatable) | — |
