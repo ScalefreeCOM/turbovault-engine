@@ -445,7 +445,7 @@ turbovault generate --type iris --project my_project
 turbovault generate --type iris --project my_project --iris-output ./exports/iris
 ```
 
-Exports the model to the three Excel workbooks that IRiS ingests, written into a single output directory:
+Exports the model to the three Excel workbooks that [IRiS](https://ignition-data.com/iris) ingests, written into a single output directory:
 
 | Workbook | Contents |
 |----------|----------|

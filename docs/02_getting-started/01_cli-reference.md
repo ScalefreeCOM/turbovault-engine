@@ -332,7 +332,7 @@ from the Studio frontend.
 
 ### turbovault generate
 
-Generate a dbt project, JSON export, DBML diagram, or IRiS export from
+Generate a dbt project, JSON export, DBML diagram, or [IRiS](https://ignition-data.com/iris) export from
 your Data Vault model. The `dbt`, `json`, and `dbml` types run the
 unified [Generation Pipeline](../04_concepts/07_generation-pipeline.md)
 end-to-end and return a structured report with per-entity plan counts,
