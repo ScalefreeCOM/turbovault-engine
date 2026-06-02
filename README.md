@@ -174,7 +174,7 @@ turbovault generate --project my_project --no-v1-satellites
 | `turbovault workspace status` | Show workspace health (DB, projects, migrations) |
 | `turbovault project init` | Create a new project in the workspace |
 | `turbovault project list` | List all projects in the workspace |
-| `turbovault generate` | Generate dbt project or export model to JSON / DBML |
+| `turbovault generate` | Generate dbt project or export model to JSON / DBML / IRiS |
 | `turbovault serve` | Start Django admin server for model management |
 | `turbovault reset` | Reset the database |
 | `turbovault --help` | Show all available commands |
@@ -434,6 +434,26 @@ turbovault generate --type dbml --project my_project --dbml-output ./exports/mod
 ```
 
 Exports the model as [DBML (Database Markup Language)](https://dbml.dbdiagram.io/), which can be rendered in [dbdiagram.io](https://dbdiagram.io) to visualize entity relationships.
+
+### IRiS Export
+
+```bash
+# Export the model to the IRiS Excel templates
+turbovault generate --type iris --project my_project
+
+# Custom output directory
+turbovault generate --type iris --project my_project --iris-output ./exports/iris
+```
+
+Exports the model to the three Excel workbooks that [IRiS](https://ignition-data.com/iris) ingests, written into a single output directory:
+
+| Workbook | Contents |
+|----------|----------|
+| `Source_<project>.xlsx` | Source table and column metadata |
+| `DataVault_<project>.xlsx` | Hub / Link / Satellite definitions |
+| `Mappings_<project>.xlsx` | Source-to-Data-Vault column mappings |
+
+On completion it lists the files written. Any entities IRiS cannot represent are skipped, each reported with an explanatory warning. The default output directory is `<workspace>/projects/<project>/exports/iris/`.
 
 ### dbt Project
 
