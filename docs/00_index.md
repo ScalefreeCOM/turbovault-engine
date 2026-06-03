@@ -501,6 +501,18 @@ Exports the model to the three Excel workbooks that [IRiS](https://ignition-data
 
 On completion it lists the files written. Any entities IRiS cannot represent are skipped, each reported with an explanatory warning. The default output directory is `<workspace>/projects/<project>/exports/iris/`.
 
+### IRiS Import (Round-Trip)
+
+The three IRiS workbooks can be read back into a TurboVault project so dbt can be generated from a model authored or round-tripped in IRiS. Point `--source` at the **directory** holding the `Source_*` / `DataVault_*` / `Mappings_*` files
+
+```bash
+# Create a new project seeded from an IRiS export directory
+turbovault project init --name my_project --source ./exports/iris
+
+# Or import into an existing project
+turbovault import --project my_project --source ./exports/iris
+```
+
 ### dbt Project
 
 ```bash

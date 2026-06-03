@@ -52,7 +52,11 @@ def init(
         typer.Option(
             "--source",
             "-s",
-            help="Path to source metadata file (Excel .xlsx, SQLite .db, or JSON export .json)",
+            help=(
+                "Path to source metadata file (Excel .xlsx, SQLite .db, or "
+                "JSON export .json), or a directory holding an IRiS three-file "
+                "export"
+            ),
         ),
     ] = None,
     # ── Schema flags ─────────────────────────────────────────────────
@@ -217,6 +221,7 @@ def _init_from_flags(
     """Build a TurboVaultConfig from CLI flags and delegate to shared init logic."""
     from engine.services.config_schema import (
         ExcelSourceConfig,
+        IrisSourceConfig,
         JsonSourceConfig,
         OutputConfiguration,
         ProjectConfiguration,
@@ -225,21 +230,26 @@ def _init_from_flags(
         TurboVaultConfig,
     )
 
-    # Determine source config
+    # Determine source config. A directory is taken to be an IRiS three-file
+    # export; otherwise the file extension selects the format.
     source_cfg = None
     if source_path:
-        suffix = source_path.suffix.lower()
-        if suffix in (".xlsx", ".xls"):
-            source_cfg = ExcelSourceConfig(path=source_path)
-        elif suffix in (".db", ".sqlite", ".sqlite3"):
-            source_cfg = SqliteSourceConfig(path=source_path)
-        elif suffix == ".json":
-            source_cfg = JsonSourceConfig(path=source_path)
+        if source_path.is_dir():
+            source_cfg = IrisSourceConfig(path=source_path)
         else:
-            print_error(
-                f"Unsupported source file type '{suffix}'. Use .xlsx, .db/.sqlite, or .json."
-            )
-            raise typer.Exit(1)
+            suffix = source_path.suffix.lower()
+            if suffix in (".xlsx", ".xls"):
+                source_cfg = ExcelSourceConfig(path=source_path)
+            elif suffix in (".db", ".sqlite", ".sqlite3"):
+                source_cfg = SqliteSourceConfig(path=source_path)
+            elif suffix == ".json":
+                source_cfg = JsonSourceConfig(path=source_path)
+            else:
+                print_error(
+                    f"Unsupported source file type '{suffix}'. Use .xlsx, "
+                    ".db/.sqlite, .json, or a directory of IRiS files."
+                )
+                raise typer.Exit(1)
 
     # Build naming extras
     naming_overrides: dict = {}
@@ -484,18 +494,21 @@ def _import_metadata(project, source) -> None:
     from engine.services.imports import (
         ExcelSource,
         ImportOptions,
+        IrisSource,
         JsonSource,
         SqliteSource,
         import_metadata as run_import,
     )
 
-    source_input: ExcelSource | SqliteSource | JsonSource
+    source_input: ExcelSource | SqliteSource | JsonSource | IrisSource
     if source.type == "excel":
         source_input = ExcelSource(path=source.path)
     elif source.type == "sqlite":
         source_input = SqliteSource(path=source.path)
     elif source.type == "json":
         source_input = JsonSource(path=source.path)
+    elif source.type == "iris":
+        source_input = IrisSource(path=source.path)
     else:
         print_error(f"Unsupported source type: {source.type}")
         return
@@ -535,6 +548,7 @@ def _run_interactive_init() -> None:
     """Run interactive project setup wizard."""
     from engine.services.config_schema import (
         ExcelSourceConfig,
+        IrisSourceConfig,
         JsonSourceConfig,
         OutputConfiguration,
         ProjectConfiguration,
@@ -567,6 +581,7 @@ def _run_interactive_init() -> None:
                 questionary.Choice("Excel file (.xlsx)", value="excel"),
                 questionary.Choice("SQLite database (.db)", value="sqlite"),
                 questionary.Choice("JSON export file (.json)", value="json"),
+                questionary.Choice("IRiS three-file export (directory)", value="iris"),
             ],
         ).ask()
 
@@ -582,6 +597,12 @@ def _run_interactive_init() -> None:
             path = questionary.path("Path to JSON export file (.json):").ask()
             if path:
                 source_cfg = JsonSourceConfig(path=Path(path))
+        elif source_type == "iris":
+            path = questionary.path(
+                "Path to IRiS directory (Source_/DataVault_/Mappings_ files):"
+            ).ask()
+            if path:
+                source_cfg = IrisSourceConfig(path=Path(path))
 
     # Snapshot controls
     create_snapshot_controls = questionary.confirm(

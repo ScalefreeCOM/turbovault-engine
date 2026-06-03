@@ -44,7 +44,10 @@ def import_metadata_cmd(
         typer.Option(
             "--source",
             "-s",
-            help="Path to source metadata file (.xlsx, .db/.sqlite, or .json)",
+            help=(
+                "Path to source metadata file (.xlsx, .db/.sqlite, or .json), "
+                "or a directory holding an IRiS three-file export"
+            ),
             exists=True,
         ),
     ] = None,
@@ -151,7 +154,8 @@ def _run_import(
     if src is None:
         print_error(
             f"Cannot determine source type from extension: {source.suffix}. "
-            "Use a .xlsx, .db/.sqlite, or .json file."
+            "Use a .xlsx, .db/.sqlite, or .json file, or a directory of "
+            "IRiS files."
         )
         raise typer.Exit(2)
 
@@ -203,7 +207,8 @@ def _run_interactive_import() -> dict | None:
         return None
 
     source_str = questionary.path(
-        "Path to metadata file (.xlsx, .db/.sqlite, or .json):",
+        "Path to metadata file (.xlsx, .db/.sqlite, or .json), "
+        "or a directory of IRiS files:",
     ).ask()
     if not source_str:
         return None
@@ -211,10 +216,14 @@ def _run_interactive_import() -> dict | None:
     if not source.exists():
         print_error(f"File not found: {source}")
         return None
-    if source.suffix.lower() not in (".xlsx", ".db", ".sqlite", ".sqlite3", ".json"):
+    if (
+        not source.is_dir()
+        and source.suffix.lower()
+        not in (".xlsx", ".db", ".sqlite", ".sqlite3", ".json")
+    ):
         print_error(
             f"Unsupported file type '{source.suffix}'. "
-            "Use .xlsx, .db/.sqlite, or .json."
+            "Use .xlsx, .db/.sqlite, .json, or a directory of IRiS files."
         )
         return None
 
@@ -286,12 +295,23 @@ def _run_interactive_import() -> dict | None:
 
 
 def _build_source(path: Path) -> Any | None:
-    """Build the right SourceInput subtype from a file extension.
+    """Build the right SourceInput subtype from the path.
+
+    A directory is taken to be an IRiS three-file export (Source / DataVault /
+    Mappings workbooks); otherwise the file extension selects the format.
 
     The engine.services.imports import is deferred to keep this file safe
     to import before Django is configured.
     """
-    from engine.services.imports import ExcelSource, JsonSource, SqliteSource
+    from engine.services.imports import (
+        ExcelSource,
+        IrisSource,
+        JsonSource,
+        SqliteSource,
+    )
+
+    if path.is_dir():
+        return IrisSource(path=path)
 
     ext = path.suffix.lower()
     if ext == ".xlsx":

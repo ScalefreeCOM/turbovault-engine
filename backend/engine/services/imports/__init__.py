@@ -35,6 +35,7 @@ from engine.services.imports.errors import Code, PipelineAbort, make_issue
 from engine.services.imports.executor import execute_plan
 from engine.services.imports.ir import IRDocument
 from engine.services.imports.parsers.excel import parse_excel
+from engine.services.imports.parsers.iris import parse_iris
 from engine.services.imports.parsers.json_parser import parse_json
 from engine.services.imports.parsers.source_metadata import (
     parse_source_metadata,
@@ -55,6 +56,7 @@ from engine.services.imports.types import (
     ImportOptions,
     ImportPlan,
     ImportReport,
+    IrisSource,
     Issue,
     IssueLocation,
     JsonSource,
@@ -72,6 +74,7 @@ __all__ = [
     "SqliteSource",
     "JsonSource",
     "SourceMetadataSource",
+    "IrisSource",
     "SourceInput",
     "ImportOptions",
     "ImportReport",
@@ -139,6 +142,8 @@ def import_metadata(
                 domain = parse_json(Path(source.path))
             elif isinstance(source, SourceMetadataSource):
                 domain = parse_source_metadata(Path(source.path))
+            elif isinstance(source, IrisSource):
+                domain = parse_iris(Path(source.path))
             else:
                 raise PipelineAbort(
                     make_issue(
