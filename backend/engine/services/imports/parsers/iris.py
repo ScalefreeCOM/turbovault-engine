@@ -20,8 +20,8 @@ IRiS represents hubs, links, satellites and their column mappings. Metadata
 outside that scope is not part of the IRiS files and so is not present in the
 result: reference hubs/satellites, effectivity / record-tracking satellites,
 prejoins, hashkey and group names, source-system identity beyond the schema,
-``is_primary_source``, and the ``_H``/``_L``/``_S`` name suffixes (reconstructed
-physical names are the IRiS base names).
+and ``is_primary_source``. Physical names are the IRiS table names verbatim,
+including the ``h_`` / ``l_`` / ``s_`` / ``s_ma_`` prefixes.
 """
 
 from __future__ import annotations
@@ -468,11 +468,12 @@ class _Resolver:
     # -- assembly: hubs -------------------------------------------------- #
 
     def _assemble_hubs(self, hubs: dict[str, _HubWork]) -> dict[str, str]:
-        """Build hubs; return a case-insensitive map {lower(base) -> base} used
-        to resolve hub references and satellite parents regardless of casing."""
+        """Build hubs; return a case-insensitive map {lower(iris_name) ->
+        iris_name} used to resolve references regardless of casing. Physical
+        names are the IRiS table names verbatim."""
         hub_canon: dict[str, str] = {}
         for hub in hubs.values():
-            dhub = DHub(physical_name=hub.base, hub_type="standard")
+            dhub = DHub(physical_name=hub.iris_name, hub_type="standard")
             col_by_lower: dict[str, DHubColumn] = {}
             for i, bk in enumerate(hub.bk_columns):
                 col = DHubColumn(
@@ -496,8 +497,8 @@ class _Resolver:
                         source_column_name=src_col,
                     )
                 )
-            self._model.hubs[hub.base] = dhub
-            hub_canon[hub.base.lower()] = hub.base
+            self._model.hubs[hub.iris_name] = dhub
+            hub_canon[hub.iris_name.lower()] = hub.iris_name
         return hub_canon
 
     # -- assembly: links ------------------------------------------------- #
@@ -508,17 +509,16 @@ class _Resolver:
         link_by_iris: dict[str, DLink] = {}
         link_canon: dict[str, str] = {}
         for link in links.values():
-            dlink = DLink(physical_name=link.base, link_type="standard")
+            dlink = DLink(physical_name=link.iris_name, link_type="standard")
 
             # Hub references, ordered by first appearance; resolved to the
             # hub's actual physical name (case-insensitive).
             ref_index_by_hub: dict[str, int] = {}
             for i, hub_iris in enumerate(link.hub_ref_iris):
-                stripped = _strip_prefix(hub_iris)[0]
-                hub_base = hub_canon.get(stripped.lower(), stripped)
+                hub_name = hub_canon.get(hub_iris.lower(), hub_iris)
                 dlink.hub_references.append(
                     DLinkHubReference(
-                        hub_physical_name=hub_base, sort_order=i + 1
+                        hub_physical_name=hub_name, sort_order=i + 1
                     )
                 )
                 ref_index_by_hub[hub_iris.lower()] = i
@@ -576,9 +576,9 @@ class _Resolver:
                         )
                 dlink.columns.append(dcol)
 
-            self._model.links[link.base] = dlink
+            self._model.links[link.iris_name] = dlink
             link_by_iris[link.iris_name.lower()] = dlink
-            link_canon[link.base.lower()] = link.base
+            link_canon[link.iris_name.lower()] = link.iris_name
         return link_by_iris, link_canon
 
     # -- assembly: satellites ------------------------------------------- #
@@ -592,29 +592,28 @@ class _Resolver:
     ) -> None:
         used_names: set[str] = set()
         for sat in sats.values():
-            stripped, prefix_kind, _ = _strip_prefix(sat.parent_iris)
-            parent_lower = stripped.lower()
+            parent_lower = sat.parent_iris.lower()
             # Resolve the parent against the built hubs/links case-insensitively;
             # fall back to the prefix-derived kind for parents with no row.
             if parent_lower in link_canon:
-                parent_base, parent_kind = link_canon[parent_lower], "link"
+                parent_name, parent_kind = link_canon[parent_lower], "link"
             elif parent_lower in hub_canon:
-                parent_base, parent_kind = hub_canon[parent_lower], "hub"
+                parent_name, parent_kind = hub_canon[parent_lower], "hub"
             else:
-                parent_base = stripped
-                parent_kind = "link" if prefix_kind == "link" else "hub"
+                parent_name = sat.parent_iris
+                parent_kind = "link" if _strip_prefix(sat.parent_iris)[1] == "link" else "hub"
 
             # A satellite on a link whose base matches the link is the exporter's
             # synthesized non-historized payload satellite: fold it into the link.
             if (
                 parent_kind == "link"
-                and sat.base.lower() == parent_base.lower()
-                and sat.parent_iris.lower() in link_by_iris
+                and sat.base.lower() == _strip_prefix(parent_name)[0].lower()
+                and parent_lower in link_by_iris
             ):
-                self._fold_payload_satellite(sat, link_by_iris[sat.parent_iris.lower()])
+                self._fold_payload_satellite(sat, link_by_iris[parent_lower])
                 continue
 
-            self._build_standalone_satellite(sat, parent_base, parent_kind, used_names)
+            self._build_standalone_satellite(sat, parent_name, parent_kind, used_names)
 
     def _fold_payload_satellite(self, sat: _SatWork, dlink: DLink) -> None:
         dlink.link_type = "non_historized"
@@ -636,15 +635,15 @@ class _Resolver:
     def _build_standalone_satellite(
         self,
         sat: _SatWork,
-        parent_base: str,
+        parent_name: str,
         parent_kind: str | None,
         used_names: set[str],
     ) -> None:
-        name = self._unique_sat_name(sat.base, sat.is_multi_active, used_names)
+        name = self._unique_sat_name(sat.iris_name, sat.is_multi_active, used_names)
         dsat = DSatellite(
             physical_name=name,
             satellite_type="multi_active" if sat.is_multi_active else "standard",
-            parent_entity_name=parent_base,
+            parent_entity_name=parent_name,
             parent_entity_type="link" if parent_kind == "link" else "hub",
         )
         col_source = self._satellite_column_sources(sat)
