@@ -5,6 +5,18 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.15.0...turbovault-engine-v0.16.0) (2026-06-03)
+
+
+### Features
+
+* import from iris ([#170](https://github.com/ScalefreeCOM/turbovault-engine/issues/170)) ([bf3d4b3](https://github.com/ScalefreeCOM/turbovault-engine/commit/bf3d4b368551a637dc3f48bd2d01faa6676e4140))
+
+
+### Documentation
+
+* update documentation for iris ([#168](https://github.com/ScalefreeCOM/turbovault-engine/issues/168)) ([a64a254](https://github.com/ScalefreeCOM/turbovault-engine/commit/a64a25455f163d1231d4759824f37ea1a195dacc))
+
 ## [0.15.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.14.0...turbovault-engine-v0.15.0) (2026-05-31)
 
 
