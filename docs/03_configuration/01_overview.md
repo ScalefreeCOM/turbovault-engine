@@ -62,6 +62,9 @@ turbovault generate --project my_project --type json
 
 # DBML / ER diagram → projects/my_project/exports/dbml/
 turbovault generate --project my_project --type dbml
+
+# IRiS Excel templates → projects/my_project/exports/iris/
+turbovault generate --project my_project --type iris
 ```
 
 ### 4. Edit Configuration
@@ -200,6 +203,7 @@ output:
   # dbt_project_dir: ./custom/dbt_output
   # json_output_dir: ./custom/json_exports
   # dbml_output_dir: ./custom/dbml_exports
+  # iris_output_dir: ./custom/iris_exports
 ```
 
 ### Required Fields
@@ -226,10 +230,11 @@ You can override any of them in `config.yml` or with CLI flags.
 | dbt project | `exports/dbt_project/` | `output.dbt_project_dir` | `--output` |
 | JSON export | `exports/json/` | `output.json_output_dir` | `--json-output` |
 | DBML / ER diagram | `exports/dbml/` | `output.dbml_output_dir` | `--dbml-output` |
+| IRiS export | `exports/iris/` | `output.iris_output_dir` | `--iris-output` |
 
 **Priority order** (highest → lowest):
 
-1. CLI flag (`--output`, `--json-output`, `--dbml-output`)
+1. CLI flag (`--output`, `--json-output`, `--dbml-output`, `--iris-output`)
 2. Config value in `config.yml` (`output.dbt_project_dir`, etc.)
 3. Convention default (`exports/<type>/` inside the project folder)
 
@@ -240,6 +245,7 @@ output:
   dbt_project_dir: /shared/dbt/customer_mdm
   json_output_dir: ./exports/json
   dbml_output_dir: ./exports/dbml
+  iris_output_dir: ./exports/iris
 ```
 
 Both relative and absolute paths are supported.

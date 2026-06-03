@@ -33,7 +33,12 @@ def project_init(
     # Source metadata
     source: Annotated[
         str | None,
-        typer.Option("--source", "-s", help="Path to source file (.xlsx or .db)"),
+        typer.Option(
+            "--source",
+            "-s",
+            help="Path to source file (.xlsx, .db, .json) or a directory of "
+            "IRiS files",
+        ),
     ] = None,
     # Schemas
     stage_schema: Annotated[

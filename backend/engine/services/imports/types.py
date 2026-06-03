@@ -57,8 +57,19 @@ class SourceMetadataSource(_SourceBase):
     type: Literal["source_metadata"] = "source_metadata"
 
 
+class IrisSource(_SourceBase):
+    """The three-file IRiS export (Source / DataVault / Mappings workbooks).
+
+    ``path`` points at the directory holding the ``Source_*`` / ``DataVault_*``
+    / ``Mappings_*`` workbooks. The parser rebuilds a ``DomainModel`` directly,
+    inverting the IRiS exporter. See ``parsers.iris.parse_iris``.
+    """
+
+    type: Literal["iris"] = "iris"
+
+
 SourceInput = Annotated[
-    ExcelSource | SqliteSource | JsonSource | SourceMetadataSource,
+    ExcelSource | SqliteSource | JsonSource | SourceMetadataSource | IrisSource,
     Field(discriminator="type"),
 ]
 

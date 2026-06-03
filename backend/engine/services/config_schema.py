@@ -38,6 +38,7 @@ class SourceType(str, Enum):
     EXCEL = "excel"
     SQLITE = "sqlite"
     JSON = "json"
+    IRIS = "iris"
 
 
 class DatabaseEngine(str, Enum):
@@ -272,6 +273,39 @@ class JsonSourceConfig(BaseModel):
         return v
 
 
+class IrisSourceConfig(BaseModel):
+    """Configuration for importing metadata from an IRiS three-file export."""
+
+    type: Literal[SourceType.IRIS] = Field(
+        SourceType.IRIS, description="Source type (must be 'iris')"
+    )
+    path: Path = Field(
+        ...,
+        description="Path to the directory holding the IRiS Source_* / "
+        "DataVault_* / Mappings_* workbooks",
+    )
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def sanitize_path(cls, v: object) -> str:
+        """Strip quotes, whitespace, and expand user/env-var references."""
+        return _sanitize_path_string(v)
+
+    @field_validator("path")
+    @classmethod
+    def validate_path_exists(cls, v: Path) -> Path:
+        """Warn if the directory doesn't exist."""
+        if not v.exists():
+            import warnings
+
+            warnings.warn(
+                f"IRiS directory not found: {v}. It will need to exist before "
+                "import.",
+                stacklevel=2,
+            )
+        return v
+
+
 class ProjectConfiguration(BaseModel):
     """Project-level Data Vault configuration."""
 
@@ -372,9 +406,13 @@ class TurboVaultConfig(BaseModel):
     """
 
     project: ProjectInfo = Field(..., description="Project information")
-    source: ExcelSourceConfig | SqliteSourceConfig | JsonSourceConfig | None = Field(
-        None, description="Optional source metadata import configuration"
-    )
+    source: (
+        ExcelSourceConfig
+        | SqliteSourceConfig
+        | JsonSourceConfig
+        | IrisSourceConfig
+        | None
+    ) = Field(None, description="Optional source metadata import configuration")
     database: DatabaseConfig | None = Field(
         None,
         description="Optional database configuration (defaults to SQLite if not specified)",

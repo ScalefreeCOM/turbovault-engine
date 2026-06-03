@@ -154,7 +154,7 @@ turbovault project init --config config.yml
 |--------|-------|-------------|---------|
 | `--name NAME` | `-n` | Project name | prompted |
 | `--description STR` | | Project description | — |
-| `--source PATH` | `-s` | Source metadata file (`.xlsx`, `.db`, or `.json` export) | — |
+| `--source PATH` | `-s` | Source metadata file (`.xlsx`, `.db`, or `.json` export), or a directory holding an IRiS three-file export | — |
 | `--stage-schema STR` | | Staging schema name | `stage` |
 | `--rdv-schema STR` | | Raw Data Vault schema name | `rdv` |
 | `--stage-database STR` | | Optional staging database name | — |
@@ -198,6 +198,8 @@ alone, and skip individual rows that fail validation (reporting each one
 with full sheet/row/column context). See [Import Pipeline](../04_concepts/06_import-pipeline.md)
 for the full behavior reference.
 
+The source format is selected from the path: a `.xlsx` / `.db` / `.sqlite` / `.json` file picks the matching parser, and a **directory** is read as an IRiS three-file export (`Source_*` / `DataVault_*` / `Mappings_*`). The IRiS reader is the reverse of `generate --type iris`. See [IRiS Import (Round-Trip)](../00_index.md#iris-import-round-trip).
+
 #### Non-Interactive Mode (Flags)
 
 ```bash
@@ -234,7 +236,7 @@ neither.
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `--source PATH` | `-s` | Path to the source metadata file (`.xlsx`, `.db`/`.sqlite`, or `.json`) | prompted |
+| `--source PATH` | `-s` | Path to the source metadata file (`.xlsx`, `.db`/`.sqlite`, or `.json`), or a directory holding an IRiS three-file export | prompted |
 | `--project NAME` | `-p` | Target project name (must exist) | prompted |
 | `--mode STR` | | Conflict strategy: `merge`, `replace-all`, or `update-only` | `merge` |
 | `--on-error STR` | | Error strategy: `best-effort` or `fail-fast` | `best-effort` |

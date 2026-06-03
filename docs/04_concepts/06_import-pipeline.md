@@ -7,8 +7,8 @@ title: Import Pipeline
 # Import Pipeline
 
 The Import Pipeline is the engine subsystem that turns a metadata source
-(Excel workbook, SQLite database, or JSON export) into Data Vault entities
-in a project. It is the single code path used by:
+(Excel workbook, SQLite database, JSON export, or IRiS three-file export)
+into Data Vault entities in a project. It is the single code path used by:
 
 - The `turbovault import` CLI command.
 - `turbovault project init --source <file>` when a source is provided.
@@ -33,7 +33,7 @@ issues that show up in the final report.
 
 | Stage | What it does |
 |-------|--------------|
-| **Parse** | Reads the source file into a row/sheet representation (Excel/SQLite) or a structured domain model (JSON). Format-level problems (corrupt file, malformed JSON, missing sheets) become `source.*` issues. |
+| **Parse** | Reads the source file into a row/sheet representation (Excel/SQLite) or a structured domain model (JSON, IRiS). Format-level problems (corrupt file, malformed JSON, missing sheets) become `source.*` issues. |
 | **Validate** | Checks sheet headers against the [Excel Metadata Format](02_excel-metadata-format.md) — required columns, recognized column names, required values per row. Emits `schema.*` and `row.*` issues with sheet/row/column context. |
 | **Resolve** | Cross-sheet semantic checks: every link references hubs that exist, every satellite has a parent, every column mapping points at a real source column. Emits `entity.*` issues. |
 | **Plan** | Diffs the resolved model against the current project state and produces an `ImportPlan` — counts of entities to create, update, delete, and skip. |
@@ -258,6 +258,7 @@ underlying `ImportRun` for richer error rendering than the truncated
 | Excel | [Excel Metadata Format](02_excel-metadata-format.md) |
 | SQLite | Same column/sheet layout as Excel; tables match Excel sheet names. |
 | JSON | [JSON Import (Round-Trip)](04_json-import.md) — produced by `turbovault generate --type json`. |
+| IRiS | A directory holding the `Source_*` / `DataVault_*` / `Mappings_*` workbooks produced by `turbovault generate --type iris`. Reconstructs the hubs, links, satellites and mappings the files contain. See [IRiS Import (Round-Trip)](../00_index.md#iris-import-round-trip). |
 
 For source-specific format issues (missing sheets, wrong column names),
 read the parse/validate sections above and the format reference for

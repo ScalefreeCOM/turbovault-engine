@@ -289,6 +289,7 @@ dbt project generation and export configuration. All fields are optional — whe
 | `dbt_project_dir` | string | No | `exports/dbt_project/` | Override directory where the dbt project is generated |
 | `json_output_dir` | string | No | `exports/json/` | Override directory for JSON exports |
 | `dbml_output_dir` | string | No | `exports/dbml/` | Override directory for DBML exports |
+| `iris_output_dir` | string | No | `exports/iris/` | Override directory for IRiS exports |
 | `create_zip` | boolean | No | `false` | Whether to create a ZIP archive of the generated dbt project |
 | `export_sources` | boolean | No | `true` | Include source system definitions in export |
 
@@ -311,6 +312,7 @@ output:
   dbt_project_dir: "/shared/dbt/customer_mdm"
   json_output_dir: "./exports/json"
   dbml_output_dir: "./exports/dbml"
+  iris_output_dir: "./exports/iris"
 ```
 
 **Path Resolution:**
@@ -319,7 +321,7 @@ output:
 - Relative paths are resolved from the project folder location
 
 **Priority order** (highest → lowest):
-1. CLI flag (`--output`, `--json-output`, `--dbml-output`)
+1. CLI flag (`--output`, `--json-output`, `--dbml-output`, `--iris-output`)
 2. Config value in `config.yml` (`output.dbt_project_dir`, etc.)
 3. Convention default (`exports/<type>/` inside the project folder)
 
