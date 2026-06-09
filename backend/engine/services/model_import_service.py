@@ -2,11 +2,13 @@
 Service for importing a Data Vault model from the proposal JSON schema.
 
 Writes Hub, HubColumn, Link, LinkHubReference, and Satellite records in FK-safe
-order. When a hub or satellite definition includes a source_table name that
-already exists in the project, staging column mappings are created automatically
-(StagingColumn, HubSourceMapping, SatelliteColumn). If the source table or
-individual source columns are not found, the structural entity is still created
-and the mapping is recorded in ImportResult.skipped.
+order. When a hub, link, or satellite definition includes a source_table name
+that already exists in the project, staging column mappings are created
+automatically (StagingColumn, HubSourceMapping, SatelliteColumn, and — for links
+— LinkHubSourceMapping for the hub keys plus LinkSourceMapping for dependent
+child keys and payload columns). If the source table or individual source
+columns are not found, the structural entity is still created and the mapping is
+recorded in ImportResult.skipped.
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
         Link,
         LinkColumn,
         LinkHubReference,
+        LinkHubSourceMapping,
         LinkSourceMapping,
         Project,
         Satellite,
@@ -162,6 +165,18 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
 
                 if created:
                     result.links_created += 1
+
+                    # Resolve the link's source table once — used for hub-key,
+                    # dependent-child-key, and payload column mappings.
+                    src_tbl = None
+                    if link_def.source_table:
+                        src_tbl = _resolve_source_table(link_def.source_table)
+                        if not src_tbl:
+                            result.skipped.append(
+                                f"Link '{link_def.name}': source table "
+                                f"'{link_def.source_table}' not found — source mappings skipped"
+                            )
+
                     for hub_name in link_def.hubs:
                         hub = (
                             hub_map.get(hub_name)
@@ -169,40 +184,88 @@ def import_model(project_name: str, schema: ModelImportSchema) -> ImportResult:
                                 project=project, hub_physical_name=hub_name
                             ).first()
                         )
-                        if hub:
-                            LinkHubReference.objects.get_or_create(link=link, hub=hub)
-                        else:
+                        if not hub:
                             result.skipped.append(
                                 f"Link '{link_def.name}': hub '{hub_name}' not found — reference skipped"
                             )
+                            continue
 
-                    if link_def.payload_columns:
-                        src_tbl = None
-                        if link_def.source_table:
-                            src_tbl = _resolve_source_table(link_def.source_table)
-                            if not src_tbl:
-                                result.skipped.append(
-                                    f"Link '{link_def.name}': source table "
-                                    f"'{link_def.source_table}' not found — payload column mappings skipped"
+                        hub_ref, _ = LinkHubReference.objects.get_or_create(
+                            link=link, hub=hub
+                        )
+
+                        # Wire each of the hub's business keys to a staging column
+                        # in the link's source table so the link hashkey can be
+                        # generated. Without these the link has no source and
+                        # generation is incomplete (validator LNK_003).
+                        if src_tbl:
+                            hub_keys = list(
+                                HubColumn.objects.filter(
+                                    hub=hub, column_type="business_key"
                                 )
-                        for col_name in link_def.payload_columns:
-                            lc, _ = LinkColumn.objects.get_or_create(
-                                link=link,
-                                column_name=col_name,
-                                defaults={"column_type": LinkColumn.ColumnType.PAYLOAD},
                             )
-                            if src_tbl:
-                                staging = _get_or_create_staging(src_tbl, col_name)
+                            override = link_def.hub_source_columns.get(hub_name)
+                            for hub_col in hub_keys:
+                                src_col_name = (
+                                    override
+                                    if override and len(hub_keys) == 1
+                                    else hub_col.column_name
+                                )
+                                staging = _get_or_create_staging(src_tbl, src_col_name)
                                 if staging:
-                                    LinkSourceMapping.objects.get_or_create(
-                                        link_column=lc,
-                                        staging_column=staging,
+                                    LinkHubSourceMapping.objects.get_or_create(
+                                        link_hub_reference=hub_ref,
+                                        standard_hub_column=hub_col,
+                                        defaults={"staging_column": staging},
                                     )
                                 else:
                                     result.skipped.append(
-                                        f"Link '{link_def.name}': payload column "
-                                        f"'{col_name}' not found in '{link_def.source_table}' — mapping skipped"
+                                        f"Link '{link_def.name}': business key "
+                                        f"'{src_col_name}' for hub '{hub_name}' not found "
+                                        f"in '{link_def.source_table}' — hub key mapping skipped"
                                     )
+
+                    # Dependent child keys: hashed into the link key, no hub.
+                    for col_name in link_def.dependent_child_keys:
+                        lc, _ = LinkColumn.objects.get_or_create(
+                            link=link,
+                            column_name=col_name,
+                            defaults={
+                                "column_type": LinkColumn.ColumnType.DEPENDENT_CHILD_KEY
+                            },
+                        )
+                        if src_tbl:
+                            staging = _get_or_create_staging(src_tbl, col_name)
+                            if staging:
+                                LinkSourceMapping.objects.get_or_create(
+                                    link_column=lc,
+                                    staging_column=staging,
+                                )
+                            else:
+                                result.skipped.append(
+                                    f"Link '{link_def.name}': dependent child key "
+                                    f"'{col_name}' not found in '{link_def.source_table}' — mapping skipped"
+                                )
+
+                    # Payload columns (non-historized links).
+                    for col_name in link_def.payload_columns:
+                        lc, _ = LinkColumn.objects.get_or_create(
+                            link=link,
+                            column_name=col_name,
+                            defaults={"column_type": LinkColumn.ColumnType.PAYLOAD},
+                        )
+                        if src_tbl:
+                            staging = _get_or_create_staging(src_tbl, col_name)
+                            if staging:
+                                LinkSourceMapping.objects.get_or_create(
+                                    link_column=lc,
+                                    staging_column=staging,
+                                )
+                            else:
+                                result.skipped.append(
+                                    f"Link '{link_def.name}': payload column "
+                                    f"'{col_name}' not found in '{link_def.source_table}' — mapping skipped"
+                                )
                 else:
                     result.skipped.append(
                         f"Link '{link_def.name}' already exists — skipped"

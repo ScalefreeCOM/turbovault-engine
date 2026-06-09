@@ -41,9 +41,31 @@ class LinkImport(BaseModel):
         default_factory=list,
         description="Payload column names for non-historized links (creates LinkColumn records with type='payload')",
     )
+    dependent_child_keys: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Column names that participate in the link hashkey but do not point "
+            "to a hub (e.g. a transaction id on a non-historized transactional "
+            "link). Creates LinkColumn records with type='dependent_child_key' "
+            "and, when source_table is set, their source mappings."
+        ),
+    )
+    hub_source_columns: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Optional override mapping of hub physical name -> the column in this "
+            "link's source_table that carries that hub's business key. Use when the "
+            "link's foreign-key column name differs from the hub's business-key "
+            "column name. When omitted, each hub business-key column is matched to a "
+            "source column of the same name (only applied to single-key hubs)."
+        ),
+    )
     source_table: str | None = Field(
         default=None,
-        description="Physical source table name used to resolve payload column mappings (optional)",
+        description=(
+            "Physical source table name used to resolve hub-key, dependent-child-key, "
+            "and payload column mappings (optional)"
+        ),
     )
     group: str | None = Field(default=None, description="Group name (optional)")
 
