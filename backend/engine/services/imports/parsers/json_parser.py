@@ -250,13 +250,33 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                             break
                 else:
                     col = col_by_name.get(col_mapping.link_column_name)
-                    if col is not None:
-                        col.source_mappings.append(
-                            DLinkSourceMapping(
-                                source_table_identifier=table_id,
-                                source_column_name=col_mapping.source_column_name,
-                            )
+                    if col is None:
+                        # Non-business-key columns (payload, additional_column,
+                        # dependent_child_key) may exist ONLY in the source-table
+                        # mappings: the export lists payload/additional columns in
+                        # their own arrays but dependent_child_key columns are
+                        # carried solely here. Create the column on first sight so
+                        # its source mapping isn't dropped.
+                        col_type = col_mapping.link_column_type
+                        if col_type not in (
+                            "payload",
+                            "additional_column",
+                            "dependent_child_key",
+                        ):
+                            col_type = "payload"
+                        col = DLinkColumn(
+                            name=col_mapping.link_column_name,
+                            column_type=col_type,
+                            sort_order=len(link.columns) + 1,
                         )
+                        link.columns.append(col)
+                        col_by_name[col.name] = col
+                    col.source_mappings.append(
+                        DLinkSourceMapping(
+                            source_table_identifier=table_id,
+                            source_column_name=col_mapping.source_column_name,
+                        )
+                    )
         model.links[link_def.link_name] = link
 
     # Satellites
