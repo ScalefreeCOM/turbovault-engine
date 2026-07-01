@@ -30,11 +30,18 @@ from engine.models import (
     SourceTable,
 )
 from engine.services.export.builder import ModelBuilder
-from engine.services.imports import ImportOptions, JsonSource, import_metadata
+from engine.services.imports import (
+    ExcelSource,
+    ImportOptions,
+    JsonSource,
+    import_metadata,
+)
 from engine.services.model_import_schema import ModelImportSchema
 from engine.services.model_import_service import import_model
 
 pytestmark = pytest.mark.django_db
+
+TPCH_XLSX = Path(__file__).resolve().parents[3] / "TurboVault_TPCH_Data.xlsx"
 
 
 def _make_source_table(project: Project) -> None:
@@ -132,3 +139,116 @@ def test_non_historized_link_dck_and_payload_survive_json_roundtrip(tmp_path):
     payload = LinkColumn.objects.get(link=link, column_name="O_TOTALPRICE")
     assert payload.column_type == LinkColumn.ColumnType.PAYLOAD
     assert LinkSourceMapping.objects.filter(link_column=payload).count() == 1
+
+
+# ---------------------------------------------------------------------------
+# Whole-model round trip: link_hub_source_mapping + link_source_mapping must
+# survive DB -> JSON export -> JSON import byte-for-byte (as sets).
+# ---------------------------------------------------------------------------
+
+
+def _snapshot(project: Project) -> tuple[set, set]:
+    hub_maps = {
+        (
+            m.link_hub_reference.link.link_physical_name,
+            m.link_hub_reference.hub.hub_physical_name,
+            m.link_hub_reference.hub_hashkey_alias_in_link or "",
+            m.standard_hub_column.column_name,
+            m.staging_column.source_column.source_column_physical_name,
+        )
+        for m in LinkHubSourceMapping.objects.filter(
+            link_hub_reference__link__project=project
+        )
+    }
+    col_maps = {
+        (
+            m.link_column.link.link_physical_name,
+            m.link_column.column_name,
+            m.link_column.column_type,
+            m.staging_column.source_column.source_column_physical_name,
+        )
+        for m in LinkSourceMapping.objects.filter(link_column__link__project=project)
+    }
+    return hub_maps, col_maps
+
+
+@pytest.mark.skipif(not TPCH_XLSX.exists(), reason="bundled TPCH workbook missing")
+def test_full_model_link_mappings_survive_json_roundtrip(tmp_path):
+    """The bundled TPCH model exercises every link shape: multi-hub links,
+    composite business keys, a renamed foreign hashkey, dependent child keys,
+    payload columns, and a link that references the same hub TWICE
+    (customer_duplicate_customer_l). Both link mapping tables must come back
+    identical after a JSON export/import round trip.
+    """
+    a = Project.objects.create(name="rt-a")
+    import_metadata(
+        project=a,
+        source=ExcelSource(path=TPCH_XLSX),
+        options=ImportOptions(skip_snapshots=True),
+    )
+    hub_a, col_a = _snapshot(a)
+    assert hub_a and col_a  # sanity: there is something to preserve
+
+    export = ModelBuilder(a).build()
+    out = tmp_path / "export.json"
+    out.write_text(
+        json.dumps(export.model_dump(mode="json"), default=str), encoding="utf-8"
+    )
+
+    b = Project.objects.create(name="rt-b")
+    report = import_metadata(
+        project=b,
+        source=JsonSource(path=out),
+        options=ImportOptions(skip_snapshots=True),
+    )
+    assert report.status == "success", report.issues
+    hub_b, col_b = _snapshot(b)
+
+    assert hub_b == hub_a, {"lost": hub_a - hub_b, "changed": hub_b - hub_a}
+    assert col_b == col_a, {"lost": col_a - col_b, "changed": col_b - col_a}
+
+
+def test_business_key_falls_back_to_name_match_without_foreign_hashkey(tmp_path):
+    """Exports written before `target_foreign_hashkey` existed still resolve hub
+    keys by matching the link column name to a referenced hub's column.
+    """
+    src = Project.objects.create(name="legacy-src")
+    _make_source_table(src)
+    import_model(
+        src.name,
+        ModelImportSchema.model_validate(
+            {
+                "hubs": [
+                    {"name": "ORDER_H", "business_keys": ["O_ORDERKEY"], "source_table": "orders"},
+                    {"name": "CUSTOMER_H", "business_keys": ["O_CUSTKEY"], "source_table": "orders"},
+                ],
+                "links": [
+                    {
+                        "name": "ORDERS_CUSTOMERS_L",
+                        "hubs": ["ORDER_H", "CUSTOMER_H"],
+                        "source_table": "orders",
+                    }
+                ],
+            }
+        ),
+    )
+
+    export = ModelBuilder(src).build()
+    data = export.model_dump(mode="json")
+    # Simulate a legacy export: strip the new discriminator field.
+    for link in data["links"]:
+        for st in link["source_tables"]:
+            for col in st["columns"]:
+                col.pop("target_foreign_hashkey", None)
+    out = tmp_path / "legacy.json"
+    out.write_text(json.dumps(data, default=str), encoding="utf-8")
+
+    dst = Project.objects.create(name="legacy-dst")
+    report = import_metadata(
+        project=dst,
+        source=JsonSource(path=out),
+        options=ImportOptions(skip_snapshots=True),
+    )
+    assert report.status == "success", report.issues
+    link = Link.objects.get(project=dst, link_physical_name="ORDERS_CUSTOMERS_L")
+    assert LinkHubSourceMapping.objects.filter(link_hub_reference__link=link).count() == 2
