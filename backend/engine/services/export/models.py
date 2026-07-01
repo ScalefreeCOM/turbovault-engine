@@ -155,15 +155,6 @@ class LinkColumnMapping(BaseModel):
     link_column_name: str
     link_column_type: str  # business_key, payload, or additional_column
     source_column_name: str
-    target_foreign_hashkey: str | None = Field(
-        default=None,
-        description=(
-            "For business_key mappings only: the foreign hashkey (hub hashkey "
-            "alias, else hub hashkey name) of the specific link hub reference this "
-            "mapping feeds. Disambiguates links that reference the same hub more "
-            "than once; ignored for non-business-key columns."
-        ),
-    )
 
 
 class LinkSourceHashkeyMapping(BaseModel):

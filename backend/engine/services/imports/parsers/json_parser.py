@@ -228,52 +228,26 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                 )
             )
 
-        # Foreign hashkey (alias, else hub hashkey name) per hub reference. This
-        # uniquely identifies a reference even when a link points at the same hub
-        # more than once, so business-key source columns land on the right one.
-        ref_foreign_hashkeys: list[str | None] = []
-        for ref in link.hub_references:
-            hub = model.hubs.get(ref.hub_physical_name)
-            ref_foreign_hashkeys.append(
-                ref.hub_hashkey_alias_in_link
-                or (hub.hashkey_name if hub else None)
-            )
-
         col_by_name = {c.name: c for c in link.columns}
         for src_info in link_def.source_tables:
             table_id = f"{src_info.source_system}|{src_info.source_table}"
             for col_mapping in src_info.columns:
                 if col_mapping.link_column_type == "business_key":
-                    # Prefer the exact reference identified by the foreign hashkey;
-                    # fall back to first hub owning a matching column for exports
-                    # written before target_foreign_hashkey existed.
-                    ref_idx = None
-                    target_fhk = getattr(col_mapping, "target_foreign_hashkey", None)
-                    if target_fhk is not None:
-                        for i, fhk in enumerate(ref_foreign_hashkeys):
-                            if fhk == target_fhk:
-                                ref_idx = i
-                                break
-                    if ref_idx is None:
-                        for i, ref in enumerate(link.hub_references):
-                            hub = model.hubs.get(ref.hub_physical_name)
-                            if hub is None:
-                                continue
-                            if any(
-                                c.name == col_mapping.link_column_name
-                                for c in hub.columns
-                            ):
-                                ref_idx = i
-                                break
-                    if ref_idx is not None:
-                        link.hub_source_mappings.append(
-                            DLinkHubSourceMapping(
-                                link_hub_ref_index=ref_idx,
-                                hub_column_name=col_mapping.link_column_name,
-                                source_table_identifier=table_id,
-                                source_column_name=col_mapping.source_column_name,
+                    # Match to a hub column by name across hub references.
+                    for ref_idx, ref in enumerate(link.hub_references):
+                        hub = model.hubs.get(ref.hub_physical_name)
+                        if hub is None:
+                            continue
+                        if any(c.name == col_mapping.link_column_name for c in hub.columns):
+                            link.hub_source_mappings.append(
+                                DLinkHubSourceMapping(
+                                    link_hub_ref_index=ref_idx,
+                                    hub_column_name=col_mapping.link_column_name,
+                                    source_table_identifier=table_id,
+                                    source_column_name=col_mapping.source_column_name,
+                                )
                             )
-                        )
+                            break
                 else:
                     col = col_by_name.get(col_mapping.link_column_name)
                     if col is None:
