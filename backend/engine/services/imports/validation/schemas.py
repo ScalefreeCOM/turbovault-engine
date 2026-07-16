@@ -50,8 +50,6 @@ SOURCE_DATA = SheetSchema(
         "static_part_of_record_source_column",
         "load_date_column",
         "alias",
-        "source_object",
-        "group_name",
     ),
     description="Source systems, schemas, and tables.",
 )
@@ -66,7 +64,6 @@ STANDARD_HUB = SheetSchema(
     optional_columns=(
         "hub_identifier",
         "target_primary_key_physical_name",
-        "target_role_primary_key_physical_name",
         "business_key_physical_name",
         "record_tracking_satellite",
         "group_name",

@@ -49,8 +49,6 @@ Defines source systems and source tables. Each row is one source table.
 | `record_source_column` | | The record source value for this table (e.g. `ERP`) |
 | `static_part_of_record_source_column` | | Static prefix for record source |
 | `load_date_column` | | Load date expression (default: `sysdate()`) |
-| `source_object` | | Recognized, not imported |
-| `group_name` | | Recognized, not imported |
 
 ---
 
@@ -68,7 +66,6 @@ Defines standard hubs and maps their business keys to source columns. Each row i
 | `source_column_physical_name` | ✓ | Source column providing the business key value |
 | `is_primary_source` | | `TRUE` / `FALSE` — marks this as the primary source mapping |
 | `record_tracking_satellite` | | `TRUE` to auto-generate a record-tracking satellite |
-| `target_role_primary_key_physical_name` | | Recognized, not imported |
 | `notes` / `note` | | Free-text comment |
 
 ---
