@@ -22,6 +22,7 @@ from engine.cli.utils.console import (
     print_panel,
     print_step,
     print_success,
+    print_warning,
 )
 from engine.services.config_loader import ConfigValidationError, load_config_from_path
 
@@ -371,7 +372,7 @@ def _create_project(
 
     # Import metadata if source is defined
     if config.source:
-        _import_metadata(project, config.source)
+        _import_metadata(project, config.source, skip_snapshots=skip_snapshots)
 
     print_step(3, 3, "Project initialization complete!")
 
@@ -484,7 +485,7 @@ def _print_import_summary(project) -> None:
     console.print(Panel(tbl, title="Import Summary", border_style="success"))
 
 
-def _import_metadata(project, source) -> None:
+def _import_metadata(project, source, skip_snapshots: bool = False) -> None:
     """Import metadata via the new import pipeline.
 
     On `project init` we treat the project as fresh, so `replace_all` is the
@@ -517,31 +518,41 @@ def _import_metadata(project, source) -> None:
     options = ImportOptions(
         conflict_strategy="replace_all",
         error_strategy="best_effort",
-        skip_snapshots=True,
+        skip_snapshots=skip_snapshots,
     )
     report = run_import(project=project, source=source_input, options=options)
 
-    if report.has_errors:
-        for issue in report.issues:
-            if issue.severity == "error":
-                loc = ""
-                if issue.location:
-                    parts = [
-                        p
-                        for p in (
-                            issue.location.sheet,
-                            f"row {issue.location.row}" if issue.location.row else None,
-                            f"col '{issue.location.column}'" if issue.location.column else None,
-                        )
-                        if p
-                    ]
-                    if parts:
-                        loc = f" [{' '.join(parts)}]"
-                print_error(f"[{issue.code}]{loc} {issue.message}")
+    _print_import_issues(report)
     if report.status in ("success", "partial_success"):
         _print_import_summary(project)
     if report.status not in ("success", "partial_success"):
         print_error("Metadata import failed; no entities were written.")
+
+
+def _format_issue_location(issue) -> str:
+    """Render an issue's sheet/row/column location as a bracketed suffix."""
+    if not issue.location:
+        return ""
+    parts = [
+        p
+        for p in (
+            issue.location.sheet,
+            f"row {issue.location.row}" if issue.location.row else None,
+            f"col '{issue.location.column}'" if issue.location.column else None,
+        )
+        if p
+    ]
+    return f" [{' '.join(parts)}]" if parts else ""
+
+
+def _print_import_issues(report) -> None:
+    """Print import issues (errors and warnings) to the console."""
+    for issue in report.issues:
+        line = f"[{issue.code}]{_format_issue_location(issue)} {issue.message}"
+        if issue.severity == "error":
+            print_error(line)
+        else:
+            print_warning(line)
 
 
 def _run_interactive_init() -> None:

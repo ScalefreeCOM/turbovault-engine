@@ -95,6 +95,14 @@ def main(
             _setup_django()
             debug_print("Django setup complete, proceeding to command")
 
+            # Apply any pending migrations before running the command so an
+            # existing workspace stays in sync with the current schema. The
+            # 'workspace' group and 'reset' manage the DB lifecycle themselves.
+            if ctx.invoked_subcommand not in ("workspace", "reset"):
+                from engine.cli.utils.db_utils import ensure_database_ready
+
+                ensure_database_ready()
+
             # Fire-and-forget telemetry event (non-blocking, never raises)
             try:
                 from engine.cli.utils.telemetry import send_telemetry_event

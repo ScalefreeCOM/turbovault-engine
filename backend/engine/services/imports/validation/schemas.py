@@ -11,6 +11,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+# Free-text note columns accepted on every sheet, in either spelling.
+NOTE_COLUMNS: tuple[str, ...] = ("note", "notes")
+
+
 @dataclass(frozen=True, slots=True)
 class SheetSchema:
     name: str
@@ -20,7 +24,11 @@ class SheetSchema:
 
     @property
     def known_columns(self) -> set[str]:
-        return set(self.required_columns) | set(self.optional_columns)
+        return (
+            set(self.required_columns)
+            | set(self.optional_columns)
+            | set(NOTE_COLUMNS)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +66,7 @@ STANDARD_HUB = SheetSchema(
         "target_primary_key_physical_name",
         "business_key_physical_name",
         "record_tracking_satellite",
+        "effectivity_satellite",
         "group_name",
         "is_primary_source",
         "target_column_sort_order",
@@ -91,9 +100,11 @@ STANDARD_LINK = SheetSchema(
         "link_identifier",
         "hub_identifier",
         "target_primary_key_physical_name",
+        "hub_primary_key_physical_name",
         "target_column_physical_name",
         "target_column_sort_order",
         "group_name",
+        "record_tracking_satellite",
         "prejoin_table_identifier",
         "prejoin_table_column_name",
         "prejoin_extraction_column_name",
@@ -113,9 +124,11 @@ NON_HISTORIZED_LINK = SheetSchema(
         "nh_link_identifier",
         "hub_identifier",
         "target_primary_key_physical_name",
+        "hub_primary_key_physical_name",
         "target_column_physical_name",
         "target_column_sort_order",
         "group_name",
+        "record_tracking_satellite",
         "prejoin_table_identifier",
         "prejoin_table_column_name",
         "prejoin_extraction_column_name",
@@ -136,6 +149,7 @@ STANDARD_SATELLITE = SheetSchema(
         "satellite_identifier",
         "target_column_physical_name",
         "target_column_sort_order",
+        "parent_primary_key_physical_name",
         "group_name",
         # Older / alternate parent-column names accepted by the resolver:
         "parent_table_identifier",
@@ -156,8 +170,10 @@ NON_HISTORIZED_SATELLITE = SheetSchema(
     ),
     optional_columns=(
         "satellite_identifier",
+        "nh_satellite_identifier",
         "target_column_physical_name",
         "target_column_sort_order",
+        "parent_primary_key_physical_name",
         "group_name",
         "parent_table_identifier",
         "nh_link_identifier",
@@ -180,6 +196,7 @@ MULTIACTIVE_SATELLITE = SheetSchema(
         "ma_satellite_identifier",
         "target_column_physical_name",
         "target_column_sort_order",
+        "parent_primary_key_physical_name",
         "group_name",
         "parent_table_identifier",
         "nh_link_identifier",
@@ -219,6 +236,7 @@ REF_TABLE = SheetSchema(
         "referenced_hub",
     ),
     optional_columns=(
+        "reference_table_identifier",
         "referenced_satellite",
         "historized",
         "group_name",
@@ -236,9 +254,12 @@ PIT_SHEET = SheetSchema(
         "satellite_identifiers",
     ),
     optional_columns=(
+        "pit_identifier",
         "dimension_key_name",
         "pit_type",
         "custom_record_source",
+        "snapshot_model_name",
+        "snapshot_trigger_column",
         "group_name",
     ),
     description="Point-in-time structures.",

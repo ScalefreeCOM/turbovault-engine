@@ -66,6 +66,8 @@ Defines standard hubs and maps their business keys to source columns. Each row i
 | `source_column_physical_name` | ✓ | Source column providing the business key value |
 | `is_primary_source` | | `TRUE` / `FALSE` — marks this as the primary source mapping |
 | `record_tracking_satellite` | | `TRUE` to auto-generate a record-tracking satellite |
+| `effectivity_satellite` | | `TRUE` to auto-generate an effectivity satellite |
+| `notes` / `note` | | Free-text comment |
 
 ---
 
@@ -79,6 +81,7 @@ Defines reference hubs. Structure is similar to `standard_hub` but uses referenc
 | `reference_hub_identifier` | | Unique ID for referencing this hub in other sheets |
 | `source_table_identifier` | ✓ | Reference to a row in `source_data` |
 | `source_column_physical_name` | ✓ | Source column providing the reference key |
+| `notes` / `note` | | Free-text comment |
 
 ---
 
@@ -100,6 +103,9 @@ Defines links between hubs. Multiple rows per link — rows with a `hub_identifi
 | `prejoin_table_column_name` | | Join condition column in the pre-joined table |
 | `prejoin_extraction_column_name` | | Column to extract from the pre-joined table |
 | `prejoin_target_column_alias` | | Optional alias for the extracted prejoin column |
+| `hub_primary_key_physical_name` | | Name-based equivalent of `hub_identifier`, not imported |
+| `record_tracking_satellite` | | `TRUE` to auto-generate a record-tracking satellite |
+| `notes` / `note` | | Free-text comment |
 
 ---
 
@@ -110,12 +116,14 @@ Defines satellites and maps source columns to satellite columns. Each row is one
 | Column | Required | Description |
 |--------|----------|-------------|
 | `target_satellite_table_physical_name` | ✓ | Physical satellite name (carry-forward applied) |
-| `satellite_identifier` / `ma_satellite_identifier` | | Unique ID for this satellite |
+| `satellite_identifier` / `ma_satellite_identifier` / `nh_satellite_identifier` | | Unique ID for this satellite |
 | `parent_identifier` / `parent_table_identifier` | ✓ | Hub or Link identifier this satellite belongs to |
 | `source_table_identifier` | ✓ | Source table for this satellite |
 | `source_column_physical_name` | ✓ | Source column name |
 | `target_column_physical_name` | | Optional: target column name (rename) |
 | `multi_active_attributes` | MA only | Semicolon-separated list of multi-active key column names |
+| `parent_primary_key_physical_name` | | Name-based equivalent of `parent_identifier`, not imported |
+| `notes` / `note` | | Free-text comment |
 
 ---
 
@@ -137,6 +145,7 @@ Defines reference table structures (built on top of reference hubs and their sat
 | `target_reference_table_physical_name` | ✓ | Physical reference table name |
 | `referenced_hub` | ✓ | Hub identifier of the linked reference hub |
 | `referenced_satellite` | | Satellite identifier to include in the reference table |
+| `reference_table_identifier` | | Unique ID for this table |
 
 ---
 
@@ -149,12 +158,16 @@ Defines Point-in-Time structures.
 | `pit_physical_table_name` | ✓ | Physical PIT table name |
 | `tracked_entity` | ✓ | Hub or Link identifier to track |
 | `satellite_identifiers` | ✓ | Comma-separated list of satellite identifiers to include |
+| `pit_identifier` | | Unique ID for this table |
+| `snapshot_model_name` | | Snapshot control table to link this PIT to |
+| `snapshot_trigger_column` | | Snapshot control logic column the PIT triggers on (default `is_active`) |
 
 ---
 
 ## General Rules
 
 - **Carry-forward**: For multi-row entities (links, satellites), only the first row needs the entity name — subsequent rows for the same entity can leave it blank and it will be inherited from the row above.
+- **Grouping**: The `group_name` column is optional on every entity sheet. It assigns the entity to a Group, which becomes a subfolder in the generated dbt project. Entities without a `group_name` are placed at the top level.
 - **Identifiers**: The `*_identifier` columns are internal cross-reference keys. They must be unique within the file but are not persisted — they are used only during import to wire entities together.
 - **Case sensitivity**: Column names are matched case-insensitively (headers are lowercased before matching).
 - **Unknown columns**: Columns that are not part of the recognized header set produce a `schema.unknown_column` *warning* by default. They are not fatal — the import continues.
