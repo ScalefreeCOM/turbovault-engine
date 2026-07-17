@@ -5,6 +5,19 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.3](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.16.2...turbovault-engine-v0.16.3) (2026-07-17)
+
+
+### Bug Fixes
+
+* add optional columns to metadata validation ([38e4987](https://github.com/ScalefreeCOM/turbovault-engine/commit/38e4987e491ea75506cfc0632152318958203370))
+* add pit model to dbt output ([38e4987](https://github.com/ScalefreeCOM/turbovault-engine/commit/38e4987e491ea75506cfc0632152318958203370))
+* add record tracking satellite model to dbt output ([38e4987](https://github.com/ScalefreeCOM/turbovault-engine/commit/38e4987e491ea75506cfc0632152318958203370))
+* drop unused columns in template ([38e4987](https://github.com/ScalefreeCOM/turbovault-engine/commit/38e4987e491ea75506cfc0632152318958203370))
+* generate effectivity satellite models in dbt output ([38e4987](https://github.com/ScalefreeCOM/turbovault-engine/commit/38e4987e491ea75506cfc0632152318958203370))
+* improve metadata validation, record tracking satellite, and PIT generation ([#182](https://github.com/ScalefreeCOM/turbovault-engine/issues/182)) ([38e4987](https://github.com/ScalefreeCOM/turbovault-engine/commit/38e4987e491ea75506cfc0632152318958203370))
+* remove unused columns in schema ([38e4987](https://github.com/ScalefreeCOM/turbovault-engine/commit/38e4987e491ea75506cfc0632152318958203370))
+
 ## [0.16.2](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.16.1...turbovault-engine-v0.16.2) (2026-07-03)
 
 
