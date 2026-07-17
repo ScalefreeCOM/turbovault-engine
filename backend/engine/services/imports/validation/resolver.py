@@ -59,6 +59,10 @@ class _Resolver:
         # Index from any identifier (system|schema, raw name, etc.) to canonical lookup.
         self._table_by_id: dict[str, DSourceTable] = {}
 
+        # Map a satellite identifier (e.g. S0001) to its physical name, so PITs
+        # can reference satellites by identifier.
+        self._sat_id_to_name: dict[str, str] = {}
+
     # ------------------------------------------------------------------ helpers
     def _loc(self, sheet: str, row: int | None = None, column: str | None = None) -> IssueLocation:
         return IssueLocation(file=self.doc.source_name, sheet=sheet, row=row, column=column)
@@ -484,6 +488,16 @@ class _Resolver:
 
         for sat_name, sat_rows in grouped.items():
             sample = sat_rows[0]
+            # Register the satellite's identifier (if any) so PITs can reference
+            # it by identifier rather than physical name.
+            sat_identifier = (
+                sample.get("satellite_identifier")
+                or sample.get("ma_satellite_identifier")
+                or sample.get("nh_satellite_identifier")
+                or sample.get("reference_satellite_identifier")
+            )
+            if sat_identifier:
+                self._sat_id_to_name[str(sat_identifier)] = sat_name
             # Try every column name the existing metadata templates have used
             # for the satellite's parent. ref_sat uses `parent_table_identifier`,
             # standard/multi-active/non-historized sheets use `parent_identifier`,
@@ -648,12 +662,17 @@ class _Resolver:
                 )
                 continue
 
-            sats = _split_list(row.get("satellite_identifiers"))
+            sats = [
+                self._sat_id_to_name.get(s, s)
+                for s in _split_list(row.get("satellite_identifiers"))
+            ]
             self.model.pits[name] = DPIT(
                 physical_name=name,
                 tracked_entity_name=(hub or link).physical_name,
                 tracked_entity_type="hub" if hub else "link",
                 satellite_names=sats,
+                snapshot_control_name=row.get("snapshot_model_name"),
+                snapshot_logic_column=row.get("snapshot_trigger_column"),
                 dimension_key_column_name=row.get("dimension_key_name"),
                 pit_type=row.get("pit_type"),
                 custom_record_source=row.get("custom_record_source"),

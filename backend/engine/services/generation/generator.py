@@ -34,6 +34,9 @@ logger = logging.getLogger(__name__)
 # DV type suffixes stripped when deriving an RTS base name (longest first).
 _RTS_TYPE_SUFFIXES = ("_rh", "_nl", "_h", "_l")
 
+# PIT suffixes stripped when deriving a PIT base name (longest first).
+_PIT_TYPE_SUFFIXES = ("_pit", "_bp")
+
 
 def _rts_base_name(parent_physical_name: str) -> str:
     """Derive an RTS base name: lowercase and strip a trailing DV type suffix.
@@ -43,6 +46,18 @@ def _rts_base_name(parent_physical_name: str) -> str:
     """
     lowered = parent_physical_name.lower()
     for suffix in _RTS_TYPE_SUFFIXES:
+        if lowered.endswith(suffix):
+            return lowered[: -len(suffix)]
+    return lowered
+
+
+def _pit_base_name(pit_physical_name: str) -> str:
+    """Derive a PIT base name: lowercase and strip a trailing PIT suffix.
+
+    e.g. CUSTOMER_BP -> customer, CUSTOMER_PIT -> customer.
+    """
+    lowered = pit_physical_name.lower()
+    for suffix in _PIT_TYPE_SUFFIXES:
         if lowered.endswith(suffix):
             return lowered[: -len(suffix)]
     return lowered
@@ -639,20 +654,27 @@ class DbtProjectGenerator:
                     pit.group, self.output_path
                 )
 
+                # Apply the PIT naming pattern (e.g. customer_bp).
+                pit_model_name = self.config.resolve_entity_name(
+                    self.config.pit_naming, _pit_base_name(pit.pit_name)
+                )
+                context = pit.model_dump()
+                context["pit_name"] = pit_model_name
+
                 # Generate SQL file
-                content = sql_template.render(**pit.model_dump())
-                filename = get_model_filename(pit.pit_name, extension="sql")
+                content = sql_template.render(**context)
+                filename = get_model_filename(pit_model_name, extension="sql")
                 path = output_dir / filename
                 write_sql_file(path, content)
-                self.report.add_file(path, "pit", pit.pit_name, "sql")
+                self.report.add_file(path, "pit", pit_model_name, "sql")
 
                 # Generate YAML file
                 if yaml_template:
-                    content = yaml_template.render(**pit.model_dump())
-                    filename = get_model_filename(pit.pit_name, extension="yml")
+                    content = yaml_template.render(**context)
+                    filename = get_model_filename(pit_model_name, extension="yml")
                     path = output_dir / filename
                     write_yaml_file(path, content)
-                    self.report.add_file(path, "pit", pit.pit_name, "yaml")
+                    self.report.add_file(path, "pit", pit_model_name, "yaml")
 
                 self.report.pits_generated += 1
 

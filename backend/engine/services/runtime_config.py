@@ -35,6 +35,7 @@ class EngineRuntimeConfig:
     satellite_v0_naming: str = "[[ satellite_name ]]_v0"
     satellite_v1_naming: str = "[[ satellite_name ]]_v1"
     record_tracking_satellite_naming: str = "[[ satellite_name ]]_ts"
+    pit_naming: str = "[[ pit_name ]]_bp"
 
     dbt_project_name: str | None = None
     create_zip: bool = False
@@ -68,6 +69,7 @@ class EngineRuntimeConfig:
                 config.configuration.record_tracking_satellite_naming
                 or cls.record_tracking_satellite_naming
             ),
+            pit_naming=config.configuration.pit_naming or cls.pit_naming,
             dbt_project_name=config.output.dbt_project_name or config.project.name,
             create_zip=config.output.create_zip,
             export_sources=config.output.export_sources,
@@ -109,6 +111,7 @@ class EngineRuntimeConfig:
             "satellite_v0_naming": self.satellite_v0_naming,
             "satellite_v1_naming": self.satellite_v1_naming,
             "record_tracking_satellite_naming": self.record_tracking_satellite_naming,
+            "pit_naming": self.pit_naming,
             "hashkey_naming": self.hashkey_naming,
             "hashdiff_naming": self.hashdiff_naming,
         }

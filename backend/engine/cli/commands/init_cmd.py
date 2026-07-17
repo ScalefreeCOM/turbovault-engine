@@ -372,7 +372,7 @@ def _create_project(
 
     # Import metadata if source is defined
     if config.source:
-        _import_metadata(project, config.source)
+        _import_metadata(project, config.source, skip_snapshots=skip_snapshots)
 
     print_step(3, 3, "Project initialization complete!")
 
@@ -485,7 +485,7 @@ def _print_import_summary(project) -> None:
     console.print(Panel(tbl, title="Import Summary", border_style="success"))
 
 
-def _import_metadata(project, source) -> None:
+def _import_metadata(project, source, skip_snapshots: bool = False) -> None:
     """Import metadata via the new import pipeline.
 
     On `project init` we treat the project as fresh, so `replace_all` is the
@@ -518,7 +518,7 @@ def _import_metadata(project, source) -> None:
     options = ImportOptions(
         conflict_strategy="replace_all",
         error_strategy="best_effort",
-        skip_snapshots=True,
+        skip_snapshots=skip_snapshots,
     )
     report = run_import(project=project, source=source_input, options=options)
 

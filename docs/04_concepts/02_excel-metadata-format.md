@@ -158,8 +158,8 @@ Defines Point-in-Time structures.
 | `tracked_entity` | ✓ | Hub or Link identifier to track |
 | `satellite_identifiers` | ✓ | Comma-separated list of satellite identifiers to include |
 | `pit_identifier` | | Unique ID for this table |
-| `snapshot_model_name` | | Recognized, not imported |
-| `snapshot_trigger_column` | | Recognized, not imported |
+| `snapshot_model_name` | | Snapshot control table to link this PIT to |
+| `snapshot_trigger_column` | | Snapshot control logic column the PIT triggers on (default `is_active`) |
 
 ---
 
