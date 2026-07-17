@@ -187,6 +187,19 @@ def _count_dbt(
             )
         counts["satellite"] = sat_files
 
+    # Record-tracking satellites: one sql + one yml per flagged hub/link.
+    rts_count = sum(
+        1
+        for h in project_export.hubs
+        if getattr(h, "create_record_tracking_satellite", False) and h.hashkey
+    ) + sum(
+        1
+        for link in project_export.links
+        if getattr(link, "create_record_tracking_satellite", False) and link.hashkey
+    )
+    if rts_count:
+        counts["record_tracking_satellite"] = rts_count * 2
+
     if project_export.pits:
         counts["pit"] = len(project_export.pits) * 2
 

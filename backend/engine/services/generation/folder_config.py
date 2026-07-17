@@ -138,6 +138,7 @@ class GenerationConfig:
     generate_satellite_v1_views: bool = True
     satellite_v0_naming: str = "[[ satellite_name ]]_v0"
     satellite_v1_naming: str = "[[ satellite_name ]]_v1"
+    record_tracking_satellite_naming: str = "[[ satellite_name ]]_ts"
 
     # Schemas
     stage_schema: str = "stage"

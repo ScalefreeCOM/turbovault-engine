@@ -103,7 +103,7 @@ Defines links between hubs. Multiple rows per link — rows with a `hub_identifi
 | `prejoin_extraction_column_name` | | Column to extract from the pre-joined table |
 | `prejoin_target_column_alias` | | Optional alias for the extracted prejoin column |
 | `hub_primary_key_physical_name` | | Name-based equivalent of `hub_identifier`, not imported |
-| `record_tracking_satellite` | | Recognized, not imported |
+| `record_tracking_satellite` | | `TRUE` to auto-generate a record-tracking satellite |
 | `notes` / `note` | | Free-text comment |
 
 ---

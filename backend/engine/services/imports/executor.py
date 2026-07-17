@@ -389,6 +389,7 @@ class _Executor:
             defaults={
                 "link_type": d.link_type,
                 "link_hashkey_name": d.hashkey_name or "",
+                "create_record_tracking_satellite": d.create_record_tracking_satellite,
                 "group": group,
             },
         )

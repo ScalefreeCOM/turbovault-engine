@@ -624,6 +624,11 @@ def _diff_link(d: DLink, existing: Link) -> list[EntityChange]:
             _change(
                 "link_hashkey_name", existing.link_hashkey_name, d.hashkey_name
             ),
+            _change(
+                "create_record_tracking_satellite",
+                existing.create_record_tracking_satellite,
+                d.create_record_tracking_satellite,
+            ),
         )
         if c is not None
     ]

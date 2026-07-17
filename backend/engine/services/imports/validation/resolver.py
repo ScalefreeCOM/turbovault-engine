@@ -330,6 +330,9 @@ class _Resolver:
                     physical_name=link_name,
                     link_type=link_type,
                     hashkey_name=sample.get("target_primary_key_physical_name") or f"hk_{link_name}",
+                    create_record_tracking_satellite=truthy(
+                        sample.get("record_tracking_satellite")
+                    ),
                     group_name=sample.get("group_name"),
                 )
                 self.model.links[link_name] = link

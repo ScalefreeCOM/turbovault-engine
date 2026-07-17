@@ -633,7 +633,7 @@ class LinkAdmin(admin.ModelAdmin):
         "project",
         "created_at",
     ]
-    list_filter = ["link_type", "project", "group"]
+    list_filter = ["link_type", "project", "group", "create_record_tracking_satellite"]
     search_fields = ["link_physical_name", "link_hashkey_name"]
     readonly_fields = ["link_id", "created_at", "updated_at"]
     autocomplete_fields = ["project", "group"]
@@ -651,6 +651,13 @@ class LinkAdmin(admin.ModelAdmin):
                     "link_type",
                     "link_hashkey_name",
                 ]
+            },
+        ),
+        (
+            "Satellite Options",
+            {
+                "fields": ["create_record_tracking_satellite"],
+                "classes": ["collapse"],
             },
         ),
         (

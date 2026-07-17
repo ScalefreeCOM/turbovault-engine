@@ -118,6 +118,7 @@ def _build_dbt_config(
         generate_satellite_v1_views=options.generate_satellite_v1_views,
         satellite_v0_naming=runtime_config.satellite_v0_naming,
         satellite_v1_naming=runtime_config.satellite_v1_naming,
+        record_tracking_satellite_naming=runtime_config.record_tracking_satellite_naming,
         create_zip=options.create_zip,
         stage_schema=runtime_config.stage_schema,
         rdv_schema=runtime_config.rdv_schema,
