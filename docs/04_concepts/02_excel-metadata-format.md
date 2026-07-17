@@ -66,6 +66,7 @@ Defines standard hubs and maps their business keys to source columns. Each row i
 | `source_column_physical_name` | ✓ | Source column providing the business key value |
 | `is_primary_source` | | `TRUE` / `FALSE` — marks this as the primary source mapping |
 | `record_tracking_satellite` | | `TRUE` to auto-generate a record-tracking satellite |
+| `effectivity_satellite` | | `TRUE` to auto-generate an effectivity satellite |
 | `notes` / `note` | | Free-text comment |
 
 ---

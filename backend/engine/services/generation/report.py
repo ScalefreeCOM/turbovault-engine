@@ -85,6 +85,7 @@ class GenerationReport:
     satellites_generated: int = 0  # _v0 models only
     satellite_views_generated: int = 0  # _v1 models only
     record_tracking_satellites_generated: int = 0
+    effectivity_satellites_generated: int = 0
     pits_generated: int = 0
     reference_tables_generated: int = 0
     snapshot_controls_generated: int = 0
@@ -112,6 +113,7 @@ class GenerationReport:
             + self.satellites_generated
             + self.satellite_views_generated
             + self.record_tracking_satellites_generated
+            + self.effectivity_satellites_generated
             + self.pits_generated
             + self.reference_tables_generated
             + self.snapshot_controls_generated
@@ -214,6 +216,7 @@ class GenerationReport:
             f"  - Satellites (v0): {self.satellites_generated}",
             f"  - Satellite views (v1): {self.satellite_views_generated}",
             f"  - Record-tracking satellites: {self.record_tracking_satellites_generated}",
+            f"  - Effectivity satellites: {self.effectivity_satellites_generated}",
             f"  - PITs: {self.pits_generated}",
             f"  - Reference tables: {self.reference_tables_generated}",
             f"  - Snapshot controls: {self.snapshot_controls_generated}",

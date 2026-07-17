@@ -31,33 +31,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# DV type suffixes stripped when deriving an RTS base name (longest first).
-_RTS_TYPE_SUFFIXES = ("_rh", "_nl", "_h", "_l")
-
-# PIT suffixes stripped when deriving a PIT base name (longest first).
-_PIT_TYPE_SUFFIXES = ("_pit", "_bp")
+# DV type suffixes stripped when deriving a satellite base name (longest first).
+_DV_TYPE_SUFFIXES = ("_rh", "_nl", "_h", "_l")
 
 
-def _rts_base_name(parent_physical_name: str) -> str:
-    """Derive an RTS base name: lowercase and strip a trailing DV type suffix.
+def _entity_base_name(parent_physical_name: str) -> str:
+    """Derive a base name: lowercase and strip a trailing DV type suffix.
 
     e.g. CUSTOMER_H -> customer, ORDERS_CUSTOMERS_L -> orders_customers,
     nation_rh -> nation, LINEITEM_NL -> lineitem.
     """
     lowered = parent_physical_name.lower()
-    for suffix in _RTS_TYPE_SUFFIXES:
-        if lowered.endswith(suffix):
-            return lowered[: -len(suffix)]
-    return lowered
-
-
-def _pit_base_name(pit_physical_name: str) -> str:
-    """Derive a PIT base name: lowercase and strip a trailing PIT suffix.
-
-    e.g. CUSTOMER_BP -> customer, CUSTOMER_PIT -> customer.
-    """
-    lowered = pit_physical_name.lower()
-    for suffix in _PIT_TYPE_SUFFIXES:
+    for suffix in _DV_TYPE_SUFFIXES:
         if lowered.endswith(suffix):
             return lowered[: -len(suffix)]
     return lowered
@@ -138,6 +123,9 @@ class DbtProjectGenerator:
             self._generate_record_tracking_satellites(
                 project_export.hubs, project_export.links
             )
+
+            # 7c. Generate effectivity satellites for flagged hubs
+            self._generate_effectivity_satellites(project_export.hubs)
 
             # 8. Generate PIT models
             self._generate_pits(project_export.pits)
@@ -586,7 +574,7 @@ class DbtProjectGenerator:
 
             try:
                 rts_name = self.config.resolve_entity_name(
-                    naming, _rts_base_name(parent_name)
+                    naming, _entity_base_name(parent_name)
                 )
                 context = {
                     "satellite_name": rts_name,
@@ -631,6 +619,87 @@ class DbtProjectGenerator:
                     code="RTS_001",
                 )
 
+    def _generate_effectivity_satellites(self, hubs: list[HubDefinition]) -> None:
+        """Generate an effectivity satellite for each flagged hub."""
+        flagged = [
+            hub
+            for hub in hubs
+            if getattr(hub, "create_effectivity_satellite", False)
+        ]
+        if not flagged:
+            return
+
+        sql_template, yaml_template = self.template_resolver.get_templates(
+            "satellite_effectivity"
+        )
+        if not sql_template:
+            for hub in flagged:
+                self.report.add_skipped(
+                    entity_type="satellite_effectivity",
+                    entity_name=hub.hub_name,
+                    reason="No template found for satellite_effectivity",
+                )
+            return
+
+        naming = self.config.effectivity_satellite_naming
+
+        for hub in flagged:
+            hashkey_name = hub.hashkey.hashkey_name if hub.hashkey else None
+            stage_name = (
+                hub.source_tables[0].stage_name if hub.source_tables else None
+            )
+            if not hashkey_name or not stage_name:
+                self.report.add_skipped(
+                    entity_type="satellite_effectivity",
+                    entity_name=hub.hub_name,
+                    reason="Hub has no hashkey or source stage; cannot track effectivity",
+                )
+                continue
+
+            try:
+                es_name = self.config.resolve_entity_name(
+                    naming, _entity_base_name(hub.hub_name)
+                )
+                context = {
+                    "satellite_name": es_name,
+                    "parent_entity": hub.hub_name,
+                    "parent_hashkey": hashkey_name,
+                    "stage_name": stage_name,
+                    "group": hub.group,
+                }
+
+                output_dir = self.folder_config.get_raw_vault_path(
+                    hub.group, self.output_path
+                )
+
+                content = sql_template.render(**context)
+                filename = get_model_filename(es_name, extension="sql")
+                path = output_dir / filename
+                write_sql_file(path, content)
+                self.report.add_file(path, "satellite_effectivity", es_name, "sql")
+
+                if yaml_template:
+                    content = yaml_template.render(**context)
+                    filename = get_model_filename(es_name, extension="yml")
+                    path = output_dir / filename
+                    write_yaml_file(path, content)
+                    self.report.add_file(
+                        path, "satellite_effectivity", es_name, "yaml"
+                    )
+
+                self.report.effectivity_satellites_generated += 1
+
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate effectivity satellite for {hub.hub_name}: {e}"
+                )
+                self.report.add_error(
+                    entity_type="satellite_effectivity",
+                    entity_name=hub.hub_name,
+                    message=str(e),
+                    code="EFS_001",
+                )
+
     def _generate_pits(self, pits: list[PITDefinition]) -> None:
         """Generate PIT SQL and YAML models."""
         if not pits:
@@ -654,27 +723,20 @@ class DbtProjectGenerator:
                     pit.group, self.output_path
                 )
 
-                # Apply the PIT naming pattern (e.g. customer_bp).
-                pit_model_name = self.config.resolve_entity_name(
-                    self.config.pit_naming, _pit_base_name(pit.pit_name)
-                )
-                context = pit.model_dump()
-                context["pit_name"] = pit_model_name
-
                 # Generate SQL file
-                content = sql_template.render(**context)
-                filename = get_model_filename(pit_model_name, extension="sql")
+                content = sql_template.render(**pit.model_dump())
+                filename = get_model_filename(pit.pit_name, extension="sql")
                 path = output_dir / filename
                 write_sql_file(path, content)
-                self.report.add_file(path, "pit", pit_model_name, "sql")
+                self.report.add_file(path, "pit", pit.pit_name, "sql")
 
                 # Generate YAML file
                 if yaml_template:
-                    content = yaml_template.render(**context)
-                    filename = get_model_filename(pit_model_name, extension="yml")
+                    content = yaml_template.render(**pit.model_dump())
+                    filename = get_model_filename(pit.pit_name, extension="yml")
                     path = output_dir / filename
                     write_yaml_file(path, content)
-                    self.report.add_file(path, "pit", pit_model_name, "yaml")
+                    self.report.add_file(path, "pit", pit.pit_name, "yaml")
 
                 self.report.pits_generated += 1
 

@@ -209,7 +209,7 @@ class _Resolver:
                     hub_type="standard",
                     hashkey_name=row.get("target_primary_key_physical_name"),
                     create_record_tracking_satellite=truthy(row.get("record_tracking_satellite")),
-                    create_effectivity_satellite=False,
+                    create_effectivity_satellite=truthy(row.get("effectivity_satellite")),
                     group_name=row.get("group_name"),
                 )
                 self.model.hubs[hub_name] = hub

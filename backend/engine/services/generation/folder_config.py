@@ -139,7 +139,7 @@ class GenerationConfig:
     satellite_v0_naming: str = "[[ satellite_name ]]_v0"
     satellite_v1_naming: str = "[[ satellite_name ]]_v1"
     record_tracking_satellite_naming: str = "[[ satellite_name ]]_ts"
-    pit_naming: str = "[[ pit_name ]]_bp"
+    effectivity_satellite_naming: str = "[[ satellite_name ]]_es"
 
     # Schemas
     stage_schema: str = "stage"
@@ -148,10 +148,8 @@ class GenerationConfig:
 
     def resolve_entity_name(self, pattern: str, entity_name: str) -> str:
         """Resolve a naming pattern with placeholder replacement."""
-        return (
-            pattern.replace("[[ entity_name ]]", entity_name)
-            .replace("[[ satellite_name ]]", entity_name)
-            .replace("[[ pit_name ]]", entity_name)
+        return pattern.replace("[[ entity_name ]]", entity_name).replace(
+            "[[ satellite_name ]]", entity_name
         )
 
     # Validation mode

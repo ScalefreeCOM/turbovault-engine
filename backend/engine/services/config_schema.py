@@ -338,8 +338,8 @@ class ProjectConfiguration(BaseModel):
     record_tracking_satellite_naming: str | None = Field(
         None, description="Naming pattern for record-tracking satellite models"
     )
-    pit_naming: str | None = Field(
-        None, description="Naming pattern for PIT models"
+    effectivity_satellite_naming: str | None = Field(
+        None, description="Naming pattern for effectivity satellite models"
     )
 
     @field_validator("stage_schema", "rdv_schema", "bdv_schema")

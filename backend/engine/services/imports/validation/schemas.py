@@ -66,6 +66,7 @@ STANDARD_HUB = SheetSchema(
         "target_primary_key_physical_name",
         "business_key_physical_name",
         "record_tracking_satellite",
+        "effectivity_satellite",
         "group_name",
         "is_primary_source",
         "target_column_sort_order",
