@@ -112,6 +112,63 @@ def test_reimport_same_file_does_not_duplicate(project, minimal_workbook):
     assert SatelliteColumn.objects.filter(satellite__project=project).count() == 2
 
 
+def test_reimport_after_stored_order_diverged(project, minimal_workbook):
+    """Regression for the reported crash: a satellite is edited upstream (e.g.
+    re-ordered in Studio) so its stored ``column_sort_order`` values no longer
+    match the import file's order, then the same file is re-imported. The
+    executor used to reassign positions in place and trip
+    ``UNIQUE(satellite, column_sort_order)`` because a sibling row still held
+    the target value mid-loop.
+
+    Error was: 'Database constraint blocked satellite '...': UNIQUE constraint
+    failed: satellite_column.satellite_id, satellite_column.column_sort_order'.
+    """
+    report1 = import_metadata(
+        project=project,
+        source=ExcelSource(path=minimal_workbook),
+        options=ImportOptions(skip_snapshots=True),
+    )
+    assert report1.status == "success"
+
+    sat = Satellite.objects.get(
+        project=project, satellite_physical_name="sat_customer_details"
+    )
+    stored = {
+        c.staging_column.physical_name: c
+        for c in SatelliteColumn.objects.filter(satellite=sat)
+    }
+    # Simulate an upstream re-order: invert the two columns' positions so the
+    # stored order overlaps and inverts the file's ascending order — the exact
+    # precondition that made an in-place reassignment collide. Clear first to
+    # get past the same constraint while setting up the fixture.
+    SatelliteColumn.objects.filter(satellite=sat).update(column_sort_order=None)
+    stored["name"].column_sort_order = 2
+    stored["name"].save(update_fields=["column_sort_order"])
+    stored["email"].column_sort_order = 1
+    stored["email"].save(update_fields=["column_sort_order"])
+
+    # Re-import the same file: must not surface a constraint violation and must
+    # restore the file's ordering.
+    report2 = import_metadata(
+        project=project,
+        source=ExcelSource(path=minimal_workbook),
+        options=ImportOptions(skip_snapshots=True),
+    )
+    constraint_errors = [
+        i for i in report2.issues if i.code == "execute.constraint_violation"
+    ]
+    assert not constraint_errors, constraint_errors
+    assert report2.status == "success", report2.issues
+
+    columns = list(
+        SatelliteColumn.objects.filter(satellite=sat).order_by("column_sort_order")
+    )
+    assert len(columns) == 2
+    assert len({c.column_sort_order for c in columns}) == 2  # all unique
+    by_name = {c.staging_column.physical_name: c.column_sort_order for c in columns}
+    assert by_name == {"name": 1, "email": 2}
+
+
 def test_reimport_with_updated_fields_picks_up_changes(project, workbook_factory):
     base_sheets = {
         "source_data": [

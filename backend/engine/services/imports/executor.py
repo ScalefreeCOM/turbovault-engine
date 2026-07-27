@@ -610,12 +610,28 @@ class _Executor:
         )
         self._satellites_by_name[d.physical_name] = obj
 
-        # Sort columns: explicit sort orders first to avoid (sat, sort_order) collisions.
+        # Reset existing sort orders before reassigning. `(satellite,
+        # column_sort_order)` is unique and checked per row, so writing a new
+        # position onto a column while a sibling still holds that value collides
+        # mid-loop. This happens on re-import whenever the satellite's stored
+        # order has drifted from the import file's order — e.g. after a column
+        # was re-ordered, added, or removed in an upstream editor (Studio).
+        # NULL is exempt from the constraint, so clearing first makes the
+        # assignment below collision-free regardless of how far the two
+        # orderings have diverged.
+        SatelliteColumn.objects.filter(satellite=obj).update(column_sort_order=None)
+
+        # Sort columns: explicit sort orders first, so auto-assigned ones land
+        # after them.
         ordered_cols = sorted(
             d.columns,
             key=lambda c: (c.sort_order is None, c.sort_order or 0),
         )
 
+        # Assign the payload's explicit sort orders verbatim and fall back to a
+        # compact trailing sequence (mirroring SatelliteColumn.save()'s
+        # auto-assign) for columns that omit one — e.g. multi-active keys.
+        next_order = 1
         for col_d in ordered_cols:
             src_col = self._ensure_source_column(
                 d.source_table_identifier, col_d.source_column_name
@@ -626,6 +642,8 @@ class _Executor:
             target = col_d.target_column_name
             if target == col_d.source_column_name:
                 target = None
+            sort_order = col_d.sort_order if col_d.sort_order is not None else next_order
+            next_order = max(next_order, sort_order) + 1
             SatelliteColumn.objects.update_or_create(
                 satellite=obj,
                 staging_column=staging,
@@ -633,13 +651,20 @@ class _Executor:
                     "is_multi_active_key": col_d.is_multi_active_key,
                     "include_in_delta_detection": col_d.include_in_delta_detection,
                     "target_column_name": target,
-                    **(
-                        {"column_sort_order": col_d.sort_order}
-                        if col_d.sort_order is not None
-                        else {}
-                    ),
+                    "column_sort_order": sort_order,
                 },
             )
+
+        # Columns already stored but not present in this import were cleared
+        # above; give them trailing positions so no satellite column is left
+        # without a sort order (the generator orders by it).
+        leftovers = SatelliteColumn.objects.filter(
+            satellite=obj, column_sort_order__isnull=True
+        ).order_by("created_at", "satellite_column_id")
+        for col in leftovers:
+            col.column_sort_order = next_order
+            next_order += 1
+            col.save(update_fields=["column_sort_order"])
 
     # -------------------------------------------------------- reference table
     def _upsert_reference_table(self, op: CreateOp | UpdateOp) -> None:
