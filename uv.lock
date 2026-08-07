@@ -1451,7 +1451,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=24.0" },
-    { name = "django", specifier = ">=6.0,<7.0" },
+    { name = "django", specifier = ">=6.0,<6.1" },
     { name = "django-mcp-server", specifier = ">=0.5.7" },
     { name = "django-stubs", marker = "extra == 'dev'", specifier = ">=4.2" },
     { name = "djangorestframework", specifier = ">=3.14,<4.0" },
