@@ -133,6 +133,20 @@ class EntitySelection(BaseModel):
         return True
 
 
+class TemplateOverride(BaseModel):
+    """In-memory template content supplied for a single generation run.
+
+    Keyed by entity_type in GenerationOptions.templates_override. Either
+    field may be None to inherit from the DB / bundled file default; a
+    non-None value takes precedence. SQL and YAML resolve independently.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    sql: str | None = None
+    yaml: str | None = None
+
+
 class GenerationOptions(BaseModel):
     """Caller-supplied knobs that shape pipeline behavior."""
 
@@ -146,6 +160,7 @@ class GenerationOptions(BaseModel):
     use_db_templates: bool = False
     entity_selection: EntitySelection | None = None
     return_content: bool = False
+    templates_override: dict[str, TemplateOverride] | None = None
 
 
 # ---------------------------------------------------------------------------

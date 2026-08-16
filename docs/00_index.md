@@ -364,7 +364,7 @@ output:
   create_zip: false
 ```
 
-See [config.example.yml](config.example.yml) for the full set of options.
+See [config.example.yml](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/config.example.yml) for the full set of options.
 
 **Documentation:**
 - [Configuration Overview](docs/03_configuration/01_overview.md) - Two-config system explained with folder structure
@@ -582,7 +582,7 @@ Please contact us at **contact@scalefree.com** to discuss a commercial license t
 
 ## 📄 License
 
-This project is licensed under the **GNU Affero General Public License v3 (AGPL-3.0)** - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **GNU Affero General Public License v3 (AGPL-3.0)** - see the [LICENSE](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/LICENSE) file for details.
 
 ---
 
