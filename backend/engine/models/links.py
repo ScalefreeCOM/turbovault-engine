@@ -71,6 +71,11 @@ class Link(models.Model):
         help_text="Type of link: standard or non-historized",
     )
 
+    create_record_tracking_satellite = models.BooleanField(
+        default=False,
+        help_text="If true, a record-tracking satellite should be generated for this link",
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the link was created"
     )

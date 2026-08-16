@@ -137,6 +137,7 @@ class DLink:
     physical_name: str
     link_type: LinkType = "standard"
     hashkey_name: str = ""
+    create_record_tracking_satellite: bool = False
     group_name: str | None = None
     hub_references: list[DLinkHubReference] = field(default_factory=list)
     columns: list[DLinkColumn] = field(default_factory=list)

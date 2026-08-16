@@ -77,7 +77,7 @@ class Hub(models.Model):
     )
 
     create_effectivity_satellite = models.BooleanField(
-        default=True,
+        default=False,
         help_text="If true, an effectivity satellite should be generated for this hub",
     )
 

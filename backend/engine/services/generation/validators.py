@@ -265,13 +265,21 @@ def _validate_link(link: LinkDefinition) -> ValidationResult:
                 code="LNK_002",
             )
 
-    # Link should have at least one source
+    # Link MUST have at least one source table. Without it the generated dbt
+    # model has an empty `source_models` block (an invalid datavault4dbt link)
+    # and no stage computes the link hashkey. This happens when a link is
+    # imported without a source_table, so no link_hub_source_mapping rows are
+    # created. Fail loudly rather than emit a broken model.
     if not link.source_tables:
-        result.add_warning(
+        result.add_error(
             entity_type="link",
             entity_name=link.link_name,
             field="source_tables",
-            message="Link has no source tables defined",
+            message=(
+                "Link has no source tables — set a source_table on the link so "
+                "its hub-key and hashkey source mappings (link_hub_source_mapping) "
+                "can be created"
+            ),
             code="LNK_003",
         )
 

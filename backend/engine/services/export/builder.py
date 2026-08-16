@@ -1081,6 +1081,7 @@ class ModelBuilder:
                     payload_columns=list(payload_cols),
                     additional_columns=list(additional_cols),
                     source_tables=source_tables,
+                    create_record_tracking_satellite=link.create_record_tracking_satellite,
                 )
             )
 

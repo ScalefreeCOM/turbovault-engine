@@ -61,6 +61,15 @@ from engine.services.imports.types import (
 )
 
 
+def _snapshot_base_name(name: str) -> str:
+    """Base name of a snapshot control: trailing _v0/_v1 stripped, lowercased."""
+    lowered = (name or "").lower()
+    for suffix in ("_v0", "_v1"):
+        if lowered.endswith(suffix):
+            return lowered[: -len(suffix)]
+    return lowered
+
+
 def execute_plan(
     *,
     project: Project,
@@ -115,6 +124,8 @@ class _Executor:
         self._satellites_by_name: dict[str, Satellite] = {}
         self._default_snap_control: SnapshotControlTable | None = None
         self._default_snap_logic: SnapshotControlLogic | None = None
+        # PIT snapshot logic resolved by (control name, trigger column).
+        self._named_snap_logic: dict[tuple[str, str], SnapshotControlLogic] = {}
 
         # Pre-warm caches with anything already in the project.
         for ss in self.project.source_systems.all():
@@ -198,6 +209,99 @@ class _Executor:
             snapshot_forever=False,
         )
         return self._default_snap_logic
+
+    def _logic_row_for(
+        self, table: SnapshotControlTable, trigger_column: str | None
+    ) -> SnapshotControlLogic:
+        """Return the control's logic row for ``trigger_column`` (default is_active).
+
+        Matches an existing row by column name (case-insensitive); creates one with
+        that name if the control doesn't have it.
+        """
+        col = trigger_column or "is_active"
+        existing = next(
+            (
+                logic
+                for logic in SnapshotControlLogic.objects.filter(
+                    snapshot_control_table=table
+                )
+                if logic.snapshot_control_logic_column_name.lower() == col.lower()
+            ),
+            None,
+        )
+        if existing is not None:
+            return existing
+        return SnapshotControlLogic.objects.create(
+            snapshot_control_table=table,
+            snapshot_control_logic_column_name=col,
+            snapshot_component=SnapshotControlLogic.SnapshotComponent.BEGINNING_OF_MONTH,
+            snapshot_duration=1,
+            snapshot_unit=SnapshotControlLogic.SnapshotUnit.YEAR,
+            snapshot_forever=False,
+        )
+
+    def _resolve_snapshot_control_for_pit(
+        self, d: DPIT
+    ) -> SnapshotControlLogic | None:
+        """Link a PIT to a snapshot control logic row.
+
+        The control table is chosen by ``snapshot_model_name``, matched by base name
+        (trailing ``_v0``/``_v1`` stripped, case-insensitive) so version/case variants
+        reuse the existing control instead of duplicating it; a new control is created
+        only for a genuinely new base name. Within that control, the logic row is
+        chosen by ``snapshot_trigger_column`` (default is_active), created if absent.
+        Falls back to the project default control when neither is given.
+        """
+        if self.skip_snapshots:
+            return None
+
+        name = d.snapshot_control_name
+        trigger = d.snapshot_logic_column
+        if not name and not trigger:
+            return self._ensure_default_snapshot_control()
+
+        cache_key = (name or "", trigger or "")
+        if cache_key in self._named_snap_logic:
+            return self._named_snap_logic[cache_key]
+
+        if name:
+            table = self._get_or_create_snapshot_control_table(name)
+        else:
+            default_logic = self._ensure_default_snapshot_control()
+            if default_logic is None:
+                return None
+            table = default_logic.snapshot_control_table
+
+        logic = self._logic_row_for(table, trigger)
+        self._named_snap_logic[cache_key] = logic
+        return logic
+
+    def _get_or_create_snapshot_control_table(
+        self, name: str
+    ) -> SnapshotControlTable:
+        """Find a control table by base name (case-insensitive), or create it."""
+        target_base = _snapshot_base_name(name)
+        table = next(
+            (
+                t
+                for t in SnapshotControlTable.objects.filter(project=self.project)
+                if _snapshot_base_name(t.name) == target_base
+            ),
+            None,
+        )
+        if table is not None:
+            return table
+
+        from datetime import date, time
+
+        today = date.today()
+        return SnapshotControlTable.objects.create(
+            project=self.project,
+            name=name,
+            snapshot_start_date=date(today.year - 5, 1, 1),
+            snapshot_end_date=date(today.year + 5, 12, 31),
+            daily_snapshot_time=time(8, 0, 0),
+        )
 
     # ------------------------------------------------------------------ run
     def run(self) -> None:
@@ -389,6 +493,7 @@ class _Executor:
             defaults={
                 "link_type": d.link_type,
                 "link_hashkey_name": d.hashkey_name or "",
+                "create_record_tracking_satellite": d.create_record_tracking_satellite,
                 "group": group,
             },
         )
@@ -591,13 +696,13 @@ class _Executor:
             )
             return
 
-        snap_logic = self._ensure_default_snapshot_control()
+        snap_logic = self._resolve_snapshot_control_for_pit(d)
         if snap_logic is None:
             # In skip_snapshots mode we just skip PITs.
             return
 
         group = self._get_or_create_group(d.group_name)
-        PIT.objects.update_or_create(
+        pit, _ = PIT.objects.update_or_create(
             project=self.project,
             pit_physical_name=d.physical_name,
             defaults={
@@ -612,6 +717,24 @@ class _Executor:
                 "group": group,
             },
         )
+
+        # Link the satellites tracked by this PIT (M2M).
+        sats = []
+        for sat_name in d.satellite_names:
+            sat = self._satellites_by_name.get(sat_name)
+            if sat is None:
+                self._record_error(
+                    code=Code.ENTITY_MISSING_REFERENCE,
+                    message=(
+                        f"PIT '{d.physical_name}' references satellite "
+                        f"'{sat_name}' which is not defined."
+                    ),
+                    entity_type="pit",
+                    entity_name=d.physical_name,
+                )
+                continue
+            sats.append(sat)
+        pit.satellites.set(sats)
 
 
 # ---------------------------------------------------------------------------

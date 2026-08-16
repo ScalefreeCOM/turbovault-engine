@@ -21,7 +21,6 @@ skipped and the pipeline continues; in `fail_fast` the runner aborts.
 from __future__ import annotations
 
 import logging
-import shutil
 import tempfile
 from pathlib import Path
 
@@ -84,7 +83,10 @@ def _render_dbt(
     options: GenerationOptions,
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
     config = _build_dbt_config(runtime_config, options)
-    template_resolver = TemplateResolver(use_db_templates=options.use_db_templates)
+    template_resolver = TemplateResolver(
+        use_db_templates=options.use_db_templates,
+        templates_override=options.templates_override,
+    )
 
     # We always render into a temp tree so dry-runs cost no real-disk IO
     # past the temp directory, and so the write stage owns the final
@@ -110,7 +112,9 @@ def _build_dbt_config(
     """Translate runtime config + options into the legacy GenerationConfig
     the existing renderer still expects."""
     project_name = (
-        runtime_config.dbt_project_name or runtime_config.project_name or "turbovault_project"
+        runtime_config.dbt_project_name
+        or runtime_config.project_name
+        or "turbovault_project"
     )
     return GenerationConfig(
         project_name=(project_name or "turbovault_project").lower().replace(" ", "_"),
@@ -118,6 +122,8 @@ def _build_dbt_config(
         generate_satellite_v1_views=options.generate_satellite_v1_views,
         satellite_v0_naming=runtime_config.satellite_v0_naming,
         satellite_v1_naming=runtime_config.satellite_v1_naming,
+        record_tracking_satellite_naming=runtime_config.record_tracking_satellite_naming,
+        effectivity_satellite_naming=runtime_config.effectivity_satellite_naming,
         create_zip=options.create_zip,
         stage_schema=runtime_config.stage_schema,
         rdv_schema=runtime_config.rdv_schema,
@@ -138,9 +144,7 @@ _PROJECT_KIND_BY_FILENAME: dict[str, ArtifactKind] = {
 }
 
 
-def _collect_dbt_artifacts(
-    temp_root: Path, legacy_report
-) -> list[GeneratedArtifact]:
+def _collect_dbt_artifacts(temp_root: Path, legacy_report) -> list[GeneratedArtifact]:
     """Read each file the legacy generator wrote back into a GeneratedArtifact."""
     artifacts: list[GeneratedArtifact] = []
     for gf in legacy_report.files:
@@ -195,7 +199,9 @@ def _translate_dbt_issues(legacy_report) -> list[Issue]:
         issues.append(
             make_issue(
                 severity="warning" if is_yaml_missing else "info",
-                code=Code.RENDER_TEMPLATE_NOT_FOUND if is_yaml_missing else Code.RENDER_ENTITY_SKIPPED,
+                code=Code.RENDER_TEMPLATE_NOT_FOUND
+                if is_yaml_missing
+                else Code.RENDER_ENTITY_SKIPPED,
                 stage="render",
                 message=warn.message,
                 entity=_entity_ref_or_none(warn.entity_type, warn.entity_name),

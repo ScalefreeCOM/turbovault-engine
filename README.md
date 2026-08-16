@@ -551,7 +551,6 @@ Built with:
 ---
 
 <div align="center">
-
 **Built by [Scalefree](https://scalefree.com)**
 
 [Documentation](https://docs.turbovault.app) · [Changelog](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/CHANGELOG.md) · [Report Bug](https://github.com/ScalefreeCOM/turbovault-engine/issues) · [Request Feature](https://github.com/ScalefreeCOM/turbovault-engine/issues)
