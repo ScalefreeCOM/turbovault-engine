@@ -207,6 +207,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                 "non_historized" if link_def.link_type == "non_historized" else "standard"
             ),
             hashkey_name=link_def.hashkey.hashkey_name,
+            create_record_tracking_satellite=link_def.create_record_tracking_satellite,
             group_name=link_def.group,
         )
         for i, ref in enumerate(link_def.hub_references):

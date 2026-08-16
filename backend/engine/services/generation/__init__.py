@@ -37,7 +37,15 @@ from engine.services.generation.folder_config import FolderConfig, GenerationCon
 from engine.services.generation.generator import DbtProjectGenerator
 from engine.services.generation.pipeline import run_pipeline
 from engine.services.generation.progress import ProgressCallback
-from engine.services.generation.template_resolver import TemplateResolver
+from engine.services.generation.template_resolver import (
+    TemplateResolver,
+    build_jinja_environment,
+)
+from engine.services.generation.template_validation import (
+    TemplateValidationError,
+    TemplateValidationResult,
+    validate_template,
+)
 from engine.services.generation.types import (
     ArtifactKind,
     EntityRef,
@@ -53,6 +61,7 @@ from engine.services.generation.types import (
     OutputType,
     PipelineStage,
     ProgressEvent,
+    TemplateOverride,
 )
 from engine.services.runtime_config import EngineRuntimeConfig
 
@@ -72,6 +81,12 @@ __all__ = [
     "OutputType",
     "PipelineStage",
     "ProgressEvent",
+    "TemplateOverride",
+    # Template validation — reused by Studio's Model Template Editor.
+    "validate_template",
+    "TemplateValidationResult",
+    "TemplateValidationError",
+    "build_jinja_environment",
     # Internal building blocks — kept importable so existing tests that
     # construct the legacy generator directly keep working. Production
     # callers should use `generate()` instead.

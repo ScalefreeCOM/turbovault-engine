@@ -31,6 +31,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# DV type suffixes stripped when deriving a satellite base name (longest first).
+_DV_TYPE_SUFFIXES = ("_rh", "_nl", "_h", "_l")
+
+
+def _entity_base_name(parent_physical_name: str) -> str:
+    """Derive a base name: lowercase and strip a trailing DV type suffix.
+
+    e.g. CUSTOMER_H -> customer, ORDERS_CUSTOMERS_L -> orders_customers,
+    nation_rh -> nation, LINEITEM_NL -> lineitem.
+    """
+    lowered = parent_physical_name.lower()
+    for suffix in _DV_TYPE_SUFFIXES:
+        if lowered.endswith(suffix):
+            return lowered[: -len(suffix)]
+    return lowered
+
 
 class DbtProjectGenerator:
     """
@@ -102,6 +118,14 @@ class DbtProjectGenerator:
 
             # 7. Generate satellite models (v0 and optionally v1)
             self._generate_satellites(project_export.satellites)
+
+            # 7b. Generate record-tracking satellites for flagged hubs/links
+            self._generate_record_tracking_satellites(
+                project_export.hubs, project_export.links
+            )
+
+            # 7c. Generate effectivity satellites for flagged hubs
+            self._generate_effectivity_satellites(project_export.hubs)
 
             # 8. Generate PIT models
             self._generate_pits(project_export.pits)
@@ -500,6 +524,181 @@ class DbtProjectGenerator:
                 message=str(e),
                 code="SAT_002",
             )
+
+    def _generate_record_tracking_satellites(
+        self,
+        hubs: list[HubDefinition],
+        links: list[LinkDefinition],
+    ) -> None:
+        """Generate a record-tracking satellite for each flagged hub and link."""
+        # Collect flagged parents as (name, group, hashkey_name, source_tables).
+        parents: list[tuple[str, str | None, str | None, list]] = []
+        for hub in hubs:
+            if getattr(hub, "create_record_tracking_satellite", False):
+                hashkey_name = hub.hashkey.hashkey_name if hub.hashkey else None
+                parents.append(
+                    (hub.hub_name, hub.group, hashkey_name, hub.source_tables)
+                )
+        for link in links:
+            if getattr(link, "create_record_tracking_satellite", False):
+                hashkey_name = link.hashkey.hashkey_name if link.hashkey else None
+                parents.append(
+                    (link.link_name, link.group, hashkey_name, link.source_tables)
+                )
+
+        if not parents:
+            return
+
+        sql_template, yaml_template = self.template_resolver.get_templates(
+            "satellite_record_tracking"
+        )
+        if not sql_template:
+            for parent_name, *_ in parents:
+                self.report.add_skipped(
+                    entity_type="satellite_record_tracking",
+                    entity_name=parent_name,
+                    reason="No template found for satellite_record_tracking",
+                )
+            return
+
+        naming = self.config.record_tracking_satellite_naming
+
+        for parent_name, group, hashkey_name, source_tables in parents:
+            if not hashkey_name:
+                self.report.add_skipped(
+                    entity_type="satellite_record_tracking",
+                    entity_name=parent_name,
+                    reason="Parent has no hashkey; cannot track records",
+                )
+                continue
+
+            try:
+                rts_name = self.config.resolve_entity_name(
+                    naming, _entity_base_name(parent_name)
+                )
+                context = {
+                    "satellite_name": rts_name,
+                    "parent_entity": parent_name,
+                    "parent_hashkey": hashkey_name,
+                    "group": group,
+                    "source_tables": [st.model_dump() for st in source_tables],
+                }
+
+                output_dir = self.folder_config.get_raw_vault_path(
+                    group, self.output_path
+                )
+
+                content = sql_template.render(**context)
+                filename = get_model_filename(rts_name, extension="sql")
+                path = output_dir / filename
+                write_sql_file(path, content)
+                self.report.add_file(
+                    path, "satellite_record_tracking", rts_name, "sql"
+                )
+
+                if yaml_template:
+                    content = yaml_template.render(**context)
+                    filename = get_model_filename(rts_name, extension="yml")
+                    path = output_dir / filename
+                    write_yaml_file(path, content)
+                    self.report.add_file(
+                        path, "satellite_record_tracking", rts_name, "yaml"
+                    )
+
+                self.report.record_tracking_satellites_generated += 1
+
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate record-tracking satellite for "
+                    f"{parent_name}: {e}"
+                )
+                self.report.add_error(
+                    entity_type="satellite_record_tracking",
+                    entity_name=parent_name,
+                    message=str(e),
+                    code="RTS_001",
+                )
+
+    def _generate_effectivity_satellites(self, hubs: list[HubDefinition]) -> None:
+        """Generate an effectivity satellite for each flagged hub."""
+        flagged = [
+            hub
+            for hub in hubs
+            if getattr(hub, "create_effectivity_satellite", False)
+        ]
+        if not flagged:
+            return
+
+        sql_template, yaml_template = self.template_resolver.get_templates(
+            "satellite_effectivity"
+        )
+        if not sql_template:
+            for hub in flagged:
+                self.report.add_skipped(
+                    entity_type="satellite_effectivity",
+                    entity_name=hub.hub_name,
+                    reason="No template found for satellite_effectivity",
+                )
+            return
+
+        naming = self.config.effectivity_satellite_naming
+
+        for hub in flagged:
+            hashkey_name = hub.hashkey.hashkey_name if hub.hashkey else None
+            stage_name = (
+                hub.source_tables[0].stage_name if hub.source_tables else None
+            )
+            if not hashkey_name or not stage_name:
+                self.report.add_skipped(
+                    entity_type="satellite_effectivity",
+                    entity_name=hub.hub_name,
+                    reason="Hub has no hashkey or source stage; cannot track effectivity",
+                )
+                continue
+
+            try:
+                es_name = self.config.resolve_entity_name(
+                    naming, _entity_base_name(hub.hub_name)
+                )
+                context = {
+                    "satellite_name": es_name,
+                    "parent_entity": hub.hub_name,
+                    "parent_hashkey": hashkey_name,
+                    "stage_name": stage_name,
+                    "group": hub.group,
+                }
+
+                output_dir = self.folder_config.get_raw_vault_path(
+                    hub.group, self.output_path
+                )
+
+                content = sql_template.render(**context)
+                filename = get_model_filename(es_name, extension="sql")
+                path = output_dir / filename
+                write_sql_file(path, content)
+                self.report.add_file(path, "satellite_effectivity", es_name, "sql")
+
+                if yaml_template:
+                    content = yaml_template.render(**context)
+                    filename = get_model_filename(es_name, extension="yml")
+                    path = output_dir / filename
+                    write_yaml_file(path, content)
+                    self.report.add_file(
+                        path, "satellite_effectivity", es_name, "yaml"
+                    )
+
+                self.report.effectivity_satellites_generated += 1
+
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate effectivity satellite for {hub.hub_name}: {e}"
+                )
+                self.report.add_error(
+                    entity_type="satellite_effectivity",
+                    entity_name=hub.hub_name,
+                    message=str(e),
+                    code="EFS_001",
+                )
 
     def _generate_pits(self, pits: list[PITDefinition]) -> None:
         """Generate PIT SQL and YAML models."""

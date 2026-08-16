@@ -16,11 +16,37 @@ from typing import TYPE_CHECKING
 from jinja2 import Environment, FileSystemLoader, Template, select_autoescape
 
 if TYPE_CHECKING:
+    from jinja2 import BaseLoader
+
     from engine.models.templates import ModelTemplate
+    from engine.services.generation.types import TemplateOverride
 
 
 # Path to default file-based templates
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+
+def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
+    """Build the Jinja2 environment shared by template rendering and validation.
+
+    Uses custom delimiters to avoid conflict with dbt Jinja syntax:
+    - [% %] for block statements (instead of {% %})
+    - [[ ]] for variable expressions (instead of {{ }})
+    - [# #] for comments (instead of {# #})
+    """
+    return Environment(
+        loader=loader,
+        autoescape=select_autoescape(["html", "xml"]),
+        trim_blocks=True,
+        lstrip_blocks=True,
+        # Custom delimiters to avoid conflict with dbt Jinja
+        block_start_string="[%",
+        block_end_string="%]",
+        variable_start_string="[[",
+        variable_end_string="]]",
+        comment_start_string="[#",
+        comment_end_string="#]",
+    )
 
 
 class TemplateResolver:
@@ -38,7 +64,10 @@ class TemplateResolver:
     """
 
     def __init__(
-        self, templates_dir: Path | None = None, use_db_templates: bool = True
+        self,
+        templates_dir: Path | None = None,
+        use_db_templates: bool = True,
+        templates_override: dict[str, TemplateOverride] | None = None,
     ) -> None:
         """
         Initialize the template resolver.
@@ -46,33 +75,23 @@ class TemplateResolver:
         Args:
             templates_dir: Override path to file-based templates directory.
             use_db_templates: Whether to check database for custom templates.
+            templates_override: In-memory per-generation template content,
+                keyed by entity_type. Takes precedence over DB and file
+                templates for the resolver's lifetime.
         """
         self.templates_dir = templates_dir or TEMPLATES_DIR
         self.use_db_templates = use_db_templates
+        self._overrides = templates_override or {}
 
-        # Initialize Jinja2 environment for file-based templates
-        # Uses custom delimiters to avoid conflict with dbt Jinja syntax:
-        # - [% %] for block statements (instead of {% %})
-        # - [[ ]] for variable expressions (instead of {{ }})
-        # - [# #] for comments (instead of {# #})
-        self._env = Environment(
+        # Jinja2 environment for file-based templates and in-memory overrides
+        self._env = build_jinja_environment(
             loader=FileSystemLoader(
                 [
                     str(self.templates_dir / "sql"),
                     str(self.templates_dir / "yaml"),
                     str(self.templates_dir),
                 ]
-            ),
-            autoescape=select_autoescape(["html", "xml"]),
-            trim_blocks=True,
-            lstrip_blocks=True,
-            # Custom delimiters to avoid conflict with dbt Jinja
-            block_start_string="[%",
-            block_end_string="%]",
-            variable_start_string="[[",
-            variable_end_string="]]",
-            comment_start_string="[#",
-            comment_end_string="#]",
+            )
         )
 
         # Template cache for performance
@@ -97,15 +116,23 @@ class TemplateResolver:
         sql_template: Template | None = None
         yaml_template: Template | None = None
 
-        # Try database templates first
-        if self.use_db_templates:
+        # Caller-supplied overrides take precedence over DB and file templates
+        override = self._overrides.get(entity_type)
+        if override is not None:
+            if override.sql is not None:
+                sql_template = self._env.from_string(override.sql)
+            if override.yaml is not None:
+                yaml_template = self._env.from_string(override.yaml)
+
+        # Try database templates next
+        if self.use_db_templates and (sql_template is None or yaml_template is None):
             db_template = self._get_db_template(entity_type)
             if db_template:
-                if db_template.has_sql_template:
+                if sql_template is None and db_template.has_sql_template:
                     sql_template = self._env.from_string(
                         db_template.sql_template_content
                     )
-                if db_template.has_yaml_template:
+                if yaml_template is None and db_template.has_yaml_template:
                     yaml_template = self._env.from_string(
                         db_template.yaml_template_content
                     )

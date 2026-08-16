@@ -1419,13 +1419,14 @@ wheels = [
 
 [[package]]
 name = "turbovault-engine"
-version = "0.15.0"
+version = "0.16.3"
 source = { editable = "." }
 dependencies = [
     { name = "django" },
     { name = "django-mcp-server" },
     { name = "djangorestframework" },
     { name = "jinja2" },
+    { name = "mcp" },
     { name = "openpyxl" },
     { name = "pandas" },
     { name = "pydantic" },
@@ -1450,11 +1451,12 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=24.0" },
-    { name = "django", specifier = ">=6.0,<7.0" },
+    { name = "django", specifier = ">=6.0,<6.1" },
     { name = "django-mcp-server", specifier = ">=0.5.7" },
     { name = "django-stubs", marker = "extra == 'dev'", specifier = ">=4.2" },
     { name = "djangorestframework", specifier = ">=3.14,<4.0" },
     { name = "jinja2", specifier = ">=3.1,<4.0" },
+    { name = "mcp", specifier = ">=1.8.0,<2.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.7" },
     { name = "openpyxl", specifier = ">=3.0,<4.0" },
     { name = "pandas", specifier = ">=2.0,<4.0" },

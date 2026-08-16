@@ -235,6 +235,7 @@ class LinkDefinition(BaseModel):
         default_factory=list,
         description="Source tables that feed this link with column mappings",
     )
+    create_record_tracking_satellite: bool = False
 
 
 # =============================================================================
