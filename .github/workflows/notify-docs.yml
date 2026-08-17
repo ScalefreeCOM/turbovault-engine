@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch engine-docs-updated event
-        uses: peter-evans/repository-dispatch@v3
+        uses: peter-evans/repository-dispatch@v4
         with:
           # DOCS_PAT needs Contents: Read and write on turbovault-docs -
           # repository_dispatch requires write access to the target repo.
