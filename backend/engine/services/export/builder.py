@@ -1009,6 +1009,14 @@ class ModelBuilder:
                             "columns": [],
                         }
 
+                    # Target Foreign Hashkey: alias if exists, else hub hashkey name.
+                    # Identifies WHICH hub reference this mapping feeds, so links
+                    # that reference the same hub more than once round-trip.
+                    target_hk = (
+                        hub_ref.hub_hashkey_alias_in_link
+                        or hub_ref.hub.hub_hashkey_name
+                    )
+
                     # Add column mapping for Business Key
                     # Only add if not already present (to avoid duplicates if used same column multiple times)
                     # For a given source table, we want to list this column usage.
@@ -1017,15 +1025,11 @@ class ModelBuilder:
                             link_column_name=mapping.standard_hub_column.column_name,
                             link_column_type="business_key",
                             source_column_name=source_col_name,
+                            target_foreign_hashkey=target_hk or None,
                         )
                     )
 
                     # Add hashkey mapping
-                    # Target Foreign Hashkey: alias if exists, else hub hashkey name
-                    target_hk = (
-                        hub_ref.hub_hashkey_alias_in_link
-                        or hub_ref.hub.hub_hashkey_name
-                    )
 
                     # Source Stage Hashkey:
                     # In _get_hashkeys_for_source_table, we use alias if available for the hashkey name
