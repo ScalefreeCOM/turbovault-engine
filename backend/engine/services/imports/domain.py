@@ -196,16 +196,21 @@ class DSnapshotControl:
 
 
 @dataclass(slots=True)
+class DRefSatAssignment:
+    satellite_name: str
+    include_columns: list[str] = field(default_factory=list)
+    exclude_columns: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class DReferenceTable:
     physical_name: str
     reference_hub_name: str
     historization_type: str = "latest"  # latest | full | snapshot_based
     snapshot_control_name: str | None = None
     snapshot_logic_column: str | None = None
-    referenced_satellite_name: str | None = None
     group_name: str | None = None
-    include_columns: list[str] = field(default_factory=list)
-    exclude_columns: list[str] = field(default_factory=list)
+    satellite_assignments: list[DRefSatAssignment] = field(default_factory=list)
 
 
 @dataclass(slots=True)

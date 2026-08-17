@@ -27,6 +27,7 @@ from engine.services.imports.domain import (
     DPrejoin,
     DPrejoinExtractionColumn,
     DReferenceTable,
+    DRefSatAssignment,
     DSatellite,
     DSatelliteColumn,
     DSnapshotControl,
@@ -324,22 +325,21 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
 
     # Reference tables
     for rt_def in export.reference_tables:
-        # JSON only carries one satellite reference per ref-table assignment.
-        satellite_name = (
-            rt_def.satellites[0].satellite_name if rt_def.satellites else None
-        )
-        include = list(rt_def.satellites[0].include_columns) if rt_def.satellites else []
-        exclude = list(rt_def.satellites[0].exclude_columns) if rt_def.satellites else []
         model.reference_tables[rt_def.table_name] = DReferenceTable(
             physical_name=rt_def.table_name,
             reference_hub_name=rt_def.reference_hub_name,
             historization_type=rt_def.historization_type or "latest",
             snapshot_control_name=rt_def.snapshot_control_table,
             snapshot_logic_column=rt_def.snapshot_logic_column,
-            referenced_satellite_name=satellite_name,
             group_name=rt_def.group,
-            include_columns=include,
-            exclude_columns=exclude,
+            satellite_assignments=[
+                DRefSatAssignment(
+                    satellite_name=s.satellite_name,
+                    include_columns=list(s.include_columns),
+                    exclude_columns=list(s.exclude_columns),
+                )
+                for s in rt_def.satellites
+            ],
         )
 
     # PITs

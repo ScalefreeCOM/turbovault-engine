@@ -1136,7 +1136,7 @@ class ModelBuilder:
         Returns:
             List of ReferenceTableDefinition objects
         """
-        from engine.models import ReferenceTable
+        from engine.models import ReferenceTable, Satellite
 
         result = []
 
@@ -1148,8 +1148,11 @@ class ModelBuilder:
             )
             .prefetch_related(
                 "satellite_assignments__reference_satellite",
-                "satellite_assignments__include_columns",
-                "satellite_assignments__exclude_columns",
+                "satellite_assignments__include_columns__staging_column__source_column",
+                "satellite_assignments__include_columns__staging_column__prejoin_column__source_column",
+                "satellite_assignments__exclude_columns__staging_column__source_column",
+                "satellite_assignments__exclude_columns__staging_column__prejoin_column__source_column",
+                "reference_hub__satellites",
             )
         )
 
@@ -1157,12 +1160,14 @@ class ModelBuilder:
             # Build satellite assignments
             satellite_assignments = []
             for assignment in ref_table.satellite_assignments.all():
-                # Get column names
+                # Effective name is the target override or the staging column name.
                 include_cols = [
-                    col.target_column_name for col in assignment.include_columns.all()
+                    col.target_column_name or col.staging_column.physical_name
+                    for col in assignment.include_columns.all()
                 ]
                 exclude_cols = [
-                    col.target_column_name for col in assignment.exclude_columns.all()
+                    col.target_column_name or col.staging_column.physical_name
+                    for col in assignment.exclude_columns.all()
                 ]
 
                 satellite_assignments.append(
@@ -1172,6 +1177,25 @@ class ModelBuilder:
                         exclude_columns=exclude_cols,
                     )
                 )
+
+            # No explicit assignments means all reference satellites of the hub
+            if not satellite_assignments:
+                ref_sats = sorted(
+                    (
+                        s
+                        for s in ref_table.reference_hub.satellites.all()
+                        if s.satellite_type == Satellite.SatelliteType.REFERENCE
+                    ),
+                    key=lambda s: s.satellite_physical_name,
+                )
+                satellite_assignments = [
+                    ReferenceTableSatelliteAssignment(
+                        satellite_name=s.satellite_physical_name,
+                        include_columns=[],
+                        exclude_columns=[],
+                    )
+                    for s in ref_sats
+                ]
 
             # Determine snapshot info
             snapshot_table_name = None
