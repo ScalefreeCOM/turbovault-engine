@@ -668,16 +668,68 @@ class _Executor:
             },
         )
 
-        # Satellite assignment (single satellite per ref table in our IR).
-        if d.referenced_satellite_name:
-            sat = self._satellites_by_name.get(d.referenced_satellite_name)
-            if sat is not None:
-                from engine.models import ReferenceTableSatelliteAssignment
+        # Satellite assignments come from the Excel/JSON. When a ref table has
+        # none, generation falls back to all reference satellites of the hub.
+        from engine.models import (
+            ReferenceTableSatelliteAssignment,
+            SatelliteColumn,
+        )
 
+        def _match(names: list[str], cols: list[SatelliteColumn]) -> list[SatelliteColumn]:
+            # A column's effective name is its target override or, when absent,
+            # its staging column name.
+            wanted = set(names)
+            return [
+                c
+                for c in cols
+                if (c.target_column_name or c.staging_column.physical_name) in wanted
+            ]
+
+        seen_sat_pks = set()
+        for a in d.satellite_assignments:
+            sat = self._satellites_by_name.get(a.satellite_name)
+            if sat is None:
+                self._record_error(
+                    code=Code.ENTITY_MISSING_REFERENCE,
+                    message=(
+                        f"Reference table '{d.physical_name}' references satellite "
+                        f"'{a.satellite_name}' which is not defined."
+                    ),
+                    entity_type="reference_table",
+                    entity_name=d.physical_name,
+                )
+                continue
+
+            assignment, _ = (
                 ReferenceTableSatelliteAssignment.objects.update_or_create(
                     reference_table=rt,
                     reference_satellite=sat,
                 )
+            )
+            seen_sat_pks.add(sat.pk)
+
+            sat_columns = list(
+                SatelliteColumn.objects.filter(satellite=sat).select_related(
+                    "staging_column__source_column",
+                    "staging_column__prejoin_column__source_column",
+                )
+            )
+
+            # The model allows only one of include/exclude. Include wins.
+            if a.include_columns:
+                assignment.include_columns.set(_match(a.include_columns, sat_columns))
+                assignment.exclude_columns.clear()
+            elif a.exclude_columns:
+                assignment.exclude_columns.set(_match(a.exclude_columns, sat_columns))
+                assignment.include_columns.clear()
+            else:
+                assignment.include_columns.clear()
+                assignment.exclude_columns.clear()
+
+        # Drop assignments no longer present in the source (idempotent re-import).
+        rt.satellite_assignments.exclude(
+            reference_satellite_id__in=seen_sat_pks
+        ).delete()
 
     # --------------------------------------------------------------------- PIT
     def _upsert_pit(self, op: CreateOp | UpdateOp) -> None:

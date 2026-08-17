@@ -27,6 +27,7 @@ from engine.services.imports.domain import (
     DLinkSourceMapping,
     DomainModel,
     DReferenceTable,
+    DRefSatAssignment,
     DSatellite,
     DSatelliteColumn,
     DSourceColumn,
@@ -623,20 +624,28 @@ class _Resolver:
             hist_raw = (row.get("historized") or "").upper()
             hist = "full" if hist_raw in ("TRUE", "FULL") else "latest"
 
-            include = _split_list(row.get("included_columns"))
-            exclude = _split_list(row.get("excluded_columns"))
-
-            self.model.reference_tables[name] = DReferenceTable(
-                physical_name=name,
-                reference_hub_name=hub.physical_name,
-                historization_type=hist,
-                referenced_satellite_name=row.get("referenced_satellite"),
-                group_name=row.get("group_name"),
-                include_columns=include,
-                exclude_columns=exclude,
-            )
+            # A ref table can span multiple rows, one per referenced satellite.
+            rt = self.model.reference_tables.get(name)
+            if rt is None:
+                rt = DReferenceTable(
+                    physical_name=name,
+                    reference_hub_name=hub.physical_name,
+                    historization_type=hist,
+                    group_name=row.get("group_name"),
+                )
+                self.model.reference_tables[name] = rt
             if row.get("group_name"):
                 self.model.groups.add(row.get("group_name"))
+
+            sat_ref = row.get("referenced_satellite")
+            if sat_ref:
+                rt.satellite_assignments.append(
+                    DRefSatAssignment(
+                        satellite_name=self._sat_id_to_name.get(sat_ref, sat_ref),
+                        include_columns=_split_list(row.get("included_columns")),
+                        exclude_columns=_split_list(row.get("excluded_columns")),
+                    )
+                )
 
     # ------------------------------------------------------------------- pits
     def _resolve_pits(self) -> None:

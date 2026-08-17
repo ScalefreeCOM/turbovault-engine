@@ -23,6 +23,7 @@ ref_satellites:
         [% endfor %]
     [% endif %]
 [% endfor %]
+historized: '[[ "full" if historization_type == "full" else "latest" ]]'
 {%- endset -%}
 
 {{ datavault4dbt.ref_table(yaml_metadata=yaml_metadata) }}
