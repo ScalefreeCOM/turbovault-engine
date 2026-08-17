@@ -5,6 +5,27 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.17.0...turbovault-engine-v0.17.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **imports:** preserve link_hub_source_mapping for self-referencing links on JSON round trip ([#176](https://github.com/ScalefreeCOM/turbovault-engine/issues/176)) ([58d9006](https://github.com/ScalefreeCOM/turbovault-engine/commit/58d9006cac7ed775feb3faca739922caac10d4e0))
+* reference table satellite fallback instead of empty assignment ([#193](https://github.com/ScalefreeCOM/turbovault-engine/issues/193)) ([3d3fb78](https://github.com/ScalefreeCOM/turbovault-engine/commit/3d3fb7863ab91d0e4cd0c4d6c8bfdfce995f5168))
+* resolve reference table satellites with hub fallback ([3d3fb78](https://github.com/ScalefreeCOM/turbovault-engine/commit/3d3fb7863ab91d0e4cd0c4d6c8bfdfce995f5168))
+
+
+### Documentation
+
+* fix relative links in docs/00_index.md for the Docusaurus site ([726acd1](https://github.com/ScalefreeCOM/turbovault-engine/commit/726acd1645a88f461498082c748e4885b5e9bdd1))
+
+
+### CI/CD
+
+* bump actions/checkout from 6 to 7 ([#172](https://github.com/ScalefreeCOM/turbovault-engine/issues/172)) ([ba0b449](https://github.com/ScalefreeCOM/turbovault-engine/commit/ba0b4499510f63ebd4e91b60e5ac26577d2126f2))
+* bump actions/setup-python from 6 to 7 ([#186](https://github.com/ScalefreeCOM/turbovault-engine/issues/186)) ([1471672](https://github.com/ScalefreeCOM/turbovault-engine/commit/147167215d981ff461ce8990f1076febb2da58a9))
+* bump peter-evans/repository-dispatch from 3 to 4 ([#194](https://github.com/ScalefreeCOM/turbovault-engine/issues/194)) ([5923a6f](https://github.com/ScalefreeCOM/turbovault-engine/commit/5923a6fbdc47bd3b3da90d738f0836bc8eb99070))
+
 ## [0.17.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.16.3...turbovault-engine-v0.17.0) (2026-08-07)
 
 
