@@ -1,0 +1,25 @@
+name: Notify Docs Site
+
+# Tells turbovault-docs to rebuild and redeploy whenever documentation content
+# changes here, since turbovault-docs' Docusaurus site treats this repo's docs/
+# folder as its single source of truth (see turbovault-docs/README.md).
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch engine-docs-updated event
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          # DOCS_PAT needs Contents: Read and write on turbovault-docs -
+          # repository_dispatch requires write access to the target repo.
+          token: ${{ secrets.DOCS_PAT }}
+          repository: ScalefreeCOM/turbovault-docs
+          event-type: engine-docs-updated
