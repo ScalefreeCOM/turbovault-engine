@@ -405,3 +405,41 @@ def test_satellite_column_transformation_not_required(tmp_path):
         .count()
         == 0
     )
+
+
+def test_reimport_without_transformations_preserves_existing_ones(tmp_path):
+    """A format that has no transformation concept must not clear one.
+
+    Excel, SQLite and IRiS have no column-transformation field, so their parsers
+    always leave ``DSatelliteColumn.target_column_transformation`` at ``None``.
+    Writing that into ``update_or_create`` defaults unconditionally would wipe a
+    transformation the user set in Django Admin the next time they re-imported
+    their spreadsheet. This pins the conditional write in ``_upsert_satellite``.
+    """
+    project = _build_satellite_project()
+
+    col = SatelliteColumn.objects.get(
+        satellite__project=project,
+        satellite__satellite_physical_name="ORDER_S",
+        staging_column__source_column__source_column_physical_name="O_COMMENT",
+    )
+    assert col.target_column_transformation == TRANSFORMATION
+
+    # Re-run the same import path the non-JSON parsers produce: identical
+    # satellite columns, but with no transformation supplied.
+    out = tmp_path / "export.json"
+    data = _write_export(project, out)
+    for sat in data["satellites"]:
+        for column in sat["columns"]:
+            column["target_column_transformation"] = None
+    out.write_text(json.dumps(data), encoding="utf-8")
+
+    report = import_metadata(
+        project=project,
+        source=JsonSource(path=out),
+        options=ImportOptions(skip_snapshots=True),
+    )
+    assert report.status == "success", report.issues
+
+    col.refresh_from_db()
+    assert col.target_column_transformation == TRANSFORMATION
