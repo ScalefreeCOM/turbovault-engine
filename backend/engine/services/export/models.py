@@ -141,6 +141,14 @@ class PrejoinDefinitionExport(BaseModel):
     """Prejoin definition exported to stage."""
 
     target_table: str = Field(description="Target table physical name to join")
+    target_source_system: str | None = Field(
+        default=None,
+        description=(
+            "Source system of the target table. Omit (or null) when the target "
+            "lives in the same source system as the stage; importers fall back "
+            "to the stage's own source system in that case."
+        ),
+    )
     join_conditions: PrejoinCondition = Field(
         description="Join conditions between source and target"
     )

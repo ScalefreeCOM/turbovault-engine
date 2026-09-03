@@ -156,6 +156,7 @@ SatelliteType = Literal["standard", "reference", "non_historized", "multi_active
 class DSatelliteColumn:
     source_column_name: str
     target_column_name: str | None = None
+    target_column_transformation: str | None = None
     is_multi_active_key: bool = False
     include_in_delta_detection: bool = True
     sort_order: int | None = None
