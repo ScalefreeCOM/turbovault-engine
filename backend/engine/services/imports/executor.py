@@ -633,6 +633,7 @@ class _Executor:
                     "is_multi_active_key": col_d.is_multi_active_key,
                     "include_in_delta_detection": col_d.include_in_delta_detection,
                     "target_column_name": target,
+                    "target_column_transformation": col_d.target_column_transformation,
                     **(
                         {"column_sort_order": col_d.sort_order}
                         if col_d.sort_order is not None
