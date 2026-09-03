@@ -539,10 +539,17 @@ class _Executor:
             )
             if src_col is None:
                 continue
+            # staging_column is part of the lookup (not defaults): a hub
+            # reference's business key can be fed by more than one source
+            # table (e.g. the same relationship captured in two source
+            # systems), which needs one row per source rather than one row
+            # per (link_hub_reference, standard_hub_column) that the last
+            # source happens to overwrite. Mirrors the LinkSourceMapping
+            # idiom just below.
             LinkHubSourceMapping.objects.update_or_create(
                 link_hub_reference=lhr,
                 standard_hub_column=hub_col,
-                defaults={"staging_column": get_or_create_staging_column(src_col)},
+                staging_column=get_or_create_staging_column(src_col),
             )
 
         # Payload / additional columns
