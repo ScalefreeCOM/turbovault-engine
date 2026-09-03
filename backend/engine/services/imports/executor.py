@@ -626,6 +626,7 @@ class _Executor:
             target = col_d.target_column_name
             if target == col_d.source_column_name:
                 target = None
+            transformation = col_d.target_column_transformation
             SatelliteColumn.objects.update_or_create(
                 satellite=obj,
                 staging_column=staging,
@@ -633,6 +634,17 @@ class _Executor:
                     "is_multi_active_key": col_d.is_multi_active_key,
                     "include_in_delta_detection": col_d.include_in_delta_detection,
                     "target_column_name": target,
+                    # Only written when the parser actually supplied one. The
+                    # Excel, SQLite and IRiS formats have no concept of a column
+                    # transformation, so they always leave this None — writing
+                    # that unconditionally would silently clear a transformation
+                    # a user had set in Django Admin on the next re-import.
+                    # Same reasoning as column_sort_order below.
+                    **(
+                        {"target_column_transformation": transformation}
+                        if transformation is not None
+                        else {}
+                    ),
                     **(
                         {"column_sort_order": col_d.sort_order}
                         if col_d.sort_order is not None
