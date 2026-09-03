@@ -5,6 +5,15 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.2](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.17.1...turbovault-engine-v0.17.2) (2026-09-03)
+
+
+### Bug Fixes
+
+* persist all source mappings for a link's hub business key ([#200](https://github.com/ScalefreeCOM/turbovault-engine/issues/200)) ([0a1de8b](https://github.com/ScalefreeCOM/turbovault-engine/commit/0a1de8b7daf47d65256cbe05ac705dd44a609bef))
+* preserve cross-system prejoins and satellite transformations on JSON import ([#198](https://github.com/ScalefreeCOM/turbovault-engine/issues/198)) ([602421c](https://github.com/ScalefreeCOM/turbovault-engine/commit/602421c8091b81ad2f74b9a3744eedc0c53c80d3))
+* use database templates by default ([#196](https://github.com/ScalefreeCOM/turbovault-engine/issues/196)) ([9454669](https://github.com/ScalefreeCOM/turbovault-engine/commit/945466946c93111a9a43c352ddf0e3bdeb31989f))
+
 ## [0.17.1](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.17.0...turbovault-engine-v0.17.1) (2026-08-17)
 
 
