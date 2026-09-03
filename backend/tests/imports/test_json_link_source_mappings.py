@@ -20,8 +20,10 @@ from pathlib import Path
 
 import pytest
 from engine.models import (
+    HubColumn,
     Link,
     LinkColumn,
+    LinkHubReference,
     LinkHubSourceMapping,
     LinkSourceMapping,
     Project,
@@ -38,6 +40,7 @@ from engine.services.imports import (
 )
 from engine.services.model_import_schema import ModelImportSchema
 from engine.services.model_import_service import import_model
+from engine.services.staging_service import get_or_create_staging_column
 
 pytestmark = pytest.mark.django_db
 
@@ -252,3 +255,136 @@ def test_business_key_falls_back_to_name_match_without_foreign_hashkey(tmp_path)
     assert report.status == "success", report.issues
     link = Link.objects.get(project=dst, link_physical_name="ORDERS_CUSTOMERS_L")
     assert LinkHubSourceMapping.objects.filter(link_hub_reference__link=link).count() == 2
+
+
+# ---------------------------------------------------------------------------
+# Regression test for https://github.com/ScalefreeCOM/turbovault-engine/issues/197
+#
+# A link's business-key mapping for a single hub reference can be fed by more
+# than one source table (e.g. the same relationship captured in two source
+# systems). `LinkHubSourceMapping` has no DB constraint preventing multiple
+# rows per (link_hub_reference, standard_hub_column) — the export side
+# (`ModelBuilder._build_links`) already iterates *all* of them and groups them
+# by source table. The import side collapsed them: `_upsert_link` called
+# `update_or_create(link_hub_reference=lhr, standard_hub_column=hub_col,
+# defaults={"staging_column": ...})`, so the second source's mapping just
+# overwrote the first instead of creating a second row.
+# ---------------------------------------------------------------------------
+
+
+def _build_multi_source_link_project() -> Project:
+    """CUSTOMER_H's business key in ORDERS_CUSTOMERS_L is fed by two source
+    tables: `orders_us` and `orders_eu`, both carrying an O_CUSTKEY column."""
+    src = Project.objects.create(name="multi-source-src")
+    _make_source_table(src)  # creates SourceSystem "CRM" + SourceTable "orders"
+
+    result = import_model(
+        src.name,
+        ModelImportSchema.model_validate(
+            {
+                "hubs": [
+                    {
+                        "name": "ORDER_H",
+                        "business_keys": ["O_ORDERKEY"],
+                        "source_table": "orders",
+                    },
+                    {
+                        "name": "CUSTOMER_H",
+                        "business_keys": ["O_CUSTKEY"],
+                        "source_table": "orders",
+                    },
+                ],
+                "links": [
+                    {
+                        "name": "ORDERS_CUSTOMERS_L",
+                        "link_type": "standard",
+                        "hubs": ["ORDER_H", "CUSTOMER_H"],
+                        "source_table": "orders",
+                    }
+                ],
+            }
+        ),
+    )
+    assert result.errors == [], result.errors
+
+    # A second source table feeding the *same* hub reference's business key.
+    system = SourceSystem.objects.get(project=src, name="CRM")
+    other_tbl = SourceTable.objects.create(
+        project=src,
+        source_system=system,
+        physical_table_name="orders_eu",
+        record_source_value="CRM.orders_eu",
+        load_date_value="LOAD_DATE",
+    )
+    other_col = SourceColumn.objects.create(
+        source_table=other_tbl,
+        source_column_physical_name="O_CUSTKEY",
+        source_column_datatype="VARCHAR",
+    )
+    other_staging = get_or_create_staging_column(other_col)
+
+    link = Link.objects.get(project=src, link_physical_name="ORDERS_CUSTOMERS_L")
+    customer_ref = LinkHubReference.objects.get(
+        link=link, hub__hub_physical_name="CUSTOMER_H"
+    )
+    customer_bk_col = HubColumn.objects.get(
+        hub=customer_ref.hub, column_name="O_CUSTKEY"
+    )
+    LinkHubSourceMapping.objects.create(
+        link_hub_reference=customer_ref,
+        standard_hub_column=customer_bk_col,
+        staging_column=other_staging,
+    )
+
+    # Sanity: the DB already holds 2 mappings for CUSTOMER_H before any export.
+    assert (
+        LinkHubSourceMapping.objects.filter(link_hub_reference=customer_ref).count()
+        == 2
+    )
+    return src
+
+
+def test_link_business_key_from_multiple_source_tables_survives_json_roundtrip(
+    tmp_path,
+):
+    src = _build_multi_source_link_project()
+    out = tmp_path / "export.json"
+    data = ModelBuilder(src).build().model_dump(mode="json")
+    out.write_text(json.dumps(data, default=str), encoding="utf-8")
+
+    # The export must carry both source tables, each with a business_key
+    # mapping onto CUSTOMER_H's O_CUSTKEY column.
+    link_export = next(
+        link for link in data["links"] if link["link_name"] == "ORDERS_CUSTOMERS_L"
+    )
+    bk_source_tables = {
+        st["source_table"]
+        for st in link_export["source_tables"]
+        if any(
+            c["link_column_type"] == "business_key"
+            and c["link_column_name"] == "O_CUSTKEY"
+            for c in st["columns"]
+        )
+    }
+    assert bk_source_tables == {"orders", "orders_eu"}
+
+    dst = Project.objects.create(name="multi-source-dst")
+    report = import_metadata(
+        project=dst,
+        source=JsonSource(path=out),
+        options=ImportOptions(skip_snapshots=True),
+    )
+    assert report.status == "success", report.issues
+
+    link = Link.objects.get(project=dst, link_physical_name="ORDERS_CUSTOMERS_L")
+    customer_ref = LinkHubReference.objects.get(
+        link=link, hub__hub_physical_name="CUSTOMER_H"
+    )
+    mappings = LinkHubSourceMapping.objects.filter(link_hub_reference=customer_ref)
+
+    # Before the fix: only 1 row (the second source overwrote the first).
+    assert mappings.count() == 2
+    source_tables = {
+        m.staging_column.source_table.physical_table_name for m in mappings
+    }
+    assert source_tables == {"orders", "orders_eu"}
