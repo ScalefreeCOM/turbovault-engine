@@ -269,7 +269,11 @@ class ModelBuilder:
                 src_col_name = mapping.staging_column.physical_name
                 source_table_map[table_key]["columns"].append(src_col_name)
                 source_table_map[table_key]["mappings"].append(
-                    {"hub_column": column.column_name, "source_column": src_col_name}
+                    {
+                        "hub_column": column.column_name,
+                        "source_column": src_col_name,
+                        "transformation": column.target_column_transformation,
+                    }
                 )
                 if mapping.is_primary_source:
                     source_table_map[table_key]["is_primary_source"] = True
@@ -292,7 +296,11 @@ class ModelBuilder:
                 if col_name not in source_table_map[table_key]["columns"]:
                     source_table_map[table_key]["columns"].append(col_name)
                     source_table_map[table_key]["mappings"].append(
-                        {"hub_column": column.column_name, "source_column": col_name}
+                        {
+                            "hub_column": column.column_name,
+                            "source_column": col_name,
+                            "transformation": column.target_column_transformation,
+                        }
                     )
                 if mapping.is_primary_source:
                     source_table_map[table_key]["is_primary_source"] = True
@@ -306,7 +314,9 @@ class ModelBuilder:
                 is_primary_source=info["is_primary_source"],
                 column_mappings=[
                     HubColumnMapping(
-                        hub_column=m["hub_column"], source_column=m["source_column"]
+                        hub_column=m["hub_column"],
+                        source_column=m["source_column"],
+                        target_column_transformation=m["transformation"],
                     )
                     for m in info["mappings"]
                 ],
@@ -500,11 +510,18 @@ class ModelBuilder:
         self, source_table: SourceTable
     ) -> list[DerivedColumnDef]:
         """
-        Get derived column definitions for satellites using this source table.
+        Get derived column definitions for entities using this source table.
 
-        Identifies satellite columns that require transformation or renaming
-        (i.e., where target_column_name differs from source_column_name or
-        where target_column_transformation is specified).
+        Covers three producers:
+          - satellite columns that are renamed and/or transformed,
+          - hub columns with a transformation (business key hard rules),
+          - link columns with a transformation (dependent child keys, payload).
+
+        Hub and link transformations are emitted *in place*: the derived column
+        keeps the source column's name, so it replaces the raw value everywhere
+        downstream in the stage. datavault4dbt builds `hashed_columns` on top of
+        `derived_columns`, which is what makes the hashkey hash the transformed
+        business key instead of the raw one.
 
         Args:
             source_table: The source table to get derived columns for
@@ -512,34 +529,95 @@ class ModelBuilder:
         Returns:
             List of derived column definitions with placeholders replaced
         """
-        from engine.models import Satellite
+        from engine.models import (
+            HubSourceMapping,
+            LinkHubSourceMapping,
+            LinkSourceMapping,
+            Satellite,
+        )
+
+        result: list[DerivedColumnDef] = []
+        # A source column can reach the stage through several routes at once
+        # (e.g. a table feeding both a hub and a link that references it).
+        # Derived columns become YAML mapping keys, so identical definitions
+        # must be emitted only once.
+        seen: set[tuple[str, str, str | None]] = set()
+
+        def add(
+            target_col_name: str, source_col_name: str, transformation: str | None
+        ) -> None:
+            transformation_replaced = self._replace_transformation_placeholders(
+                transformation, source_col_name
+            )
+            # Nothing to derive if neither renamed nor transformed
+            if target_col_name == source_col_name and not transformation_replaced:
+                return
+            key = (target_col_name, source_col_name, transformation_replaced)
+            if key in seen:
+                return
+            seen.add(key)
+            result.append(
+                DerivedColumnDef(
+                    target_column_name=target_col_name,
+                    source_column_name=source_col_name,
+                    datatype="",  # Keep empty for now as requested
+                    transformation=transformation_replaced,
+                )
+            )
 
         satellites = Satellite.objects.filter(
             source_table=source_table
         ).prefetch_related("columns__staging_column")
 
-        result = []
         for sat in satellites:
             for col in sat.columns.all():
                 source_col_name = col.staging_column.physical_name
-                target_col_name = col.target_column_name or source_col_name
-                transformation = col.target_column_transformation
-
-                # Replace placeholders in transformation
-                transformation_replaced = self._replace_transformation_placeholders(
-                    transformation, source_col_name
+                add(
+                    col.target_column_name or source_col_name,
+                    source_col_name,
+                    col.target_column_transformation,
                 )
 
-                # Include if target name differs from source OR transformation exists
-                if target_col_name != source_col_name or transformation:
-                    result.append(
-                        DerivedColumnDef(
-                            target_column_name=target_col_name,
-                            source_column_name=source_col_name,
-                            datatype="",  # Keep empty for now as requested
-                            transformation=transformation_replaced,
-                        )
-                    )
+        # Hub business/reference keys loaded directly from this source table.
+        hub_mappings = HubSourceMapping.objects.filter(
+            staging_column__source_table=source_table
+        ).select_related("hub_column", "staging_column")
+
+        for mapping in hub_mappings:
+            transformation = mapping.hub_column.target_column_transformation
+            if not transformation:
+                continue
+            source_col_name = mapping.staging_column.physical_name
+            add(source_col_name, source_col_name, transformation)
+
+        # Hub business keys reached via a link. The same hub column may be fed
+        # from a table that only loads the link, and its hub hashkey is computed
+        # there too — so the transformation has to be applied in that stage as
+        # well, otherwise the two stages produce different hashkeys.
+        link_hub_mappings = LinkHubSourceMapping.objects.filter(
+            staging_column__source_table=source_table
+        ).select_related("standard_hub_column", "staging_column")
+
+        for link_hub_mapping in link_hub_mappings:
+            transformation = (
+                link_hub_mapping.standard_hub_column.target_column_transformation
+            )
+            if not transformation:
+                continue
+            source_col_name = link_hub_mapping.staging_column.physical_name
+            add(source_col_name, source_col_name, transformation)
+
+        # Link's own columns (dependent child keys, payload, additional).
+        link_source_mappings = LinkSourceMapping.objects.filter(
+            staging_column__source_table=source_table
+        ).select_related("link_column", "staging_column")
+
+        for link_mapping in link_source_mappings:
+            transformation = link_mapping.link_column.target_column_transformation
+            if not transformation:
+                continue
+            source_col_name = link_mapping.staging_column.physical_name
+            add(source_col_name, source_col_name, transformation)
 
         return result
 
@@ -991,6 +1069,7 @@ class ModelBuilder:
                             link_column_name=column.column_name,
                             link_column_type=column.column_type,
                             source_column_name=source_col_name,
+                            target_column_transformation=column.target_column_transformation,
                         )
                     )
 
@@ -1027,6 +1106,7 @@ class ModelBuilder:
                             link_column_type="business_key",
                             source_column_name=source_col_name,
                             target_foreign_hashkey=target_hk or None,
+                            target_column_transformation=mapping.standard_hub_column.target_column_transformation,
                         )
                     )
 

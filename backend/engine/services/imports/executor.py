@@ -448,6 +448,18 @@ class _Executor:
                 column_name=hc.name,
                 defaults={
                     "column_type": hc.column_type,
+                    # Only written when the parser actually supplied one. The
+                    # Excel, SQLite and IRiS formats have no concept of a column
+                    # transformation, so they always leave this None — writing
+                    # that unconditionally would silently clear a transformation
+                    # a user had set in Django Admin on the next re-import.
+                    **(
+                        {
+                            "target_column_transformation": hc.target_column_transformation
+                        }
+                        if hc.target_column_transformation is not None
+                        else {}
+                    ),
                     **({"sort_order": hc.sort_order} if hc.sort_order is not None else {}),
                 },
             )
@@ -560,6 +572,15 @@ class _Executor:
                 defaults={
                     "column_type": col_d.column_type,
                     "sort_order": col_d.sort_order or 0,
+                    # See _upsert_hub: never clear a transformation that the
+                    # parser did not supply.
+                    **(
+                        {
+                            "target_column_transformation": col_d.target_column_transformation
+                        }
+                        if col_d.target_column_transformation is not None
+                        else {}
+                    ),
                 },
             )
             for sm in col_d.source_mappings:

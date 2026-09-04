@@ -153,6 +153,12 @@ class HubColumn(models.Model):
         help_text="Type of column: business_key, additional_column, or reference_key",
     )
 
+    target_column_transformation = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional transformation expression for derived columns (applied in the stage before hashing)",
+    )
+
     sort_order = models.IntegerField(
         blank=True,
         null=True,

@@ -184,6 +184,7 @@ Describes columns within a hub.
 | hub_id        | identifier | ✓ (FK)  | FK to `hub.hub_id`.                                                                      |
 | column_name   | string     | ✓       | Logical/target column name in the hub.                                                     |
 | column_type   | string     | ✓       | `business_key` (default for standard hubs), `additional_column`, or `reference_key`. |
+| target_column_transformation | string |    | Optional transformation expression (hard business rule) applied to the mapped source column in the stage, before the business key is hashed. Supports the `[[source_column]]` placeholder. |
 | sort_order    | int        | ✓       | Sorting index to define ordering of hub columns.                                           |
 | created_at    | datetime   | ✓       | Timestamp when the record was created.                                                     |
 | updated_at    | datetime   | ✓       | Timestamp when the record was last updated.                                                |
@@ -278,6 +279,7 @@ Describes columns in a link (payload or additional).
 | link_id        | identifier | ✓ (FK)  | FK to `link.link_id`.                                         |
 | column_name    | string     | ✓       | Logical/target column name in the link.                         |
 | column_type    | string     | ✓       | `payload`, `additional_column`, or `dependent_child_key`. |
+| target_column_transformation | string |  | Optional transformation expression (hard business rule) applied to the mapped source column in the stage. For `dependent_child_key` columns this happens before the link hashkey is computed. Supports the `[[source_column]]` placeholder. |
 | sort_order     | integer    |          | Order of appearance. Lower values appear first.                 |
 | created_at     | datetime   | ✓       | Timestamp when the record was created.                          |
 | updated_at     | datetime   | ✓       | Timestamp when the record was last updated.                     |
