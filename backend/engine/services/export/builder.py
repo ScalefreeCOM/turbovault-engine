@@ -47,7 +47,23 @@ from engine.services.runtime_config import (
 )
 
 if TYPE_CHECKING:
-    from engine.models import Project, SourceTable
+    from engine.models import Project, SourceTable, StagingColumn
+
+
+def _prejoin_origin(staging_column: StagingColumn) -> tuple[str | None, str | None]:
+    """Where a staging column's value comes from, when it is not a direct column.
+
+    A ``StagingColumn`` wraps either a ``SourceColumn`` (direct) or a
+    ``PrejoinExtractionColumn`` (pulled across a prejoin). For the latter,
+    return the prejoin's target table and its source system so the importer can
+    bind back to the extraction column instead of inventing a source column on
+    the owning table. Returns ``(None, None)`` for direct columns.
+    """
+    prejoin_column = staging_column.prejoin_column
+    if prejoin_column is None:
+        return None, None
+    target = prejoin_column.prejoin.prejoin_target_table
+    return target.physical_table_name, target.source_system.name
 
 
 class ModelBuilder:
@@ -927,8 +943,10 @@ class ModelBuilder:
 
         links = Link.objects.filter(project=self.project).prefetch_related(
             "hub_references__source_mappings__staging_column__source_table__source_system",
+            "hub_references__source_mappings__staging_column__prejoin_column__prejoin__prejoin_target_table__source_system",
             "hub_references__source_mappings__standard_hub_column",
             "columns__source_mappings__staging_column__source_table__source_system",
+            "columns__source_mappings__staging_column__prejoin_column__prejoin__prejoin_target_table__source_system",
         )
 
         result = []
@@ -985,12 +1003,18 @@ class ModelBuilder:
                             "hashkey_mappings": [],
                         }
 
+                    prejoin_target, prejoin_system = _prejoin_origin(
+                        mapping.staging_column
+                    )
+
                     # Add column mapping
                     source_table_map[table_key]["columns"].append(
                         LinkColumnMapping(
                             link_column_name=column.column_name,
                             link_column_type=column.column_type,
                             source_column_name=source_col_name,
+                            source_prejoin_target_table=prejoin_target,
+                            source_prejoin_target_source_system=prejoin_system,
                         )
                     )
 
@@ -1021,11 +1045,22 @@ class ModelBuilder:
                     # Add column mapping for Business Key
                     # Only add if not already present (to avoid duplicates if used same column multiple times)
                     # For a given source table, we want to list this column usage.
+                    # A link's hub business key is frequently fed by a prejoin:
+                    # the FK on the source table points at something that is not
+                    # the target's business key, so the real key is pulled across.
+                    # Record where it came from, otherwise the importer cannot
+                    # tell this apart from a plain column of `source_table`.
+                    prejoin_target, prejoin_system = _prejoin_origin(
+                        mapping.staging_column
+                    )
+
                     source_table_map[table_key]["columns"].append(
                         LinkColumnMapping(
                             link_column_name=mapping.standard_hub_column.column_name,
                             link_column_type="business_key",
                             source_column_name=source_col_name,
+                            source_prejoin_target_table=prejoin_target,
+                            source_prejoin_target_source_system=prejoin_system,
                             target_foreign_hashkey=target_hk or None,
                         )
                     )

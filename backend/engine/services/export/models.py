@@ -163,6 +163,25 @@ class LinkColumnMapping(BaseModel):
     link_column_name: str
     link_column_type: str  # business_key, payload, or additional_column
     source_column_name: str
+    source_prejoin_target_table: str | None = Field(
+        default=None,
+        description=(
+            "Set when `source_column_name` is not a column of `source_table` but "
+            "is brought in by a prejoin from `source_table` to this target table. "
+            "`source_column_name` then names the extracted column as it appears in "
+            "the stage (the extraction alias, else the target column's physical "
+            "name). Omit (or null) for ordinary direct source columns."
+        ),
+    )
+    source_prejoin_target_source_system: str | None = Field(
+        default=None,
+        description=(
+            "Source system of `source_prejoin_target_table`. Omit (or null) when "
+            "the prejoin target lives in the same source system as `source_table`; "
+            "importers fall back to that system. Ignored when "
+            "`source_prejoin_target_table` is null."
+        ),
+    )
     target_foreign_hashkey: str | None = Field(
         default=None,
         description=(

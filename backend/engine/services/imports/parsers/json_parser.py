@@ -245,6 +245,26 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
         for src_info in link_def.source_tables:
             table_id = f"{src_info.source_system}|{src_info.source_table}"
             for col_mapping in src_info.columns:
+                # A mapping may name a column brought in by a prejoin rather
+                # than a column of the source table itself. Resolve the prejoin
+                # target the same way stage prejoins are resolved, falling back
+                # to the mapping's own source system. Absent in older exports,
+                # in which case every mapping stays a direct source column.
+                prejoin_target_id: str | None = None
+                prejoin_target_table = getattr(
+                    col_mapping, "source_prejoin_target_table", None
+                )
+                if prejoin_target_table:
+                    prejoin_target_system = (
+                        getattr(
+                            col_mapping, "source_prejoin_target_source_system", None
+                        )
+                        or src_info.source_system
+                    )
+                    prejoin_target_id = (
+                        f"{prejoin_target_system}|{prejoin_target_table}"
+                    )
+
                 if col_mapping.link_column_type == "business_key":
                     # Prefer the exact reference identified by the foreign hashkey;
                     # fall back to first hub owning a matching column for exports
@@ -274,6 +294,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                                 hub_column_name=col_mapping.link_column_name,
                                 source_table_identifier=table_id,
                                 source_column_name=col_mapping.source_column_name,
+                                prejoin_target_table_identifier=prejoin_target_id,
                             )
                         )
                 else:
@@ -303,6 +324,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                         DLinkSourceMapping(
                             source_table_identifier=table_id,
                             source_column_name=col_mapping.source_column_name,
+                            prejoin_target_table_identifier=prejoin_target_id,
                         )
                     )
         model.links[link_def.link_name] = link
