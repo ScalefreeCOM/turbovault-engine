@@ -112,6 +112,11 @@ class DLinkSourceMapping:
 
     source_table_identifier: str
     source_column_name: str
+    # When set, `source_column_name` is not a column of the source table but an
+    # extraction pulled in by the prejoin from it to this target table. The
+    # identifier is already resolved by the parser (same "{system}|{table}" form
+    # as `source_table_identifier`). None means an ordinary direct column.
+    prejoin_target_table_identifier: str | None = None
 
 
 @dataclass(slots=True)
@@ -130,6 +135,11 @@ class DLinkHubSourceMapping:
     hub_column_name: str
     source_table_identifier: str
     source_column_name: str
+    # See DLinkSourceMapping.prejoin_target_table_identifier. A link's hub
+    # business key is the common case for this: the FK on the source table
+    # points at a non-key column of the target, so the real business key has to
+    # be prejoined across to compute the hub hashkey.
+    prejoin_target_table_identifier: str | None = None
 
 
 @dataclass(slots=True)
@@ -229,7 +239,7 @@ class DPIT:
 
 
 # ---------------------------------------------------------------------------
-# Prejoins (simplified — full prejoin support is a follow-up)
+# Prejoins
 # ---------------------------------------------------------------------------
 
 
