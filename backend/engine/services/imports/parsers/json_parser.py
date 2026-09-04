@@ -191,6 +191,16 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                 col = col_by_name.get(col_mapping.hub_column)
                 if col is None:
                     continue
+                # The transformation belongs to the hub column, but the export
+                # repeats it on every source mapping of that column. Take the
+                # first one that carries a value.
+                if (
+                    col.target_column_transformation is None
+                    and col_mapping.target_column_transformation
+                ):
+                    col.target_column_transformation = (
+                        col_mapping.target_column_transformation
+                    )
                 col.source_mappings.append(
                     DHubSourceMapping(
                         source_table_identifier=table_id,
@@ -268,6 +278,23 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                                 ref_idx = i
                                 break
                     if ref_idx is not None:
+                        # A business key's transformation lives on the hub
+                        # column. Recover it here for hubs that are only ever
+                        # loaded through this link (no direct hub source table,
+                        # so the hub's own column_mappings never carried it).
+                        if col_mapping.target_column_transformation:
+                            ref_hub = model.hubs.get(
+                                link.hub_references[ref_idx].hub_physical_name
+                            )
+                            if ref_hub is not None:
+                                for hub_col in ref_hub.columns:
+                                    if (
+                                        hub_col.name == col_mapping.link_column_name
+                                        and hub_col.target_column_transformation is None
+                                    ):
+                                        hub_col.target_column_transformation = (
+                                            col_mapping.target_column_transformation
+                                        )
                         link.hub_source_mappings.append(
                             DLinkHubSourceMapping(
                                 link_hub_ref_index=ref_idx,
@@ -299,6 +326,13 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                         )
                         link.columns.append(col)
                         col_by_name[col.name] = col
+                    if (
+                        col.target_column_transformation is None
+                        and col_mapping.target_column_transformation
+                    ):
+                        col.target_column_transformation = (
+                            col_mapping.target_column_transformation
+                        )
                     col.source_mappings.append(
                         DLinkSourceMapping(
                             source_table_identifier=table_id,

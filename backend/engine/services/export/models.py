@@ -62,6 +62,15 @@ class HubColumnMapping(BaseModel):
 
     hub_column: str
     source_column: str
+    target_column_transformation: str | None = Field(
+        default=None,
+        description=(
+            "Optional SQL transformation (hard business rule) applied to the "
+            "source column in the stage before the business key is hashed. "
+            "Belongs to the hub column, so it repeats on every source mapping "
+            "of that column."
+        ),
+    )
 
 
 class HubSourceInfo(BaseModel):
@@ -170,6 +179,15 @@ class LinkColumnMapping(BaseModel):
             "alias, else hub hashkey name) of the specific link hub reference this "
             "mapping feeds. Disambiguates links that reference the same hub more "
             "than once; ignored for non-business-key columns."
+        ),
+    )
+    target_column_transformation: str | None = Field(
+        default=None,
+        description=(
+            "Optional SQL transformation (hard business rule) applied to the "
+            "source column in the stage before the value is hashed. For "
+            "business_key mappings this is the transformation of the referenced "
+            "hub column; otherwise it is the link column's own transformation."
         ),
     )
 

@@ -74,6 +74,7 @@ class DHubColumn:
     name: str
     column_type: HubColumnType = "business_key"
     sort_order: int | None = None
+    target_column_transformation: str | None = None
     source_mappings: list[DHubSourceMapping] = field(default_factory=list)
 
 
@@ -119,6 +120,7 @@ class DLinkColumn:
     name: str
     column_type: LinkColumnType = "payload"
     sort_order: int = 0
+    target_column_transformation: str | None = None
     source_mappings: list[DLinkSourceMapping] = field(default_factory=list)
 
 
