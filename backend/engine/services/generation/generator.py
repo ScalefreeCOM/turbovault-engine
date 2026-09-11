@@ -15,6 +15,7 @@ from .file_writer import write_sql_file, write_yaml_file
 from .folder_config import GenerationConfig, get_model_filename
 from .report import GenerationReport
 from .template_resolver import TemplateResolver
+from .vars_block import render_vars_block
 
 if TYPE_CHECKING:
     from engine.services.export.models import (
@@ -187,6 +188,7 @@ class DbtProjectGenerator:
                 stage_schema=self.config.stage_schema,
                 rdv_schema=self.config.rdv_schema,
                 bdv_schema=self.config.bdv_schema,
+                vars_block=render_vars_block(self.config.global_vars),
             )
             path = self.output_path / "dbt_project.yml"
             write_yaml_file(path, content)

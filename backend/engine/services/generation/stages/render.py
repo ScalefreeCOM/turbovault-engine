@@ -128,6 +128,7 @@ def _build_dbt_config(
         stage_schema=runtime_config.stage_schema,
         rdv_schema=runtime_config.rdv_schema,
         bdv_schema=runtime_config.bdv_schema,
+        global_vars=runtime_config.global_vars,
     )
 
 
