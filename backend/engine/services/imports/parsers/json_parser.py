@@ -322,6 +322,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                 DSatelliteColumn(
                     source_column_name=col_def.source_column,
                     target_column_name=col_def.target_column_name,
+                    target_column_transformation=col_def.target_column_transformation,
                     is_multi_active_key=col_def.is_multi_active_key,
                     include_in_delta_detection=col_def.include_in_delta_detection,
                     sort_order=i + 1,
@@ -395,7 +396,11 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             continue
         source_table_id = f"{stage.source_system}|{stage.source_table}"
         for pj in stage.prejoins:
-            target_id = f"{stage.source_system}|{pj.target_table}"
+            # Prejoin targets may live in a different source system than the
+            # stage. Older exports omit target_source_system; fall back to the
+            # stage's own system so they keep resolving as before.
+            target_system = pj.target_source_system or stage.source_system
+            target_id = f"{target_system}|{pj.target_table}"
             prejoin = DPrejoin(
                 source_table_identifier=source_table_id,
                 target_table_identifier=target_id,

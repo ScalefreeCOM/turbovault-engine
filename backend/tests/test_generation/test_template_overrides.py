@@ -214,6 +214,48 @@ def test_generation_renders_override_and_does_not_touch_global_table(
 
 
 @pytest.mark.django_db
+def test_generation_uses_db_template_by_default(
+    django_setup, project_export, engine_project, monkeypatch
+):
+    from engine.models.templates import ModelTemplate
+    from engine.services.generation import (
+        EntityRef,
+        EntitySelection,
+        GenerationOptions,
+        generate,
+    )
+
+    _patch_build_stage(monkeypatch, project_export)
+    if not project_export.hubs:
+        pytest.skip("Sample export has no hubs")
+    target = project_export.hubs[0]
+    marker = "-- DATABASE TEMPLATE MARKER"
+
+    ModelTemplate.objects.create(
+        name="db_hub",
+        entity_type="hub_standard",
+        sql_template_content=marker,
+        is_active=True,
+    )
+
+    report = generate(
+        project=engine_project,
+        output_type="dbt",
+        options=GenerationOptions(
+            dry_run=True,
+            return_content=True,
+            entity_selection=EntitySelection(
+                only_entities=[EntityRef(type="hub", name=target.hub_name)],
+            ),
+        ),
+    )
+
+    sql_artifacts = [a for a in report.artifacts if a.kind == "sql_model"]
+    assert sql_artifacts
+    assert any(a.content and marker in a.content for a in sql_artifacts)
+
+
+@pytest.mark.django_db
 def test_generation_without_override_ignores_it(
     django_setup, project_export, engine_project, monkeypatch
 ):

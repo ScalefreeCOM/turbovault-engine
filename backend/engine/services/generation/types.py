@@ -157,7 +157,8 @@ class GenerationOptions(BaseModel):
     skip_validation: bool = False
     create_zip: bool = False
     generate_satellite_v1_views: bool = True
-    use_db_templates: bool = False
+    # Preserve the legacy resolver contract: active DB templates precede files.
+    use_db_templates: bool = True
     entity_selection: EntitySelection | None = None
     return_content: bool = False
     templates_override: dict[str, TemplateOverride] | None = None

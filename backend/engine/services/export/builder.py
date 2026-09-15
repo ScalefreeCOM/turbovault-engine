@@ -566,7 +566,7 @@ class ModelBuilder:
         ).prefetch_related(
             "prejoin_condition_source_column",
             "prejoin_condition_target_column",
-            "prejoin_target_table",
+            "prejoin_target_table__source_system",
             "extraction_columns__source_column",
         )
 
@@ -601,6 +601,7 @@ class ModelBuilder:
             result.append(
                 PrejoinDefinitionExport(
                     target_table=prejoin.prejoin_target_table.physical_table_name,
+                    target_source_system=prejoin.prejoin_target_table.source_system.name,
                     join_conditions=join_conditions,
                     extraction_columns=extraction_columns,
                 )
