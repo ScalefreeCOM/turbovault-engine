@@ -134,6 +134,57 @@ def test_dbml_end_to_end_writes_single_file(
     assert len(dbml_artifacts) == 1
 
 
+def test_global_vars_flow_into_generated_dbt_project_yml(
+    django_setup, project_export, engine_project, tmp_path, monkeypatch
+):
+    """End-to-end handoff: runtime_config.global_vars must reach the vars: block
+    of the generated dbt_project.yml. Guards the runtime_config → GenerationConfig
+    mapping in `_build_dbt_config`, which the direct render_vars_block tests miss.
+    """
+    import yaml
+    from engine.services.generation import generate
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    _patch_build_stage(monkeypatch, project_export)
+
+    global_vars = {
+        "datavault4dbt.hash": "SHA1",
+        "datavault4dbt.hash_datatype": "STRING",
+    }
+    out = tmp_path / "dbt_out"
+    report = generate(
+        project=engine_project,
+        output_type="dbt",
+        output_path=out,
+        runtime_config=EngineRuntimeConfig(
+            project_name="pipeline_e2e", global_vars=global_vars
+        ),
+    )
+
+    assert report.status in ("success", "partial_success")
+    dbt_project_yml = out / "dbt_project.yml"
+    assert dbt_project_yml.exists()
+
+    parsed = yaml.safe_load(dbt_project_yml.read_text(encoding="utf-8"))
+    assert parsed["vars"] == global_vars
+
+
+def test_no_global_vars_omits_vars_block_end_to_end(
+    django_setup, project_export, engine_project, tmp_path, monkeypatch
+):
+    """Backwards compatibility through the public entry point: no global_vars
+    means no vars: block in the generated dbt_project.yml."""
+    from engine.services.generation import generate
+
+    _patch_build_stage(monkeypatch, project_export)
+
+    out = tmp_path / "dbt_out"
+    generate(project=engine_project, output_type="dbt", output_path=out)
+
+    content = (out / "dbt_project.yml").read_text(encoding="utf-8")
+    assert "vars:" not in content
+
+
 def test_single_entity_preview_returns_content_without_writing(
     django_setup, project_export, engine_project, monkeypatch
 ):
