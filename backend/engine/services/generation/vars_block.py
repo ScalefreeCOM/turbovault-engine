@@ -34,10 +34,12 @@ def render_vars_block(global_vars: Mapping[str, Any] | None) -> str:
         ValueError: if ``global_vars`` is not a mapping, has a non-string key, or
             contains a value PyYAML cannot serialize.
     """
-    if not global_vars:
+    if global_vars is None:
         return ""
     if not isinstance(global_vars, Mapping):
         raise ValueError("global_vars must be a mapping")
+    if not global_vars:
+        return ""
     if any(not isinstance(key, str) for key in global_vars):
         raise ValueError("global_vars keys must be strings")
     try:
