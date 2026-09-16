@@ -5,6 +5,19 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.17.2...turbovault-engine-v0.18.0) (2026-09-16)
+
+
+### Features
+
+* column transformations on hub and link columns ([#201](https://github.com/ScalefreeCOM/turbovault-engine/issues/201)) ([abe6e13](https://github.com/ScalefreeCOM/turbovault-engine/commit/abe6e132d8f37728b8ddc1d960ba7db7bd24a41b))
+* datavault4dbt vars passthrough in generated dbt_project.yml ([#203](https://github.com/ScalefreeCOM/turbovault-engine/issues/203)) ([0fa6054](https://github.com/ScalefreeCOM/turbovault-engine/commit/0fa605411c6fe39d2b8abb40bd23a58728d1c8e8))
+
+
+### Bug Fixes
+
+* persist prejoins and prejoin-fed link keys on JSON import ([#202](https://github.com/ScalefreeCOM/turbovault-engine/issues/202)) ([c86fd87](https://github.com/ScalefreeCOM/turbovault-engine/commit/c86fd870b7503b1788846ca9d33ae4420af2a280))
+
 ## [0.17.2](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.17.1...turbovault-engine-v0.17.2) (2026-09-03)
 
 
