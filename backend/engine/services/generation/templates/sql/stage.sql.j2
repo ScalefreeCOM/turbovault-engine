@@ -37,9 +37,9 @@ prejoined_columns:
     [% endfor %]
       aliases:
       [% for extraction_col in prejoin.extraction_columns %]
-        - [[ extraction_col.target_column_alias ]]
+        - [[ extraction_col.target_column_alias or extraction_col.source_column_name ]]
       [% endfor %]
-      src_name: '[[ source_system | lower | replace(" ", "_") ]]'
+      src_name: '[[ (prejoin.target_source_system or source_system) | lower | replace(" ", "_") ]]'
       src_table: '[[ prejoin.target_table ]]'
       this_column_name: 
       [% for source_column in prejoin.join_conditions.source_columns %]
