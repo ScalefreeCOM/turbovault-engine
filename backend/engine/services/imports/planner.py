@@ -22,6 +22,7 @@ from engine.models import (
     PIT,
     Hub,
     Link,
+    PrejoinDefinition,
     Project,
     ReferenceTable,
     Satellite,
@@ -32,6 +33,7 @@ from engine.services.imports.domain import (
     DHub,
     DLink,
     DomainModel,
+    DPrejoin,
     DSatellite,
     DSourceSystem,
     DSourceTable,
@@ -133,6 +135,10 @@ class _PlanBuilder:
     def run(self) -> tuple[ExecutionPlan, ImportPlan]:
         self._plan_source_systems()
         self._plan_source_tables()
+        # Prejoins sit between source tables and links on purpose: they need the
+        # source tables to exist, and links need their extraction columns to
+        # exist so a prejoin-fed business key can bind to one.
+        self._plan_prejoins()
         self._plan_hubs()
         self._plan_links()
         self._plan_satellites()
@@ -301,6 +307,99 @@ class _PlanBuilder:
                             entity_type="source_table",
                             name=t.physical_table_name,
                             existing_pk=t.pk,
+                        )
+                    )
+
+    # -------------------------------------------------------------- prejoins
+    def _plan_prejoins(self) -> None:
+        """Plan prejoin definitions.
+
+        A prejoin has no name of its own; it is identified by the pair of tables
+        it joins, so ``(source table, target table)`` is the natural key here and
+        in the executor.
+        """
+        # Deduplicate: the same table pair may be described more than once
+        # (e.g. the export repeats it under several stages). Last one wins,
+        # matching the executor's update_or_create.
+        desired: dict[tuple[str, str], DPrejoin] = {}
+        for pj in self.domain.prejoins:
+            desired[(pj.source_table_identifier, pj.target_table_identifier)] = pj
+
+        existing_rows = list(
+            PrejoinDefinition.objects.filter(project=self.project).select_related(
+                "source_table__source_system",
+                "prejoin_target_table__source_system",
+            )
+        )
+        # Index by both the qualified "{system}|{table}" identifier the JSON
+        # parser produces and the bare physical name, so parsers that use plain
+        # table identifiers still match instead of duplicating the row.
+        existing_by_key: dict[tuple[str, str], PrejoinDefinition] = {}
+        for row in existing_rows:
+            for key in _prejoin_keys(
+                _qualified_name(row.source_table),
+                _qualified_name(row.prejoin_target_table),
+            ):
+                existing_by_key.setdefault(key, row)
+
+        used_pks: set[Any] = set()
+        for (source_id, target_id), d in desired.items():
+            name = _prejoin_display_name(source_id, target_id)
+            existing = next(
+                (
+                    existing_by_key[key]
+                    for key in _prejoin_keys(source_id, target_id)
+                    if key in existing_by_key
+                ),
+                None,
+            )
+            parent_ref = EntityRef(type="source_table", name=_bare_name(source_id))
+            if existing is None:
+                if self.strategy == "update_only":
+                    self._record(
+                        SkipOp(
+                            entity_type="prejoin",
+                            name=name,
+                            reason="update_only",
+                            parent_ref=parent_ref,
+                        ),
+                        skip_reason="update_only",
+                    )
+                    continue
+                self._record(
+                    CreateOp(
+                        entity_type="prejoin",
+                        name=name,
+                        payload=d,
+                        parent_ref=parent_ref,
+                    )
+                )
+            else:
+                used_pks.add(existing.pk)
+                changes = _diff_prejoin(d, existing)
+                self._record(
+                    UpdateOp(
+                        entity_type="prejoin",
+                        name=name,
+                        payload=d,
+                        existing_pk=existing.pk,
+                        changes=changes,
+                        parent_ref=parent_ref,
+                    ),
+                    changes=changes,
+                )
+
+        if self.strategy == "replace_all":
+            for row in existing_rows:
+                if row.pk not in used_pks:
+                    self._record(
+                        DeleteOp(
+                            entity_type="prejoin",
+                            name=_prejoin_display_name(
+                                _qualified_name(row.source_table),
+                                _qualified_name(row.prejoin_target_table),
+                            ),
+                            existing_pk=row.pk,
                         )
                     )
 
@@ -551,6 +650,35 @@ class _PlanBuilder:
 
 
 # ---------------------------------------------------------------------------
+# Prejoin identity helpers
+# ---------------------------------------------------------------------------
+
+
+def _bare_name(identifier: str) -> str:
+    """Strip the "{system}|" prefix the JSON parser adds to table identifiers."""
+    return identifier.split("|", 1)[1] if "|" in identifier else identifier
+
+
+def _qualified_name(table: SourceTable) -> str:
+    """The identifier form the JSON parser uses for a source table."""
+    return f"{table.source_system.name}|{table.physical_table_name}"
+
+
+def _prejoin_keys(
+    source_id: str, target_id: str
+) -> tuple[tuple[str, str], tuple[str, str]]:
+    """Lookup keys for a prejoin, most specific first."""
+    return (
+        (source_id, target_id),
+        (_bare_name(source_id), _bare_name(target_id)),
+    )
+
+
+def _prejoin_display_name(source_id: str, target_id: str) -> str:
+    return f"{_bare_name(source_id)}->{_bare_name(target_id)}"
+
+
+# ---------------------------------------------------------------------------
 # Field-level diffs (used to populate EntityChange lists)
 # ---------------------------------------------------------------------------
 
@@ -628,6 +756,20 @@ def _diff_link(d: DLink, existing: Link) -> list[EntityChange]:
                 "create_record_tracking_satellite",
                 existing.create_record_tracking_satellite,
                 d.create_record_tracking_satellite,
+            ),
+        )
+        if c is not None
+    ]
+
+
+def _diff_prejoin(d: DPrejoin, existing: PrejoinDefinition) -> list[EntityChange]:
+    return [
+        c
+        for c in (
+            _change(
+                "prejoin_operator",
+                existing.prejoin_operator,
+                (d.operator or "AND").upper(),
             ),
         )
         if c is not None

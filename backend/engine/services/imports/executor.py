@@ -13,6 +13,8 @@ and the failed entity is recorded as skipped in the plan and ImportReport.
 
 from __future__ import annotations
 
+from typing import Any
+
 from django.db import IntegrityError, transaction
 
 from engine.models import (
@@ -26,6 +28,8 @@ from engine.models import (
     LinkHubReference,
     LinkHubSourceMapping,
     LinkSourceMapping,
+    PrejoinDefinition,
+    PrejoinExtractionColumn,
     Project,
     ReferenceTable,
     Satellite,
@@ -35,12 +39,14 @@ from engine.models import (
     SourceColumn,
     SourceSystem,
     SourceTable,
+    StagingColumn,
 )
 from engine.services.imports.domain import (
     DPIT,
     DHub,
     DLink,
     DomainModel,
+    DPrejoin,
     DReferenceTable,
     DSatellite,
     DSourceSystem,
@@ -122,6 +128,13 @@ class _Executor:
         self._hubs_by_name: dict[str, Hub] = {}
         self._links_by_name: dict[str, Link] = {}
         self._satellites_by_name: dict[str, Satellite] = {}
+        # Prejoin extraction columns keyed by
+        # (source table pk, target table pk, staged column name lowercased),
+        # i.e. how a link mapping names them. Lets a prejoin-fed business key
+        # bind to the extraction instead of inventing a source column.
+        self._prejoin_extractions: dict[
+            tuple[Any, Any, str], PrejoinExtractionColumn
+        ] = {}
         self._default_snap_control: SnapshotControlTable | None = None
         self._default_snap_logic: SnapshotControlLogic | None = None
         # PIT snapshot logic resolved by (control name, trigger column).
@@ -142,6 +155,10 @@ class _Executor:
             self._links_by_name[l.link_physical_name] = l
         for s in self.project.satellites.all():
             self._satellites_by_name[s.satellite_physical_name] = s
+        for ext in PrejoinExtractionColumn.objects.filter(
+            prejoin__project=self.project
+        ).select_related("prejoin", "source_column"):
+            self._cache_extraction(ext)
 
     # ------------------------------------------------------------------ helpers
     def _record_error(
@@ -327,6 +344,15 @@ class _Executor:
             model_cls = _MODEL_FOR_DELETE.get(op.entity_type)
             if model_cls is None:
                 return
+            if op.entity_type == "prejoin":
+                # Drop cached extraction columns first: the delete cascades to
+                # them, and a link mapping must not later bind to a row that no
+                # longer exists (reachable under replace_all).
+                self._prejoin_extractions = {
+                    key: ext
+                    for key, ext in self._prejoin_extractions.items()
+                    if ext.prejoin_id != op.existing_pk
+                }
             model_cls.objects.filter(pk=op.existing_pk).delete()
         except Exception as exc:  # pragma: no cover - very rare
             self._record_error(
@@ -425,6 +451,168 @@ class _Executor:
         self._source_columns[(table.physical_table_name, col_name)] = sc
         return sc
 
+    # ---------------------------------------------------------------- prejoin
+    def _cache_extraction(self, ext: PrejoinExtractionColumn) -> None:
+        """Index an extraction column under the name a link mapping would use.
+
+        That is the alias when one is set, else the target column's physical
+        name — the same rule ``StagingColumn.physical_name`` applies, which is
+        what the exporter writes into ``LinkColumnMapping.source_column_name``.
+        """
+        staged_name = (
+            ext.prejoin_target_column_alias
+            or ext.source_column.source_column_physical_name
+        )
+        key = (
+            ext.prejoin.source_table_id,
+            ext.prejoin.prejoin_target_table_id,
+            staged_name.lower(),
+        )
+        self._prejoin_extractions[key] = ext
+
+    def _find_source_column(
+        self, table_identifier: str, col_name: str
+    ) -> SourceColumn | None:
+        """Look up an existing source column without creating it.
+
+        Falls back to a case-insensitive match, because column names travel
+        through the export as free text and casing is not always preserved.
+        """
+        sc = self._source_columns.get((table_identifier, col_name))
+        if sc is not None:
+            return sc
+        table = self._source_tables_by_identifier.get(table_identifier)
+        if table is None:
+            return None
+        return next(
+            (
+                col
+                for col in SourceColumn.objects.filter(source_table=table)
+                if col.source_column_physical_name.lower() == col_name.lower()
+            ),
+            None,
+        )
+
+    def _find_prejoin_extraction(
+        self, source_table_identifier: str, target_table_identifier: str, col_name: str
+    ) -> PrejoinExtractionColumn | None:
+        source_table = self._source_tables_by_identifier.get(source_table_identifier)
+        target_table = self._source_tables_by_identifier.get(target_table_identifier)
+        if source_table is None or target_table is None:
+            return None
+        return self._prejoin_extractions.get(
+            (source_table.pk, target_table.pk, col_name.lower())
+        )
+
+    def _upsert_prejoin(self, op: CreateOp | UpdateOp) -> None:
+        d: DPrejoin = op.payload
+
+        source_table = self._source_tables_by_identifier.get(d.source_table_identifier)
+        target_table = self._source_tables_by_identifier.get(d.target_table_identifier)
+        if source_table is None or target_table is None:
+            missing = (
+                d.source_table_identifier
+                if source_table is None
+                else d.target_table_identifier
+            )
+            self._record_error(
+                code=Code.ENTITY_MISSING_SOURCE_TABLE,
+                message=(
+                    f"Prejoin '{op.name}' references source table "
+                    f"'{missing}' which is not defined."
+                ),
+                entity_type="prejoin",
+                entity_name=op.name,
+            )
+            return
+
+        # The join condition is stored as two parallel M2M sets, so the two
+        # sides must line up. A partially resolved condition would silently
+        # join on the wrong columns, so refuse the whole prejoin instead.
+        if not d.source_join_columns or len(d.source_join_columns) != len(
+            d.target_join_columns
+        ):
+            self._record_error(
+                code=Code.ENTITY_INVALID_CONFIGURATION,
+                message=(
+                    f"Prejoin '{op.name}' needs at least one join condition with "
+                    f"matching source and target columns (got "
+                    f"{len(d.source_join_columns)} source, "
+                    f"{len(d.target_join_columns)} target)."
+                ),
+                entity_type="prejoin",
+                entity_name=op.name,
+                suggestion="Fix the prejoin's join_conditions and re-import.",
+            )
+            return
+
+        source_cols: list[SourceColumn] = []
+        target_cols: list[SourceColumn] = []
+        for identifier, names, bucket in (
+            (d.source_table_identifier, d.source_join_columns, source_cols),
+            (d.target_table_identifier, d.target_join_columns, target_cols),
+        ):
+            for name in names:
+                # Deliberately not _ensure_source_column: a join condition on an
+                # invented column is worse than no prejoin at all.
+                col = self._find_source_column(identifier, name)
+                if col is None:
+                    self._record_error(
+                        code=Code.ENTITY_MISSING_SOURCE_COLUMN,
+                        message=(
+                            f"Prejoin '{op.name}' joins on unknown source column "
+                            f"'{identifier}.{name}'."
+                        ),
+                        entity_type="prejoin",
+                        entity_name=op.name,
+                    )
+                    return
+                bucket.append(col)
+
+        operator = (d.operator or "AND").upper()
+        if operator not in PrejoinDefinition.JoinOperator.values:
+            operator = PrejoinDefinition.JoinOperator.AND
+
+        obj, _ = PrejoinDefinition.objects.update_or_create(
+            project=self.project,
+            source_table=source_table,
+            prejoin_target_table=target_table,
+            defaults={"prejoin_operator": operator},
+        )
+        # set() rather than add(): a changed join condition must replace the
+        # old one, not accumulate alongside it on re-import.
+        obj.prejoin_condition_source_column.set(source_cols)
+        obj.prejoin_condition_target_column.set(target_cols)
+
+        for ext_d in d.extraction_columns:
+            src_col = self._find_source_column(
+                d.target_table_identifier, ext_d.source_column_name
+            )
+            if src_col is None:
+                self._record_error(
+                    code=Code.ENTITY_MISSING_SOURCE_COLUMN,
+                    message=(
+                        f"Prejoin '{op.name}' extracts unknown source column "
+                        f"'{d.target_table_identifier}.{ext_d.source_column_name}'."
+                    ),
+                    entity_type="prejoin_extraction_column",
+                    entity_name=f"{op.name}.{ext_d.source_column_name}",
+                )
+                continue
+            # The exporter always writes an alias, defaulting it to the physical
+            # column name. Normalise that back to None so an export -> import
+            # round trip reproduces the original row rather than inventing a
+            # redundant alias. Mirrors target_column_name in _upsert_satellite.
+            alias = ext_d.alias
+            if alias == src_col.source_column_physical_name:
+                alias = None
+            ext, _ = PrejoinExtractionColumn.objects.update_or_create(
+                prejoin=obj,
+                source_column=src_col,
+                defaults={"prejoin_target_column_alias": alias},
+            )
+            self._cache_extraction(ext)
+
     # -------------------------------------------------------------------- hub
     def _upsert_hub(self, op: CreateOp | UpdateOp) -> None:
         d: DHub = op.payload
@@ -483,6 +671,56 @@ class _Executor:
                     first.is_primary_source = True
                     first.save(update_fields=["is_primary_source"])
 
+    def _resolve_mapping_staging_column(
+        self,
+        source_table_identifier: str,
+        source_column_name: str,
+        prejoin_target_table_identifier: str | None,
+        *,
+        entity_type: str,
+        entity_name: str,
+    ) -> StagingColumn | None:
+        """Staging column a link mapping refers to.
+
+        Without a prejoin target this is the direct source column (created if
+        absent, as before). With one, the column is not on the source table at
+        all — it is pulled in by a prejoin — so bind to the existing extraction
+        column. Creating a source column here would put a phantom column on the
+        source table and generate stage SQL that hashes a column that does not
+        exist.
+        """
+        if prejoin_target_table_identifier:
+            ext = self._find_prejoin_extraction(
+                source_table_identifier,
+                prejoin_target_table_identifier,
+                source_column_name,
+            )
+            if ext is None:
+                self._record_error(
+                    code=Code.ENTITY_MISSING_REFERENCE,
+                    message=(
+                        f"'{entity_name}' maps to '{source_column_name}', declared as "
+                        f"a prejoin extraction from '{source_table_identifier}' to "
+                        f"'{prejoin_target_table_identifier}', but no such prejoin "
+                        f"extraction column is defined."
+                    ),
+                    entity_type=entity_type,
+                    entity_name=entity_name,
+                    suggestion=(
+                        "Check that the prejoin and its extraction columns are "
+                        "present in the imported file."
+                    ),
+                )
+                return None
+            return get_or_create_staging_column(ext)
+
+        src_col = self._ensure_source_column(
+            source_table_identifier, source_column_name
+        )
+        if src_col is None:
+            return None
+        return get_or_create_staging_column(src_col)
+
     # ------------------------------------------------------------------- link
     def _upsert_link(self, op: CreateOp | UpdateOp) -> None:
         d: DLink = op.payload
@@ -534,10 +772,14 @@ class _Executor:
             ).first()
             if hub_col is None:
                 continue
-            src_col = self._ensure_source_column(
-                m.source_table_identifier, m.source_column_name
+            staging = self._resolve_mapping_staging_column(
+                m.source_table_identifier,
+                m.source_column_name,
+                m.prejoin_target_table_identifier,
+                entity_type="link_hub_source_mapping",
+                entity_name=f"{d.physical_name}.{m.hub_column_name}",
             )
-            if src_col is None:
+            if staging is None:
                 continue
             # staging_column is part of the lookup (not defaults): a hub
             # reference's business key can be fed by more than one source
@@ -549,7 +791,7 @@ class _Executor:
             LinkHubSourceMapping.objects.update_or_create(
                 link_hub_reference=lhr,
                 standard_hub_column=hub_col,
-                staging_column=get_or_create_staging_column(src_col),
+                staging_column=staging,
             )
 
         # Payload / additional columns
@@ -563,14 +805,18 @@ class _Executor:
                 },
             )
             for sm in col_d.source_mappings:
-                src_col = self._ensure_source_column(
-                    sm.source_table_identifier, sm.source_column_name
+                staging = self._resolve_mapping_staging_column(
+                    sm.source_table_identifier,
+                    sm.source_column_name,
+                    sm.prejoin_target_table_identifier,
+                    entity_type="link_source_mapping",
+                    entity_name=f"{d.physical_name}.{col_d.name}",
                 )
-                if src_col is None:
+                if staging is None:
                     continue
                 LinkSourceMapping.objects.update_or_create(
                     link_column=lc,
-                    staging_column=get_or_create_staging_column(src_col),
+                    staging_column=staging,
                 )
 
     # ------------------------------------------------------------ satellite
@@ -816,6 +1062,7 @@ class _Executor:
 _UPSERT_DISPATCH = {
     "source_system": _Executor._upsert_source_system,
     "source_table": _Executor._upsert_source_table,
+    "prejoin": _Executor._upsert_prejoin,
     "hub": _Executor._upsert_hub,
     "link": _Executor._upsert_link,
     "satellite": _Executor._upsert_satellite,
@@ -827,6 +1074,7 @@ _UPSERT_DISPATCH = {
 _MODEL_FOR_DELETE = {
     "source_system": SourceSystem,
     "source_table": SourceTable,
+    "prejoin": PrejoinDefinition,
     "hub": Hub,
     "link": Link,
     "satellite": Satellite,
