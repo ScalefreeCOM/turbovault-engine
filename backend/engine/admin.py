@@ -153,7 +153,12 @@ class HubColumnInline(admin.TabularInline):
 
     model = HubColumn
     extra = 1
-    fields = ["column_name", "column_type", "sort_order"]
+    fields = [
+        "column_name",
+        "column_type",
+        "target_column_transformation",
+        "sort_order",
+    ]
     ordering = ["sort_order"]
     show_change_link = True  # Allow clicking to edit column details including mappings
 
@@ -556,7 +561,12 @@ class LinkColumnInline(admin.TabularInline):
 
     model = LinkColumn
     extra = 1
-    fields = ["column_name", "column_type", "sort_order"]
+    fields = [
+        "column_name",
+        "column_type",
+        "target_column_transformation",
+        "sort_order",
+    ]
     ordering = ["sort_order"]
     show_change_link = True
     verbose_name = "Link Column"

@@ -209,6 +209,12 @@ class LinkColumn(models.Model):
         help_text="Type of column: payload or additional_column",
     )
 
+    target_column_transformation = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional transformation expression for derived columns (applied in the stage before hashing)",
+    )
+
     sort_order = models.IntegerField(
         default=0,
         help_text="Order of appearance in the link structure. Leave as 0 to auto-assign next available number.",
