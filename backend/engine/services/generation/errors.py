@@ -104,6 +104,7 @@ class Code:
     RENDER_TEMPLATE_NOT_FOUND = "render.template_not_found"
     RENDER_TEMPLATE_RENDER_FAILED = "render.template_render_failed"
     RENDER_ENTITY_SKIPPED = "render.entity_skipped"
+    RENDER_INVALID_GLOBAL_VARS = "render.invalid_global_vars"
 
     # Write stage
     WRITE_IO_ERROR = "write.io_error"

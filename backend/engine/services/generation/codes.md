@@ -50,6 +50,7 @@ deep-link errors; the CLI groups them in summary tables.
 | `render.template_not_found` | A required Jinja template could not be located. | Populate templates via `populate_templates` or check the custom template overrides. |
 | `render.template_render_failed` | A template raised during render (Jinja syntax, undefined variable). | Check the template for the listed entity. |
 | `render.entity_skipped` | Best-effort skipped an entity due to a render error (info). | See the preceding `render.template_*` error for the root cause. |
+| `render.invalid_global_vars` | The caller-supplied `global_vars` mapping could not be serialized into the `vars:` block, so `dbt_project.yml` was skipped. | Check the reported key/value — keys must be strings and values must be YAML-serializable. |
 
 ## Write stage
 

@@ -185,6 +185,58 @@ def test_no_global_vars_omits_vars_block_end_to_end(
     assert "vars:" not in content
 
 
+def test_invalid_global_vars_fails_only_dbt_project_yml(
+    django_setup, project_export, engine_project, tmp_path, monkeypatch
+):
+    """A value the caller cannot serialize must not sink the whole run.
+
+    It is reported against dbt_project.yml with its own code, that one file is
+    skipped, and every other entity still generates.
+    """
+    from decimal import Decimal
+
+    from engine.services.generation import generate
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    _patch_build_stage(monkeypatch, project_export)
+
+    out = tmp_path / "dbt_out"
+    report = generate(
+        project=engine_project,
+        output_type="dbt",
+        output_path=out,
+        runtime_config=EngineRuntimeConfig(
+            project_name="pipeline_e2e",
+            # Decimal has no PyYAML safe representer.
+            global_vars={"datavault4dbt.hash": Decimal("1")},
+        ),
+    )
+
+    var_issues = [i for i in report.issues if i.code == "render.invalid_global_vars"]
+    assert len(var_issues) == 1
+    assert var_issues[0].severity == "error"
+
+    # dbt_project.yml is skipped — never written with the requested vars missing.
+    assert not (out / "dbt_project.yml").exists()
+    # ...but the rest of the project still generated.
+    assert report.files_generated > 0
+    assert (out / "packages.yml").exists()
+
+
+def test_runtime_config_stays_hashable_with_global_vars(django_setup):
+    """EngineRuntimeConfig is a frozen (therefore hashable) public dataclass;
+    the global_vars dict must not make hash() raise for embedders that memoize
+    on it."""
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    with_vars = EngineRuntimeConfig(project_name="p", global_vars={"a": 1})
+    without_vars = EngineRuntimeConfig(project_name="p")
+
+    assert hash(with_vars) == hash(without_vars)  # excluded from __hash__...
+    assert with_vars != without_vars  # ...but still compared
+    assert len({with_vars, without_vars}) == 2
+
+
 def test_single_entity_preview_returns_content_without_writing(
     django_setup, project_export, engine_project, monkeypatch
 ):

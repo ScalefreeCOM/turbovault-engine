@@ -47,7 +47,11 @@ class EngineRuntimeConfig:
     # Passthrough for datavault4dbt global variables. Rendered verbatim into the
     # `vars:` block of dbt_project.yml. The engine does not curate or validate
     # the key list — that is owned by the caller (e.g. Studio).
-    global_vars: dict[str, Any] = field(default_factory=dict)
+    #
+    # `hash=False` keeps this frozen dataclass hashable: a dict field would
+    # otherwise make every `hash(config)` raise TypeError. It stays part of
+    # `__eq__`, so equal configs still hash equal.
+    global_vars: dict[str, Any] = field(default_factory=dict, hash=False)
 
     @classmethod
     def from_turbovault_config(
