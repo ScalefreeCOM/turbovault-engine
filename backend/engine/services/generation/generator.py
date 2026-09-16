@@ -98,12 +98,28 @@ class DbtProjectGenerator:
         """
         logger.info(f"Starting dbt project generation at: {self.output_path}")
 
+        # 0. Resolve the caller-supplied vars block before creating anything.
+        # Doing it here rather than mid-run means a bad value cannot leave a
+        # half-written tree behind: the write stage only replaces files it is
+        # given, so skipping dbt_project.yml later would mix fresh models with
+        # a previous run's project config. Failing now writes nothing at all.
+        try:
+            vars_block = render_vars_block(self.config.global_vars)
+        except ValueError as e:
+            self.report.add_error(
+                entity_type="project",
+                entity_name="dbt_project.yml",
+                message=f"Invalid global_vars: {e}",
+                code="VAR_001",
+            )
+            return self.report
+
         try:
             # 1. Create folder structure
             self._create_folder_structure()
 
             # 2. Generate project-level files
-            self._generate_project_files()
+            self._generate_project_files(vars_block)
 
             # 3. Generate sources.yml
             self._generate_sources(project_export.sources)
@@ -177,45 +193,35 @@ class DbtProjectGenerator:
                     # Log an error if the directory could not be removed
                     logger.error(f"Error removing directory {dirpath}: {e}")
 
-    def _generate_project_files(self) -> None:
-        """Generate dbt_project.yml and packages.yml."""
+    def _generate_project_files(self, vars_block: str = "") -> None:
+        """Generate dbt_project.yml and packages.yml.
+
+        `vars_block` is the already-rendered `vars:` section (see `generate()`,
+        which resolves it up front so an invalid value fails before any file
+        is written).
+        """
         # Generate dbt_project.yml
         template = self.template_resolver.get_project_template("dbt_project.yml")
-        if not template:
+        if template:
+            content = template.render(
+                project_name=self.config.project_name,
+                profile_name=self.config.profile_name,
+                stage_schema=self.config.stage_schema,
+                rdv_schema=self.config.rdv_schema,
+                bdv_schema=self.config.bdv_schema,
+                vars_block=vars_block,
+            )
+            path = self.output_path / "dbt_project.yml"
+            write_yaml_file(path, content)
+            self.report.add_file(path, "project", "dbt_project", "yaml")
+            logger.debug("Generated dbt_project.yml")
+        else:
             self.report.add_warning(
                 entity_type="project",
                 entity_name="dbt_project.yml",
                 message="Template not found, skipping",
                 code="TPL_001",
             )
-        else:
-            try:
-                vars_block = render_vars_block(self.config.global_vars)
-            except ValueError as e:
-                # Caller-supplied vars are the only thing that can fail here.
-                # Skip just this file instead of letting the exception reach
-                # generate()'s handler and abort every remaining entity. A dbt
-                # project without dbt_project.yml cannot run, so the requested
-                # vars can never be silently dropped from a usable project.
-                self.report.add_error(
-                    entity_type="project",
-                    entity_name="dbt_project.yml",
-                    message=f"Invalid global_vars: {e}",
-                    code="VAR_001",
-                )
-            else:
-                content = template.render(
-                    project_name=self.config.project_name,
-                    profile_name=self.config.profile_name,
-                    stage_schema=self.config.stage_schema,
-                    rdv_schema=self.config.rdv_schema,
-                    bdv_schema=self.config.bdv_schema,
-                    vars_block=vars_block,
-                )
-                path = self.output_path / "dbt_project.yml"
-                write_yaml_file(path, content)
-                self.report.add_file(path, "project", "dbt_project", "yaml")
-                logger.debug("Generated dbt_project.yml")
 
         # Generate packages.yml
         template = self.template_resolver.get_project_template("packages.yml")

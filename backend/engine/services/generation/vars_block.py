@@ -50,9 +50,29 @@ def render_vars_block(global_vars: Mapping[str, Any] | None) -> str:
             allow_unicode=True,
         )
     except yaml.YAMLError as exc:  # e.g. RepresenterError for unsupported types
-        raise ValueError(
-            f"global_vars contains a non-serializable value: {exc}"
-        ) from exc
+        # PyYAML names the offending object but not the key it came from, which
+        # is the only thing the caller can act on. Re-dump per key to find it.
+        # Report the type rather than the value — vars may hold credentials.
+        raise ValueError(_non_serializable_message(global_vars)) from exc
     # safe_dump emits `vars:\n  k: v\n`; add one blank line so `models:` is
     # separated when this block is spliced into the template.
     return body.rstrip("\n") + "\n\n"
+
+
+def _non_serializable_message(global_vars: Mapping[str, Any]) -> str:
+    """Build an error naming the key PyYAML choked on.
+
+    Only runs on the failure path, so the extra dumps cost nothing in normal
+    generation.
+    """
+    for key, value in global_vars.items():
+        try:
+            yaml.safe_dump(value)
+        except yaml.YAMLError:
+            return (
+                f"global_vars contains a non-serializable value at key "
+                f"{key!r} (type {type(value).__name__})"
+            )
+    # Unreachable in practice: the whole-mapping dump failed, so some entry
+    # must fail on its own too. Stay generic rather than guess.
+    return "global_vars contains a non-serializable value"

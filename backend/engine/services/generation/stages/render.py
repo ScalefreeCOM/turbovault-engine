@@ -128,9 +128,10 @@ def _build_dbt_config(
         stage_schema=runtime_config.stage_schema,
         rdv_schema=runtime_config.rdv_schema,
         bdv_schema=runtime_config.bdv_schema,
-        # Copy: the runtime config is frozen, so it must not hand out a dict
-        # that the generation config can mutate underneath it.
-        global_vars=dict(runtime_config.global_vars),
+        # Passed through as-is: `render_vars_block` owns validating this, and
+        # coercing it here (e.g. `dict(...)`) would turn a reportable bad value
+        # into an unhandled TypeError before the renderer ever sees it.
+        global_vars=runtime_config.global_vars,
     )
 
 
