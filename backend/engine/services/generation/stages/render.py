@@ -128,6 +128,10 @@ def _build_dbt_config(
         stage_schema=runtime_config.stage_schema,
         rdv_schema=runtime_config.rdv_schema,
         bdv_schema=runtime_config.bdv_schema,
+        # Passed through as-is: `render_vars_block` owns validating this, and
+        # coercing it here (e.g. `dict(...)`) would turn a reportable bad value
+        # into an unhandled TypeError before the renderer ever sees it.
+        global_vars=runtime_config.global_vars,
     )
 
 
@@ -179,6 +183,13 @@ def _kind_for_file(gf) -> ArtifactKind:
     return "sql_model"
 
 
+# Legacy error codes that are not template-render failures and deserve their
+# own stable code. Everything else falls through to render.template_render_failed.
+_LEGACY_ERROR_CODE_MAP: dict[str, str] = {
+    "VAR_001": Code.RENDER_INVALID_GLOBAL_VARS,
+}
+
+
 def _translate_dbt_issues(legacy_report) -> list[Issue]:
     """Convert legacy GenerationError/Warning into structured render issues."""
     issues: list[Issue] = []
@@ -186,7 +197,9 @@ def _translate_dbt_issues(legacy_report) -> list[Issue]:
         issues.append(
             make_issue(
                 severity="error",
-                code=Code.RENDER_TEMPLATE_RENDER_FAILED,
+                code=_LEGACY_ERROR_CODE_MAP.get(
+                    err.code, Code.RENDER_TEMPLATE_RENDER_FAILED
+                ),
                 stage="render",
                 message=err.message,
                 entity=_entity_ref_or_none(err.entity_type, err.entity_name),

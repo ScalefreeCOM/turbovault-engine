@@ -134,6 +134,176 @@ def test_dbml_end_to_end_writes_single_file(
     assert len(dbml_artifacts) == 1
 
 
+def test_global_vars_flow_into_generated_dbt_project_yml(
+    django_setup, project_export, engine_project, tmp_path, monkeypatch
+):
+    """End-to-end handoff: runtime_config.global_vars must reach the vars: block
+    of the generated dbt_project.yml. Guards the runtime_config → GenerationConfig
+    mapping in `_build_dbt_config`, which the direct render_vars_block tests miss.
+    """
+    import yaml
+    from engine.services.generation import generate
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    _patch_build_stage(monkeypatch, project_export)
+
+    global_vars = {
+        "datavault4dbt.hash": "SHA1",
+        "datavault4dbt.hash_datatype": "STRING",
+    }
+    out = tmp_path / "dbt_out"
+    report = generate(
+        project=engine_project,
+        output_type="dbt",
+        output_path=out,
+        runtime_config=EngineRuntimeConfig(
+            project_name="pipeline_e2e", global_vars=global_vars
+        ),
+    )
+
+    assert report.status in ("success", "partial_success")
+    dbt_project_yml = out / "dbt_project.yml"
+    assert dbt_project_yml.exists()
+
+    parsed = yaml.safe_load(dbt_project_yml.read_text(encoding="utf-8"))
+    assert parsed["vars"] == global_vars
+
+
+def test_no_global_vars_omits_vars_block_end_to_end(
+    django_setup, project_export, engine_project, tmp_path, monkeypatch
+):
+    """Backwards compatibility through the public entry point: no global_vars
+    means no vars: block in the generated dbt_project.yml."""
+    from engine.services.generation import generate
+
+    _patch_build_stage(monkeypatch, project_export)
+
+    out = tmp_path / "dbt_out"
+    generate(project=engine_project, output_type="dbt", output_path=out)
+
+    content = (out / "dbt_project.yml").read_text(encoding="utf-8")
+    assert "vars:" not in content
+
+
+def test_invalid_global_vars_writes_nothing_and_names_the_key(
+    django_setup, project_export, engine_project, tmp_path, monkeypatch
+):
+    """A value the caller cannot serialize fails the run before anything is
+    written, under its own code, naming the offending key."""
+    from decimal import Decimal
+
+    from engine.services.generation import generate
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    _patch_build_stage(monkeypatch, project_export)
+
+    out = tmp_path / "dbt_out"
+    report = generate(
+        project=engine_project,
+        output_type="dbt",
+        output_path=out,
+        runtime_config=EngineRuntimeConfig(
+            project_name="pipeline_e2e",
+            # Decimal has no PyYAML safe representer.
+            global_vars={"datavault4dbt.hash": Decimal("1")},
+        ),
+    )
+
+    var_issues = [i for i in report.issues if i.code == "render.invalid_global_vars"]
+    assert len(var_issues) == 1
+    assert var_issues[0].severity == "error"
+    assert "datavault4dbt.hash" in var_issues[0].message
+
+    assert report.status == "validation_failed"
+    assert report.files_generated == 0
+
+
+def test_invalid_global_vars_leaves_a_previous_run_untouched(
+    django_setup, project_export, engine_project, tmp_path, monkeypatch
+):
+    """The write stage only replaces the files it is handed, so a failed run
+    must not write a partial tree: fresh models next to a previous run's
+    dbt_project.yml would silently ship configuration nobody asked for."""
+    from decimal import Decimal
+
+    from engine.services.generation import generate
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    _patch_build_stage(monkeypatch, project_export)
+    out = tmp_path / "dbt_out"
+
+    generate(
+        project=engine_project,
+        output_type="dbt",
+        output_path=out,
+        runtime_config=EngineRuntimeConfig(
+            project_name="pipeline_e2e", global_vars={"datavault4dbt.hash": "MD5"}
+        ),
+    )
+    before = {p: p.read_bytes() for p in sorted(out.rglob("*")) if p.is_file()}
+    assert before
+
+    report = generate(
+        project=engine_project,
+        output_type="dbt",
+        output_path=out,
+        runtime_config=EngineRuntimeConfig(
+            project_name="pipeline_e2e",
+            global_vars={"datavault4dbt.hash": Decimal("1")},
+        ),
+    )
+
+    assert report.status == "validation_failed"
+    after = {p: p.read_bytes() for p in sorted(out.rglob("*")) if p.is_file()}
+    assert after == before
+
+
+@pytest.mark.parametrize("bad", [None, ["a", "b"], "abc"])
+def test_off_type_global_vars_are_reported_not_crashed(
+    django_setup, project_export, engine_project, tmp_path, monkeypatch, bad
+):
+    """`global_vars` is annotated as a dict but reaches the engine from outside.
+    None means 'no vars'; anything else non-mapping is a reported error, never
+    an internal.bug."""
+    from engine.services.generation import generate
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    _patch_build_stage(monkeypatch, project_export)
+
+    out = tmp_path / "dbt_out"
+    report = generate(
+        project=engine_project,
+        output_type="dbt",
+        output_path=out,
+        runtime_config=EngineRuntimeConfig(
+            project_name="pipeline_e2e", global_vars=bad
+        ),
+    )
+
+    assert not [i for i in report.issues if i.code == "internal.bug"]
+    if bad is None:
+        assert report.status in ("success", "partial_success")
+        assert "vars:" not in (out / "dbt_project.yml").read_text(encoding="utf-8")
+    else:
+        codes = [i.code for i in report.issues if i.severity == "error"]
+        assert codes == ["render.invalid_global_vars"]
+        assert report.files_generated == 0
+
+
+def test_runtime_config_stays_hashable_with_global_vars(django_setup):
+    """EngineRuntimeConfig is a frozen (therefore hashable) public dataclass;
+    the global_vars dict must not make hash() raise for embedders that memoize
+    on it."""
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    with_vars = EngineRuntimeConfig(project_name="p", global_vars={"a": 1})
+    without_vars = EngineRuntimeConfig(project_name="p")
+
+    assert hash(with_vars) == hash(without_vars)  # excluded from __hash__...
+    assert with_vars != without_vars  # ...but still compared
+    assert len({with_vars, without_vars}) == 2
+
+
 def test_single_entity_preview_returns_content_without_writing(
     django_setup, project_export, engine_project, monkeypatch
 ):

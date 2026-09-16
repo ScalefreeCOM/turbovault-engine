@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 
 @dataclass
@@ -162,6 +162,9 @@ class GenerationConfig:
     # Project metadata
     project_name: str = "turbovault_project"
     profile_name: str = "default"
+
+    # datavault4dbt global variables rendered into the dbt_project.yml vars: block
+    global_vars: dict[str, Any] = field(default_factory=dict)
 
 
 def get_model_filename(
