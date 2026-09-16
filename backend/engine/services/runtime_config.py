@@ -8,8 +8,8 @@ framework-neutral shape that both callers can pass into Engine services.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from engine.models import Project
@@ -43,6 +43,15 @@ class EngineRuntimeConfig:
     generate_tests: bool = True
     generate_dbml: bool = False
     generate_satellite_v1_views: bool = True
+
+    # Passthrough for datavault4dbt global variables. Rendered verbatim into the
+    # `vars:` block of dbt_project.yml. The engine does not curate or validate
+    # the key list — that is owned by the caller (e.g. Studio).
+    #
+    # `hash=False` keeps this frozen dataclass hashable: a dict field would
+    # otherwise make every `hash(config)` raise TypeError. It stays part of
+    # `__eq__`, so equal configs still hash equal.
+    global_vars: dict[str, Any] = field(default_factory=dict, hash=False)
 
     @classmethod
     def from_turbovault_config(
