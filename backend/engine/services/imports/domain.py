@@ -241,6 +241,33 @@ class DPIT:
 
 
 # ---------------------------------------------------------------------------
+# Skipped entities
+# ---------------------------------------------------------------------------
+
+
+SkipReason = Literal[
+    "missing_reference",
+    "missing_parent",
+    "missing_source_table",
+    "depends_on_skipped",
+]
+
+
+@dataclass(slots=True)
+class DSkipped:
+    """An entity the source defines but that cannot be imported, and why.
+
+    The resolver leaves it out of the model instead of importing a broken
+    version of it; the planner reports it as a skip and never deletes the
+    project's copy of it under `replace_all`.
+    """
+
+    entity_type: str  # "link" | "satellite" | "reference_table" | "pit"
+    name: str
+    reason: SkipReason
+
+
+# ---------------------------------------------------------------------------
 # Prejoins
 # ---------------------------------------------------------------------------
 
@@ -279,6 +306,9 @@ class DomainModel:
     reference_tables: dict[str, DReferenceTable] = field(default_factory=dict)
     pits: dict[str, DPIT] = field(default_factory=dict)
     prejoins: list[DPrejoin] = field(default_factory=list)
+    # Entities left out because something they need is missing, keyed by
+    # (entity_type, physical name).
+    skipped: dict[tuple[str, str], DSkipped] = field(default_factory=dict)
 
     # ---------------- helpers ----------------
 

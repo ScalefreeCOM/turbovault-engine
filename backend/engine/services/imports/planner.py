@@ -10,6 +10,10 @@ Conflict strategies:
   - replace_all: create new, update existing, DELETE everything else
   - update_only: update existing only; skip creates
 
+Entities the resolver left out (`DomainModel.skipped`) are reported as skips
+with their reason, whatever the strategy. They are in the source, so
+`replace_all` never deletes the project's copy of them.
+
 In dry-run mode the plan is the final artifact; the executor never runs.
 """
 
@@ -147,6 +151,19 @@ class _PlanBuilder:
         return self.exec_plan, self.public_plan
 
     # ------------------------------------------------------------- internal
+    def _plan_left_out(self, entity_type: str) -> set[str]:
+        """Plan this type's left-out entities as skips; return their names."""
+        names: set[str] = set()
+        for (kind, name), skipped in self.domain.skipped.items():
+            if kind != entity_type:
+                continue
+            names.add(name)
+            self._record(
+                SkipOp(entity_type=kind, name=name, reason=skipped.reason),
+                skip_reason=skipped.reason,
+            )
+        return names
+
     def _record(
         self,
         op: PlanOp,
@@ -496,9 +513,11 @@ class _PlanBuilder:
                     changes=changes,
                 )
 
+        left_out = self._plan_left_out("link")
+
         if self.strategy == "replace_all":
             for l in existing_by_name.values():
-                if l.pk not in used_pks:
+                if l.pk not in used_pks and l.link_physical_name not in left_out:
                     self._record(
                         DeleteOp(
                             entity_type="link",
@@ -544,9 +563,11 @@ class _PlanBuilder:
                     changes=changes,
                 )
 
+        left_out = self._plan_left_out("satellite")
+
         if self.strategy == "replace_all":
             for s in existing_by_name.values():
-                if s.pk not in used_pks:
+                if s.pk not in used_pks and s.satellite_physical_name not in left_out:
                     self._record(
                         DeleteOp(
                             entity_type="satellite",
@@ -594,9 +615,14 @@ class _PlanBuilder:
                     )
                 )
 
+        left_out = self._plan_left_out("reference_table")
+
         if self.strategy == "replace_all":
             for r in existing_by_name.values():
-                if r.pk not in used_pks:
+                if (
+                    r.pk not in used_pks
+                    and r.reference_table_physical_name not in left_out
+                ):
                     self._record(
                         DeleteOp(
                             entity_type="reference_table",
@@ -637,9 +663,11 @@ class _PlanBuilder:
                     )
                 )
 
+        left_out = self._plan_left_out("pit")
+
         if self.strategy == "replace_all":
             for p in existing_by_name.values():
-                if p.pk not in used_pks:
+                if p.pk not in used_pks and p.pit_physical_name not in left_out:
                     self._record(
                         DeleteOp(
                             entity_type="pit",
