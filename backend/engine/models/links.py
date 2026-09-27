@@ -76,6 +76,12 @@ class Link(models.Model):
         help_text="If true, a record-tracking satellite should be generated for this link",
     )
 
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional description of the link, written to the generated dbt docs",
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the link was created"
     )
@@ -213,6 +219,19 @@ class LinkColumn(models.Model):
         blank=True,
         null=True,
         help_text="Optional transformation expression for derived columns (applied in the stage before hashing)",
+    )
+
+    target_column_datatype = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Data type of the transformed value. Defaults to the source column's data type",
+    )
+
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional description of the column. Falls back to the source column's description",
     )
 
     sort_order = models.IntegerField(

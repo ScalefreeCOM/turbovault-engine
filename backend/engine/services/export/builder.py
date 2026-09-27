@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from engine.services.export.models import (
+    ColumnDescriptionDef,
     DerivedColumnDef,
     HashkeyDefinition,
     HubColumnMapping,
@@ -35,6 +36,7 @@ from engine.services.export.models import (
     SnapshotControlDefinition,
     SnapshotLogicPattern,
     SourceColumnDef,
+    SourceDerivedColumnDef,
     SourceSystemDef,
     SourceTableDef,
     StageDefinition,
@@ -45,9 +47,38 @@ from engine.services.runtime_config import (
     EngineRuntimeConfig,
     resolve_runtime_config,
 )
+from engine.services.sql_columns import referenced_columns
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from engine.models import Project, SourceTable, StagingColumn
+
+# Enough of a staging column to know its name, type and description, whatever
+# kind of column it wraps.
+_STAGING_COLUMN_RELATED = (
+    "source_column",
+    "prejoin_column__source_column",
+    "derived_column",
+)
+
+
+def _staging_prefetch(prefix: str) -> list[str]:
+    return [f"{prefix}__{related}" for related in _STAGING_COLUMN_RELATED]
+
+
+def _column_description(
+    own: str | None, staging_columns: Iterable[StagingColumn]
+) -> ColumnDescriptionDef | None:
+    """A Raw Vault column's own description and the one it inherits.
+
+    It inherits from the first of its source columns that has a description,
+    so callers pass the primary source first.
+    """
+    inherited = next((sc.description for sc in staging_columns if sc.description), None)
+    if not own and not inherited:
+        return None
+    return ColumnDescriptionDef(description=own or None, source_description=inherited)
 
 
 def _prejoin_origin(staging_column: StagingColumn) -> tuple[str | None, str | None]:
@@ -155,7 +186,7 @@ class ModelBuilder:
 
         source_systems = SourceSystem.objects.filter(
             project=self.project
-        ).prefetch_related("tables__columns")
+        ).prefetch_related("tables__columns", "tables__derived_columns")
 
         result = []
         for source_system in source_systems:
@@ -165,8 +196,18 @@ class ModelBuilder:
                     SourceColumnDef(
                         column_name=col.source_column_physical_name,
                         datatype=col.source_column_datatype,
+                        description=col.description or None,
                     )
                     for col in table.columns.all()
+                ]
+                derived_columns = [
+                    SourceDerivedColumnDef(
+                        column_name=derived.column_name,
+                        expression=derived.expression,
+                        datatype=derived.datatype or None,
+                        description=derived.description or None,
+                    )
+                    for derived in table.derived_columns.all()
                 ]
 
                 tables.append(
@@ -175,7 +216,9 @@ class ModelBuilder:
                         alias=table.alias,
                         record_source=table.record_source_value,
                         load_date=table.load_date_value,
+                        description=table.description or None,
                         columns=columns,
+                        derived_columns=derived_columns,
                     )
                 )
 
@@ -184,6 +227,7 @@ class ModelBuilder:
                     name=source_system.name,
                     schema_name=source_system.schema_name,
                     database_name=source_system.database_name,
+                    description=source_system.description or None,
                     tables=tables,
                 )
             )
@@ -200,7 +244,9 @@ class ModelBuilder:
         from engine.models import Hub, HubColumn
 
         hubs = Hub.objects.filter(project=self.project).prefetch_related(
-            "columns__source_mappings__staging_column"
+            "columns__source_mappings__staging_column",
+            *_staging_prefetch("columns__source_mappings__staging_column"),
+            *_staging_prefetch("columns__link_hub_mappings__staging_column"),
         )
 
         result = []
@@ -236,6 +282,27 @@ class ModelBuilder:
             # Get source tables feeding this hub
             source_info = self._get_hub_source_info(hub)
 
+            column_descriptions: dict[str, ColumnDescriptionDef] = {}
+            for column in hub.columns.all():
+                # The primary source first; then sources that only load the
+                # hub through a link.
+                direct = sorted(
+                    column.source_mappings.all(),
+                    key=lambda mapping: not mapping.is_primary_source,
+                )
+                docs = _column_description(
+                    column.description,
+                    [
+                        *(mapping.staging_column for mapping in direct),
+                        *(
+                            mapping.staging_column
+                            for mapping in column.link_hub_mappings.all()
+                        ),
+                    ],
+                )
+                if docs is not None:
+                    column_descriptions[column.column_name] = docs
+
             result.append(
                 HubDefinition(
                     hub_name=hub.hub_physical_name,
@@ -248,6 +315,8 @@ class ModelBuilder:
                     source_tables=source_info,
                     create_record_tracking_satellite=hub.create_record_tracking_satellite,
                     create_effectivity_satellite=hub.create_effectivity_satellite,
+                    description=hub.description or None,
+                    column_descriptions=column_descriptions,
                 )
             )
 
@@ -289,6 +358,7 @@ class ModelBuilder:
                         "hub_column": column.column_name,
                         "source_column": src_col_name,
                         "transformation": column.target_column_transformation,
+                        "datatype": column.target_column_datatype,
                     }
                 )
                 if mapping.is_primary_source:
@@ -316,6 +386,7 @@ class ModelBuilder:
                             "hub_column": column.column_name,
                             "source_column": col_name,
                             "transformation": column.target_column_transformation,
+                            "datatype": column.target_column_datatype,
                         }
                     )
                 if mapping.is_primary_source:
@@ -333,6 +404,7 @@ class ModelBuilder:
                         hub_column=m["hub_column"],
                         source_column=m["source_column"],
                         target_column_transformation=m["transformation"],
+                        target_column_datatype=m["datatype"],
                     )
                     for m in info["mappings"]
                 ],
@@ -356,7 +428,7 @@ class ModelBuilder:
         source_tables = (
             SourceTable.objects.filter(project=self.project)
             .select_related("source_system")
-            .prefetch_related("columns")
+            .prefetch_related("columns", "derived_columns")
         )
 
         result = []
@@ -373,7 +445,7 @@ class ModelBuilder:
             # Get prejoins that use this source table
             prejoins = self._get_prejoins_for_source_table(table)
 
-            # Get derived columns from satellites
+            # Derived columns: defined on the table, or from transformations
             derived_columns = self._get_derived_columns_for_source_table(table)
 
             # Get columns
@@ -381,6 +453,7 @@ class ModelBuilder:
                 SourceColumnDef(
                     column_name=col.source_column_physical_name,
                     datatype=col.source_column_datatype,
+                    description=col.description or None,
                 )
                 for col in table.columns.all()
             ]
@@ -396,6 +469,7 @@ class ModelBuilder:
                     source_system=table.source_system.name,
                     record_source=table.record_source_value,
                     load_date=table.load_date_value,
+                    description=table.description or None,
                     hashkeys=hashkeys,
                     hashdiffs=hashdiffs,
                     prejoins=prejoins,
@@ -526,9 +600,10 @@ class ModelBuilder:
         self, source_table: SourceTable
     ) -> list[DerivedColumnDef]:
         """
-        Get derived column definitions for entities using this source table.
+        Get derived column definitions for this source table's stage.
 
-        Covers three producers:
+        Covers four producers:
+          - derived columns defined on the table,
           - satellite columns that are renamed and/or transformed,
           - hub columns with a transformation (business key hard rules),
           - link columns with a transformation (dependent child keys, payload).
@@ -539,6 +614,14 @@ class ModelBuilder:
         `derived_columns`, which is what makes the hashkey hash the transformed
         business key instead of the raw one.
 
+        datavault4dbt computes every derived column in one SELECT, so one can't
+        read another. A transformation of a derived column therefore inlines
+        that column's expression in place of ``[[source_column]]``.
+
+        An expression needs a data type: datavault4dbt looks one up only for a
+        value that is a plain column name, and fails for anything else. A
+        transformation without its own type takes the source column's.
+
         Args:
             source_table: The source table to get derived columns for
 
@@ -546,11 +629,17 @@ class ModelBuilder:
             List of derived column definitions with placeholders replaced
         """
         from engine.models import (
+            DerivedColumn,
             HubSourceMapping,
             LinkHubSourceMapping,
             LinkSourceMapping,
             Satellite,
         )
+
+        # What src_cols_required may list: the table's own columns.
+        table_columns = [
+            column.source_column_physical_name for column in source_table.columns.all()
+        ]
 
         result: list[DerivedColumnDef] = []
         # A source column can reach the stage through several routes at once
@@ -558,53 +647,112 @@ class ModelBuilder:
         # Derived columns become YAML mapping keys, so identical definitions
         # must be emitted only once.
         seen: set[tuple[str, str, str | None]] = set()
+        # Where each derived column defined on the table sits in `result`, so
+        # an in-place transformation of it replaces its definition.
+        defined_at: dict[str, int] = {}
 
-        def add(
-            target_col_name: str, source_col_name: str, transformation: str | None
-        ) -> None:
-            transformation_replaced = self._replace_transformation_placeholders(
-                transformation, source_col_name
-            )
-            # Nothing to derive if neither renamed nor transformed
-            if target_col_name == source_col_name and not transformation_replaced:
-                return
-            key = (target_col_name, source_col_name, transformation_replaced)
-            if key in seen:
-                return
-            seen.add(key)
+        for derived in DerivedColumn.objects.filter(source_table=source_table):
+            required = referenced_columns(derived.expression, table_columns)
+            defined_at[derived.column_name.lower()] = len(result)
             result.append(
                 DerivedColumnDef(
-                    target_column_name=target_col_name,
-                    source_column_name=source_col_name,
-                    datatype="",  # Keep empty for now as requested
-                    transformation=transformation_replaced,
+                    target_column_name=derived.column_name,
+                    source_column_name=required[0] if required else derived.column_name,
+                    datatype=derived.datatype or "",
+                    transformation=derived.expression,
+                    src_cols_required=required,
+                    description=derived.description or None,
                 )
             )
 
+        def add(
+            target_col_name: str,
+            staging_column: StagingColumn,
+            transformation: str | None,
+            datatype: str | None,
+        ) -> None:
+            source_col_name = staging_column.physical_name
+            derived = staging_column.derived_column
+            if derived is not None:
+                if target_col_name == source_col_name and not transformation:
+                    return  # the derived column itself, already defined
+                inlined = f"({derived.expression})"
+                value = (
+                    self._replace_transformation_placeholders(transformation, inlined)
+                    or inlined
+                )
+                required = referenced_columns(derived.expression, table_columns)
+                resolved_type = datatype or derived.datatype or ""
+                position = defined_at.get(target_col_name.lower())
+                if position is not None:
+                    result[position] = result[position].model_copy(
+                        update={"transformation": value, "datatype": resolved_type}
+                    )
+                    return
+                definition = DerivedColumnDef(
+                    target_column_name=target_col_name,
+                    source_column_name=required[0] if required else source_col_name,
+                    datatype=resolved_type,
+                    transformation=value,
+                    src_cols_required=required,
+                )
+            else:
+                transformation_replaced = self._replace_transformation_placeholders(
+                    transformation, source_col_name
+                )
+                # Nothing to derive if neither renamed nor transformed
+                if target_col_name == source_col_name and not transformation_replaced:
+                    return
+                definition = DerivedColumnDef(
+                    target_column_name=target_col_name,
+                    source_column_name=source_col_name,
+                    # A plain rename lets datavault4dbt look the type up.
+                    datatype=(
+                        (datatype or staging_column.datatype or "")
+                        if transformation_replaced
+                        else ""
+                    ),
+                    transformation=transformation_replaced,
+                    src_cols_required=[source_col_name],
+                )
+            key = (
+                definition.target_column_name,
+                definition.source_column_name,
+                definition.transformation,
+            )
+            if key in seen:
+                return
+            seen.add(key)
+            result.append(definition)
+
         satellites = Satellite.objects.filter(
             source_table=source_table
-        ).prefetch_related("columns__staging_column")
+        ).prefetch_related(*_staging_prefetch("columns__staging_column"))
 
         for sat in satellites:
             for col in sat.columns.all():
-                source_col_name = col.staging_column.physical_name
                 add(
-                    col.target_column_name or source_col_name,
-                    source_col_name,
+                    col.target_column_name or col.staging_column.physical_name,
+                    col.staging_column,
                     col.target_column_transformation,
+                    col.target_column_datatype,
                 )
 
         # Hub business/reference keys loaded directly from this source table.
         hub_mappings = HubSourceMapping.objects.filter(
             staging_column__source_table=source_table
-        ).select_related("hub_column", "staging_column")
+        ).select_related("hub_column", *_staging_prefetch("staging_column"))
 
         for mapping in hub_mappings:
             transformation = mapping.hub_column.target_column_transformation
             if not transformation:
                 continue
-            source_col_name = mapping.staging_column.physical_name
-            add(source_col_name, source_col_name, transformation)
+            add(
+                mapping.staging_column.physical_name,
+                mapping.staging_column,
+                transformation,
+                mapping.hub_column.target_column_datatype,
+            )
 
         # Hub business keys reached via a link. The same hub column may be fed
         # from a table that only loads the link, and its hub hashkey is computed
@@ -612,28 +760,34 @@ class ModelBuilder:
         # well, otherwise the two stages produce different hashkeys.
         link_hub_mappings = LinkHubSourceMapping.objects.filter(
             staging_column__source_table=source_table
-        ).select_related("standard_hub_column", "staging_column")
+        ).select_related("standard_hub_column", *_staging_prefetch("staging_column"))
 
         for link_hub_mapping in link_hub_mappings:
-            transformation = (
-                link_hub_mapping.standard_hub_column.target_column_transformation
-            )
-            if not transformation:
+            hub_column = link_hub_mapping.standard_hub_column
+            if not hub_column.target_column_transformation:
                 continue
-            source_col_name = link_hub_mapping.staging_column.physical_name
-            add(source_col_name, source_col_name, transformation)
+            add(
+                link_hub_mapping.staging_column.physical_name,
+                link_hub_mapping.staging_column,
+                hub_column.target_column_transformation,
+                hub_column.target_column_datatype,
+            )
 
         # Link's own columns (dependent child keys, payload, additional).
         link_source_mappings = LinkSourceMapping.objects.filter(
             staging_column__source_table=source_table
-        ).select_related("link_column", "staging_column")
+        ).select_related("link_column", *_staging_prefetch("staging_column"))
 
         for link_mapping in link_source_mappings:
-            transformation = link_mapping.link_column.target_column_transformation
-            if not transformation:
+            link_column = link_mapping.link_column
+            if not link_column.target_column_transformation:
                 continue
-            source_col_name = link_mapping.staging_column.physical_name
-            add(source_col_name, source_col_name, transformation)
+            add(
+                link_mapping.staging_column.physical_name,
+                link_mapping.staging_column,
+                link_column.target_column_transformation,
+                link_column.target_column_datatype,
+            )
 
         return result
 
@@ -942,7 +1096,10 @@ class ModelBuilder:
         from engine.models import Satellite
 
         satellites = Satellite.objects.filter(project=self.project).prefetch_related(
-            "columns__staging_column__source_table", "parent_hub", "parent_link"
+            "columns__staging_column__source_table",
+            *_staging_prefetch("columns__staging_column"),
+            "parent_hub",
+            "parent_link",
         )
 
         result = []
@@ -988,6 +1145,9 @@ class ModelBuilder:
                         is_multi_active_key=col.is_multi_active_key,
                         include_in_delta_detection=col.include_in_delta_detection,
                         target_column_transformation=col.target_column_transformation,
+                        target_column_datatype=col.target_column_datatype or None,
+                        description=col.description or None,
+                        source_description=col.staging_column.description or None,
                     )
                 )
 
@@ -1005,6 +1165,7 @@ class ModelBuilder:
                     stage_name=stage_name,
                     hashdiff_name=hashdiff_name,
                     columns=columns,
+                    description=sat.description or None,
                 )
             )
 
@@ -1025,6 +1186,7 @@ class ModelBuilder:
             "hub_references__source_mappings__standard_hub_column",
             "columns__source_mappings__staging_column__source_table__source_system",
             "columns__source_mappings__staging_column__prejoin_column__prejoin__prejoin_target_table__source_system",
+            *_staging_prefetch("columns__source_mappings__staging_column"),
         )
 
         result = []
@@ -1094,6 +1256,7 @@ class ModelBuilder:
                             source_prejoin_target_table=prejoin_target,
                             source_prejoin_target_source_system=prejoin_system,
                             target_column_transformation=column.target_column_transformation,
+                            target_column_datatype=column.target_column_datatype,
                         )
                     )
 
@@ -1142,6 +1305,7 @@ class ModelBuilder:
                             source_prejoin_target_source_system=prejoin_system,
                             target_foreign_hashkey=target_hk or None,
                             target_column_transformation=mapping.standard_hub_column.target_column_transformation,
+                            target_column_datatype=mapping.standard_hub_column.target_column_datatype,
                         )
                     )
 
@@ -1182,6 +1346,18 @@ class ModelBuilder:
                 for table_name, info in source_table_map.items()
             ]
 
+            column_descriptions: dict[str, ColumnDescriptionDef] = {}
+            for column in link.columns.all():
+                docs = _column_description(
+                    column.description,
+                    (
+                        mapping.staging_column
+                        for mapping in column.source_mappings.all()
+                    ),
+                )
+                if docs is not None:
+                    column_descriptions[column.column_name] = docs
+
             # Build hashkey definition for link
             # Business key columns are used for hashkey composition
             hashkey = HashkeyDefinition(
@@ -1202,6 +1378,8 @@ class ModelBuilder:
                     additional_columns=list(additional_cols),
                     source_tables=source_tables,
                     create_record_tracking_satellite=link.create_record_tracking_satellite,
+                    description=link.description or None,
+                    column_descriptions=column_descriptions,
                 )
             )
 
@@ -1338,6 +1516,7 @@ class ModelBuilder:
                     snapshot_control_table=snapshot_table_name,
                     snapshot_logic_column=snapshot_logic_column,
                     satellites=satellite_assignments,
+                    description=ref_table.description or None,
                 )
             )
 

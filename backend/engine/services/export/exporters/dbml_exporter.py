@@ -22,6 +22,18 @@ if TYPE_CHECKING:
     )
 
 
+def _dbml_string(text: str) -> str:
+    """A DBML string literal for ``text``: quoted, or triple-quoted over lines."""
+    if "\n" in text:
+        return "'''" + text.replace("\\", "\\\\").replace("'''", "\\'''") + "'''"
+    return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def _column_note(description: str | None) -> str:
+    """The ``[note: ...]`` setting for a column, or nothing."""
+    return f" [note: {_dbml_string(description)}]" if description else ""
+
+
 class DBMLExporter(BaseExporter):
     """
     Exports Data Vault project to DBML format.
@@ -93,9 +105,17 @@ class DBMLExporter(BaseExporter):
         self.output_lines.append(f"// Generated at: {project_export.generated_at}")
         self.output_lines.append("")
 
+    def _table_note(self, description: str | None) -> None:
+        if description:
+            self.output_lines.append(f"  Note: {_dbml_string(description)}")
+
     def _export_hub(self, hub: HubDefinition) -> None:
         """Export a hub table to DBML."""
         self.output_lines.append(f"Table {hub.hub_name} {{")
+
+        def note(column: str) -> str:
+            docs = hub.column_descriptions.get(column)
+            return _column_note(docs.effective if docs else None)
 
         # Hashkey column (primary key)
         if hub.hashkey:
@@ -105,20 +125,21 @@ class DBMLExporter(BaseExporter):
 
         # Business key columns
         for bk in hub.business_key_columns:
-            self.output_lines.append(f"  {bk.upper()} varchar")
+            self.output_lines.append(f"  {bk.upper()} varchar{note(bk)}")
 
         # Reference key columns (for reference hubs)
         for rk in hub.reference_key_columns:
-            self.output_lines.append(f"  {rk.upper()} varchar")
+            self.output_lines.append(f"  {rk.upper()} varchar{note(rk)}")
 
         # Additional columns
         for col in hub.additional_columns:
-            self.output_lines.append(f"  {col.upper()} varchar")
+            self.output_lines.append(f"  {col.upper()} varchar{note(col)}")
 
         # Standard Data Vault columns
         self.output_lines.append("  LDTS timestamp")
         self.output_lines.append("  RSRC varchar")
 
+        self._table_note(hub.description)
         self.output_lines.append("}")
         self.output_lines.append("")
 
@@ -163,18 +184,23 @@ class DBMLExporter(BaseExporter):
         for bk in link.business_key_columns:
             self.output_lines.append(f"  {bk.upper()} varchar")
 
+        def note(column: str) -> str:
+            docs = link.column_descriptions.get(column)
+            return _column_note(docs.effective if docs else None)
+
         # Payload columns
         for payload in link.payload_columns:
-            self.output_lines.append(f"  {payload.upper()} varchar")
+            self.output_lines.append(f"  {payload.upper()} varchar{note(payload)}")
 
         # Additional columns
         for col in link.additional_columns:
-            self.output_lines.append(f"  {col.upper()} varchar")
+            self.output_lines.append(f"  {col.upper()} varchar{note(col)}")
 
         # Standard Data Vault columns
         self.output_lines.append("  LDTS timestamp")
         self.output_lines.append("  RSRC varchar")
 
+        self._table_note(link.description)
         self.output_lines.append("}")
         self.output_lines.append("")
 
@@ -220,25 +246,34 @@ class DBMLExporter(BaseExporter):
         # Satellite columns
         for col in satellite.columns:
             target_name = col.target_column_name or col.source_column
+            description = col.description or col.source_description
             # Add note for multi-active key columns
             if col.is_multi_active_key:
+                note = (
+                    f"Multi-active key. {description}"
+                    if description
+                    else "Multi-active key"
+                )
                 self.output_lines.append(
-                    f"  {target_name.upper()} varchar [note: 'Multi-active key']"
+                    f"  {target_name.upper()} varchar{_column_note(note)}"
                 )
             else:
-                self.output_lines.append(f"  {target_name.upper()} varchar")
+                self.output_lines.append(
+                    f"  {target_name.upper()} varchar{_column_note(description)}"
+                )
 
         # Record source
         self.output_lines.append("  RSRC varchar")
 
         # Add notes
         notes = []
+        if satellite.description:
+            notes.append(satellite.description)
         if satellite.satellite_type != "standard":
             notes.append(f"Satellite type: {satellite.satellite_type}")
 
         if notes:
-            combined_note = ". ".join(notes)
-            self.output_lines.append(f"  Note: '{combined_note}'")
+            self._table_note(". ".join(notes))
 
         self.output_lines.append("}")
         self.output_lines.append("")
@@ -299,14 +334,15 @@ class DBMLExporter(BaseExporter):
 
         # Combine notes
         notes = []
+        if ref_table.description:
+            notes.append(ref_table.description)
         notes.append(f"Historization type: {ref_table.historization_type}")
 
         if ref_table.satellites:
             sat_names = ", ".join(s.satellite_name for s in ref_table.satellites)
             notes.append(f"Includes columns from: {sat_names}")
 
-        combined_note = ". ".join(notes)
-        self.output_lines.append(f"  Note: '{combined_note}'")
+        self._table_note(". ".join(notes))
 
         self.output_lines.append("}")
         self.output_lines.append("")

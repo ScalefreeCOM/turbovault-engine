@@ -3,7 +3,7 @@ version: 2
 
 models:
   - name: [[ satellite_name ]]
-    description: "Multi-active satellite for [[ parent_entity ]]"
+    description: [[ (description or ("Multi-active satellite for " ~ parent_entity)) | yaml_quote ]]
     config:
       tags: ['satellite', 'multi_active', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
     columns:
@@ -15,7 +15,7 @@ models:
         description: "Hash diff for change detection"
 [% for column in columns %]
       - name: [[ column.target_column_name if column.target_column_name else column.source_column ]]
-        description: "Payload column[% if column.is_multi_active_key %] (multi-active key)[% endif %]"
+        description: [[ (column.description or column.source_description or ("Payload column" ~ (" (multi-active key)" if column.is_multi_active_key else ""))) | yaml_quote ]]
 [% endfor %]
       - name: ldts
         description: "Load date timestamp"

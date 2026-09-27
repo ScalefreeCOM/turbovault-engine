@@ -6,6 +6,7 @@ Validates export data before generation to catch common errors early.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -108,6 +109,10 @@ class ValidationResult:
         self.warnings.extend(other.warnings)
 
 
+# A value that is only a column name, which datavault4dbt can type by itself.
+_PLAIN_COLUMN = re.compile(r'[A-Za-z_][A-Za-z0-9_$]*|"[^"]+"')
+
+
 def validate_export(project_export: ProjectExport) -> ValidationResult:
     """
     Validate a project export before generation.
@@ -197,6 +202,23 @@ def _validate_stage(stage: StageDefinition) -> ValidationResult:
             message="Stage has no hashkeys or hashdiffs defined",
             code="STG_002",
         )
+
+    # datavault4dbt looks a derived column's data type up only when its value
+    # is a plain column name; for an expression, dbt fails to compile the stage.
+    for derived in stage.derived_columns:
+        value = (derived.transformation or "").strip()
+        if value and not derived.datatype and not _PLAIN_COLUMN.fullmatch(value):
+            result.add_warning(
+                entity_type="stage",
+                entity_name=stage.stage_name,
+                field="derived_columns",
+                message=(
+                    f"Derived column '{derived.target_column_name}' has no data "
+                    "type. datavault4dbt needs one for an SQL expression, and "
+                    "the stage won't compile without it"
+                ),
+                code="STG_003",
+            )
 
     return result
 

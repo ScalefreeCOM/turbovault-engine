@@ -3,7 +3,7 @@ version: 2
 
 models:
   - name: [[ stage_name ]]
-    description: "Staging model for [[ source_table ]] from [[ source_system ]]"
+    description: [[ (description or ("Staging model for " ~ source_table ~ " from " ~ source_system)) | yaml_quote ]]
     config:
       tags: ['staging', '[[ source_system | lower | replace(" ", "_") ]]']
     columns:
@@ -18,4 +18,13 @@ models:
 [% for hashdiff in hashdiffs %]
       - name: [[ hashdiff.hashdiff_name ]]
         description: "Hash diff for [[ hashdiff.satellite_name ]]"
+[% endfor %]
+[# Columns documented in the source metadata #]
+[% for column in columns if column.description %]
+      - name: [[ column.column_name ]]
+        description: [[ column.description | yaml_quote ]]
+[% endfor %]
+[% for derived_column in derived_columns if derived_column.description %]
+      - name: [[ derived_column.target_column_name ]]
+        description: [[ derived_column.description | yaml_quote ]]
 [% endfor %]

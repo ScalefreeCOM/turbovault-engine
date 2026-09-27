@@ -19,6 +19,7 @@ from django.db import IntegrityError, transaction
 
 from engine.models import (
     PIT,
+    DerivedColumn,
     Group,
     Hub,
     HubColumn,
@@ -65,6 +66,15 @@ from engine.services.imports.types import (
     ErrorStrategy,
     Issue,
 )
+
+
+def _only_supplied(**fields: Any) -> dict[str, Any]:
+    """The fields a source actually supplied.
+
+    None means the format has no place for the field (see domain.py), so the
+    value the project has is kept rather than cleared.
+    """
+    return {name: value for name, value in fields.items() if value is not None}
 
 
 def _snapshot_base_name(name: str) -> str:
@@ -124,6 +134,8 @@ class _Executor:
         self._source_systems: dict[tuple[str, str, str | None], SourceSystem] = {}
         self._source_tables_by_identifier: dict[str, SourceTable] = {}
         self._source_columns: dict[tuple[str, str], SourceColumn] = {}  # (table_id, col_name)
+        # Derived columns by (source table pk, lowercased name).
+        self._derived_columns: dict[tuple[Any, str], DerivedColumn] = {}
         self._groups: dict[str, Group] = {}
         self._hubs_by_name: dict[str, Hub] = {}
         self._links_by_name: dict[str, Link] = {}
@@ -147,6 +159,10 @@ class _Executor:
             self._source_tables_by_identifier.setdefault(st.physical_table_name, st)
         for sc in SourceColumn.objects.filter(source_table__source_system__project=self.project):
             self._source_columns[(sc.source_table.physical_table_name, sc.source_column_physical_name)] = sc
+        for derived in DerivedColumn.objects.filter(project=self.project):
+            self._derived_columns[
+                (derived.source_table_id, derived.column_name.lower())
+            ] = derived
         for g in self.project.groups.all():
             self._groups[g.group_name] = g
         for h in self.project.hubs.all():
@@ -391,7 +407,7 @@ class _Executor:
             project=self.project,
             schema_name=d.schema_name,
             database_name=d.database_name,
-            defaults={"name": d.name},
+            defaults={"name": d.name, **_only_supplied(description=d.description)},
         )
         self._source_systems[(d.name, d.schema_name, d.database_name)] = obj
 
@@ -420,17 +436,38 @@ class _Executor:
                 "record_source_value": table_d.record_source_value or "",
                 "load_date_value": table_d.load_date_value or "sysdate()",
                 "static_part_of_record_source": table_d.static_part_of_record_source or "",
+                **_only_supplied(description=table_d.description),
             },
         )
         # Cache under both physical name and identifier for lookups.
         self._source_tables_by_identifier[table_d.identifier] = obj
         self._source_tables_by_identifier.setdefault(table_d.physical_name, obj)
 
+        # Derived columns first: a mapped column with a derived column's name
+        # is that derived column, not a source column to create.
+        for derived_d in (table_d.derived_columns or {}).values():
+            derived, _ = DerivedColumn.objects.update_or_create(
+                source_table=obj,
+                column_name=derived_d.name,
+                defaults={
+                    "project": self.project,
+                    "expression": derived_d.expression,
+                    "datatype": derived_d.datatype or None,
+                    "description": derived_d.description or None,
+                },
+            )
+            self._derived_columns[(obj.pk, derived_d.name.lower())] = derived
+
         for col in table_d.columns.values():
+            if (obj.pk, col.name.lower()) in self._derived_columns:
+                continue
             sc, _ = SourceColumn.objects.update_or_create(
                 source_table=obj,
                 source_column_physical_name=col.name,
-                defaults={"source_column_datatype": col.datatype or ""},
+                defaults={
+                    "source_column_datatype": col.datatype or "",
+                    **_only_supplied(description=col.description),
+                },
             )
             self._source_columns[(table_d.physical_name, col.name)] = sc
             self._source_columns[(table_d.identifier, col.name)] = sc
@@ -450,6 +487,24 @@ class _Executor:
         self._source_columns[(table_identifier, col_name)] = sc
         self._source_columns[(table.physical_table_name, col_name)] = sc
         return sc
+
+    def _resolve_staging_column(
+        self, table_identifier: str, col_name: str
+    ) -> StagingColumn | None:
+        """The staging column a mapping names on a source table.
+
+        A derived column of the table if there is one by that name, else the
+        source column (created if absent, as before).
+        """
+        table = self._source_tables_by_identifier.get(table_identifier)
+        if table is not None:
+            derived = self._derived_columns.get((table.pk, col_name.lower()))
+            if derived is not None:
+                return get_or_create_staging_column(derived)
+        src_col = self._ensure_source_column(table_identifier, col_name)
+        if src_col is None:
+            return None
+        return get_or_create_staging_column(src_col)
 
     # ---------------------------------------------------------------- prejoin
     def _cache_extraction(self, ext: PrejoinExtractionColumn) -> None:
@@ -626,6 +681,7 @@ class _Executor:
                 "create_record_tracking_satellite": d.create_record_tracking_satellite,
                 "create_effectivity_satellite": d.create_effectivity_satellite,
                 "group": group,
+                **_only_supplied(description=d.description),
             },
         )
         self._hubs_by_name[d.physical_name] = obj
@@ -648,15 +704,19 @@ class _Executor:
                         if hc.target_column_transformation is not None
                         else {}
                     ),
+                    **_only_supplied(
+                        target_column_datatype=hc.target_column_datatype,
+                        description=hc.description,
+                    ),
                     **({"sort_order": hc.sort_order} if hc.sort_order is not None else {}),
                 },
             )
 
             for mapping in hc.source_mappings:
-                src_col = self._ensure_source_column(
+                staging = self._resolve_staging_column(
                     mapping.source_table_identifier, mapping.source_column_name
                 )
-                if src_col is None:
+                if staging is None:
                     self._record_error(
                         code=Code.ENTITY_MISSING_SOURCE_COLUMN,
                         message=(
@@ -667,7 +727,6 @@ class _Executor:
                         entity_name=f"{d.physical_name}.{hc.name}",
                     )
                     continue
-                staging = get_or_create_staging_column(src_col)
                 HubSourceMapping.objects.update_or_create(
                     hub_column=hub_column,
                     staging_column=staging,
@@ -726,12 +785,7 @@ class _Executor:
                 return None
             return get_or_create_staging_column(ext)
 
-        src_col = self._ensure_source_column(
-            source_table_identifier, source_column_name
-        )
-        if src_col is None:
-            return None
-        return get_or_create_staging_column(src_col)
+        return self._resolve_staging_column(source_table_identifier, source_column_name)
 
     # ------------------------------------------------------------------- link
     def _upsert_link(self, op: CreateOp | UpdateOp) -> None:
@@ -745,6 +799,7 @@ class _Executor:
                 "link_hashkey_name": d.hashkey_name or "",
                 "create_record_tracking_satellite": d.create_record_tracking_satellite,
                 "group": group,
+                **_only_supplied(description=d.description),
             },
         )
         self._links_by_name[d.physical_name] = obj
@@ -823,6 +878,10 @@ class _Executor:
                         if col_d.target_column_transformation is not None
                         else {}
                     ),
+                    **_only_supplied(
+                        target_column_datatype=col_d.target_column_datatype,
+                        description=col_d.description,
+                    ),
                 },
             )
             for sm in col_d.source_mappings:
@@ -880,6 +939,7 @@ class _Executor:
                 "parent_link": parent_link,
                 "source_table": source_table,
                 "group": group,
+                **_only_supplied(description=d.description),
             },
         )
         self._satellites_by_name[d.physical_name] = obj
@@ -891,12 +951,11 @@ class _Executor:
         )
 
         for col_d in ordered_cols:
-            src_col = self._ensure_source_column(
+            staging = self._resolve_staging_column(
                 d.source_table_identifier, col_d.source_column_name
             )
-            if src_col is None:
+            if staging is None:
                 continue
-            staging = get_or_create_staging_column(src_col)
             target = col_d.target_column_name
             if target == col_d.source_column_name:
                 target = None
@@ -918,6 +977,10 @@ class _Executor:
                         {"target_column_transformation": transformation}
                         if transformation is not None
                         else {}
+                    ),
+                    **_only_supplied(
+                        target_column_datatype=col_d.target_column_datatype,
+                        description=col_d.description,
                     ),
                     **(
                         {"column_sort_order": col_d.sort_order}
@@ -951,6 +1014,7 @@ class _Executor:
                 "reference_hub": hub,
                 "historization_type": d.historization_type,
                 "group": group,
+                **_only_supplied(description=d.description),
             },
         )
 

@@ -3,7 +3,7 @@ version: 2
 
 models:
   - name: [[ link_name ]]
-    description: "Non-Historized link for [[ link_name ]]"
+    description: [[ (description or ("Non-Historized link for " ~ link_name)) | yaml_quote ]]
     config:
       tags: ['link', 'non_historized', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
     columns:
@@ -20,7 +20,8 @@ models:
 [% endfor %]
 [% for payload in payload_columns %]
       - name: [[ payload ]]
-        description: "Payload column"
+[% set docs = column_descriptions.get(payload) %]
+        description: [[ (((docs.description or docs.source_description) if docs else none) or "Payload column") | yaml_quote ]]
 [% endfor %]
       - name: ldts
         description: "Load date timestamp"

@@ -3,6 +3,6 @@ version: 2
 
 models:
   - name: [[ table_name ]]
-    description: "Reference table combining [[ reference_hub_name ]] with satellites"
+    description: [[ (description or ("Reference table combining " ~ reference_hub_name ~ " with satellites")) | yaml_quote ]]
     config:
       tags: ['reference_table', 'raw_vault']

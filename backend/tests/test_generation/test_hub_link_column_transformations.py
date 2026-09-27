@@ -293,8 +293,10 @@ def test_generated_stage_sql_derives_and_hashes_the_transformed_key(
 
     customer = sql["stg__crm__customer"]
     assert "derived_columns:" in customer
-    assert "value: 'UPPER(TRIM(C_CUSTKEY))'" in customer
-    assert "src_cols_required: 'C_CUSTKEY'" in customer
+    assert 'value: "UPPER(TRIM(C_CUSTKEY))"' in customer
+    # An expression needs a data type: the source column's, unless set.
+    assert 'datatype: "VARCHAR"' in customer
+    assert 'src_cols_required: "C_CUSTKEY"' in customer
     # The hashkey names the (now derived) column.
     hashed = _yaml_block(customer, "hashed_columns")
     assert "hk_CUSTOMER_H:" in hashed
@@ -307,8 +309,8 @@ def test_generated_link_stage_sql_derives_both_transformed_columns(
     orders = _generate_stage_sql(transformed_project, tmp_path)["stg__crm__orders"]
 
     derived = _yaml_block(orders, "derived_columns")
-    assert "value: 'UPPER(TRIM(O_CUSTKEY))'" in derived
-    assert "value: 'CAST(O_LINENUMBER AS INT64)'" in derived
+    assert 'value: "UPPER(TRIM(O_CUSTKEY))"' in derived
+    assert 'value: "CAST(O_LINENUMBER AS INT64)"' in derived
     # Rendered once each — duplicate YAML keys would silently drop one.
     assert derived.count("O_CUSTKEY:") == 1
     assert derived.count("O_LINENUMBER:") == 1

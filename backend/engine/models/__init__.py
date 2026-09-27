@@ -4,6 +4,7 @@ TurboVault Engine domain models.
 This package contains all Django ORM models for the Data Vault domain.
 """
 
+from engine.models.derived_column import DerivedColumn
 from engine.models.generation_run import GenerationRun
 from engine.models.group import Group
 from engine.models.hubs import Hub, HubColumn, HubSourceMapping
@@ -54,6 +55,7 @@ __all__ = [
     "PrejoinDefinition",
     "PrejoinExtractionColumn",
     "StagingColumn",
+    "DerivedColumn",
     "TemplateCategory",
     "ModelTemplate",
 ]

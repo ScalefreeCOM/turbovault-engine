@@ -8,6 +8,7 @@ from django.contrib import admin
 
 from engine.models import (
     PIT,
+    DerivedColumn,
     Group,
     PrejoinDefinition,
     PrejoinExtractionColumn,
@@ -61,14 +62,25 @@ class SourceSystemAdmin(admin.ModelAdmin):
 
     list_display = ["name", "schema_name", "database_name", "project"]
     list_filter = ["project"]
-    search_fields = ["name", "schema_name", "database_name"]
+    search_fields = ["name", "schema_name", "database_name", "description"]
     readonly_fields = ["source_system_id"]
     autocomplete_fields = ["project"]
+
+
+class DerivedColumnInline(admin.TabularInline):
+    """Inline admin for the columns a source table's stage computes."""
+
+    model = DerivedColumn
+    extra = 0
+    fields = ["column_name", "expression", "datatype", "description"]
+    ordering = ["column_name"]
 
 
 @admin.register(SourceTable)
 class SourceTableAdmin(admin.ModelAdmin):
     """Admin configuration for SourceTable model."""
+
+    inlines = [DerivedColumnInline]
 
     list_display = ["physical_table_name", "alias", "source_system", "project"]
     list_filter = ["source_system", "project"]
@@ -85,6 +97,7 @@ class SourceTableAdmin(admin.ModelAdmin):
                     "source_system",
                     "physical_table_name",
                     "alias",
+                    "description",
                 ]
             },
         ),
@@ -113,7 +126,11 @@ class SourceColumnAdmin(admin.ModelAdmin):
         "get_source_system",
     ]
     list_filter = ["source_table__source_system", "source_table"]
-    search_fields = ["source_column_physical_name", "source_column_datatype"]
+    search_fields = [
+        "source_column_physical_name",
+        "source_column_datatype",
+        "description",
+    ]
     readonly_fields = ["source_column_id"]
     autocomplete_fields = ["source_table"]
 
@@ -132,8 +149,15 @@ class StagingColumnAdmin(admin.ModelAdmin):
     search_fields = [
         "source_column__source_column_physical_name",
         "prejoin_column__prejoin_target_column_alias",
+        "derived_column__column_name",
     ]
-    autocomplete_fields = ["project", "source_table", "source_column", "prejoin_column"]
+    autocomplete_fields = [
+        "project",
+        "source_table",
+        "source_column",
+        "prejoin_column",
+        "derived_column",
+    ]
 
     def has_add_permission(self, request) -> bool:
         """Prevent manual creation of staging columns."""
@@ -142,6 +166,17 @@ class StagingColumnAdmin(admin.ModelAdmin):
     def has_change_permission(self, request, obj: StagingColumn | None = None) -> bool:
         """Prevent manual modification of staging columns."""
         return False
+
+
+@admin.register(DerivedColumn)
+class DerivedColumnAdmin(admin.ModelAdmin):
+    """Admin configuration for DerivedColumn model."""
+
+    list_display = ["column_name", "datatype", "source_table", "project"]
+    list_filter = ["source_table__source_system", "project"]
+    search_fields = ["column_name", "expression", "description"]
+    readonly_fields = ["derived_column_id", "created_at", "updated_at"]
+    autocomplete_fields = ["project", "source_table"]
 
 
 # Import hub models
@@ -157,6 +192,8 @@ class HubColumnInline(admin.TabularInline):
         "column_name",
         "column_type",
         "target_column_transformation",
+        "target_column_datatype",
+        "description",
         "sort_order",
     ]
     ordering = ["sort_order"]
@@ -214,6 +251,7 @@ class HubAdmin(admin.ModelAdmin):
                     "hub_physical_name",
                     "hub_type",
                     "hub_hashkey_name",
+                    "description",
                 ]
             },
         ),
@@ -394,6 +432,8 @@ class SatelliteColumnInline(admin.TabularInline):
         "is_multi_active_key",
         "include_in_delta_detection",
         "target_column_transformation",
+        "target_column_datatype",
+        "description",
     ]
     ordering = ["column_sort_order"]
     autocomplete_fields = ["staging_column"]
@@ -468,6 +508,7 @@ class SatelliteAdmin(admin.ModelAdmin):
                     "project",
                     "satellite_physical_name",
                     "satellite_type",
+                    "description",
                 ]
             },
         ),
@@ -565,6 +606,8 @@ class LinkColumnInline(admin.TabularInline):
         "column_name",
         "column_type",
         "target_column_transformation",
+        "target_column_datatype",
+        "description",
         "sort_order",
     ]
     ordering = ["sort_order"]
@@ -660,6 +703,7 @@ class LinkAdmin(admin.ModelAdmin):
                     "link_physical_name",
                     "link_type",
                     "link_hashkey_name",
+                    "description",
                 ]
             },
         ),
@@ -828,6 +872,7 @@ class ReferenceTableAdmin(admin.ModelAdmin):
                     "reference_table_physical_name",
                     "reference_hub",
                     "historization_type",
+                    "description",
                 ]
             },
         ),
