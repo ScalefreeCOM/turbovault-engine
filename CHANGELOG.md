@@ -5,6 +5,14 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.18.0...turbovault-engine-v0.19.0) (2026-09-27)
+
+
+### Features
+
+* descriptions and derived columns ([#207](https://github.com/ScalefreeCOM/turbovault-engine/issues/207)) ([36694dc](https://github.com/ScalefreeCOM/turbovault-engine/commit/36694dccc948e51bd4e54762005d2af1450633c2))
+* skip entities an import can't resolve, with what depends on them ([#206](https://github.com/ScalefreeCOM/turbovault-engine/issues/206)) ([4b26377](https://github.com/ScalefreeCOM/turbovault-engine/commit/4b2637721a36f351276d39b2d7164b1ae6029a3e))
+
 ## [0.18.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.17.2...turbovault-engine-v0.18.0) (2026-09-16)
 
 
