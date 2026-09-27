@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from engine.services.export.models import ProjectExport
 from engine.services.imports.domain import (
     DPIT,
+    DDerivedColumn,
     DHub,
     DHubColumn,
     DHubSourceMapping,
@@ -138,6 +139,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             name=sys_def.name,
             schema_name=sys_def.schema_name,
             database_name=sys_def.database_name,
+            description=sys_def.description,
         )
         for table_def in sys_def.tables:
             identifier = f"{sys_def.name}|{table_def.table_name}"
@@ -147,12 +149,26 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                 alias=table_def.alias or "",
                 record_source_value=table_def.record_source or "",
                 load_date_value=table_def.load_date or "sysdate()",
+                description=table_def.description,
             )
             for col in table_def.columns:
                 table.columns[col.column_name.lower()] = DSourceColumn(
                     name=col.column_name,
                     datatype=col.datatype or "",
+                    description=col.description,
                 )
+            # Exports from before derived columns existed don't list them;
+            # leave the table's derived columns alone for those.
+            if "derived_columns" in table_def.model_fields_set:
+                table.derived_columns = {
+                    derived.column_name.lower(): DDerivedColumn(
+                        name=derived.column_name,
+                        expression=derived.expression,
+                        datatype=derived.datatype,
+                        description=derived.description,
+                    )
+                    for derived in table_def.derived_columns
+                }
             system.tables[identifier] = table
             # Also expose by raw physical name for lookups from hubs/links/sats.
             system.tables.setdefault(table_def.table_name, table)
@@ -167,6 +183,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             create_record_tracking_satellite=hub_def.create_record_tracking_satellite,
             create_effectivity_satellite=hub_def.create_effectivity_satellite,
             group_name=hub_def.group,
+            description=hub_def.description,
         )
         for i, col_name in enumerate(hub_def.business_key_columns):
             hub.columns.append(
@@ -182,6 +199,12 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                     name=col_name, column_type="additional_column", sort_order=i + 1
                 )
             )
+
+        # Only a column's own description: an inherited one stays inherited.
+        for col in hub.columns:
+            docs = hub_def.column_descriptions.get(col.name)
+            if docs is not None and docs.description:
+                col.description = docs.description
 
         # Source mappings — JSON exports include explicit hub_column → source_column maps.
         col_by_name = {c.name: c for c in hub.columns}
@@ -201,6 +224,11 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                     col.target_column_transformation = (
                         col_mapping.target_column_transformation
                     )
+                if (
+                    col.target_column_datatype is None
+                    and col_mapping.target_column_datatype
+                ):
+                    col.target_column_datatype = col_mapping.target_column_datatype
                 col.source_mappings.append(
                     DHubSourceMapping(
                         source_table_identifier=table_id,
@@ -220,6 +248,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             hashkey_name=link_def.hashkey.hashkey_name,
             create_record_tracking_satellite=link_def.create_record_tracking_satellite,
             group_name=link_def.group,
+            description=link_def.description,
         )
         for i, ref in enumerate(link_def.hub_references):
             link.hub_references.append(
@@ -315,6 +344,10 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                                         hub_col.target_column_transformation = (
                                             col_mapping.target_column_transformation
                                         )
+                                        hub_col.target_column_datatype = (
+                                            hub_col.target_column_datatype
+                                            or col_mapping.target_column_datatype
+                                        )
                         link.hub_source_mappings.append(
                             DLinkHubSourceMapping(
                                 link_hub_ref_index=ref_idx,
@@ -354,6 +387,11 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                         col.target_column_transformation = (
                             col_mapping.target_column_transformation
                         )
+                    if (
+                        col.target_column_datatype is None
+                        and col_mapping.target_column_datatype
+                    ):
+                        col.target_column_datatype = col_mapping.target_column_datatype
                     col.source_mappings.append(
                         DLinkSourceMapping(
                             source_table_identifier=table_id,
@@ -361,6 +399,10 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                             prejoin_target_table_identifier=prejoin_target_id,
                         )
                     )
+        for col in link.columns:
+            docs = link_def.column_descriptions.get(col.name)
+            if docs is not None and docs.description:
+                col.description = docs.description
         model.links[link_def.link_name] = link
 
     # Satellites
@@ -372,6 +414,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             parent_entity_type="hub" if sat_def.parent_entity_type == "hub" else "link",
             source_table_identifier=f"{sat_def.source_system}|{sat_def.source_table}",
             group_name=sat_def.group,
+            description=sat_def.description,
         )
         for i, col_def in enumerate(sat_def.columns):
             sat.columns.append(
@@ -379,6 +422,8 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                     source_column_name=col_def.source_column,
                     target_column_name=col_def.target_column_name,
                     target_column_transformation=col_def.target_column_transformation,
+                    target_column_datatype=col_def.target_column_datatype,
+                    description=col_def.description,
                     is_multi_active_key=col_def.is_multi_active_key,
                     include_in_delta_detection=col_def.include_in_delta_detection,
                     sort_order=i + 1,
@@ -415,6 +460,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             snapshot_control_name=rt_def.snapshot_control_table,
             snapshot_logic_column=rt_def.snapshot_logic_column,
             group_name=rt_def.group,
+            description=rt_def.description,
             satellite_assignments=[
                 DRefSatAssignment(
                     satellite_name=s.satellite_name,

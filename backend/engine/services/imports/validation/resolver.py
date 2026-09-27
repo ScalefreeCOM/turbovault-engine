@@ -8,6 +8,15 @@ planner. Emits Issues for problems that aren't visible at the row level
 Important: row-level diagnostics include both the file/sheet/row coordinates
 and a stable `entity` ref where possible. The Studio renders these as deep
 links from its job-status UI.
+
+An entity that can't be imported correctly is left out of the model rather
+than resolved into a broken version of itself: a link missing one of its hubs
+(its grain would change), a satellite without its parent or source table, a
+reference table or PIT pointing at something undefined. Anything depending on
+a left-out entity is left out too, with an `entity.depends_on_skipped`
+warning. Each one is recorded in `DomainModel.skipped` so the planner reports
+it as a skip. A mapping to an unknown source table is different: only the
+mapping is dropped, the entity it belongs to stays valid.
 """
 
 from __future__ import annotations
@@ -30,9 +39,11 @@ from engine.services.imports.domain import (
     DRefSatAssignment,
     DSatellite,
     DSatelliteColumn,
+    DSkipped,
     DSourceColumn,
     DSourceSystem,
     DSourceTable,
+    SkipReason,
 )
 from engine.services.imports.errors import Code, make_issue
 from engine.services.imports.ir import IRDocument, IRRow
@@ -42,6 +53,13 @@ from engine.services.imports.types import (
     Issue,
     IssueLocation,
 )
+
+_ENTITY_LABELS = {
+    "link": "Link",
+    "satellite": "Satellite",
+    "reference_table": "Reference table",
+    "pit": "PIT",
+}
 
 
 def resolve(doc: IRDocument) -> tuple[DomainModel, list[Issue]]:
@@ -64,6 +82,10 @@ class _Resolver:
         # can reference satellites by identifier.
         self._sat_id_to_name: dict[str, str] = {}
 
+        # Left-out entities by type, reachable by physical name or identifier:
+        # entity_type -> key -> physical name.
+        self._skipped_keys: dict[str, dict[str, str]] = defaultdict(dict)
+
     # ------------------------------------------------------------------ helpers
     def _loc(self, sheet: str, row: int | None = None, column: str | None = None) -> IssueLocation:
         return IssueLocation(file=self.doc.source_name, sheet=sheet, row=row, column=column)
@@ -76,6 +98,43 @@ class _Resolver:
     def _warning(self, code: str, message: str, **kwargs: Any) -> None:
         self.issues.append(
             make_issue(severity="warning", code=code, message=message, stage="resolve", **kwargs)
+        )
+
+    def _skip(
+        self, entity_type: str, name: str, reason: SkipReason, *aliases: Any
+    ) -> None:
+        """Leave an entity out of the model and remember why."""
+        self.model.skipped.setdefault(
+            (entity_type, name),
+            DSkipped(entity_type=entity_type, name=name, reason=reason),
+        )
+        keys = self._skipped_keys[entity_type]
+        keys[name] = name
+        for alias in aliases:
+            if alias:
+                keys.setdefault(str(alias), name)
+
+    def _skipped_name(self, entity_type: str, key: Any) -> str | None:
+        """The physical name of a left-out entity, looked up by name or identifier."""
+        if not key:
+            return None
+        return self._skipped_keys[entity_type].get(str(key))
+
+    def _depends_on_skipped(
+        self,
+        entity_type: str,
+        name: str,
+        dependency: str,
+        *,
+        location: IssueLocation,
+    ) -> None:
+        label = _ENTITY_LABELS.get(entity_type, entity_type)
+        self._warning(
+            Code.ENTITY_DEPENDS_ON_SKIPPED,
+            f"{label} '{name}' is left out because {dependency} can't be imported.",
+            location=location,
+            entity=EntityRef(type=entity_type, name=name),
+            suggestion="Fix the problem reported for it and import again.",
         )
 
     # ------------------------------------------------------------------ run
@@ -327,9 +386,14 @@ class _Resolver:
             last_name = name
             link_rows_by_name[name].append(row)
 
+        id_col = "link_identifier" if link_type == "standard" else "nh_link_identifier"
         for link_name, link_rows in link_rows_by_name.items():
+            if ("link", link_name) in self.model.skipped:
+                continue
             sample = link_rows[0]
+            link_id = sample.get(id_col)
             link = self.model.links.get(link_name)
+            is_new = link is None
             if link is None:
                 link = DLink(
                     physical_name=link_name,
@@ -340,25 +404,39 @@ class _Resolver:
                     ),
                     group_name=sample.get("group_name"),
                 )
-                self.model.links[link_name] = link
-                id_col = "link_identifier" if link_type == "standard" else "nh_link_identifier"
-                link_id = sample.get(id_col)
-                if link_id:
-                    self.model.links.setdefault(link_id, link)
-
-            if link.group_name:
-                self.model.groups.add(link.group_name)
 
             has_hub_id = sheet.has_column("hub_identifier")
             ref_rows = [r for r in link_rows if has_hub_id and not _empty(r.get("hub_identifier"))]
             payload_rows = [r for r in link_rows if not has_hub_id or _empty(r.get("hub_identifier"))]
 
-            self._resolve_link_hub_refs(link, link_name, ref_rows, sheet_name)
+            if not self._resolve_link_hub_refs(link, link_name, ref_rows, sheet_name):
+                # Without one of its hubs the link has a different grain: left
+                # out, not imported half-connected.
+                self._forget_link(link_name)
+                self._skip("link", link_name, "missing_reference", link_id)
+                continue
             self._resolve_link_payload(link, link_name, payload_rows, sheet_name)
+
+            if is_new:
+                self.model.links[link_name] = link
+                if link_id:
+                    self.model.links.setdefault(link_id, link)
+            if link.group_name:
+                self.model.groups.add(link.group_name)
+
+    def _forget_link(self, link_name: str) -> None:
+        """Drop a link (and its identifier aliases) already in the model."""
+        link = self.model.links.get(link_name)
+        if link is None:
+            return
+        for key in [key for key, value in self.model.links.items() if value is link]:
+            del self.model.links[key]
 
     def _resolve_link_hub_refs(
         self, link: DLink, link_name: str, ref_rows: list[IRRow], sheet_name: str
-    ) -> None:
+    ) -> bool:
+        """Resolve the link's hub references; False when a hub is undefined."""
+        resolved = True
         # Group by hub identifier, then by alias.
         by_hub: dict[str, list[IRRow]] = defaultdict(list)
         for r in ref_rows:
@@ -380,6 +458,7 @@ class _Resolver:
                     entity=EntityRef(type="link", name=link_name),
                     suggestion=f"Add a hub with identifier or physical name '{hub_id}' before the link.",
                 )
+                resolved = False
                 continue
 
             alias_groups: dict[str, list[IRRow]] = defaultdict(list)
@@ -428,6 +507,7 @@ class _Resolver:
                             source_column_name=src_col,
                         )
                     )
+        return resolved
 
     def _resolve_link_payload(
         self, link: DLink, link_name: str, payload_rows: list[IRRow], sheet_name: str
@@ -517,16 +597,30 @@ class _Resolver:
             parent_link = self.model.links.get(parent_id) if parent_id and not parent_hub else None
 
             if not parent_hub and not parent_link:
+                location = self._loc(sheet_name, sample.row_number, "parent_identifier")
+                skipped_parent = self._skipped_name("link", parent_id)
+                if skipped_parent is not None:
+                    self._depends_on_skipped(
+                        "satellite",
+                        sat_name,
+                        f"its parent link '{skipped_parent}'",
+                        location=location,
+                    )
+                    self._skip(
+                        "satellite", sat_name, "depends_on_skipped", sat_identifier
+                    )
+                    continue
                 self._error(
                     Code.ENTITY_MISSING_PARENT,
                     f"Satellite '{sat_name}' parent '{parent_id}' was not defined.",
-                    location=self._loc(sheet_name, sample.row_number, "parent_identifier"),
+                    location=location,
                     entity=EntityRef(type="satellite", name=sat_name),
                     suggestion=(
                         f"Add a hub or link with identifier or physical name '{parent_id}' "
                         "before the satellite."
                     ),
                 )
+                self._skip("satellite", sat_name, "missing_parent", sat_identifier)
                 continue
 
             if src_table_id and self._find_table(src_table_id) is None:
@@ -535,6 +629,9 @@ class _Resolver:
                     f"Satellite '{sat_name}' source table '{src_table_id}' is not defined.",
                     location=self._loc(sheet_name, sample.row_number, "source_table_identifier"),
                     entity=EntityRef(type="satellite", name=sat_name),
+                )
+                self._skip(
+                    "satellite", sat_name, "missing_source_table", sat_identifier
                 )
                 continue
 
@@ -612,6 +709,8 @@ class _Resolver:
             hub_id = row.get("referenced_hub")
             if not name or not hub_id:
                 continue
+            if ("reference_table", name) in self.model.skipped:
+                continue
             hub = self.model.hubs.get(hub_id)
             if hub is None:
                 self._error(
@@ -620,6 +719,25 @@ class _Resolver:
                     location=self._loc("ref_table", row.row_number, "referenced_hub"),
                     entity=EntityRef(type="reference_table", name=name),
                 )
+                self.model.reference_tables.pop(name, None)
+                self._skip("reference_table", name, "missing_reference")
+                continue
+            # A table spans one row per satellite: one left-out satellite
+            # leaves the whole table out.
+            skipped_sat = self._skipped_name(
+                "satellite", row.get("referenced_satellite")
+            )
+            if skipped_sat is not None:
+                self._depends_on_skipped(
+                    "reference_table",
+                    name,
+                    f"its satellite '{skipped_sat}'",
+                    location=self._loc(
+                        "ref_table", row.row_number, "referenced_satellite"
+                    ),
+                )
+                self.model.reference_tables.pop(name, None)
+                self._skip("reference_table", name, "depends_on_skipped")
                 continue
             hist_raw = (row.get("historized") or "").upper()
             hist = "full" if hist_raw in ("TRUE", "FULL") else "latest"
@@ -663,18 +781,46 @@ class _Resolver:
             link = self.model.links.get(entity_id) if not hub else None
 
             if not hub and not link:
+                location = self._loc("pit", row.row_number, "tracked_entity")
+                skipped_link = self._skipped_name("link", entity_id)
+                if skipped_link is not None:
+                    self._depends_on_skipped(
+                        "pit",
+                        name,
+                        f"the link '{skipped_link}' it tracks",
+                        location=location,
+                    )
+                    self._skip("pit", name, "depends_on_skipped")
+                    continue
                 self._error(
                     Code.ENTITY_MISSING_REFERENCE,
                     f"PIT '{name}' tracks unknown entity '{entity_id}'.",
-                    location=self._loc("pit", row.row_number, "tracked_entity"),
+                    location=location,
                     entity=EntityRef(type="pit", name=name),
                 )
+                self._skip("pit", name, "missing_reference")
                 continue
 
-            sats = [
-                self._sat_id_to_name.get(s, s)
-                for s in _split_list(row.get("satellite_identifiers"))
-            ]
+            sat_keys = _split_list(row.get("satellite_identifiers"))
+            skipped_sat = next(
+                (
+                    skipped
+                    for key in sat_keys
+                    if (skipped := self._skipped_name("satellite", key)) is not None
+                ),
+                None,
+            )
+            if skipped_sat is not None:
+                self._depends_on_skipped(
+                    "pit",
+                    name,
+                    f"its satellite '{skipped_sat}'",
+                    location=self._loc("pit", row.row_number, "satellite_identifiers"),
+                )
+                self._skip("pit", name, "depends_on_skipped")
+                continue
+
+            sats = [self._sat_id_to_name.get(s, s) for s in sat_keys]
             self.model.pits[name] = DPIT(
                 physical_name=name,
                 tracked_entity_name=(hub or link).physical_name,

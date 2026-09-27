@@ -10,10 +10,12 @@ Database templates take precedence over file-based templates.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from jinja2 import Environment, FileSystemLoader, Template, select_autoescape
+from markupsafe import Markup
 
 if TYPE_CHECKING:
     from jinja2 import BaseLoader
@@ -26,6 +28,27 @@ if TYPE_CHECKING:
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
+# Characters YAML treats as line breaks that JSON leaves unescaped.
+_YAML_LINE_BREAKS = {"\u0085": "\\x85", "\u2028": "\\u2028", "\u2029": "\\u2029"}
+
+
+def yaml_quote(value: object) -> Markup:
+    """``value`` as a double-quoted YAML scalar.
+
+    User text — descriptions, SQL expressions — can hold anything YAML gives
+    meaning to: quotes, ``: ``, `` #``, leading ``-`` or ``!``, several lines.
+    A JSON string is a valid YAML double-quoted scalar that escapes all of it,
+    so the value parses back exactly. Marked safe: the output is YAML and SQL,
+    so HTML autoescaping (on for templates loaded from strings) must not touch
+    it.
+    """
+    text = "" if value is None else str(value)
+    quoted = json.dumps(text, ensure_ascii=False)
+    for char, escaped in _YAML_LINE_BREAKS.items():
+        quoted = quoted.replace(char, escaped)
+    return Markup(quoted)
+
+
 def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     """Build the Jinja2 environment shared by template rendering and validation.
 
@@ -33,8 +56,10 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     - [% %] for block statements (instead of {% %})
     - [[ ]] for variable expressions (instead of {{ }})
     - [# #] for comments (instead of {# #})
+
+    Adds the ``yaml_quote`` filter for writing user text into YAML.
     """
-    return Environment(
+    environment = Environment(
         loader=loader,
         autoescape=select_autoescape(["html", "xml"]),
         trim_blocks=True,
@@ -47,6 +72,8 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
         comment_start_string="[#",
         comment_end_string="#]",
     )
+    environment.filters["yaml_quote"] = yaml_quote
+    return environment
 
 
 class TemplateResolver:

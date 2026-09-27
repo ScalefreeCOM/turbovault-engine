@@ -26,10 +26,26 @@ from typing import Literal
 # ---------------------------------------------------------------------------
 
 
+# Descriptions are None when the source format has no place for them (Excel,
+# SQLite, IRiS). The executor then leaves what the project has untouched, so a
+# re-import from such a file doesn't wipe descriptions set in the meantime.
+
+
 @dataclass(slots=True)
 class DSourceColumn:
     name: str
     datatype: str = ""
+    description: str | None = None
+
+
+@dataclass(slots=True)
+class DDerivedColumn:
+    """A column the stage computes from the table's columns."""
+
+    name: str
+    expression: str
+    datatype: str | None = None
+    description: str | None = None
 
 
 @dataclass(slots=True)
@@ -40,7 +56,11 @@ class DSourceTable:
     static_part_of_record_source: str = ""
     load_date_value: str = "sysdate()"
     alias: str = ""
+    description: str | None = None
     columns: dict[str, DSourceColumn] = field(default_factory=dict)
+    # Keyed by lowercased name. None when the format carries no derived
+    # columns, so the table's existing ones are left alone.
+    derived_columns: dict[str, DDerivedColumn] | None = None
 
 
 @dataclass(slots=True)
@@ -48,6 +68,7 @@ class DSourceSystem:
     name: str
     schema_name: str
     database_name: str | None = None
+    description: str | None = None
     tables: dict[str, DSourceTable] = field(default_factory=dict)
 
 
@@ -75,6 +96,8 @@ class DHubColumn:
     column_type: HubColumnType = "business_key"
     sort_order: int | None = None
     target_column_transformation: str | None = None
+    target_column_datatype: str | None = None
+    description: str | None = None
     source_mappings: list[DHubSourceMapping] = field(default_factory=list)
 
 
@@ -86,6 +109,7 @@ class DHub:
     create_record_tracking_satellite: bool = False
     create_effectivity_satellite: bool = False
     group_name: str | None = None
+    description: str | None = None
     columns: list[DHubColumn] = field(default_factory=list)
 
 
@@ -126,6 +150,8 @@ class DLinkColumn:
     column_type: LinkColumnType = "payload"
     sort_order: int = 0
     target_column_transformation: str | None = None
+    target_column_datatype: str | None = None
+    description: str | None = None
     source_mappings: list[DLinkSourceMapping] = field(default_factory=list)
 
 
@@ -151,6 +177,7 @@ class DLink:
     hashkey_name: str = ""
     create_record_tracking_satellite: bool = False
     group_name: str | None = None
+    description: str | None = None
     hub_references: list[DLinkHubReference] = field(default_factory=list)
     columns: list[DLinkColumn] = field(default_factory=list)
     hub_source_mappings: list[DLinkHubSourceMapping] = field(default_factory=list)
@@ -169,6 +196,8 @@ class DSatelliteColumn:
     source_column_name: str
     target_column_name: str | None = None
     target_column_transformation: str | None = None
+    target_column_datatype: str | None = None
+    description: str | None = None
     is_multi_active_key: bool = False
     include_in_delta_detection: bool = True
     sort_order: int | None = None
@@ -182,6 +211,7 @@ class DSatellite:
     parent_entity_type: Literal["hub", "link"] = "hub"
     source_table_identifier: str = ""
     group_name: str | None = None
+    description: str | None = None
     columns: list[DSatelliteColumn] = field(default_factory=list)
 
 
@@ -223,6 +253,7 @@ class DReferenceTable:
     snapshot_control_name: str | None = None
     snapshot_logic_column: str | None = None
     group_name: str | None = None
+    description: str | None = None
     satellite_assignments: list[DRefSatAssignment] = field(default_factory=list)
 
 
@@ -238,6 +269,33 @@ class DPIT:
     pit_type: str | None = None
     custom_record_source: str | None = None
     group_name: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Skipped entities
+# ---------------------------------------------------------------------------
+
+
+SkipReason = Literal[
+    "missing_reference",
+    "missing_parent",
+    "missing_source_table",
+    "depends_on_skipped",
+]
+
+
+@dataclass(slots=True)
+class DSkipped:
+    """An entity the source defines but that cannot be imported, and why.
+
+    The resolver leaves it out of the model instead of importing a broken
+    version of it; the planner reports it as a skip and never deletes the
+    project's copy of it under `replace_all`.
+    """
+
+    entity_type: str  # "link" | "satellite" | "reference_table" | "pit"
+    name: str
+    reason: SkipReason
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +337,9 @@ class DomainModel:
     reference_tables: dict[str, DReferenceTable] = field(default_factory=dict)
     pits: dict[str, DPIT] = field(default_factory=dict)
     prejoins: list[DPrejoin] = field(default_factory=list)
+    # Entities left out because something they need is missing, keyed by
+    # (entity_type, physical name).
+    skipped: dict[tuple[str, str], DSkipped] = field(default_factory=dict)
 
     # ---------------- helpers ----------------
 

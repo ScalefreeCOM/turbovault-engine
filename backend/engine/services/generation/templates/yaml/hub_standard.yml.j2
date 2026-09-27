@@ -3,7 +3,7 @@ version: 2
 
 models:
   - name: [[ hub_name ]]
-    description: "[[ 'Standard' if hub_type == 'standard' else 'Reference' ]] hub for [[ hub_name ]]"
+    description: [[ (description or (('Standard' if hub_type == 'standard' else 'Reference') ~ " hub for " ~ hub_name)) | yaml_quote ]]
     config:
       tags: ['hub', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
     columns:
@@ -16,7 +16,8 @@ models:
 [% endif %]
 [% for bk in business_key_columns %]
       - name: [[ bk ]]
-        description: "Business key column"
+[% set docs = column_descriptions.get(bk) %]
+        description: [[ (((docs.description or docs.source_description) if docs else none) or "Business key column") | yaml_quote ]]
         data_tests:
           - not_null
 [% endfor %]

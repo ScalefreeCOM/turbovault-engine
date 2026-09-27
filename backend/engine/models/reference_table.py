@@ -92,6 +92,12 @@ class ReferenceTable(models.Model):
         help_text="Snapshot control logic (required if historization_type is snapshot_based)",
     )
 
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional description of the reference table, written to the generated dbt docs",
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the reference table was created"
     )

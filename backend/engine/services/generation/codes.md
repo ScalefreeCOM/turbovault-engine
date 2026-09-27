@@ -19,6 +19,7 @@ deep-link errors; the CLI groups them in summary tables.
 | `validate.source.no_tables` | A source system has no tables. | Add at least one source table or remove the system. |
 | `validate.stage.no_source_table` | A stage definition has no source table backing it. | Re-link the stage to a source table. |
 | `validate.stage.no_keys` | A stage has neither hashkeys nor hashdiffs to compute. | Confirm hubs / links / satellites reference this stage. |
+| `validate.stage.derived_column_no_datatype` | A derived column or column transformation computes an SQL expression but has no data type, and neither does its source column (warning). datavault4dbt needs it to build ghost records; dbt fails to compile the stage without it. | Set a data type on the derived column or transformation, or on the source column. |
 | `validate.hub.missing_hashkey` | A standard hub has no hashkey column name. | Set a hashkey naming pattern on the project or the hub. |
 | `validate.hub.no_business_keys` | A hub has no business-key columns. | Add at least one business-key column. |
 | `validate.hub.no_source_tables` | A hub has no source mappings (warning). | Map the hub's business keys to at least one source column. |

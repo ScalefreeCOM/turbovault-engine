@@ -94,6 +94,12 @@ class Satellite(models.Model):
         help_text="Source table that feeds this satellite (all columns must come from this table)",
     )
 
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional description of the satellite, written to the generated dbt docs",
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the satellite was created"
     )
@@ -129,7 +135,7 @@ class SatelliteColumn(models.Model):
     - Multi-active key designation
     - Delta detection inclusion/exclusion
     - Column renaming
-    - Column transformation (future)
+    - Column transformation (a derived column in the stage)
     """
 
     satellite_column_id = models.UUIDField(
@@ -173,7 +179,20 @@ class SatelliteColumn(models.Model):
     target_column_transformation = models.TextField(
         blank=True,
         null=True,
-        help_text="Optional transformation expression for derived columns (future use)",
+        help_text="Optional transformation expression, applied in the stage as a derived column",
+    )
+
+    target_column_datatype = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Data type of the transformed value. Defaults to the source column's data type",
+    )
+
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional description of the column. Falls back to the source column's description",
     )
 
     column_sort_order = models.PositiveIntegerField(

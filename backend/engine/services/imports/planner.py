@@ -10,6 +10,10 @@ Conflict strategies:
   - replace_all: create new, update existing, DELETE everything else
   - update_only: update existing only; skip creates
 
+Entities the resolver left out (`DomainModel.skipped`) are reported as skips
+with their reason, whatever the strategy. They are in the source, so
+`replace_all` never deletes the project's copy of them.
+
 In dry-run mode the plan is the final artifact; the executor never runs.
 """
 
@@ -34,6 +38,7 @@ from engine.services.imports.domain import (
     DLink,
     DomainModel,
     DPrejoin,
+    DReferenceTable,
     DSatellite,
     DSourceSystem,
     DSourceTable,
@@ -147,6 +152,19 @@ class _PlanBuilder:
         return self.exec_plan, self.public_plan
 
     # ------------------------------------------------------------- internal
+    def _plan_left_out(self, entity_type: str) -> set[str]:
+        """Plan this type's left-out entities as skips; return their names."""
+        names: set[str] = set()
+        for (kind, name), skipped in self.domain.skipped.items():
+            if kind != entity_type:
+                continue
+            names.add(name)
+            self._record(
+                SkipOp(entity_type=kind, name=name, reason=skipped.reason),
+                skip_reason=skipped.reason,
+            )
+        return names
+
     def _record(
         self,
         op: PlanOp,
@@ -246,6 +264,7 @@ class _PlanBuilder:
         existing_tables = list(
             SourceTable.objects.filter(source_system__project=self.project)
             .select_related("source_system")
+            .prefetch_related("columns", "derived_columns")
         )
 
         existing_by_key: dict[tuple[str, str, str | None, str], SourceTable] = {}
@@ -496,9 +515,11 @@ class _PlanBuilder:
                     changes=changes,
                 )
 
+        left_out = self._plan_left_out("link")
+
         if self.strategy == "replace_all":
             for l in existing_by_name.values():
-                if l.pk not in used_pks:
+                if l.pk not in used_pks and l.link_physical_name not in left_out:
                     self._record(
                         DeleteOp(
                             entity_type="link",
@@ -544,9 +565,11 @@ class _PlanBuilder:
                     changes=changes,
                 )
 
+        left_out = self._plan_left_out("satellite")
+
         if self.strategy == "replace_all":
             for s in existing_by_name.values():
-                if s.pk not in used_pks:
+                if s.pk not in used_pks and s.satellite_physical_name not in left_out:
                     self._record(
                         DeleteOp(
                             entity_type="satellite",
@@ -585,18 +608,26 @@ class _PlanBuilder:
                 )
             else:
                 used_pks.add(existing.pk)
+                changes = _diff_reference_table(d, existing)
                 self._record(
                     UpdateOp(
                         entity_type="reference_table",
                         name=d.physical_name,
                         payload=d,
                         existing_pk=existing.pk,
-                    )
+                        changes=changes,
+                    ),
+                    changes=changes,
                 )
+
+        left_out = self._plan_left_out("reference_table")
 
         if self.strategy == "replace_all":
             for r in existing_by_name.values():
-                if r.pk not in used_pks:
+                if (
+                    r.pk not in used_pks
+                    and r.reference_table_physical_name not in left_out
+                ):
                     self._record(
                         DeleteOp(
                             entity_type="reference_table",
@@ -637,9 +668,11 @@ class _PlanBuilder:
                     )
                 )
 
+        left_out = self._plan_left_out("pit")
+
         if self.strategy == "replace_all":
             for p in existing_by_name.values():
-                if p.pk not in used_pks:
+                if p.pk not in used_pks and p.pit_physical_name not in left_out:
                     self._record(
                         DeleteOp(
                             entity_type="pit",
@@ -689,6 +722,17 @@ def _change(field_name: str, before: Any, after: Any) -> EntityChange | None:
     return EntityChange(field=field_name, before=before, after=after)
 
 
+def _description_change(existing: Any, incoming: str | None) -> EntityChange | None:
+    """A description change, if the source supplies one at all.
+
+    Formats without descriptions leave them None, and the executor keeps the
+    project's (see domain.py), so there is nothing to report.
+    """
+    if incoming is None:
+        return None
+    return _change("description", existing.description or None, incoming or None)
+
+
 def _diff_source_system(d: DSourceSystem, existing: SourceSystem) -> list[EntityChange]:
     return [
         c
@@ -696,6 +740,7 @@ def _diff_source_system(d: DSourceSystem, existing: SourceSystem) -> list[Entity
             _change("name", existing.name, d.name),
             _change("schema_name", existing.schema_name, d.schema_name),
             _change("database_name", existing.database_name, d.database_name),
+            _description_change(existing, d.description),
         )
         if c is not None
     ]
@@ -716,9 +761,64 @@ def _diff_source_table(d: DSourceTable, existing: SourceTable) -> list[EntityCha
                 d.load_date_value or "sysdate()",
             ),
             _change("alias", existing.alias or "", d.alias or ""),
+            _description_change(existing, d.description),
+            *_diff_source_columns(d, existing),
+            *_diff_derived_columns(d, existing),
         )
         if c is not None
     ]
+
+
+def _diff_source_columns(d: DSourceTable, existing: SourceTable) -> list[EntityChange]:
+    """Description changes of the table's columns, one change per column."""
+    existing_by_name = {
+        column.source_column_physical_name.lower(): column
+        for column in existing.columns.all()
+    }
+    changes = []
+    for key, column in d.columns.items():
+        current = existing_by_name.get(key)
+        if current is None or column.description is None:
+            continue
+        change = _change(
+            f"columns.{column.name}.description",
+            current.description or None,
+            column.description or None,
+        )
+        if change is not None:
+            changes.append(change)
+    return changes
+
+
+def _diff_derived_columns(d: DSourceTable, existing: SourceTable) -> list[EntityChange]:
+    """Derived columns added or changed, one change per column."""
+    if d.derived_columns is None:
+        return []
+    existing_by_name = {
+        derived.column_name.lower(): derived
+        for derived in existing.derived_columns.all()
+    }
+    changes = []
+    for key, derived in d.derived_columns.items():
+        current = existing_by_name.get(key)
+        before = (
+            None
+            if current is None
+            else {
+                "expression": current.expression,
+                "datatype": current.datatype or None,
+                "description": current.description or None,
+            }
+        )
+        after = {
+            "expression": derived.expression,
+            "datatype": derived.datatype or None,
+            "description": derived.description or None,
+        }
+        change = _change(f"derived_columns.{derived.name}", before, after)
+        if change is not None:
+            changes.append(change)
+    return changes
 
 
 def _diff_hub(d: DHub, existing: Hub) -> list[EntityChange]:
@@ -739,6 +839,7 @@ def _diff_hub(d: DHub, existing: Hub) -> list[EntityChange]:
                 existing.create_effectivity_satellite,
                 d.create_effectivity_satellite,
             ),
+            _description_change(existing, d.description),
         )
         if c is not None
     ]
@@ -757,6 +858,7 @@ def _diff_link(d: DLink, existing: Link) -> list[EntityChange]:
                 existing.create_record_tracking_satellite,
                 d.create_record_tracking_satellite,
             ),
+            _description_change(existing, d.description),
         )
         if c is not None
     ]
@@ -781,6 +883,13 @@ def _diff_satellite(d: DSatellite, existing: Satellite) -> list[EntityChange]:
         c
         for c in (
             _change("satellite_type", existing.satellite_type, d.satellite_type),
+            _description_change(existing, d.description),
         )
         if c is not None
     ]
+
+
+def _diff_reference_table(
+    d: DReferenceTable, existing: ReferenceTable
+) -> list[EntityChange]:
+    return [c for c in (_description_change(existing, d.description),) if c is not None]

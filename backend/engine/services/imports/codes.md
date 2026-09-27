@@ -36,10 +36,23 @@ deep-link errors; the CLI groups them in summary tables.
 |------|-------|------------|
 | `entity.duplicate_name` | The same physical name appears twice. | Rename one of the entities to a unique name. |
 | `entity.missing_parent` | A satellite's parent hub/link is not defined. | Add the parent entity or fix the parent reference. |
-| `entity.missing_reference` | A link references a hub that is not defined. | Add the hub or remove the reference. |
+| `entity.missing_reference` | A link, reference table or PIT references a hub/link that is not defined. | Add the hub or remove the reference. |
 | `entity.missing_source_column` | A mapping references a source column that does not exist. | Add the column to the source table or fix the mapping. |
 | `entity.missing_source_table` | A mapping references a source table identifier that does not exist. | Add the source table or fix the identifier. |
 | `entity.invalid_configuration` | An entity is internally inconsistent (e.g. satellite with both hub & link parent). | Correct the entity definition. |
+| `entity.depends_on_skipped` | *Warning.* An entity is left out because an entity it depends on can't be imported (a satellite of a skipped link, a PIT tracking a skipped satellite). | Fix the problem reported for that entity. |
+
+An entity that can't be imported is left out rather than imported
+half-resolved, and appears in the plan as a skip with one of these
+`skip_reason` values:
+
+| `skip_reason` | Meaning |
+|---------------|---------|
+| `missing_reference` | A link, reference table or PIT references a hub/link that is not defined. |
+| `missing_parent` | A satellite's parent hub/link is not defined. |
+| `missing_source_table` | A satellite's source table is not defined. |
+| `depends_on_skipped` | Something the entity depends on was skipped. |
+| `update_only` | The entity is new and the strategy is `update_only`. |
 
 ## Plan stage
 

@@ -53,6 +53,12 @@ class SourceSystem(models.Model):
         max_length=255, help_text="Human-readable name for this source system"
     )
 
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional description of the source system",
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the source system was created"
     )
@@ -128,6 +134,12 @@ class SourceTable(models.Model):
         help_text="Expression or column name used as load date value",
     )
 
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional description of the source table, written to the generated dbt docs",
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the source table was created"
     )
@@ -172,6 +184,12 @@ class SourceColumn(models.Model):
 
     source_column_datatype = models.CharField(
         max_length=255, help_text="Logical or physical data type of the column"
+    )
+
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional description of the column. Raw Vault columns loaded from it inherit it unless they set their own",
     )
 
     created_at = models.DateTimeField(

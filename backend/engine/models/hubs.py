@@ -81,6 +81,12 @@ class Hub(models.Model):
         help_text="If true, an effectivity satellite should be generated for this hub",
     )
 
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional description of the hub, written to the generated dbt docs",
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the hub was created"
     )
@@ -157,6 +163,19 @@ class HubColumn(models.Model):
         blank=True,
         null=True,
         help_text="Optional transformation expression for derived columns (applied in the stage before hashing)",
+    )
+
+    target_column_datatype = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Data type of the transformed value. Defaults to the source column's data type",
+    )
+
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional description of the column. Falls back to the source column's description",
     )
 
     sort_order = models.IntegerField(
