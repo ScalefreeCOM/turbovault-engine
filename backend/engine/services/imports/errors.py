@@ -82,6 +82,7 @@ class Code:
     ENTITY_MISSING_SOURCE_COLUMN = "entity.missing_source_column"
     ENTITY_MISSING_SOURCE_TABLE = "entity.missing_source_table"
     ENTITY_INVALID_CONFIGURATION = "entity.invalid_configuration"
+    ENTITY_DEPENDS_ON_SKIPPED = "entity.depends_on_skipped"
 
     # Plan stage
     PLAN_WOULD_CREATE = "plan.would_create"
