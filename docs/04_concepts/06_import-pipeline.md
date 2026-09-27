@@ -99,12 +99,22 @@ Even in `best_effort`, the pipeline is sensible about what to skip:
 |---------|----------------------------|
 | A sheet is missing a required *header* column | The whole sheet is dropped; other sheets continue. |
 | A specific row is missing a required value | That row is skipped; other rows continue. |
-| A satellite references a parent hub that doesn't exist | That satellite is skipped; the parent (and other satellites) continue. |
-| A column mapping points at a missing source column | That mapping is skipped; the entity itself is still created. |
+| A link references a hub that doesn't exist | The whole link is skipped — without one of its hubs it would have a different grain. |
+| A satellite references a parent hub/link that doesn't exist, or a source table that doesn't | That satellite is skipped; the parent (and other satellites) continue. |
+| A reference table or PIT references a hub, link or satellite that doesn't exist | That reference table or PIT is skipped. |
+| An entity depends on one that was skipped (a satellite of a skipped link, a PIT tracking it) | It is skipped too, with an `entity.depends_on_skipped` warning. |
+| A column mapping points at a missing source table or column | That mapping is skipped; the entity itself is still created. |
 
 Sheet-level structural errors are dropped wholesale because the pipeline
 cannot reliably synthesize partial entities from a sheet with missing
 header columns.
+
+A skipped entity is never imported half-resolved. It appears in the plan
+with `action: "skip"` and a `skip_reason` — `missing_reference`,
+`missing_parent`, `missing_source_table` or `depends_on_skipped` — next to
+the error or warning that explains it, so a dry-run shows exactly what a
+`best_effort` import will leave out. Because the entity is in the source,
+`replace_all` never deletes the project's existing copy of it.
 
 ---
 
@@ -207,10 +217,11 @@ messages and link to fix-it docs.
 | Validate | `row.invalid_enum_value` | A cell value is not one of the allowed options. |
 | Resolve | `entity.duplicate_name` | The same physical name appears twice. |
 | Resolve | `entity.missing_parent` | A satellite's parent hub/link is not defined anywhere. |
-| Resolve | `entity.missing_reference` | A link or PIT references a hub/link that is not defined. |
+| Resolve | `entity.missing_reference` | A link, reference table or PIT references a hub/link that is not defined. |
 | Resolve | `entity.missing_source_table` | A mapping references a source table identifier that does not exist. |
 | Resolve | `entity.missing_source_column` | A mapping references a column that is not present in its source table. |
 | Resolve | `entity.invalid_configuration` | An entity is internally inconsistent. |
+| Resolve | `entity.depends_on_skipped` | An entity is left out because something it depends on was skipped (warning). |
 | Plan | `plan.would_create` / `would_update` / `would_delete` / `would_skip` | Dry-run hints — informational only. |
 | Execute | `execute.constraint_violation` | A database constraint blocked a write. |
 | Execute | `execute.unexpected_error` | An unexpected runtime error during execute. |
