@@ -21,6 +21,26 @@ class SourceColumnDef(BaseModel):
 
     column_name: str
     datatype: str
+    description: str | None = None
+
+
+class SourceDerivedColumnDef(BaseModel):
+    """A column the stage computes with a SQL expression (a derived column).
+
+    Defined on its source table and mapped like any other column of it.
+    """
+
+    column_name: str
+    expression: str = Field(
+        description=(
+            "SQL expression computing the value from the source table's "
+            "columns, in the target platform's dialect"
+        )
+    )
+    datatype: str | None = Field(
+        default=None, description="Data type of the computed value"
+    )
+    description: str | None = None
 
 
 class SourceTableDef(BaseModel):
@@ -30,7 +50,12 @@ class SourceTableDef(BaseModel):
     alias: str | None = None
     record_source: str | None = None
     load_date: str | None = None
+    description: str | None = None
     columns: list[SourceColumnDef] = Field(default_factory=list)
+    derived_columns: list[SourceDerivedColumnDef] = Field(
+        default_factory=list,
+        description="Columns the stage computes from this table's columns",
+    )
 
 
 class SourceSystemDef(BaseModel):
@@ -39,7 +64,25 @@ class SourceSystemDef(BaseModel):
     name: str
     schema_name: str
     database_name: str | None = None
+    description: str | None = None
     tables: list[SourceTableDef] = Field(default_factory=list)
+
+
+class ColumnDescriptionDef(BaseModel):
+    """A Raw Vault column's description.
+
+    ``description`` is the column's own, ``source_description`` the one of the
+    source column it is loaded from, which applies when it has none. Only
+    ``description`` is read back on import, so an inherited description stays
+    inherited across an export/import round trip.
+    """
+
+    description: str | None = None
+    source_description: str | None = None
+
+    @property
+    def effective(self) -> str | None:
+        return self.description or self.source_description
 
 
 # =============================================================================
@@ -69,6 +112,14 @@ class HubColumnMapping(BaseModel):
             "source column in the stage before the business key is hashed. "
             "Belongs to the hub column, so it repeats on every source mapping "
             "of that column."
+        ),
+    )
+    target_column_datatype: str | None = Field(
+        default=None,
+        description=(
+            "Data type of the transformed value; the source column's data type "
+            "when omitted. Repeats on every source mapping, like the "
+            "transformation."
         ),
     )
 
@@ -118,6 +169,11 @@ class HubDefinition(BaseModel):
     )
     create_record_tracking_satellite: bool = False
     create_effectivity_satellite: bool = True
+    description: str | None = None
+    column_descriptions: dict[str, ColumnDescriptionDef] = Field(
+        default_factory=dict,
+        description="Descriptions by hub column name, for columns that have one",
+    )
 
 
 # =============================================================================
@@ -209,6 +265,14 @@ class LinkColumnMapping(BaseModel):
             "hub column; otherwise it is the link column's own transformation."
         ),
     )
+    target_column_datatype: str | None = Field(
+        default=None,
+        description=(
+            "Data type of the transformed value, from the same column as "
+            "target_column_transformation; the source column's data type when "
+            "omitted."
+        ),
+    )
 
 
 class LinkSourceHashkeyMapping(BaseModel):
@@ -281,6 +345,11 @@ class LinkDefinition(BaseModel):
         description="Source tables that feed this link with column mappings",
     )
     create_record_tracking_satellite: bool = False
+    description: str | None = None
+    column_descriptions: dict[str, ColumnDescriptionDef] = Field(
+        default_factory=dict,
+        description="Descriptions by link column name, for columns that have one",
+    )
 
 
 # =============================================================================
@@ -327,16 +396,33 @@ class DerivedColumnDef(BaseModel):
     """
     Derived column definition within a stage model.
 
-    Represents a column that requires transformation or renaming for satellite usage.
+    A column the stage computes: a derived column defined on the source table,
+    a Raw Vault column's transformation, or a satellite column's rename.
     """
 
-    target_column_name: str = Field(description="Target column name in the satellite")
-    source_column_name: str = Field(description="Source column name from the stage")
+    target_column_name: str = Field(description="Name of the column in the stage")
+    source_column_name: str = Field(
+        description=(
+            "The stage column it is computed from. For an expression over "
+            "several columns, the first one it reads"
+        )
+    )
     datatype: str = Field(
-        default="", description="Data type of the derived column (optional)"
+        default="",
+        description=(
+            "Data type of the value. datavault4dbt needs it for an expression "
+            "to build ghost records"
+        ),
     )
     transformation: str | None = Field(
-        None, description="SQL transformation expression (if any)"
+        None, description="SQL expression computing the value (if any)"
+    )
+    src_cols_required: list[str] = Field(
+        default_factory=list,
+        description="Source columns the value is computed from",
+    )
+    description: str | None = Field(
+        default=None, description="Description of a derived column"
     )
 
 
@@ -367,6 +453,9 @@ class StageDefinition(BaseModel):
     source_system: str
     record_source: str | None = None
     load_date: str | None = None
+    description: str | None = Field(
+        default=None, description="Description of the source table"
+    )
 
     # Hashkey calculations for hubs
     hashkeys: list[StageHashkeyDef] = Field(
@@ -422,6 +511,20 @@ class SatelliteColumnDef(BaseModel):
     target_column_transformation: str | None = Field(
         None, description="Optional transformation expression"
     )
+    target_column_datatype: str | None = Field(
+        None,
+        description=(
+            "Data type of the transformed value; the source column's data type "
+            "when omitted"
+        ),
+    )
+    description: str | None = Field(
+        None, description="The column's own description (None: inherited)"
+    )
+    source_description: str | None = Field(
+        None,
+        description="Description of the source column, which applies when it has none",
+    )
 
 
 class SatelliteDefinition(BaseModel):
@@ -452,7 +555,7 @@ class SatelliteDefinition(BaseModel):
     columns: list[SatelliteColumnDef] = Field(
         default_factory=list, description="Satellite columns"
     )
-    # Future: hashdiff definition
+    description: str | None = None
 
 
 # =============================================================================
@@ -499,6 +602,7 @@ class ReferenceTableDefinition(BaseModel):
     satellites: list[ReferenceTableSatelliteAssignment] = Field(
         default_factory=list, description="Reference satellite assignments"
     )
+    description: str | None = None
 
 
 class PITDefinition(BaseModel):

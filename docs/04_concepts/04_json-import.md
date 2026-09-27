@@ -87,6 +87,12 @@ turbovault project init --config config.yml
 
 Importing a JSON export and re-exporting to JSON produces structurally identical output. All entity relationships, naming patterns, column sort orders, and source mappings are preserved exactly.
 
+Descriptions and derived columns round-trip too. A Raw Vault column's export
+shows both its own `description` and the `source_description` it inherits;
+only its own is imported, so an inherited description stays inherited. An
+export from before derived columns existed has no `derived_columns` on its
+tables, and importing it leaves the project's derived columns alone.
+
 Snapshot controls embedded in the JSON export are restored as-is. The automatic creation of default snapshot controls (which happens for new empty projects) is skipped when the source type is `json`.
 
 ## What Is Not Preserved

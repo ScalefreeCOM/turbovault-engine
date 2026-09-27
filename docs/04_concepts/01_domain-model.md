@@ -83,6 +83,7 @@ Describes a physical source system (database/schema) and a human-readable name.
 | schema_name      | string     | ✓       | Schema name in the source system.             |
 | database_name    | string     |          | Optional database name (if applicable).       |
 | name             | string     | ✓       | Human-readable name for this source system.   |
+| description      | string     |          | Optional description of the source system.    |
 | created_at       | datetime   | ✓       | Timestamp when the record was created.        |
 | updated_at       | datetime   | ✓       | Timestamp when the record was last updated.   |
 
@@ -106,6 +107,7 @@ Represents a physical source table within a source system and includes DV-relate
 | record_source_value          | string     |          | Value/expression used as `record_source` for this table.          |
 | static_part_of_record_source | string     |          | Optional static part of `record_source` that is reused.           |
 | load_date_value              | string     |          | Expression or column name used as load date value.                  |
+| description                  | string     |          | Optional description; written to `sources.yml` and the stage's model YAML. |
 | created_at                   | datetime   | ✓       | Timestamp when the record was created.                              |
 | updated_at                   | datetime   | ✓       | Timestamp when the record was last updated.                         |
 
@@ -127,6 +129,7 @@ Represents a single column in a source table.
 | source_table_id             | identifier | ✓ (FK)  | FK to `source_table.source_table_id`.      |
 | source_column_physical_name | string     | ✓       | Physical column name in the source table.    |
 | source_column_datatype      | string     | ✓       | Logical or physical data type of the column. |
+| description                 | string     |          | Optional description. Raw Vault columns loaded from this column inherit it unless they set their own (see [Descriptions](#descriptions)). |
 | created_at                  | datetime   | ✓       | Timestamp when the record was created.       |
 | updated_at                  | datetime   | ✓       | Timestamp when the record was last updated.  |
 
@@ -140,6 +143,61 @@ Represents a single column in a source table.
   - `prejoin_definition`
   - `prejoin_extraction_column`
   - `satellite_column`
+
+---
+
+### 3.4 `derived_column`
+
+A column the stage computes with a SQL expression instead of reading it from
+the source table, e.g. `TRIM(C_FIRST) || ' ' || TRIM(C_LAST)`. It is defined
+once on its source table and mapped like any other column of it: hub business
+keys, link keys and payload, satellite payload.
+
+| Field             | Type       | Required | Description |
+| ----------------- | ---------- | -------- | ----------- |
+| derived_column_id | identifier | PK       | Unique identifier of the derived column. |
+| project_id        | identifier | ✓ (FK)   | FK to `Project`. |
+| source_table_id   | identifier | ✓ (FK)   | FK to the `source_table` whose stage computes it. |
+| column_name       | string     | ✓        | Name of the column in the stage. Unique per table, and must not match a source column or a prejoined column of the table. |
+| expression        | string     | ✓        | SQL in the target platform's dialect. It may read the table's columns and its prejoined columns, and may use dbt Jinja (`{{ var('x') }}`). |
+| datatype          | string     |          | Data type of the value. datavault4dbt needs it to build ghost records for an expression; generation warns (`validate.stage.derived_column_no_datatype`) without one. |
+| description       | string     |          | Optional description, inherited by Raw Vault columns loaded from it. |
+| created_at        | datetime   | ✓        | Timestamp when the record was created. |
+| updated_at        | datetime   | ✓        | Timestamp when the record was last updated. |
+
+In the generated stage it is an entry under `derived_columns`, computed after
+prejoins and before hashing, so it can be a business key. datavault4dbt
+computes all derived columns in one `SELECT`, so one can't read another: a
+transformation or a renamed satellite column over a derived column inlines its
+expression instead. `src_cols_required` lists the table's columns the
+expression reads.
+
+**Relationships**
+
+- `derived_column` **belongs to** one `source_table`.
+- It has a `staging_column` (the third kind, next to a source column and a
+  prejoin extraction), through which it is mapped.
+
+---
+
+### Descriptions
+
+Source systems, tables and columns, derived columns, hubs, links, satellites,
+reference tables and the columns of hubs, links and satellites all have an
+optional `description`. They are written to the generated dbt docs
+(`sources.yml`, the stage's and each model's YAML) and to DBML notes; without
+one, generation keeps its default text.
+
+A hub, link or satellite column without its own description takes the one of
+the column it is loaded from: its source column, prejoined column or derived
+column (for a hub column, the primary source first). The JSON export carries
+both, as `description` and `source_description`; only `description` is read
+back, so an inherited description stays inherited.
+
+Imports only write a description the source supplies. Formats without a place
+for them (Excel, SQLite, IRiS) leave the project's untouched, and the
+`source_metadata` format of database imports carries table and column
+comments.
 
 ---
 
@@ -160,6 +218,7 @@ Defines a Data Vault hub entity.
 | hub_hashkey_name                 | string     |          | Name of the hub hashkey column (used only if `hub_type = standard`). |
 | create_record_tracking_satellite | boolean    | ✓       | If true, a record-tracking satellite should be generated for this hub. |
 | create_effectivity_satellite     | boolean    | ✓       | If true, an effectivity satellite should be generated for this hub.    |
+| description                      | string     |          | Optional description, written to the hub's model YAML.                 |
 | created_at                       | datetime   | ✓       | Timestamp when the record was created.                                 |
 | updated_at                       | datetime   | ✓       | Timestamp when the record was last updated.                            |
 
@@ -185,6 +244,8 @@ Describes columns within a hub.
 | column_name   | string     | ✓       | Logical/target column name in the hub.                                                     |
 | column_type   | string     | ✓       | `business_key` (default for standard hubs), `additional_column`, or `reference_key`. |
 | target_column_transformation | string |    | Optional transformation expression (hard business rule) applied to the mapped source column in the stage, before the business key is hashed. Supports the `[[source_column]]` placeholder. |
+| target_column_datatype | string |  | Data type of the transformed value, needed by datavault4dbt for an expression. Defaults to the source column's data type. |
+| description   | string     |          | Optional description; inherits the source column's when empty. |
 | sort_order    | int        | ✓       | Sorting index to define ordering of hub columns.                                           |
 | created_at    | datetime   | ✓       | Timestamp when the record was created.                                                     |
 | updated_at    | datetime   | ✓       | Timestamp when the record was last updated.                                                |
@@ -235,6 +296,7 @@ Defines a Data Vault link entity.
 | link_physical_name | string     | ✓       | Physical name of the link (e.g.`link_customer_order`).     |
 | link_hashkey_name  | string     | ✓       | Name of the link hashkey column (e.g.`lk_customer_order`). |
 | link_type          | string     | ✓       | `standard` or `non-historized`.                          |
+| description        | string     |          | Optional description, written to the link's model YAML.      |
 | created_at         | datetime   | ✓       | Timestamp when the record was created.                       |
 | updated_at         | datetime   | ✓       | Timestamp when the record was last updated.                  |
 
@@ -280,6 +342,8 @@ Describes columns in a link (payload or additional).
 | column_name    | string     | ✓       | Logical/target column name in the link.                         |
 | column_type    | string     | ✓       | `payload`, `additional_column`, or `dependent_child_key`. |
 | target_column_transformation | string |  | Optional transformation expression (hard business rule) applied to the mapped source column in the stage. For `dependent_child_key` columns this happens before the link hashkey is computed. Supports the `[[source_column]]` placeholder. |
+| target_column_datatype | string |  | Data type of the transformed value, needed by datavault4dbt for an expression. Defaults to the source column's data type. |
+| description    | string     |          | Optional description; inherits the source column's when empty.  |
 | sort_order     | integer    |          | Order of appearance. Lower values appear first.                 |
 | created_at     | datetime   | ✓       | Timestamp when the record was created.                          |
 | updated_at     | datetime   | ✓       | Timestamp when the record was last updated.                     |
@@ -400,6 +464,7 @@ Represents a Data Vault satellite attached to either a hub or a link.
 | satellite_physical_name | string     | ✓       | Physical name of the satellite (e.g.`sat_customer_details`).                                                                                                        |
 | parent_entity_id        | identifier | ✓       | Identifier of the parent entity (hub or link).                                                                                                                        |
 | satellite_type          | string     | ✓       | `standard` (default for standard hub & link), `reference` (default for reference hub), `non-historized` (default for non-historized link), or `multi-active`. |
+| description             | string     |          | Optional description, written to the satellite's model YAML. |
 | created_at              | datetime   | ✓       | Timestamp when the record was created.                                                                                                                                |
 | updated_at              | datetime   | ✓       | Timestamp when the record was last updated.                                                                                                                           |
 
@@ -429,6 +494,8 @@ Maps source columns into a satellite, with extra semantics.
 | include_in_delta_detection   | boolean    | ✓       | If `true`, column is included in hashdiff/delta detection; if `false`, it is excluded (default: `true`).              |
 | target_column_name           | string     |          | Optional target column name for renaming; default is the physical source column name.                                       |
 | target_column_transformation | string     |          | Optional transformation expression used to derive this column (e.g. placeholders, functions, or COALESCE-like expressions). |
+| target_column_datatype | string |  | Data type of the transformed value, needed by datavault4dbt for an expression. Defaults to the source column's data type. |
+| description                  | string     |          | Optional description; inherits the source column's when empty. |
 | created_at                   | datetime   | ✓       | Timestamp when the record was created.                                                                                      |
 | updated_at                   | datetime   | ✓       | Timestamp when the record was last updated.                                                                                 |
 
@@ -499,6 +566,7 @@ Represents a reference table based on a reference hub.
 | historization_type            | string     | ✓       | Historization strategy:`latest`, `full`, or `snapshot_based`.                                                |
 | snapshot_table_id             | identifier |          | FK to `snapshot_control_table.snapshot_control_table_id` when `historization_type` requires snapshot handling. |
 | snapshot_control_logic_id     | identifier |          | FK to `snapshot_control_logic.snapshot_control_logic_id` when snapshot-based logic is used.                      |
+| description                   | string     |          | Optional description, written to the reference table's model YAML. |
 | created_at                    | datetime   | ✓       | Timestamp when the record was created.                                                                             |
 | updated_at                    | datetime   | ✓       | Timestamp when the record was last updated.                                                                        |
 

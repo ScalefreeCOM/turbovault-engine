@@ -15,10 +15,9 @@ Why a separate parser from ``JsonSource`` / ``ProjectExport``?
   rev-locked to the engine's own export shape; this format is a stable
   public contract versioned via ``format_version``.
 
-Description fields are accepted on systems, tables, and columns. They are
-silently dropped today because the source-metadata models don't carry
-description columns yet; once they do, this parser will populate them
-without a schema change.
+Description fields are accepted on systems, tables, and columns, and stored
+on the project's source metadata. A missing description leaves the one the
+project has untouched.
 """
 
 from __future__ import annotations
@@ -56,9 +55,6 @@ class _ColumnV1(BaseModel):
     datatype: str
     ordinal_position: int | None = None
     is_nullable: bool | None = None
-    # Accepted but ignored until the engine's SourceColumn model grows a
-    # description column. Producers should populate it today; we don't
-    # want a schema change later.
     description: str | None = None
 
 
@@ -205,6 +201,7 @@ def _payload_to_domain(payload: SourceMetadataV1) -> DomainModel:
             name=sys_def.name,
             schema_name=sys_def.schema_name,
             database_name=sys_def.database_name,
+            description=sys_def.description or None,
         )
         for table_def in sys_def.tables:
             identifier = f"{sys_def.name}|{table_def.physical_table_name}"
@@ -226,11 +223,13 @@ def _payload_to_domain(payload: SourceMetadataV1) -> DomainModel:
                     table_def.static_part_of_record_source or ""
                 ),
                 load_date_value=table_def.load_date_value or "sysdate()",
+                description=table_def.description or None,
             )
             for col_def in table_def.columns:
                 table.columns[col_def.physical_name.lower()] = DSourceColumn(
                     name=col_def.physical_name,
                     datatype=col_def.datatype,
+                    description=col_def.description or None,
                 )
             system.tables[identifier] = table
             # Mirror the JSON parser: also index by raw physical name so

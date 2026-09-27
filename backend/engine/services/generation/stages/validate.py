@@ -38,6 +38,7 @@ _LEGACY_CODE_MAP: dict[str, str] = {
     "SRC_002": "validate.source.no_tables",
     "STG_001": "validate.stage.no_source_table",
     "STG_002": "validate.stage.no_keys",
+    "STG_003": "validate.stage.derived_column_no_datatype",
     "HUB_001": "validate.hub.missing_hashkey",
     "HUB_002": "validate.hub.no_business_keys",
     "HUB_003": "validate.hub.no_source_tables",

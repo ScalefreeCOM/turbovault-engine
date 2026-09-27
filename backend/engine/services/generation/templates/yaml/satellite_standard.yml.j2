@@ -3,7 +3,7 @@ version: 2
 
 models:
   - name: [[ satellite_name ]]
-    description: "[[ satellite_type | title ]] satellite for [[ parent_entity ]]"
+    description: [[ (description or ((satellite_type | title) ~ " satellite for " ~ parent_entity)) | yaml_quote ]]
     config:
       tags: ['satellite', '[[ satellite_type ]]', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
     columns:
@@ -15,7 +15,7 @@ models:
         description: "Hash diff for change detection"
 [% for column in columns %]
       - name: [[ column.target_column_name if column.target_column_name else column.source_column ]]
-        description: "Payload column"
+        description: [[ (column.description or column.source_description or "Payload column") | yaml_quote ]]
 [% endfor %]
       - name: ldts
         description: "Load date timestamp"
