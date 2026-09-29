@@ -32,7 +32,7 @@ from pathlib import Path
 from engine.models import Project
 from engine.services.imports.domain import DomainModel
 from engine.services.imports.errors import Code, PipelineAbort, make_issue
-from engine.services.imports.executor import execute_plan
+from engine.services.imports.executor import apply_outcomes, execute_plan
 from engine.services.imports.ir import IRDocument
 from engine.services.imports.parsers.excel import parse_excel
 from engine.services.imports.parsers.iris import parse_iris
@@ -70,6 +70,7 @@ from engine.services.imports.validation.schema_validator import validate_schema
 
 __all__ = [
     "import_metadata",
+    "PlanCallback",
     "ExcelSource",
     "SqliteSource",
     "JsonSource",
@@ -89,6 +90,7 @@ __all__ = [
 
 
 ProgressCallback = Callable[[ProgressEvent], None]
+PlanCallback = Callable[[ImportPlan], None]
 
 
 def import_metadata(
@@ -97,12 +99,23 @@ def import_metadata(
     source: SourceInput,
     options: ImportOptions | None = None,
     progress: ProgressCallback | None = None,
+    on_plan: PlanCallback | None = None,
 ) -> ImportReport:
     """Run the import pipeline against `project`.
 
     Always returns an ImportReport. Persists an ImportRun row regardless of
     outcome (including dry-run and validation-failed cases) so the CLI and
     Studio can show history.
+
+    A dry run applies the plan like a real run and rolls it back, so the
+    report shows exactly what the import would change.
+
+    ``on_plan`` is called with a copy of the plan once it is built, before
+    anything is written. Creates, deletes and skips are final there; an
+    entity that exists is still `update` (the executor finds out whether it
+    changes). Raising from it stops the import: the run is recorded as
+    rejected and the exception propagates to the caller, e.g. to enforce a
+    quota on the entities the import would create.
 
     The only path that does NOT return is a programming bug — those become
     `internal.bug` issues in the report.
@@ -113,6 +126,7 @@ def import_metadata(
     issues: list[Issue] = []
     plan_for_report = ImportPlan()
     executor_committed = False
+    rejection: Exception | None = None
 
     # Run id is generated up front so progress events can reference it.
     run_id = uuid.uuid4()
@@ -233,41 +247,61 @@ def import_metadata(
             project=project,
             domain=domain,
             strategy=options.conflict_strategy,
+            skip_snapshots=options.skip_snapshots,
         )
         plan_for_report = public_plan
         timings["plan"] = _ms(t0)
         emit(progress, stage="plan", status="done", message="Plan ready")
 
+        if on_plan is not None:
+            try:
+                on_plan(public_plan.model_copy(deep=True))
+            except Exception as exc:
+                rejection = exc
+                issues.append(
+                    make_issue(
+                        severity="error",
+                        code=Code.PLAN_REJECTED,
+                        stage="plan",
+                        message=f"The import was stopped before anything was written: {exc}",
+                    )
+                )
+
         # ----------------------- 5. Execute -----------------------
-        if options.dry_run:
-            emit(
-                progress,
-                stage="execute",
-                status="done",
-                message="Dry run: skipping execute stage",
-            )
-            timings["execute"] = 0
-        else:
+        if rejection is None:
             emit(
                 progress,
                 stage="execute",
                 status="started",
-                message="Applying plan to database",
+                message=(
+                    "Simulating the changes (rolled back)"
+                    if options.dry_run
+                    else "Applying plan to database"
+                ),
             )
             t0 = time.perf_counter()
             try:
-                exec_issues = execute_plan(
+                result = execute_plan(
                     project=project,
                     domain=domain,
                     plan=exec_plan,
                     error_strategy=options.error_strategy,
                     skip_snapshots=options.skip_snapshots,
+                    dry_run=options.dry_run,
                 )
-                issues.extend(exec_issues)
+                issues.extend(result.issues)
+                # Only now is every action final: an entity that exists is
+                # `update` if the executor changed something, else `unchanged`.
+                apply_outcomes(
+                    public_plan,
+                    exec_plan,
+                    result.outcomes,
+                    state="simulated" if options.dry_run else "applied",
+                )
                 # We reached the end of execute_plan without PipelineAbort:
                 # the transaction committed (with whatever per-entity errors
-                # were recorded in best_effort).
-                executor_committed = True
+                # were recorded in best_effort), or a dry run rolled it back.
+                executor_committed = not options.dry_run
             except PipelineAbort as abort:
                 issues.append(abort.issue)
             timings["execute"] = _ms(t0)
@@ -287,7 +321,7 @@ def import_metadata(
             )
         )
 
-    return _finalize(
+    report = _finalize(
         project=project,
         source=source,
         options=options,
@@ -299,6 +333,9 @@ def import_metadata(
         executor_committed=executor_committed,
         progress=progress,
     )
+    if rejection is not None:
+        raise rejection
+    return report
 
 
 def _finalize(

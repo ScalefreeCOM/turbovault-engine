@@ -407,6 +407,9 @@ def test_prejoin_referencing_an_unknown_column_reports_an_issue(tmp_path: Path) 
     codes = {issue.code for issue in report.issues}
     assert "entity.missing_source_column" in codes
     assert PrejoinDefinition.objects.filter(project=dst).count() == 0
+    # The report says so: it was left out, not created.
+    prejoin = next(e for e in report.plan.entities if e.ref.type == "prejoin")
+    assert (prejoin.action, prejoin.skip_reason) == ("skip", "missing_reference")
 
     # The bogus column must not have been created on the source table.
     assert not SourceColumn.objects.filter(

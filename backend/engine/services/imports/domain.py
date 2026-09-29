@@ -34,7 +34,10 @@ from typing import Literal
 @dataclass(slots=True)
 class DSourceColumn:
     name: str
-    datatype: str = ""
+    # None when the format doesn't give it: Excel creates columns from the
+    # mappings that name them. The project's type is then kept, e.g. the one
+    # a database import collected.
+    datatype: str | None = None
     description: str | None = None
 
 

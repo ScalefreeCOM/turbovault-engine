@@ -56,7 +56,7 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
 - **Re-importable** - Re-run the same file as many times as you need; existing entities are updated, not duplicated
 - **Three conflict modes** - `merge` (default), `replace-all`, `update-only`
 - **Best-effort default** - Imports everything that's valid and reports exactly what was skipped, with sheet/row/column context
-- **Dry-run** - Preview the diff against your project without touching the database
+- **Dry-run** - See exactly what an import would change in your project, without keeping anything
 - **Audit trail** - Every run (including dry-runs) is recorded; browse with `turbovault import-history`
 - **Structured issues** - Stable machine-readable codes (`schema.missing_column`, `entity.missing_parent`, ...) for CI and tooling
 

@@ -26,13 +26,14 @@ def determine_status(
     """Decide the terminal status from the report's contents.
 
     - `success`           : no error-severity issues.
-    - `validation_failed` : errors recorded AND nothing was actually written
+    - `validation_failed` : errors recorded AND nothing was actually applied
                             (dry-run, or executor never ran, or the plan
                             ended up empty after filtering bad sheets).
-    - `partial_success`   : errors recorded BUT the executor committed
-                            at least one create/update. This is the typical
-                            best-effort outcome: some entities written,
-                            others skipped with documented reasons.
+    - `partial_success`   : errors recorded BUT the executor committed and
+                            applied at least one entity. This is the typical
+                            best-effort outcome: some entities written (or
+                            already matching), others skipped with
+                            documented reasons.
     """
     error_issues = [i for i in issues if i.severity == "error"]
     if not error_issues:
@@ -41,10 +42,13 @@ def determine_status(
     if is_dry_run:
         return "validation_failed"
 
-    writes_planned = plan.counts.totals.get("create", 0) + plan.counts.totals.get(
-        "update", 0
+    # An entity that already matched counts: the import brought it in line,
+    # it just had nothing to write.
+    applied = sum(
+        plan.counts.totals.get(action, 0)
+        for action in ("create", "update", "unchanged", "delete")
     )
-    if executor_committed and writes_planned > 0:
+    if executor_committed and applied > 0:
         return "partial_success"
     return "validation_failed"
 

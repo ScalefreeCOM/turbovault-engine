@@ -89,6 +89,8 @@ class Code:
     PLAN_WOULD_UPDATE = "plan.would_update"
     PLAN_WOULD_DELETE = "plan.would_delete"
     PLAN_WOULD_SKIP = "plan.would_skip"
+    # The caller's on_plan callback stopped the import before any write.
+    PLAN_REJECTED = "plan.rejected"
 
     # Execute stage
     EXECUTE_CONSTRAINT_VIOLATION = "execute.constraint_violation"

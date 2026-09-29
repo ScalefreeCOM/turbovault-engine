@@ -48,10 +48,13 @@ half-resolved, and appears in the plan as a skip with one of these
 
 | `skip_reason` | Meaning |
 |---------------|---------|
-| `missing_reference` | A link, reference table or PIT references a hub/link that is not defined. |
+| `missing_reference` | A link, reference table or PIT references a hub/link that is not defined, or a prejoin joins on or extracts a column that doesn't exist. |
 | `missing_parent` | A satellite's parent hub/link is not defined. |
-| `missing_source_table` | A satellite's source table is not defined. |
+| `missing_source_table` | A satellite's or prejoin's source table is not defined. |
 | `depends_on_skipped` | Something the entity depends on was skipped. |
+| `invalid_configuration` | The entity is inconsistent, e.g. a prejoin whose source and target join columns don't line up. |
+| `execute_failed` | Writing the entity failed (see the `execute.*` issue). Only that entity was rolled back. |
+| `skip_snapshots` | A PIT, while the import runs with `skip_snapshots`: it needs a snapshot control. An existing PIT is kept. |
 | `update_only` | The entity is new and the strategy is `update_only`. |
 
 ## Plan stage
@@ -65,6 +68,7 @@ the planned diff. They never block.
 | `plan.would_update` | The entity would be updated (with field diffs). |
 | `plan.would_delete` | The entity would be deleted (replace_all only). |
 | `plan.would_skip` | The entity would be skipped (e.g. update_only with no match). |
+| `plan.rejected` | *Error.* The caller's `on_plan` callback stopped the import before anything was written. |
 
 ## Execute stage
 

@@ -309,7 +309,12 @@ def test_a_mapping_to_an_unknown_source_table_drops_only_the_mapping(
 
     assert _issues(report, "entity.missing_source_table")
     assert _planned(report)[("hub", "hub_customer")] == ("create", None)
-    assert report.plan.counts.totals["skip"] == 0
+    # Nothing is left out for it; the PIT is, because snapshots are off.
+    assert [
+        (entity.ref.type, entity.skip_reason)
+        for entity in report.plan.entities
+        if entity.action == "skip"
+    ] == [("pit", "skip_snapshots")]
     assert Hub.objects.filter(
         project=project, hub_physical_name="hub_customer"
     ).exists()

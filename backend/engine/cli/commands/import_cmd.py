@@ -167,7 +167,10 @@ def _run_import(
     )
 
     if dry_run:
-        print_info(f"Dry run: importing {source.name} into '{project.name}' (no DB writes).")
+        print_info(
+            f"Dry run: importing {source.name} into '{project.name}' and rolling it "
+            "back (nothing is kept)."
+        )
     else:
         print_info(
             f"Importing {source.name} into '{project.name}' "
@@ -366,28 +369,39 @@ def _render_report(report: ImportReport) -> None:
         title="Import Plan", show_header=True, header_style="bold cyan"
     )
     summary.add_column("Entity", style="bold")
-    summary.add_column("Create", justify="right")
-    summary.add_column("Update", justify="right")
-    summary.add_column("Delete", justify="right")
-    summary.add_column("Skip", justify="right")
+    columns = ("create", "update", "unchanged", "delete", "skip")
+    for action in columns:
+        summary.add_column(action.capitalize(), justify="right")
 
     for entity_type, counts in sorted(report.plan.counts.by_entity_type.items()):
         summary.add_row(
-            entity_type,
-            str(counts.get("create", 0)),
-            str(counts.get("update", 0)),
-            str(counts.get("delete", 0)),
-            str(counts.get("skip", 0)),
+            entity_type, *(str(counts.get(action, 0)) for action in columns)
         )
     totals = report.plan.counts.totals
     summary.add_row(
         "[bold]Total[/bold]",
-        f"[bold]{totals.get('create', 0)}[/bold]",
-        f"[bold]{totals.get('update', 0)}[/bold]",
-        f"[bold]{totals.get('delete', 0)}[/bold]",
-        f"[bold]{totals.get('skip', 0)}[/bold]",
+        *(f"[bold]{totals.get(action, 0)}[/bold]" for action in columns),
     )
     console.print(summary)
+
+    # What changed on the entities that already existed
+    updated = [entity for entity in report.plan.entities if entity.action == "update"]
+    if updated:
+        changes_table = Table(
+            title=f"Changed ({len(updated)})",
+            show_header=True,
+            header_style="bold cyan",
+        )
+        changes_table.add_column("Entity", style="bold")
+        changes_table.add_column("Name")
+        changes_table.add_column("Changes")
+        for entity in updated:
+            fields = [change.field for change in entity.changes]
+            shown = ", ".join(fields[:3]) + (
+                f" (+{len(fields) - 3} more)" if len(fields) > 3 else ""
+            )
+            changes_table.add_row(entity.ref.type, entity.ref.name, shown)
+        console.print(changes_table)
 
     # Issues
     if report.issues:
@@ -429,15 +443,22 @@ def _render_report(report: ImportReport) -> None:
     # Status line
     console.print()
     totals = report.plan.counts.totals
+    outcome = (
+        f"created {totals.get('create', 0)}, updated {totals.get('update', 0)}, "
+        f"deleted {totals.get('delete', 0)}, unchanged {totals.get('unchanged', 0)}"
+    )
     if report.status == "success":
-        verb = "Dry run completed" if report.is_dry_run else "Import completed"
-        print_success(f"{verb} successfully.")
+        if report.is_dry_run:
+            print_success(
+                f"Dry run completed successfully: it would have {outcome}. "
+                "Nothing was written."
+            )
+        else:
+            print_success(f"Import completed successfully: {outcome}.")
     elif report.status == "partial_success":
-        wrote = totals.get("create", 0) + totals.get("update", 0)
-        skipped = totals.get("skip", 0)
         print_warning(
-            f"Import partially succeeded: wrote {wrote} entit{'y' if wrote == 1 else 'ies'}, "
-            f"skipped {skipped + report.error_count} due to "
+            f"Import partially succeeded: {outcome}, "
+            f"skipped {totals.get('skip', 0)}, with "
             f"{report.error_count} error(s) and {report.warning_count} warning(s). "
             "See the Issues table above for details on each skipped item."
         )
