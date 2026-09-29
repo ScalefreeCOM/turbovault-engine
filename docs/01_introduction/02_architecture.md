@@ -46,9 +46,9 @@ Key service areas (in `services/`):
 
 - **Import pipeline** (`engine/services/imports/`)
   - A six-stage pipeline — parse → validate → resolve → plan → execute → report — shared by every supported source format (Excel via `openpyxl`, SQLite, and JSON exports).
-  - Computes a diff against the current project state and uses `update_or_create`, so re-imports update existing entities rather than duplicating them.
+  - Compares every row with the current project state and writes only what differs, so re-imports update existing entities rather than duplicating them. Each existing entity is reported as `update` (with the changes listed) or `unchanged`.
   - Supports three conflict strategies (`merge`, `replace_all`, `update_only`) and two error strategies (`best_effort`, `fail_fast`).
-  - Optional `dry_run` skips the execute stage so callers can preview the impact without touching the database.
+  - Optional `dry_run` runs the import in a transaction that is rolled back, so callers see exactly what it would change without keeping anything.
   - Every invocation — including dry-runs and failed runs — is persisted as an `ImportRun` audit row. The full structured `ImportReport` is returned to the caller (CLI, web wizard, Studio backend) for rendering and deep linking.
   - See [Import Pipeline](../04_concepts/06_import-pipeline.md) for the complete behavior reference.
 

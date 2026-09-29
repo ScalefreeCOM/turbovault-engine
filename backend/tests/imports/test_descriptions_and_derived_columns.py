@@ -227,13 +227,20 @@ def test_the_plan_reports_description_and_derived_column_changes(tmp_path):
         options=ImportOptions(skip_snapshots=True, dry_run=True),
     )
     planned = next(e for e in report.plan.entities if e.ref.type == "source_table")
+    assert planned.action == "update"
     changes = {change.field: change for change in planned.changes}
     assert changes["description"].after == "Customers, deduplicated"
     assert changes["columns.C_CUSTKEY.description"].before == "Customer number"
     assert changes["columns.C_CUSTKEY.description"].after == "Customer id"
-    assert (
-        changes["derived_columns.FULL_NAME"].after["expression"] == "C_FIRST || C_LAST"
-    )
+    expression = changes["derived_columns.FULL_NAME.expression"]
+    assert (expression.before, expression.after) == (EXPRESSION, "C_FIRST || C_LAST")
+    assert expression.path == ["derived_columns", "FULL_NAME", "expression"]
+    # What didn't change isn't listed.
+    assert set(changes) == {
+        "description",
+        "columns.C_CUSTKEY.description",
+        "derived_columns.FULL_NAME.expression",
+    }
 
 
 # ---------------------------------------------------------------------------

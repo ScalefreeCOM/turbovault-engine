@@ -36,13 +36,15 @@ issues that show up in the final report.
 | **Parse** | Reads the source file into a row/sheet representation (Excel/SQLite) or a structured domain model (JSON, IRiS). Format-level problems (corrupt file, malformed JSON, missing sheets) become `source.*` issues. |
 | **Validate** | Checks sheet headers against the [Excel Metadata Format](02_excel-metadata-format.md) — required columns, recognized column names, required values per row. Emits `schema.*` and `row.*` issues with sheet/row/column context. |
 | **Resolve** | Cross-sheet semantic checks: every link references hubs that exist, every satellite has a parent, every column mapping points at a real source column. Emits `entity.*` issues. |
-| **Plan** | Diffs the resolved model against the current project state and produces an `ImportPlan` — counts of entities to create, update, delete, and skip. |
-| **Execute** | Applies the plan inside one atomic transaction using `update_or_create`, so **re-imports actually pick up corrections** in the source file. Optional in dry-run mode. |
+| **Plan** | Matches the resolved model against the current project state and produces an `ImportPlan`: which entities are new, which exist, which `replace_all` deletes and which are skipped. |
+| **Execute** | Applies the plan inside one atomic transaction, comparing every row with what the project has and **writing only what differs**. Records each change, and turns every existing entity into `update` (something changed) or `unchanged` (it already matched). A dry run executes too, then rolls back. |
 | **Report** | Persists an `ImportRun` audit row and returns a structured `ImportReport` to the caller. |
 
 Re-imports are first-class: any project can be re-imported with the same
-or a modified file at any time. The pipeline computes a diff against the
-existing state rather than blindly inserting.
+or a modified file at any time. Importing the same file again writes
+nothing and reports every entity as `unchanged`. A modified file changes
+exactly the entities it modifies, and the report lists what changed on
+each, down to a new source mapping on a hub column.
 
 ---
 
@@ -53,11 +55,22 @@ already exist in the project.
 
 | Strategy | New entity (in file, not in DB) | Existing entity (in both) | Existing entity (in DB, not in file) |
 |----------|----------------------------------|----------------------------|---------------------------------------|
-| `merge` *(default)* | **create** | **update** with new values | **leave alone** |
-| `replace_all` | **create** | **update** with new values | **delete** (cascading to children) |
-| `update_only` | skip (won't create) | **update** with new values | leave alone |
+| `merge` *(default)* | **create** | **update** with new values (or **unchanged**) | **leave alone** |
+| `replace_all` | **create** | **update** with new values (or **unchanged**) | **delete** (cascading to children) |
+| `update_only` | skip (won't create) | **update** with new values (or **unchanged**) | leave alone |
 
 CLI flag: `--mode merge | replace-all | update-only`.
+
+An existing entity's children (columns, mappings) are merged: new ones are
+added and changed ones updated, and ones the file doesn't list are kept,
+whatever the strategy. The exceptions are the collections the file always
+states in full: a link's hub references and their key mappings, a
+prejoin's join columns, a reference table's satellite assignments and a
+PIT's satellites. For those, the ones the file no longer lists are removed.
+
+A source system is identified by its schema and database. A new name in
+the file for the same schema renames the system rather than creating a new
+one.
 
 **Choose `merge`** to add or correct entities while preserving everything
 else in the project. This is the safe default for iterative workflows.
@@ -110,31 +123,63 @@ cannot reliably synthesize partial entities from a sheet with missing
 header columns.
 
 A skipped entity is never imported half-resolved. It appears in the plan
-with `action: "skip"` and a `skip_reason` — `missing_reference`,
-`missing_parent`, `missing_source_table` or `depends_on_skipped` — next to
-the error or warning that explains it, so a dry-run shows exactly what a
-`best_effort` import will leave out. Because the entity is in the source,
-`replace_all` never deletes the project's existing copy of it.
+with `action: "skip"` and a `skip_reason` next to the error or warning
+that explains it, so a dry-run shows exactly what a `best_effort` import
+will leave out. Because the entity is in the source, `replace_all` never
+deletes the project's existing copy of it.
+
+The skip reasons are:
+
+- `missing_reference`, `missing_parent`, `missing_source_table` and
+  `depends_on_skipped`: something the entity needs is missing.
+- `invalid_configuration`: the entity itself is inconsistent, e.g. a
+  prejoin whose join columns don't line up.
+- `execute_failed`: writing it failed, e.g. on a database constraint. Each
+  entity is written in its own savepoint, so a failure rolls back that
+  entity alone.
+- `skip_snapshots`: a PIT needs a snapshot control, and the import runs
+  with `skip_snapshots`. An existing PIT is kept, even under `replace_all`.
+- `update_only`: the entity is new, and `update_only` never creates.
 
 ---
 
 ## Dry-run mode
 
-Run the entire pipeline through stage 4 (`Plan`), then return without
-writing anything to the database. The plan is included in the report so
-you can preview exactly what *would* happen.
+Run the entire pipeline, including the execute stage, inside a transaction
+that is rolled back at the end. Nothing is kept, but the report is exactly
+what the real import would produce: the same actions, the same changes,
+and the same issues, including the ones only writing reveals (a constraint
+the data would violate).
 
 CLI flag: `--dry-run`.
 
 Dry-runs still persist an `ImportRun` audit row with `is_dry_run=True`,
 so you can find them via `turbovault import-history`.
 
+A dry-run takes about as long as the import itself. It holds the
+database's write locks until it rolls back, which on SQLite means
+the whole database for that moment.
+
 Use a dry-run when:
 
 - You want to preview the impact of a `replace_all` before committing.
+- You want to see what a modified file changes before writing it.
 - You want to know whether a file is valid without touching the
   database.
 - You want a structured machine-readable validation result for CI.
+
+---
+
+## Stopping before the write
+
+`import_metadata(..., on_plan=callback)` calls `callback` with a copy of
+the plan once it is built, before anything is written. The plan's
+`state` is `planned` there: creates, deletes and skips are final, and
+entities that exist are still `update` (the executor finds out whether
+they change). Raising from the callback stops the import. The run is
+recorded with a `plan.rejected` issue, and the exception reaches the
+caller. The Studio uses this to enforce its quotas on the entities an
+import would create.
 
 ---
 
@@ -151,18 +196,62 @@ Top-level fields:
 | `import_run_id` | UUID of the persisted `ImportRun`. |
 | `project_id` | The target project. |
 | `status` | `success` \| `partial_success` \| `validation_failed` \| `failed`. |
-| `is_dry_run` | `true` if execute was skipped. |
+| `is_dry_run` | `true` if the run was rolled back. |
 | `options` | The full `ImportOptions` used (conflict strategy, error strategy, dry-run, etc.). |
-| `plan` | Entity-by-entity diff with per-action counts. |
+| `plan` | Entity-by-entity actions and changes, with per-action counts. |
 | `issues` | Every issue produced anywhere in the pipeline (see below). |
 | `timings_ms` | Per-stage durations. |
+
+### The plan
+
+Each entity in `plan.entities` has an `action`:
+
+| Action | Meaning |
+|--------|---------|
+| `create` | New: the import creates it. |
+| `update` | It exists, and the import changed something about it. `changes` lists what. |
+| `unchanged` | It exists and already matches the source. Nothing is written. |
+| `delete` | `replace_all` deletes it: it's in the project, not in the source. |
+| `skip` | Left out, with a `skip_reason` (see above). |
+
+`plan.counts` counts them per entity type and in total. `plan.state` says
+how far the plan got:
+
+- `planned`: matched only. This is what `on_plan` sees and what a run
+  that aborted before executing reports.
+- `simulated`: a dry run.
+- `applied`: a real run.
+
+Each change carries a `path` and a `kind`:
+
+```json
+{
+  "field": "columns.customer_id.source_mappings.orders.customer_no",
+  "path": ["columns", "customer_id", "source_mappings", "orders.customer_no"],
+  "kind": "added",
+  "before": null,
+  "after": {"is_primary_source": false}
+}
+```
+
+The path is pairs of (collection, key) down to a child row, followed by a
+field name for a changed value:
+
+- An even-length path names a child row that was `added` or `removed`, for
+  example `["hub_references", "hk_customer"]`.
+- An odd-length path names a field that `changed`, for example
+  `["columns", "EMAIL", "source_column_datatype"]` or just `["description"]`.
+
+Keys are raw names and may contain dots; `field` is the path joined for
+display. Values are plain JSON: a group, hub or table reads by its name.
+A new entity lists no changes.
 
 ### Status semantics
 
 - **`success`** — no error-severity issues.
 - **`partial_success`** — there were errors, but the executor committed
-  at least one create/update. The "import what's valid, skip the rest"
-  outcome.
+  and applied at least one entity (created, updated, deleted or confirmed
+  unchanged). The "import what's valid, skip the rest" outcome.
 - **`validation_failed`** — there were errors and nothing was written.
   Used for dry-runs that uncover problems, for `fail_fast` aborts at
   validation, and for `best_effort` runs where every entity in the file
@@ -223,6 +312,7 @@ messages and link to fix-it docs.
 | Resolve | `entity.invalid_configuration` | An entity is internally inconsistent. |
 | Resolve | `entity.depends_on_skipped` | An entity is left out because something it depends on was skipped (warning). |
 | Plan | `plan.would_create` / `would_update` / `would_delete` / `would_skip` | Dry-run hints — informational only. |
+| Plan | `plan.rejected` | The caller's `on_plan` callback stopped the import before anything was written. |
 | Execute | `execute.constraint_violation` | A database constraint blocked a write. |
 | Execute | `execute.unexpected_error` | An unexpected runtime error during execute. |
 | Internal | `internal.bug` | An unreachable code path was hit. Please file a bug. |

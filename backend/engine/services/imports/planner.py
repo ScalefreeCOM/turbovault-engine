@@ -14,7 +14,10 @@ Entities the resolver left out (`DomainModel.skipped`) are reported as skips
 with their reason, whatever the strategy. They are in the source, so
 `replace_all` never deletes the project's copy of them.
 
-In dry-run mode the plan is the final artifact; the executor never runs.
+The planner only matches: an entity that exists is planned as `update`. What
+actually differs is found by the executor, which compares every row it
+writes; it then reports the entity as `update` or `unchanged` (see
+`executor.apply_outcomes`). A dry run runs the executor too, and rolls back.
 """
 
 from __future__ import annotations
@@ -24,12 +27,9 @@ from typing import Any
 
 from engine.models import (
     PIT,
-    Hub,
-    Link,
     PrejoinDefinition,
     Project,
     ReferenceTable,
-    Satellite,
     SourceSystem,
     SourceTable,
 )
@@ -38,14 +38,11 @@ from engine.services.imports.domain import (
     DLink,
     DomainModel,
     DPrejoin,
-    DReferenceTable,
-    DSatellite,
     DSourceSystem,
     DSourceTable,
 )
 from engine.services.imports.types import (
     ConflictStrategy,
-    EntityChange,
     EntityRef,
     ImportPlan,
     PlannedEntity,
@@ -72,7 +69,6 @@ class UpdateOp:
     name: str
     payload: Any
     existing_pk: Any
-    changes: list[EntityChange] = field(default_factory=list)
     parent_ref: EntityRef | None = None
 
 
@@ -115,10 +111,16 @@ def build_plan(
     project: Project,
     domain: DomainModel,
     strategy: ConflictStrategy,
+    skip_snapshots: bool = False,
 ) -> tuple[ExecutionPlan, ImportPlan]:
     """Build both the rich execution plan (for the executor) and the public
     ImportPlan (returned in the report)."""
-    builder = _PlanBuilder(project=project, domain=domain, strategy=strategy)
+    builder = _PlanBuilder(
+        project=project,
+        domain=domain,
+        strategy=strategy,
+        skip_snapshots=skip_snapshots,
+    )
     return builder.run()
 
 
@@ -129,10 +131,12 @@ class _PlanBuilder:
         project: Project,
         domain: DomainModel,
         strategy: ConflictStrategy,
+        skip_snapshots: bool = False,
     ):
         self.project = project
         self.domain = domain
         self.strategy = strategy
+        self.skip_snapshots = skip_snapshots
         self.exec_plan = ExecutionPlan()
         self.public_plan = ImportPlan()
 
@@ -165,13 +169,9 @@ class _PlanBuilder:
             )
         return names
 
-    def _record(
-        self,
-        op: PlanOp,
-        *,
-        changes: list[EntityChange] | None = None,
-        skip_reason: str | None = None,
-    ) -> None:
+    def _record(self, op: PlanOp, *, skip_reason: str | None = None) -> None:
+        # Both plans grow together: `exec_plan.ops[i]` is `public_plan.entities[i]`,
+        # which is how the executor's outcomes find their entity.
         self.exec_plan.add(op)
         if isinstance(op, CreateOp):
             action = "create"
@@ -185,7 +185,6 @@ class _PlanBuilder:
             PlannedEntity(
                 ref=EntityRef(type=op.entity_type, name=op.name, parent=op.parent_ref),
                 action=action,
-                changes=changes or [],
                 skip_reason=skip_reason,
             )
         )
@@ -202,13 +201,17 @@ class _PlanBuilder:
             seen.add(id(sys))
             desired.append(sys)
 
-        existing_by_key: dict[tuple[str, str, str | None], SourceSystem] = {}
+        # A system is identified by where it lives, like its unique
+        # constraint and the executor: a new name for the same schema is a
+        # rename, not a new system (which replace_all would pair with
+        # deleting the old one and everything in it).
+        existing_by_key: dict[tuple[str, str | None], SourceSystem] = {}
         for ss in self.project.source_systems.all():
-            existing_by_key[(ss.name, ss.schema_name, ss.database_name)] = ss
+            existing_by_key[(ss.schema_name, ss.database_name)] = ss
 
         used_pks: set[Any] = set()
         for d in desired:
-            key = (d.name, d.schema_name, d.database_name)
+            key = (d.schema_name, d.database_name)
             existing = existing_by_key.get(key)
             if existing is None:
                 if self.strategy == "update_only":
@@ -224,16 +227,13 @@ class _PlanBuilder:
                 self._record(CreateOp(entity_type="source_system", name=d.name, payload=d))
             else:
                 used_pks.add(existing.pk)
-                changes = _diff_source_system(d, existing)
                 self._record(
                     UpdateOp(
                         entity_type="source_system",
                         name=d.name,
                         payload=d,
                         existing_pk=existing.pk,
-                        changes=changes,
-                    ),
-                    changes=changes,
+                    )
                 )
 
         if self.strategy == "replace_all":
@@ -262,16 +262,16 @@ class _PlanBuilder:
                 desired_pairs.append((sys, table))
 
         existing_tables = list(
-            SourceTable.objects.filter(source_system__project=self.project)
-            .select_related("source_system")
-            .prefetch_related("columns", "derived_columns")
+            SourceTable.objects.filter(
+                source_system__project=self.project
+            ).select_related("source_system")
         )
 
-        existing_by_key: dict[tuple[str, str, str | None, str], SourceTable] = {}
+        # Keyed by the system's location, like the systems above.
+        existing_by_key: dict[tuple[str, str | None, str], SourceTable] = {}
         for t in existing_tables:
             existing_by_key[
                 (
-                    t.source_system.name,
                     t.source_system.schema_name,
                     t.source_system.database_name,
                     t.physical_table_name,
@@ -280,7 +280,7 @@ class _PlanBuilder:
 
         used_pks: set[Any] = set()
         for sys, table in desired_pairs:
-            key = (sys.name, sys.schema_name, sys.database_name, table.physical_name)
+            key = (sys.schema_name, sys.database_name, table.physical_name)
             existing = existing_by_key.get(key)
             parent_ref = EntityRef(type="source_system", name=sys.name)
             if existing is None:
@@ -305,17 +305,14 @@ class _PlanBuilder:
                 )
             else:
                 used_pks.add(existing.pk)
-                changes = _diff_source_table(table, existing)
                 self._record(
                     UpdateOp(
                         entity_type="source_table",
                         name=table.physical_name,
                         payload=(sys, table),
                         existing_pk=existing.pk,
-                        changes=changes,
                         parent_ref=parent_ref,
-                    ),
-                    changes=changes,
+                    )
                 )
 
         if self.strategy == "replace_all":
@@ -395,17 +392,14 @@ class _PlanBuilder:
                 )
             else:
                 used_pks.add(existing.pk)
-                changes = _diff_prejoin(d, existing)
                 self._record(
                     UpdateOp(
                         entity_type="prejoin",
                         name=name,
                         payload=d,
                         existing_pk=existing.pk,
-                        changes=changes,
                         parent_ref=parent_ref,
-                    ),
-                    changes=changes,
+                    )
                 )
 
         if self.strategy == "replace_all":
@@ -452,16 +446,13 @@ class _PlanBuilder:
                 self._record(CreateOp(entity_type="hub", name=d.physical_name, payload=d))
             else:
                 used_pks.add(existing.pk)
-                changes = _diff_hub(d, existing)
                 self._record(
                     UpdateOp(
                         entity_type="hub",
                         name=d.physical_name,
                         payload=d,
                         existing_pk=existing.pk,
-                        changes=changes,
-                    ),
-                    changes=changes,
+                    )
                 )
 
         if self.strategy == "replace_all":
@@ -503,16 +494,13 @@ class _PlanBuilder:
                 self._record(CreateOp(entity_type="link", name=d.physical_name, payload=d))
             else:
                 used_pks.add(existing.pk)
-                changes = _diff_link(d, existing)
                 self._record(
                     UpdateOp(
                         entity_type="link",
                         name=d.physical_name,
                         payload=d,
                         existing_pk=existing.pk,
-                        changes=changes,
-                    ),
-                    changes=changes,
+                    )
                 )
 
         left_out = self._plan_left_out("link")
@@ -553,16 +541,13 @@ class _PlanBuilder:
                 )
             else:
                 used_pks.add(existing.pk)
-                changes = _diff_satellite(d, existing)
                 self._record(
                     UpdateOp(
                         entity_type="satellite",
                         name=d.physical_name,
                         payload=d,
                         existing_pk=existing.pk,
-                        changes=changes,
-                    ),
-                    changes=changes,
+                    )
                 )
 
         left_out = self._plan_left_out("satellite")
@@ -608,16 +593,13 @@ class _PlanBuilder:
                 )
             else:
                 used_pks.add(existing.pk)
-                changes = _diff_reference_table(d, existing)
                 self._record(
                     UpdateOp(
                         entity_type="reference_table",
                         name=d.physical_name,
                         payload=d,
                         existing_pk=existing.pk,
-                        changes=changes,
-                    ),
-                    changes=changes,
+                    )
                 )
 
         left_out = self._plan_left_out("reference_table")
@@ -645,6 +627,16 @@ class _PlanBuilder:
         used_pks: set[Any] = set()
         for d in desired:
             existing = existing_by_name.get(d.physical_name)
+            if self.skip_snapshots:
+                # A PIT needs a snapshot control, and snapshots are off: it is
+                # left out, and an existing one is kept (replace_all included).
+                if existing is not None:
+                    used_pks.add(existing.pk)
+                self._record(
+                    SkipOp(entity_type="pit", name=d.physical_name, reason="skip_snapshots"),
+                    skip_reason="skip_snapshots",
+                )
+                continue
             if existing is None:
                 if self.strategy == "update_only":
                     self._record(
@@ -709,187 +701,3 @@ def _prejoin_keys(
 
 def _prejoin_display_name(source_id: str, target_id: str) -> str:
     return f"{_bare_name(source_id)}->{_bare_name(target_id)}"
-
-
-# ---------------------------------------------------------------------------
-# Field-level diffs (used to populate EntityChange lists)
-# ---------------------------------------------------------------------------
-
-
-def _change(field_name: str, before: Any, after: Any) -> EntityChange | None:
-    if before == after:
-        return None
-    return EntityChange(field=field_name, before=before, after=after)
-
-
-def _description_change(existing: Any, incoming: str | None) -> EntityChange | None:
-    """A description change, if the source supplies one at all.
-
-    Formats without descriptions leave them None, and the executor keeps the
-    project's (see domain.py), so there is nothing to report.
-    """
-    if incoming is None:
-        return None
-    return _change("description", existing.description or None, incoming or None)
-
-
-def _diff_source_system(d: DSourceSystem, existing: SourceSystem) -> list[EntityChange]:
-    return [
-        c
-        for c in (
-            _change("name", existing.name, d.name),
-            _change("schema_name", existing.schema_name, d.schema_name),
-            _change("database_name", existing.database_name, d.database_name),
-            _description_change(existing, d.description),
-        )
-        if c is not None
-    ]
-
-
-def _diff_source_table(d: DSourceTable, existing: SourceTable) -> list[EntityChange]:
-    return [
-        c
-        for c in (
-            _change(
-                "record_source_value",
-                existing.record_source_value,
-                d.record_source_value or "",
-            ),
-            _change(
-                "load_date_value",
-                existing.load_date_value,
-                d.load_date_value or "sysdate()",
-            ),
-            _change("alias", existing.alias or "", d.alias or ""),
-            _description_change(existing, d.description),
-            *_diff_source_columns(d, existing),
-            *_diff_derived_columns(d, existing),
-        )
-        if c is not None
-    ]
-
-
-def _diff_source_columns(d: DSourceTable, existing: SourceTable) -> list[EntityChange]:
-    """Description changes of the table's columns, one change per column."""
-    existing_by_name = {
-        column.source_column_physical_name.lower(): column
-        for column in existing.columns.all()
-    }
-    changes = []
-    for key, column in d.columns.items():
-        current = existing_by_name.get(key)
-        if current is None or column.description is None:
-            continue
-        change = _change(
-            f"columns.{column.name}.description",
-            current.description or None,
-            column.description or None,
-        )
-        if change is not None:
-            changes.append(change)
-    return changes
-
-
-def _diff_derived_columns(d: DSourceTable, existing: SourceTable) -> list[EntityChange]:
-    """Derived columns added or changed, one change per column."""
-    if d.derived_columns is None:
-        return []
-    existing_by_name = {
-        derived.column_name.lower(): derived
-        for derived in existing.derived_columns.all()
-    }
-    changes = []
-    for key, derived in d.derived_columns.items():
-        current = existing_by_name.get(key)
-        before = (
-            None
-            if current is None
-            else {
-                "expression": current.expression,
-                "datatype": current.datatype or None,
-                "description": current.description or None,
-            }
-        )
-        after = {
-            "expression": derived.expression,
-            "datatype": derived.datatype or None,
-            "description": derived.description or None,
-        }
-        change = _change(f"derived_columns.{derived.name}", before, after)
-        if change is not None:
-            changes.append(change)
-    return changes
-
-
-def _diff_hub(d: DHub, existing: Hub) -> list[EntityChange]:
-    return [
-        c
-        for c in (
-            _change("hub_type", existing.hub_type, d.hub_type),
-            _change(
-                "hub_hashkey_name", existing.hub_hashkey_name, d.hashkey_name
-            ),
-            _change(
-                "create_record_tracking_satellite",
-                existing.create_record_tracking_satellite,
-                d.create_record_tracking_satellite,
-            ),
-            _change(
-                "create_effectivity_satellite",
-                existing.create_effectivity_satellite,
-                d.create_effectivity_satellite,
-            ),
-            _description_change(existing, d.description),
-        )
-        if c is not None
-    ]
-
-
-def _diff_link(d: DLink, existing: Link) -> list[EntityChange]:
-    return [
-        c
-        for c in (
-            _change("link_type", existing.link_type, d.link_type),
-            _change(
-                "link_hashkey_name", existing.link_hashkey_name, d.hashkey_name
-            ),
-            _change(
-                "create_record_tracking_satellite",
-                existing.create_record_tracking_satellite,
-                d.create_record_tracking_satellite,
-            ),
-            _description_change(existing, d.description),
-        )
-        if c is not None
-    ]
-
-
-def _diff_prejoin(d: DPrejoin, existing: PrejoinDefinition) -> list[EntityChange]:
-    return [
-        c
-        for c in (
-            _change(
-                "prejoin_operator",
-                existing.prejoin_operator,
-                (d.operator or "AND").upper(),
-            ),
-        )
-        if c is not None
-    ]
-
-
-def _diff_satellite(d: DSatellite, existing: Satellite) -> list[EntityChange]:
-    return [
-        c
-        for c in (
-            _change("satellite_type", existing.satellite_type, d.satellite_type),
-            _description_change(existing, d.description),
-        )
-        if c is not None
-    ]
-
-
-def _diff_reference_table(
-    d: DReferenceTable, existing: ReferenceTable
-) -> list[EntityChange]:
-    return [c for c in (_description_change(existing, d.description),) if c is not None]

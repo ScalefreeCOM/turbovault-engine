@@ -143,7 +143,17 @@ PipelineStage = Literal[
 ]
 
 
-PlanAction = Literal["create", "update", "delete", "skip"]
+# What happens to an entity. `update` means the import changed something on
+# an entity that already exists; `unchanged` means it exists and already
+# matches the source, so nothing is written.
+PlanAction = Literal["create", "update", "unchanged", "delete", "skip"]
+PLAN_ACTIONS: tuple[PlanAction, ...] = (
+    "create",
+    "update",
+    "unchanged",
+    "delete",
+    "skip",
+)
 
 
 class IssueLocation(BaseModel):
@@ -197,14 +207,28 @@ class Issue(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+ChangeKind = Literal["changed", "added", "removed"]
+
+
 class EntityChange(BaseModel):
-    """A planned field-level change to an existing entity."""
+    """One change the import makes to an existing entity.
+
+    ``path`` locates it: pairs of (collection, key) down to a child row,
+    followed by a field name for a changed value. An even-length path names a
+    child row that was added or removed, e.g. ``["columns", "customer_id",
+    "source_mappings", "orders.customer_no"]``; an odd-length one a field,
+    e.g. ``["columns", "customer_id", "target_column_datatype"]`` or just
+    ``["hub_hashkey_name"]``. Keys are raw names and may contain dots, so
+    ``field`` (the path joined with dots) is for display only.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     field: str
     before: Any = None
     after: Any = None
+    path: list[str] | None = None
+    kind: ChangeKind = "changed"
 
 
 class PlannedEntity(BaseModel):
@@ -218,28 +242,37 @@ class PlannedEntity(BaseModel):
     skip_reason: str | None = None
 
 
+def _empty_action_counts() -> dict[str, int]:
+    return dict.fromkeys(PLAN_ACTIONS, 0)
+
+
 class PlanCounts(BaseModel):
     """Per-entity-type and total counts of planned actions."""
 
     model_config = ConfigDict(extra="forbid")
 
     by_entity_type: dict[str, dict[str, int]] = Field(default_factory=dict)
-    totals: dict[str, int] = Field(
-        default_factory=lambda: {
-            "create": 0,
-            "update": 0,
-            "delete": 0,
-            "skip": 0,
-        }
-    )
+    totals: dict[str, int] = Field(default_factory=_empty_action_counts)
 
     def add(self, entity_type: str, action: PlanAction) -> None:
-        bucket = self.by_entity_type.setdefault(
-            entity_type,
-            {"create": 0, "update": 0, "delete": 0, "skip": 0},
-        )
+        bucket = self.by_entity_type.setdefault(entity_type, _empty_action_counts())
         bucket[action] = bucket.get(action, 0) + 1
         self.totals[action] = self.totals.get(action, 0) + 1
+
+    @classmethod
+    def from_entities(cls, entities: list[PlannedEntity]) -> PlanCounts:
+        counts = cls()
+        for entity in entities:
+            counts.add(entity.ref.type, entity.action)
+        return counts
+
+
+# How far the plan got:
+# - planned  : matched against the project only; an entity that exists is
+#              `update` until the import has compared it field by field.
+# - simulated: a dry run applied it and rolled back; every action is final.
+# - applied  : the import wrote it.
+PlanState = Literal["planned", "simulated", "applied"]
 
 
 class ImportPlan(BaseModel):
@@ -249,6 +282,7 @@ class ImportPlan(BaseModel):
 
     entities: list[PlannedEntity] = Field(default_factory=list)
     counts: PlanCounts = Field(default_factory=PlanCounts)
+    state: PlanState = "planned"
 
 
 # ---------------------------------------------------------------------------

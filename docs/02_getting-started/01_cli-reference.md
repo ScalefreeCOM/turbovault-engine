@@ -212,7 +212,7 @@ turbovault import --project my_project --source ./metadata.xlsx --mode replace-a
 # Strict: stop at the first validation error, no DB writes
 turbovault import --project my_project --source ./metadata.xlsx --on-error fail-fast
 
-# Dry-run: parse + validate + plan, but never touch the database
+# Dry-run: the whole import, rolled back, so it shows exactly what would change
 turbovault import --project my_project --source ./metadata.xlsx --dry-run
 ```
 
@@ -240,7 +240,7 @@ neither.
 | `--project NAME` | `-p` | Target project name (must exist) | prompted |
 | `--mode STR` | | Conflict strategy: `merge`, `replace-all`, or `update-only` | `merge` |
 | `--on-error STR` | | Error strategy: `best-effort` or `fail-fast` | `best-effort` |
-| `--dry-run` | | Validate + plan only; do not write to the database | `false` |
+| `--dry-run` | | Run the import and roll it back: report what would change, keep nothing | `false` |
 | `--skip-snapshots` | | Skip creating a default snapshot control table | `false` |
 | `--interactive` | `-i` | Run the interactive import wizard | `false` |
 
@@ -256,18 +256,28 @@ These map cleanly to typical CI conventions.
 
 #### What gets reported
 
-The CLI prints two tables and a status line:
+The CLI prints the counts per entity type, the entities that changed, the
+issues and a status line. An entity that exists and already matches the
+file is `Unchanged`: importing the same file twice writes nothing the
+second time.
 
 ```
 Import Plan
-┌──────────────────┬────────┬────────┬────────┬──────┐
-│ Entity           │ Create │ Update │ Delete │ Skip │
-├──────────────────┼────────┼────────┼────────┼──────┤
-│ source_system    │      1 │      0 │      0 │    0 │
-│ hub              │      2 │      1 │      0 │    0 │
-│ satellite        │      3 │      0 │      0 │    1 │
-│ Total            │      6 │      1 │      0 │    1 │
-└──────────────────┴────────┴────────┴────────┴──────┘
+┌──────────────────┬────────┬────────┬───────────┬────────┬──────┐
+│ Entity           │ Create │ Update │ Unchanged │ Delete │ Skip │
+├──────────────────┼────────┼────────┼───────────┼────────┼──────┤
+│ source_system    │      1 │      0 │         0 │      0 │    0 │
+│ hub              │      2 │      1 │         4 │      0 │    0 │
+│ satellite        │      3 │      0 │         2 │      0 │    1 │
+│ Total            │      6 │      1 │         6 │      0 │    1 │
+└──────────────────┴────────┴────────┴───────────┴────────┴──────┘
+
+Changed (1)
+┌────────┬──────────────┬─────────────────────────────────────────────────────┐
+│ Entity │ Name         │ Changes                                             │
+├────────┼──────────────┼─────────────────────────────────────────────────────┤
+│ hub    │ hub_customer │ columns.customer_id.source_mappings.orders.cust_no │
+└────────┴──────────────┴─────────────────────────────────────────────────────┘
 
 Issues (1)
 ┌─────────┬─────────────────────────┬──────────────────────────────┬───────────────────────────────────┐
@@ -277,8 +287,9 @@ Issues (1)
 │         │                         │ <satellite sat_orphan>       │ 'no_such_hub' was not defined.    │
 └─────────┴─────────────────────────┴──────────────────────────────┴───────────────────────────────────┘
 
-⚠ Import partially succeeded: wrote 6 entities, skipped 2 due to 1 error(s)
-  and 0 warning(s). See the Issues table above for details on each skipped item.
+⚠ Import partially succeeded: created 6, updated 1, deleted 0, unchanged 6,
+  skipped 1, with 1 error(s) and 0 warning(s). See the Issues table above for
+  details on each skipped item.
 ```
 
 > **See also:** [Import Pipeline](../04_concepts/06_import-pipeline.md) for the
