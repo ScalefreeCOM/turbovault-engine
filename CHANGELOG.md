@@ -5,6 +5,17 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.19.0...turbovault-engine-v0.20.0) (2026-09-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **import:** `PlanAction` and `PlanCounts` gain `unchanged`; `update` now means "changed". Dry runs execute and roll back (they take about as long as the import and surface execute-stage errors). Entities that fail to write are reported as `skip`. `EntityChange` gains `path` and `kind`; derived-column changes are reported per field. `ImportPlan` gains `state`.
+
+### Features
+
+* **import:** report what an import really changes, and write only that ([#209](https://github.com/ScalefreeCOM/turbovault-engine/issues/209)) ([0df9025](https://github.com/ScalefreeCOM/turbovault-engine/commit/0df9025835d918cc47c0b3293b95d7e64d5741d6))
+
 ## [0.19.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.18.0...turbovault-engine-v0.19.0) (2026-09-27)
 
 
