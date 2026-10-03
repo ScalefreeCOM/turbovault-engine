@@ -1262,9 +1262,7 @@ class ModelBuilder:
                         source_table_map[table_key] = {
                             "source_system": table.source_system.name,
                             "stage_name": f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}",
-                            "rsrc_static": self._source_values(
-                                table
-                            ).static_part.value,
+                            "rsrc_static": self._source_values(table).static_part.value,
                             "columns": [],
                             "hashkey_mappings": [],
                         }
@@ -1299,9 +1297,7 @@ class ModelBuilder:
                         source_table_map[table_key] = {
                             "source_system": table.source_system.name,
                             "stage_name": f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}",
-                            "rsrc_static": self._source_values(
-                                table
-                            ).static_part.value,
+                            "rsrc_static": self._source_values(table).static_part.value,
                             "columns": [],
                         }
 
