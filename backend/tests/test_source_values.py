@@ -546,3 +546,92 @@ def test_migration_makes_blank_table_values_inherit(django_setup: object) -> Non
     assert blank.static_part_of_record_source is None
     assert blank.load_date_value is None
     assert (kept.record_source_value, kept.load_date_value) == ("!CRM", "LOAD_TS")
+
+
+# ---------------------------------------------------------------------------
+# A model that maps the column a stage turns into rsrc/ldts
+# ---------------------------------------------------------------------------
+
+
+def _export_using_the_load_date_column():
+    from engine.services.export.models import (
+        ProjectExport,
+        SatelliteColumnDef,
+        SatelliteDefinition,
+        StageDefinition,
+        StageHashkeyDef,
+    )
+
+    return ProjectExport(
+        project_name="load_columns",
+        stages=[
+            StageDefinition(
+                stage_name="stg__crm__customer",
+                source_table="customer",
+                source_schema="crm",
+                source_system="crm",
+                record_source="!CRM",
+                load_date="load_ts",
+                hashkeys=[
+                    StageHashkeyDef(
+                        target_entity="customer_h",
+                        hashkey_name="hk_customer_h",
+                        business_key_columns=["CUSTOMER_ID"],
+                    )
+                ],
+            )
+        ],
+        satellites=[
+            SatelliteDefinition(
+                satellite_name="customer_s",
+                satellite_type="standard",
+                parent_entity="customer_h",
+                parent_entity_type="hub",
+                parent_hashkey="hk_customer_h",
+                source_table="customer",
+                source_system="crm",
+                stage_name="stg__crm__customer",
+                hashdiff_name="hd_customer_s",
+                columns=[
+                    SatelliteColumnDef(source_column="NAME"),
+                    SatelliteColumnDef(source_column="LOAD_TS"),
+                ],
+            )
+        ],
+    )
+
+
+def test_validation_warns_when_a_model_maps_the_load_date_column(
+    django_setup: object,
+) -> None:
+    from engine.services.generation.stages.validate import validate
+    from engine.services.generation.types import GenerationOptions
+
+    issues = [
+        issue
+        for issue in validate(
+            project_export=_export_using_the_load_date_column(),
+            options=GenerationOptions(),
+        )
+        if issue.code == "validate.stage.uses_load_column"
+    ]
+
+    assert len(issues) == 1
+    assert issues[0].severity == "warning"
+    assert "Satellite customer_s uses LOAD_TS" in issues[0].message
+    assert "Load Date" in issues[0].message
+
+
+def test_validation_accepts_it_when_the_stage_keeps_the_column(
+    django_setup: object,
+) -> None:
+    from engine.services.generation.stages.validate import validate
+    from engine.services.generation.types import GenerationOptions
+
+    issues = validate(
+        project_export=_export_using_the_load_date_column(),
+        options=GenerationOptions(),
+        global_vars={"datavault4dbt.copy_rsrc_ldts_input_columns": True},
+    )
+
+    assert not [i for i in issues if i.code == "validate.stage.uses_load_column"]
