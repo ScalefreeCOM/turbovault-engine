@@ -172,8 +172,12 @@ def _create_source_table_interactively(
         )
         or suggested_name
     )
-    record_source = _ask_required("Record source expression (e.g. 'CRM.customers'):")
-    load_date = _ask_required("Load date column or expression (e.g. 'LOAD_DATE'):")
+    record_source = _ask_required(
+        "Record source: a column, SQL, or fixed text after a ! (e.g. '!CRM.customers'):"
+    )
+    load_date = _ask_required(
+        "Load date: a column or SQL expression (e.g. 'LOAD_DATE' or 'sysdate()'):"
+    )
     alias_val = _ask("Table alias (leave blank to skip):")
 
     existing = SourceTable.objects.filter(
@@ -439,13 +443,15 @@ def create_source_table(
     record_source: Annotated[
         str | None,
         typer.Option(
-            "--record-source", help="Record source expression (e.g. 'CRM.customers')"
+            "--record-source",
+            help="Record source: a column, SQL, or fixed text after a ! (e.g. '!CRM.customers')",
         ),
     ] = None,
     load_date: Annotated[
         str | None,
         typer.Option(
-            "--load-date", help="Load date column or expression (e.g. 'LOAD_DATE')"
+            "--load-date",
+            help="Load date: a column or SQL expression (e.g. 'LOAD_DATE' or 'sysdate()')",
         ),
     ] = None,
     alias: Annotated[
@@ -495,11 +501,11 @@ def create_source_table(
         physical_name = physical_name or _ask_required("Physical table name:")
     if interactive or not record_source:
         record_source = record_source or _ask_required(
-            "Record source expression (e.g. 'CRM.customers'):"
+            "Record source: a column, SQL, or fixed text after a ! (e.g. '!CRM.customers'):"
         )
     if interactive or not load_date:
         load_date = load_date or _ask_required(
-            "Load date column or expression (e.g. 'LOAD_DATE'):"
+            "Load date: a column or SQL expression (e.g. 'LOAD_DATE' or 'sysdate()'):"
         )
     if interactive and alias is None:
         val = _ask("Table alias (leave blank to skip):")

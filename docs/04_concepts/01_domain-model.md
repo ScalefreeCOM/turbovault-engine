@@ -104,9 +104,9 @@ Represents a physical source table within a source system and includes DV-relate
 | source_system_id             | identifier | ✓ (FK)  | FK to `source_system.source_system_id`.                           |
 | physical_table_name          | string     | ✓       | Physical name of the table in the source system (e.g.`CUSTOMER`). |
 | alias                        | string     |          | Optional alias used in generated code/dbt models.                   |
-| record_source_value          | string     |          | Value/expression used as `record_source` for this table.          |
+| record_source_value          | string     |          | The stage's `rsrc`: a column name, SQL, or fixed text after a `!` (e.g. `!CRM`). Empty means the source system's name as fixed text. |
 | static_part_of_record_source | string     |          | Optional static part of `record_source` that is reused.           |
-| load_date_value              | string     |          | Expression or column name used as load date value.                  |
+| load_date_value              | string     |          | The stage's `ldts`: a column name or SQL expression (e.g. `sysdate()`). Empty means `sysdate()`. |
 | description                  | string     |          | Optional description; written to `sources.yml` and the stage's model YAML. |
 | created_at                   | datetime   | ✓       | Timestamp when the record was created.                              |
 | updated_at                   | datetime   | ✓       | Timestamp when the record was last updated.                         |

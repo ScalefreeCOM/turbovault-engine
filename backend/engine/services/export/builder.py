@@ -47,6 +47,7 @@ from engine.services.runtime_config import (
     EngineRuntimeConfig,
     resolve_runtime_config,
 )
+from engine.services.source_values import effective_load_date, effective_record_source
 from engine.services.sql_columns import referenced_columns
 
 if TYPE_CHECKING:
@@ -467,8 +468,11 @@ class ModelBuilder:
                     source_table=table.physical_table_name,
                     source_schema=table.source_system.schema_name,
                     source_system=table.source_system.name,
-                    record_source=table.record_source_value,
-                    load_date=table.load_date_value,
+                    record_source=effective_record_source(
+                        table.record_source_value,
+                        source_system_name=table.source_system.name,
+                    ),
+                    load_date=effective_load_date(table.load_date_value),
                     description=table.description or None,
                     hashkeys=hashkeys,
                     hashdiffs=hashdiffs,

@@ -36,6 +36,7 @@ from engine.services.imports.domain import (
 )
 from engine.services.imports.errors import Code, PipelineAbort, make_issue
 from engine.services.imports.types import IssueLocation
+from engine.services.source_values import effective_load_date, effective_record_source
 
 # Stable public constants (consumed by docs + producers).
 FORMAT_NAME: str = "source_metadata"
@@ -205,24 +206,20 @@ def _payload_to_domain(payload: SourceMetadataV1) -> DomainModel:
         )
         for table_def in sys_def.tables:
             identifier = f"{sys_def.name}|{table_def.physical_table_name}"
-            # ``record_source_value`` defaults to the system name when the
-            # producer didn't supply one. Live-DB collectors don't know what
-            # the project's convention should be; the system name is the
-            # safest default the engine can apply.
-            record_source = (
-                table_def.record_source_value
-                if table_def.record_source_value
-                else sys_def.name
-            )
+            # Live-DB collectors don't know the project's convention, so a
+            # table without a Record Source gets the system's name as fixed
+            # text: the safest default the engine can apply.
             table = DSourceTable(
                 identifier=identifier,
                 physical_name=table_def.physical_table_name,
                 alias=table_def.alias or "",
-                record_source_value=record_source,
+                record_source_value=effective_record_source(
+                    table_def.record_source_value, source_system_name=sys_def.name
+                ),
                 static_part_of_record_source=(
                     table_def.static_part_of_record_source or ""
                 ),
-                load_date_value=table_def.load_date_value or "sysdate()",
+                load_date_value=effective_load_date(table_def.load_date_value),
                 description=table_def.description or None,
             )
             for col_def in table_def.columns:

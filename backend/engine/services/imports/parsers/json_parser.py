@@ -39,6 +39,7 @@ from engine.services.imports.domain import (
 )
 from engine.services.imports.errors import Code, PipelineAbort, make_issue
 from engine.services.imports.types import IssueLocation
+from engine.services.source_values import effective_load_date, effective_record_source
 
 
 def parse_json(path: Path) -> DomainModel:
@@ -147,8 +148,10 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                 identifier=identifier,
                 physical_name=table_def.table_name,
                 alias=table_def.alias or "",
-                record_source_value=table_def.record_source or "",
-                load_date_value=table_def.load_date or "sysdate()",
+                record_source_value=effective_record_source(
+                    table_def.record_source, source_system_name=sys_def.name
+                ),
+                load_date_value=effective_load_date(table_def.load_date),
                 description=table_def.description,
             )
             for col in table_def.columns:

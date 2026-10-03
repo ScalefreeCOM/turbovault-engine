@@ -53,6 +53,7 @@ from engine.services.imports.types import (
     Issue,
     IssueLocation,
 )
+from engine.services.source_values import effective_load_date, effective_record_source
 
 _ENTITY_LABELS = {
     "link": "Link",
@@ -194,9 +195,11 @@ class _Resolver:
             table = DSourceTable(
                 identifier=identifier,
                 physical_name=phys_name or identifier,
-                record_source_value=row.get("record_source_column") or "",
+                record_source_value=effective_record_source(
+                    row.get("record_source_column"), source_system_name=sys_name
+                ),
                 static_part_of_record_source=row.get("static_part_of_record_source_column") or "",
-                load_date_value=row.get("load_date_column") or "sysdate()",
+                load_date_value=effective_load_date(row.get("load_date_column")),
                 alias=row.get("alias") or "",
             )
             system.tables[identifier] = table

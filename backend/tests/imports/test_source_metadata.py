@@ -112,13 +112,24 @@ def test_parse_happy_path(tmp_path: Path) -> None:
     assert customers.columns["customer_id"].datatype == "NUMBER(38,0)"
 
 
-def test_parse_record_source_defaults_to_system_name(tmp_path: Path) -> None:
+@pytest.mark.parametrize("missing", [None, "", "   "])
+def test_parse_record_source_defaults_to_system_name_as_fixed_text(
+    tmp_path: Path, missing: str | None
+) -> None:
+    """Without a Record Source a table gets the system's name as fixed text.
+
+    The bare name (``CRM``) would be read by datavault4dbt as a column called
+    CRM, which the source doesn't have, so the stage would fail.
+    """
     payload = _valid_payload()
-    # Strip the explicit record_source — should fall back to the system name.
-    del payload["source_systems"][0]["tables"][0]["record_source_value"]
+    table = payload["source_systems"][0]["tables"][0]
+    if missing is None:
+        del table["record_source_value"]
+    else:
+        table["record_source_value"] = missing
     domain = parse_source_metadata(_write_payload(tmp_path, payload))
     customers = domain.source_systems["CRM"].tables["CRM|CUSTOMERS"]
-    assert customers.record_source_value == "CRM"
+    assert customers.record_source_value == "!CRM"
 
 
 def test_parse_load_date_defaults_to_sysdate(tmp_path: Path) -> None:

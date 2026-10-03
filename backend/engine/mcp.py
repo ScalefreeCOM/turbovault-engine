@@ -242,15 +242,17 @@ class TurboVaultToolset(MCPToolset):
             source_tables: List of source table descriptions, each with:
                 - name (str): physical table name
                 - columns (list[dict]): each with 'name' (str) and 'type' (str)
-                - record_source (str, optional): record source expression.
-                  Defaults to '<source_system_name>.<table_name>'.
-                - load_date (str, optional): load date column name.
-                  Defaults to 'LOAD_DATE'.
+                - record_source (str, optional): a column name, SQL, or fixed
+                  text after a '!' (e.g. '!CRM.customers'). Defaults to
+                  '!<source_system_name>.<table_name>'.
+                - load_date (str, optional): a column name or SQL expression
+                  (e.g. 'LOAD_DATE' or 'sysdate()'). Defaults to 'sysdate()'.
             database_name: Optional database name (default: '').
 
         Returns counts of created and skipped records.
         """
         from engine.models import Project, SourceColumn, SourceSystem, SourceTable
+        from engine.services.source_values import effective_load_date, fixed_text
 
         try:
             project = Project.objects.get(name=project_name)
@@ -274,10 +276,10 @@ class TurboVaultToolset(MCPToolset):
                 if not tbl_name:
                     continue
 
-                record_source = tbl_def.get(
-                    "record_source", f"{source_system_name}.{tbl_name}"
+                record_source = tbl_def.get("record_source") or fixed_text(
+                    f"{source_system_name}.{tbl_name}"
                 )
-                load_date = tbl_def.get("load_date", "LOAD_DATE")
+                load_date = effective_load_date(tbl_def.get("load_date"))
 
                 tbl, tbl_created = SourceTable.objects.get_or_create(
                     project=project,
