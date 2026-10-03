@@ -303,7 +303,7 @@ Each `source_table` entry:
 }
 ```
 
-`record_source` is a column name, SQL, or fixed text after a `!`; without the `!`, `CRM.customers` would be read as a column name. It defaults to `!<source_system_name>.<table_name>`. `load_date` is a column name or an SQL expression and defaults to `sysdate()`.
+`record_source` is a column name, SQL, or fixed text after a `!`; without the `!`, `CRM.customers` would be read as a column name. `load_date` is a column name or an SQL expression. Leave either out to inherit the project's value; with none set, the stage uses the source system's name as fixed text (`!CRM`) and `sysdate()`.
 
 **Output:**
 ```json

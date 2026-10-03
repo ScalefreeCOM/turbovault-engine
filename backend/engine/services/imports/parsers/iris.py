@@ -63,7 +63,6 @@ from engine.services.imports.parsers.base import clean
 from engine.services.imports.parsers.excel import _read_sheet
 from engine.services.imports.ir import IRRow
 from engine.services.imports.types import IssueLocation
-from engine.services.source_values import default_record_source
 
 # Each IRiS file is matched by a token in its name. The match is case- and
 # separator-insensitive (the name is lower-cased with non-alphanumerics removed),
@@ -369,9 +368,7 @@ class _Resolver:
             table = tables_by_id.get(table_name)
             if table is None:
                 table = DSourceTable(
-                    identifier=table_name,
-                    physical_name=table_name,
-                    record_source_value=default_record_source(schema),
+                    identifier=table_name, physical_name=table_name
                 )
                 tables_by_id[table_name] = table
                 system = self._model.source_systems.setdefault(

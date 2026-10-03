@@ -179,11 +179,33 @@ class TurboVaultToolset(MCPToolset):
         flat source_tables list with full column details.
         """
         from engine.models import Project, SourceColumn, SourceSystem, SourceTable
+        from engine.services.runtime_config import EngineRuntimeConfig
+        from engine.services.source_values import resolve_table_values
 
         try:
             project = Project.objects.get(name=project_name)
         except Project.DoesNotExist:
             return {"error": f"Project '{project_name}' not found"}
+
+        runtime_config = EngineRuntimeConfig.from_project(project)
+
+        def table_entry(tbl: SourceTable) -> dict:
+            # What the stage uses, whether the table sets it or inherits it.
+            values = resolve_table_values(tbl, runtime_config=runtime_config)
+            return {
+                "physical_name": tbl.physical_table_name,
+                "record_source": values.record_source.value,
+                "load_date": values.load_date.value,
+                "columns": [
+                    {
+                        "name": col.source_column_physical_name,
+                        "datatype": col.source_column_datatype,
+                    }
+                    for col in SourceColumn.objects.filter(source_table=tbl).order_by(
+                        "source_column_physical_name"
+                    )
+                ],
+            }
 
         systems = SourceSystem.objects.filter(project=project).order_by("name")
         return {
@@ -193,20 +215,7 @@ class TurboVaultToolset(MCPToolset):
                     "schema_name": ss.schema_name,
                     "database_name": ss.database_name or None,
                     "tables": [
-                        {
-                            "physical_name": tbl.physical_table_name,
-                            "record_source": tbl.record_source_value,
-                            "load_date": tbl.load_date_value,
-                            "columns": [
-                                {
-                                    "name": col.source_column_physical_name,
-                                    "datatype": col.source_column_datatype,
-                                }
-                                for col in SourceColumn.objects.filter(
-                                    source_table=tbl
-                                ).order_by("source_column_physical_name")
-                            ],
-                        }
+                        table_entry(tbl)
                         for tbl in SourceTable.objects.filter(
                             project=project, source_system=ss
                         ).order_by("physical_table_name")
@@ -243,16 +252,18 @@ class TurboVaultToolset(MCPToolset):
                 - name (str): physical table name
                 - columns (list[dict]): each with 'name' (str) and 'type' (str)
                 - record_source (str, optional): a column name, SQL, or fixed
-                  text after a '!' (e.g. '!CRM.customers'). Defaults to
-                  '!<source_system_name>.<table_name>'.
+                  text after a '!' (e.g. '!CRM.customers'). Leave out to
+                  inherit the project's; with none set, the stage uses the
+                  source system's name as fixed text ('!CRM').
                 - load_date (str, optional): a column name or SQL expression
-                  (e.g. 'LOAD_DATE' or 'sysdate()'). Defaults to 'sysdate()'.
+                  (e.g. 'LOAD_DATE' or 'sysdate()'). Leave out to inherit the
+                  project's; with none set, the stage uses 'sysdate()'.
             database_name: Optional database name (default: '').
 
         Returns counts of created and skipped records.
         """
         from engine.models import Project, SourceColumn, SourceSystem, SourceTable
-        from engine.services.source_values import effective_load_date, fixed_text
+        from engine.services.source_values import written_value
 
         try:
             project = Project.objects.get(name=project_name)
@@ -276,10 +287,8 @@ class TurboVaultToolset(MCPToolset):
                 if not tbl_name:
                     continue
 
-                record_source = tbl_def.get("record_source") or fixed_text(
-                    f"{source_system_name}.{tbl_name}"
-                )
-                load_date = effective_load_date(tbl_def.get("load_date"))
+                record_source = written_value(tbl_def.get("record_source"))
+                load_date = written_value(tbl_def.get("load_date"))
 
                 tbl, tbl_created = SourceTable.objects.get_or_create(
                     project=project,

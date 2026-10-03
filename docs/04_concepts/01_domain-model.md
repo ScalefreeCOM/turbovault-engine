@@ -84,6 +84,9 @@ Describes a physical source system (database/schema) and a human-readable name.
 | database_name    | string     |          | Optional database name (if applicable).       |
 | name             | string     | ✓       | Human-readable name for this source system.   |
 | description      | string     |          | Optional description of the source system.    |
+| record_source_value | string  |          | Record source of the system's tables that set none. |
+| static_part_of_record_source | string |   | Static part of the record source of the system's tables that set none. |
+| load_date_value  | string     |          | Load date of the system's tables that set none. |
 | created_at       | datetime   | ✓       | Timestamp when the record was created.        |
 | updated_at       | datetime   | ✓       | Timestamp when the record was last updated.   |
 
@@ -104,9 +107,9 @@ Represents a physical source table within a source system and includes DV-relate
 | source_system_id             | identifier | ✓ (FK)  | FK to `source_system.source_system_id`.                           |
 | physical_table_name          | string     | ✓       | Physical name of the table in the source system (e.g.`CUSTOMER`). |
 | alias                        | string     |          | Optional alias used in generated code/dbt models.                   |
-| record_source_value          | string     |          | The stage's `rsrc`: a column name, SQL, or fixed text after a `!` (e.g. `!CRM`). Empty means the source system's name as fixed text. |
-| static_part_of_record_source | string     |          | Optional static part of `record_source` that is reused.           |
-| load_date_value              | string     |          | The stage's `ldts`: a column name or SQL expression (e.g. `sysdate()`). Empty means `sysdate()`. |
+| record_source_value          | string     |          | The stage's `rsrc`: a column name, SQL, or fixed text after a `!` (e.g. `!CRM`). Empty inherits (see below). |
+| static_part_of_record_source | string     |          | The part of the record source that stays the same across loads, as an SQL `LIKE` pattern (e.g. `SAP/Accounts/%`). Written as the `rsrc_static` of the hubs and links the table loads. Empty inherits. |
+| load_date_value              | string     |          | The stage's `ldts`: a column name or SQL expression (e.g. `sysdate()`). Empty inherits (see below). |
 | description                  | string     |          | Optional description; written to `sources.yml` and the stage's model YAML. |
 | created_at                   | datetime   | ✓       | Timestamp when the record was created.                              |
 | updated_at                   | datetime   | ✓       | Timestamp when the record was last updated.                         |
@@ -114,6 +117,22 @@ Represents a physical source table within a source system and includes DV-relate
 **Relationships**
 
 - `source_table` **belongs to** one `source_system`.
+
+**Inherited values**
+
+A table that leaves `record_source_value`, `static_part_of_record_source` or
+`load_date_value` empty inherits it: from its `source_system`, then from the
+project (`default_record_source_value`, `default_static_part_of_record_source`
+and `default_load_date_value` in `config.yml`, or the values Studio passes).
+With nothing set anywhere, the record source is the source system's name as
+fixed text (`!CRM`), the load date is `sysdate()`, and there is no static part.
+
+Values may hold `[[ source_system ]]` and `[[ source_table ]]`, filled in per
+table: `![[ source_system ]].[[ source_table ]]` gives `!CRM.CUSTOMER`.
+
+datavault4dbt reads a record source or load date that starts with `!` as fixed
+text, one that contains `(` and `)`, `::` or `||` (or is wrapped in `'…'`) as
+SQL, and anything else as a column name.
 - `source_table` **has many** `source_column`.
 - `prejoin_definition` references `source_table` as source and target.
 

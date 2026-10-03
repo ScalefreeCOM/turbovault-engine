@@ -39,7 +39,7 @@ from engine.services.imports.domain import (
 )
 from engine.services.imports.errors import Code, PipelineAbort, make_issue
 from engine.services.imports.types import IssueLocation
-from engine.services.source_values import effective_load_date, effective_record_source
+from engine.services.source_values import written_value
 
 
 def parse_json(path: Path) -> DomainModel:
@@ -141,17 +141,23 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             schema_name=sys_def.schema_name,
             database_name=sys_def.database_name,
             description=sys_def.description,
+            record_source_value=written_value(sys_def.record_source),
+            static_part_of_record_source=written_value(
+                sys_def.static_part_of_record_source
+            ),
+            load_date_value=written_value(sys_def.load_date),
         )
         for table_def in sys_def.tables:
             identifier = f"{sys_def.name}|{table_def.table_name}"
             table = DSourceTable(
                 identifier=identifier,
                 physical_name=table_def.table_name,
-                alias=table_def.alias or "",
-                record_source_value=effective_record_source(
-                    table_def.record_source, source_system_name=sys_def.name
+                alias=written_value(table_def.alias),
+                record_source_value=written_value(table_def.record_source),
+                static_part_of_record_source=written_value(
+                    table_def.static_part_of_record_source
                 ),
-                load_date_value=effective_load_date(table_def.load_date),
+                load_date_value=written_value(table_def.load_date),
                 description=table_def.description,
             )
             for col in table_def.columns:

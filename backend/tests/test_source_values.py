@@ -1,14 +1,17 @@
 """Record Source and Load Date values, from import to the generated stage.
 
 datavault4dbt reads ``rsrc`` / ``ldts`` as a column name unless the text starts
-with ``!`` (fixed text) or reads as SQL. These tests pin that reading, the
-fallbacks a table gets when its source gives no value, and that whatever a
-user writes reaches the stage's YAML unchanged.
+with ``!`` (fixed text) or reads as SQL. A table that sets no value inherits
+one from its source system, then the project, then the engine's defaults.
+These tests pin that reading, the inheritance, that imports leave unset values
+to inherit (and keep what a table already has), and that whatever a user
+writes reaches the generated YAML unchanged.
 """
 
 from __future__ import annotations
 
 import importlib
+import json
 from pathlib import Path
 
 import pytest
@@ -19,14 +22,16 @@ from engine.services.imports.parsers.json_parser import parse_json
 from engine.services.imports.validation.resolver import resolve
 from engine.services.source_values import (
     DEFAULT_LOAD_DATE,
+    SourceValues,
     ValueKind,
+    ValueOrigin,
     classify,
     default_record_source,
-    effective_load_date,
-    effective_record_source,
+    fill_placeholders,
+    resolve_source_values,
 )
 
-# Resolving an import and loading templates both read the database.
+# Resolving an import, loading templates and the builder read the database.
 pytestmark = pytest.mark.django_db
 
 # ---------------------------------------------------------------------------
@@ -63,27 +68,102 @@ def test_classify_reads_bare_sql_keywords_as_sql_only_on_trino() -> None:
     assert classify("current_timestamp", target_type="snowflake") is ValueKind.COLUMN
 
 
-# ---------------------------------------------------------------------------
-# Fallbacks
-# ---------------------------------------------------------------------------
-
-
 def test_default_record_source_is_the_system_name_as_fixed_text() -> None:
     assert default_record_source("CRM") == "!CRM"
     assert classify(default_record_source("CRM")) is ValueKind.FIXED_TEXT
 
 
-@pytest.mark.parametrize("missing", [None, "", "  "])
-def test_effective_values_fall_back_when_missing(missing: str | None) -> None:
-    assert effective_record_source(missing, source_system_name="CRM") == "!CRM"
-    assert effective_load_date(missing) == DEFAULT_LOAD_DATE
+# ---------------------------------------------------------------------------
+# Inheritance
+# ---------------------------------------------------------------------------
 
 
-def test_effective_values_keep_what_was_given() -> None:
-    assert effective_record_source(" LOAD_SRC ", source_system_name="CRM") == (
-        "LOAD_SRC"
+def _resolve(
+    table: SourceValues,
+    system: SourceValues | None = None,
+    project: SourceValues | None = None,
+):
+    return resolve_source_values(
+        source_system_name="CRM",
+        source_table_name="CUSTOMER",
+        table=table,
+        source_system=system,
+        project=project,
     )
-    assert effective_load_date("LOAD_TS") == "LOAD_TS"
+
+
+def test_nothing_set_uses_the_engine_defaults() -> None:
+    values = _resolve(SourceValues())
+
+    assert values.record_source.value == "!CRM"
+    assert values.record_source.origin is ValueOrigin.DEFAULT
+    assert values.load_date.value == DEFAULT_LOAD_DATE
+    assert values.load_date.origin is ValueOrigin.DEFAULT
+    assert values.static_part.value is None
+    assert values.static_part.origin is None
+
+
+def test_each_value_comes_from_the_closest_level_that_sets_it() -> None:
+    values = _resolve(
+        SourceValues(load_date="LOAD_TS"),
+        system=SourceValues(record_source="!ERP", load_date="SYS_LOAD_TS"),
+        project=SourceValues(
+            record_source="!PROJECT", static_part="PROJECT", load_date="sysdate()"
+        ),
+    )
+
+    assert (values.load_date.value, values.load_date.origin) == (
+        "LOAD_TS",
+        ValueOrigin.TABLE,
+    )
+    assert (values.record_source.value, values.record_source.origin) == (
+        "!ERP",
+        ValueOrigin.SOURCE_SYSTEM,
+    )
+    assert (values.static_part.value, values.static_part.origin) == (
+        "PROJECT",
+        ValueOrigin.PROJECT,
+    )
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_value_inherits(blank: str) -> None:
+    values = _resolve(
+        SourceValues(record_source=blank), project=SourceValues(record_source="RSRC")
+    )
+
+    assert values.record_source.value == "RSRC"
+    assert values.record_source.origin is ValueOrigin.PROJECT
+
+
+def test_placeholders_name_each_table() -> None:
+    values = _resolve(
+        SourceValues(),
+        project=SourceValues(
+            record_source="![[ source_system ]].[[source_table]]",
+            static_part="[[ source_system ]].[[ source_table ]]",
+        ),
+    )
+
+    assert values.record_source.value == "!CRM.CUSTOMER"
+    assert values.record_source.written == "![[ source_system ]].[[source_table]]"
+    assert values.static_part.value == "CRM.CUSTOMER"
+
+
+def test_fill_placeholders_leaves_other_text_alone() -> None:
+    assert (
+        fill_placeholders(
+            "CONCAT('[[ source_system ]]', '/', FILE_NAME)",
+            source_system_name="SAP",
+            source_table_name="KNA1",
+        )
+        == "CONCAT('SAP', '/', FILE_NAME)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Imports leave unset values to inherit
+# ---------------------------------------------------------------------------
 
 
 def _source_data_doc(record_source: str | None, load_date: str | None) -> IRDocument:
@@ -110,14 +190,14 @@ def _source_data_doc(record_source: str | None, load_date: str | None) -> IRDocu
     return IRDocument(source_name="model.xlsx", sheets={"source_data": sheet})
 
 
-def test_excel_import_fills_a_missing_record_source_with_fixed_text() -> None:
+def test_excel_import_leaves_missing_values_to_inherit() -> None:
     model, _issues = resolve(_source_data_doc(None, None))
 
     found = model.get_source_table("SRC1")
     assert found is not None
     _system, table = found
-    assert table.record_source_value == "!TPCH"
-    assert table.load_date_value == DEFAULT_LOAD_DATE
+    assert table.record_source_value is None
+    assert table.load_date_value is None
 
 
 def test_excel_import_keeps_given_values() -> None:
@@ -130,7 +210,7 @@ def test_excel_import_keeps_given_values() -> None:
     assert table.load_date_value == "LOAD_TS"
 
 
-def test_json_import_fills_a_missing_record_source_with_fixed_text(
+def test_json_import_reads_system_values_and_leaves_table_values_unset(
     tmp_path: Path, django_setup: object
 ) -> None:
     from engine.services.export.models import (
@@ -140,11 +220,13 @@ def test_json_import_fills_a_missing_record_source_with_fixed_text(
     )
 
     export = ProjectExport(
-        project_name="fallbacks",
+        project_name="inheritance",
         sources=[
             SourceSystemDef(
                 name="CRM",
                 schema_name="crm_raw",
+                record_source="![[ source_system ]].[[ source_table ]]",
+                load_date="LOAD_TS",
                 tables=[SourceTableDef(table_name="customer")],
             )
         ],
@@ -155,9 +237,71 @@ def test_json_import_fills_a_missing_record_source_with_fixed_text(
     found = parse_json(path).get_source_table("CRM|customer")
 
     assert found is not None
-    _system, table = found
-    assert table.record_source_value == "!CRM"
-    assert table.load_date_value == DEFAULT_LOAD_DATE
+    system, table = found
+    assert system.record_source_value == "![[ source_system ]].[[ source_table ]]"
+    assert system.load_date_value == "LOAD_TS"
+    assert table.record_source_value is None
+    assert table.load_date_value is None
+
+
+def _source_metadata_file(tmp_path: Path, name: str, table: dict, system: dict) -> Path:
+    payload = {
+        "format": "source_metadata",
+        "format_version": 1,
+        "source_systems": [
+            {
+                "name": "CRM",
+                "schema_name": "CRM",
+                **system,
+                "tables": [
+                    {
+                        "physical_table_name": "CUSTOMERS",
+                        "columns": [{"physical_name": "ID", "datatype": "NUMBER"}],
+                        **table,
+                    }
+                ],
+            }
+        ],
+    }
+    path = tmp_path / f"{name}.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_reimport_keeps_values_the_source_leaves_out(tmp_path: Path) -> None:
+    from engine.models import Project, SourceSystem, SourceTable
+    from engine.services.imports import (
+        ImportOptions,
+        SourceMetadataSource,
+        import_metadata,
+    )
+
+    project = Project.objects.create(name="reimport")
+
+    def run(name: str, table: dict, system: dict) -> None:
+        report = import_metadata(
+            project=project,
+            source=SourceMetadataSource(
+                path=_source_metadata_file(tmp_path, name, table, system)
+            ),
+            options=ImportOptions(conflict_strategy="merge"),
+        )
+        assert report.status == "success", report.issues
+
+    run(
+        "first",
+        {"record_source_value": "!CRM.CUSTOMERS", "alias": "customer"},
+        {"load_date_value": "LOAD_TS"},
+    )
+    # The second collection says nothing about either value.
+    run("second", {}, {})
+
+    table = SourceTable.objects.get(project=project)
+    system = SourceSystem.objects.get(project=project)
+    assert table.record_source_value == "!CRM.CUSTOMERS"
+    assert table.alias == "customer"
+    assert table.load_date_value is None
+    assert system.load_date_value == "LOAD_TS"
 
 
 # ---------------------------------------------------------------------------
@@ -165,8 +309,14 @@ def test_json_import_fills_a_missing_record_source_with_fixed_text(
 # ---------------------------------------------------------------------------
 
 
+def _yaml_metadata(sql: str) -> dict:
+    """The parsed ``yaml_metadata`` block of a rendered model."""
+    start = sql.index("{%- set yaml_metadata -%}") + len("{%- set yaml_metadata -%}")
+    end = sql.index("{%- endset -%}")
+    return yaml.safe_load(sql[start:end])
+
+
 def _stage_yaml_metadata(record_source: str, load_date: str) -> dict:
-    """Render the stage template and parse its ``yaml_metadata`` block."""
     from engine.services.export.models import StageDefinition
     from engine.services.generation.template_resolver import TemplateResolver
 
@@ -180,10 +330,7 @@ def _stage_yaml_metadata(record_source: str, load_date: str) -> dict:
     )
     template = TemplateResolver().get_sql_template("stage")
     assert template is not None
-    sql = template.render(**stage.model_dump())
-    start = sql.index("{%- set yaml_metadata -%}") + len("{%- set yaml_metadata -%}")
-    end = sql.index("{%- endset -%}")
-    return yaml.safe_load(sql[start:end])
+    return _yaml_metadata(template.render(**stage.model_dump()))
 
 
 @pytest.mark.parametrize(
@@ -209,37 +356,123 @@ def test_stage_keeps_record_source_and_load_date_exactly(
     assert metadata["ldts"] == load_date
 
 
-def test_stage_falls_back_when_a_table_has_no_values(django_setup: object) -> None:
-    from engine.models import Project, SourceSystem, SourceTable
-    from engine.services.export.builder import ModelBuilder
-
-    project = Project.objects.create(name="no_values")
-    crm = SourceSystem.objects.create(project=project, name="CRM", schema_name="crm")
-    SourceTable.objects.create(
-        project=project,
-        source_system=crm,
-        physical_table_name="customer",
-        record_source_value="",
-        load_date_value="",
+@pytest.fixture
+def inheriting_project(django_setup: object):
+    """CRM sets the record source for its tables; ORDERS sets its own load
+    date and static part; CUSTOMER sets nothing. Both feed one hub."""
+    from engine.models import (
+        Hub,
+        HubColumn,
+        HubSourceMapping,
+        Project,
+        SourceColumn,
+        SourceSystem,
+        SourceTable,
+        StagingColumn,
     )
 
-    stage = ModelBuilder(project).build().stages[0]
+    project = Project.objects.create(name="inheriting")
+    crm = SourceSystem.objects.create(
+        project=project,
+        name="CRM",
+        schema_name="crm",
+        record_source_value="![[ source_system ]].[[ source_table ]]",
+    )
+    hub = Hub.objects.create(
+        project=project,
+        hub_physical_name="customer_h",
+        hub_hashkey_name="hk_customer_h",
+    )
+    key = HubColumn.objects.create(
+        hub=hub,
+        column_name="customer_id",
+        column_type=HubColumn.ColumnType.BUSINESS_KEY,
+    )
+    own_values = {
+        "CUSTOMER": {},
+        "ORDERS": {
+            "load_date_value": "LOAD_TS",
+            "static_part_of_record_source": "CRM.%",
+        },
+    }
+    for name, own in own_values.items():
+        table = SourceTable.objects.create(
+            project=project, source_system=crm, physical_table_name=name, **own
+        )
+        column = SourceColumn.objects.create(
+            source_table=table,
+            source_column_physical_name="CUSTOMER_ID",
+            source_column_datatype="NUMBER",
+        )
+        HubSourceMapping.objects.create(
+            hub_column=key,
+            staging_column=StagingColumn.objects.get(source_column=column),
+            is_primary_source=True,
+        )
+    return project
 
-    assert stage.record_source == "!CRM"
-    assert stage.load_date == DEFAULT_LOAD_DATE
+
+def _build(project, **defaults):
+    from engine.services.export.builder import ModelBuilder
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    config = EngineRuntimeConfig(project_name=project.name, **defaults)
+    return ModelBuilder(project, runtime_config=config).build()
+
+
+def test_stages_use_the_inherited_values(inheriting_project) -> None:
+    export = _build(inheriting_project, default_load_date_value="CURRENT_TIMESTAMP()")
+    stages = {stage.source_table: stage for stage in export.stages}
+
+    assert stages["CUSTOMER"].record_source == "!CRM.CUSTOMER"
+    assert stages["CUSTOMER"].load_date == "CURRENT_TIMESTAMP()"
+    assert stages["ORDERS"].record_source == "!CRM.ORDERS"
+    assert stages["ORDERS"].load_date == "LOAD_TS"
+
+
+def test_export_keeps_what_each_level_sets(inheriting_project) -> None:
+    export = _build(inheriting_project)
+    crm = export.sources[0]
+    tables = {table.table_name: table for table in crm.tables}
+
+    assert crm.record_source == "![[ source_system ]].[[ source_table ]]"
+    assert tables["CUSTOMER"].record_source is None
+    assert tables["ORDERS"].load_date == "LOAD_TS"
+    assert tables["ORDERS"].static_part_of_record_source == "CRM.%"
+
+
+def test_hub_gets_each_sources_static_part(inheriting_project) -> None:
+    from engine.services.generation.template_resolver import TemplateResolver
+
+    hub = _build(inheriting_project).hubs[0]
+    static_parts = {
+        source.source_table: source.rsrc_static for source in hub.source_tables
+    }
+
+    assert static_parts == {"CUSTOMER": None, "ORDERS": "CRM.%"}
+
+    template = TemplateResolver().get_sql_template("hub_standard")
+    assert template is not None
+    metadata = _yaml_metadata(template.render(**hub.model_dump()))
+    rendered = {
+        source["name"]: source.get("rsrc_static")
+        for source in metadata["source_models"]
+    }
+    assert rendered == {"stg__crm__customer": None, "stg__crm__orders": "CRM.%"}
 
 
 # ---------------------------------------------------------------------------
-# Migration 0016
+# Migrations
 # ---------------------------------------------------------------------------
+
+
+def _migration(name: str):
+    return importlib.import_module(f"engine.migrations.{name}")
 
 
 def test_migration_turns_old_fallbacks_into_fixed_text(django_setup: object) -> None:
     from engine.models import Project, SourceColumn, SourceSystem, SourceTable
 
-    migration = importlib.import_module(
-        "engine.migrations.0016_record_source_fallback_as_fixed_text"
-    )
     project = Project.objects.create(name="old_fallbacks")
     system = SourceSystem.objects.create(
         project=project, name="TPCH", schema_name="TPCH_SF1"
@@ -268,7 +501,9 @@ def test_migration_turns_old_fallbacks_into_fixed_text(django_setup: object) -> 
     fixed = table("nation", "!TPCH")
     other_column = table("region", "RECORD_SOURCE")
 
-    migration.prefix_fallbacks(django_apps, None)
+    _migration("0016_record_source_fallback_as_fixed_text").prefix_fallbacks(
+        django_apps, None
+    )
 
     def value(source_table) -> str:
         source_table.refresh_from_db()
@@ -280,3 +515,34 @@ def test_migration_turns_old_fallbacks_into_fixed_text(django_setup: object) -> 
     assert value(real_column) == "TPCH"
     assert value(fixed) == "!TPCH"
     assert value(other_column) == "RECORD_SOURCE"
+
+
+def test_migration_makes_blank_table_values_inherit(django_setup: object) -> None:
+    from engine.models import Project, SourceSystem, SourceTable
+
+    project = Project.objects.create(name="blank_values")
+    system = SourceSystem.objects.create(project=project, name="CRM", schema_name="crm")
+    blank = SourceTable.objects.create(
+        project=project,
+        source_system=system,
+        physical_table_name="customer",
+        record_source_value="",
+        static_part_of_record_source="",
+        load_date_value="",
+    )
+    kept = SourceTable.objects.create(
+        project=project,
+        source_system=system,
+        physical_table_name="orders",
+        record_source_value="!CRM",
+        load_date_value="LOAD_TS",
+    )
+
+    _migration("0017_source_value_inheritance").blank_means_inherit(django_apps, None)
+
+    blank.refresh_from_db()
+    kept.refresh_from_db()
+    assert blank.record_source_value is None
+    assert blank.static_part_of_record_source is None
+    assert blank.load_date_value is None
+    assert (kept.record_source_value, kept.load_date_value) == ("!CRM", "LOAD_TS")

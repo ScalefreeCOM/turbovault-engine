@@ -10,7 +10,7 @@ source_models:
 [% for source in source_tables %]
     - name: [[ source.stage_name ]]
 [% if source.rsrc_static %]
-      rsrc_static: '[[ source.rsrc_static ]]'
+      rsrc_static: [[ source.rsrc_static | yaml_quote ]]
 [% endif %]
 [% if source.business_key_columns %]
       ref_keys: 

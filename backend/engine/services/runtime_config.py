@@ -37,6 +37,12 @@ class EngineRuntimeConfig:
     record_tracking_satellite_naming: str = "[[ satellite_name ]]_ts"
     effectivity_satellite_naming: str = "[[ satellite_name ]]_es"
 
+    # Record source / load date of source tables that set none and whose
+    # source system sets none either (see engine.services.source_values).
+    default_record_source_value: str | None = None
+    default_static_part_of_record_source: str | None = None
+    default_load_date_value: str | None = None
+
     dbt_project_name: str | None = None
     create_zip: bool = False
     export_sources: bool = True
@@ -82,6 +88,13 @@ class EngineRuntimeConfig:
                 config.configuration.effectivity_satellite_naming
                 or cls.effectivity_satellite_naming
             ),
+            default_record_source_value=(
+                config.configuration.default_record_source_value
+            ),
+            default_static_part_of_record_source=(
+                config.configuration.default_static_part_of_record_source
+            ),
+            default_load_date_value=config.configuration.default_load_date_value,
             dbt_project_name=config.output.dbt_project_name or config.project.name,
             create_zip=config.output.create_zip,
             export_sources=config.output.export_sources,

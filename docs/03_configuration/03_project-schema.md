@@ -248,6 +248,9 @@ Project-level Data Vault configuration. If not provided, defaults are used.
 | `hashkey_naming` | string | No | `"hk_[[ entity_name ]]"` | Naming pattern for hub/link hashkey columns |
 | `satellite_v0_naming` | string | No | `"[[ satellite_name ]]_v0"` | Naming pattern for v0 satellite models |
 | `satellite_v1_naming` | string | No | `"[[ satellite_name ]]_v1"` | Naming pattern for v1 satellite models |
+| `default_record_source_value` | string | No | `null` | Record source of source systems and tables that set none: a column, SQL, or fixed text after a `!`. With none, a table uses its source system's name as fixed text |
+| `default_static_part_of_record_source` | string | No | `null` | Static part of the record source (an SQL `LIKE` pattern) of tables that set none |
+| `default_load_date_value` | string | No | `null` | Load date of source systems and tables that set none: a column or SQL. With none, `sysdate()` |
 
 **Example:**
 
@@ -261,6 +264,8 @@ configuration:
   hashkey_naming: "hk_[[ entity_name ]]"
   satellite_v0_naming: "[[ satellite_name ]]_v0"
   satellite_v1_naming: "[[ satellite_name ]]_v1"
+  default_record_source_value: "![[ source_system ]].[[ source_table ]]"
+  default_load_date_value: "sysdate()"
 ```
 
 **Minimal Example (use defaults):**

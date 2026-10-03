@@ -113,14 +113,11 @@ def test_parse_happy_path(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("missing", [None, "", "   "])
-def test_parse_record_source_defaults_to_system_name_as_fixed_text(
+def test_parse_leaves_a_missing_record_source_to_inherit(
     tmp_path: Path, missing: str | None
 ) -> None:
-    """Without a Record Source a table gets the system's name as fixed text.
-
-    The bare name (``CRM``) would be read by datavault4dbt as a column called
-    CRM, which the source doesn't have, so the stage would fail.
-    """
+    """A table without a Record Source inherits one (from its system, the
+    project, or the engine's default) instead of having one written in."""
     payload = _valid_payload()
     table = payload["source_systems"][0]["tables"][0]
     if missing is None:
@@ -129,15 +126,26 @@ def test_parse_record_source_defaults_to_system_name_as_fixed_text(
         table["record_source_value"] = missing
     domain = parse_source_metadata(_write_payload(tmp_path, payload))
     customers = domain.source_systems["CRM"].tables["CRM|CUSTOMERS"]
-    assert customers.record_source_value == "!CRM"
+    assert customers.record_source_value is None
 
 
-def test_parse_load_date_defaults_to_sysdate(tmp_path: Path) -> None:
+def test_parse_leaves_a_missing_load_date_to_inherit(tmp_path: Path) -> None:
     payload = _valid_payload()
     del payload["source_systems"][0]["tables"][0]["load_date_value"]
     domain = parse_source_metadata(_write_payload(tmp_path, payload))
     customers = domain.source_systems["CRM"].tables["CRM|CUSTOMERS"]
-    assert customers.load_date_value == "sysdate()"
+    assert customers.load_date_value is None
+
+
+def test_parse_reads_the_systems_values(tmp_path: Path) -> None:
+    payload = _valid_payload()
+    payload["source_systems"][0]["record_source_value"] = "!CRM"
+    payload["source_systems"][0]["load_date_value"] = " LOAD_TS "
+    domain = parse_source_metadata(_write_payload(tmp_path, payload))
+    crm = domain.source_systems["CRM"]
+    assert crm.record_source_value == "!CRM"
+    assert crm.load_date_value == "LOAD_TS"
+    assert crm.static_part_of_record_source is None
 
 
 def test_parse_only_populates_source_systems(tmp_path: Path) -> None:
