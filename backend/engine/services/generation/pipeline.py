@@ -74,7 +74,11 @@ def run_pipeline(
         emit(progress, stage="validate", status="started",
              message="Validating model")
         t0 = time.perf_counter()
-        validate_issues = validate(project_export=project_export, options=options)
+        validate_issues = validate(
+            project_export=project_export,
+            options=options,
+            global_vars=runtime_config.global_vars,
+        )
         issues.extend(validate_issues)
         timings["validate"] = _ms(t0)
         emit(progress, stage="validate", status="done", message="Validation complete")

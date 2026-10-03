@@ -257,7 +257,7 @@ List source systems, tables, and columns in a project. Use this to understand wh
       "tables": [
         {
           "physical_name": "customers",
-          "record_source": "CRM.customers",
+          "record_source": "!CRM.customers",
           "load_date": "LOAD_DATE",
           "columns": [
             {"name": "id", "datatype": "INTEGER"},
@@ -298,10 +298,12 @@ Each `source_table` entry:
     {"name": "country_code", "type": "CHAR(2)"},
     {"name": "created_at", "type": "TIMESTAMP"}
   ],
-  "record_source": "CRM.customers",
+  "record_source": "!CRM.customers",
   "load_date": "created_at"
 }
 ```
+
+`record_source` is a column name, SQL, or fixed text after a `!`; without the `!`, `CRM.customers` would be read as a column name. `load_date` is a column name or an SQL expression. Leave either out to inherit the project's value; with none set, the stage uses the source system's name as fixed text (`!CRM`) and `sysdate()`.
 
 **Output:**
 ```json

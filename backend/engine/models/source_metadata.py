@@ -59,6 +59,29 @@ class SourceSystem(models.Model):
         help_text="Optional description of the source system",
     )
 
+    # Defaults for this system's tables. A table that sets none inherits
+    # these; a system that sets none inherits the project's.
+    record_source_value = models.CharField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="Record source of this system's tables that set none",
+    )
+
+    static_part_of_record_source = models.CharField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="Static part of the record source of this system's tables that set none",
+    )
+
+    load_date_value = models.CharField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="Load date of this system's tables that set none",
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the source system was created"
     )
@@ -117,21 +140,28 @@ class SourceTable(models.Model):
         help_text="Optional alias used in generated code/dbt models",
     )
 
+    # The stage's ``rsrc`` and ``ldts``. Empty means "inherit": from the
+    # source system, then the project, then the engine's defaults (see
+    # ``engine.services.source_values``).
     record_source_value = models.CharField(
         max_length=500,
-        help_text="Value/expression used as record_source for this table",
+        blank=True,
+        null=True,
+        help_text="Record source: a column, SQL, or fixed text after a '!'. Empty inherits",
     )
 
     static_part_of_record_source = models.CharField(
         max_length=500,
         blank=True,
         null=True,
-        help_text="Optional static part of record_source that is reused",
+        help_text="Part of the record source that stays the same across loads. Empty inherits",
     )
 
     load_date_value = models.CharField(
         max_length=500,
-        help_text="Expression or column name used as load date value",
+        blank=True,
+        null=True,
+        help_text="Load date: a column or SQL. Empty inherits",
     )
 
     description = models.TextField(

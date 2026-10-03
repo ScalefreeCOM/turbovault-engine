@@ -47,6 +47,7 @@ from engine.services.runtime_config import (
     EngineRuntimeConfig,
     resolve_runtime_config,
 )
+from engine.services.source_values import ResolvedSourceValues, resolve_table_values
 from engine.services.sql_columns import referenced_columns
 
 if TYPE_CHECKING:
@@ -129,6 +130,10 @@ class ModelBuilder:
         """
         self.project = project
         self.runtime_config = resolve_runtime_config(project, runtime_config)
+
+    def _source_values(self, table: SourceTable) -> ResolvedSourceValues:
+        """The record source, static part and load date the table's stage uses."""
+        return resolve_table_values(table, runtime_config=self.runtime_config)
 
     def build(
         self,
@@ -215,6 +220,9 @@ class ModelBuilder:
                         table_name=table.physical_table_name,
                         alias=table.alias,
                         record_source=table.record_source_value,
+                        static_part_of_record_source=(
+                            table.static_part_of_record_source
+                        ),
                         load_date=table.load_date_value,
                         description=table.description or None,
                         columns=columns,
@@ -228,6 +236,11 @@ class ModelBuilder:
                     schema_name=source_system.schema_name,
                     database_name=source_system.database_name,
                     description=source_system.description or None,
+                    record_source=source_system.record_source_value,
+                    static_part_of_record_source=(
+                        source_system.static_part_of_record_source
+                    ),
+                    load_date=source_system.load_date_value,
                     tables=tables,
                 )
             )
@@ -336,6 +349,7 @@ class ModelBuilder:
             lambda: {
                 "source_system": "",
                 "stage_name": "",
+                "rsrc_static": None,
                 "columns": [],
                 "mappings": [],
                 "is_primary_source": False,
@@ -351,6 +365,9 @@ class ModelBuilder:
                 source_table_map[table_key][
                     "stage_name"
                 ] = f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}"
+                source_table_map[table_key]["rsrc_static"] = self._source_values(
+                    table
+                ).static_part.value
                 src_col_name = mapping.staging_column.physical_name
                 source_table_map[table_key]["columns"].append(src_col_name)
                 source_table_map[table_key]["mappings"].append(
@@ -376,6 +393,9 @@ class ModelBuilder:
                 source_table_map[table_key][
                     "stage_name"
                 ] = f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}"
+                source_table_map[table_key]["rsrc_static"] = self._source_values(
+                    table
+                ).static_part.value
 
                 # Append if not already present
                 col_name = mapping.staging_column.physical_name
@@ -397,6 +417,7 @@ class ModelBuilder:
                 source_table=table_name,
                 source_system=info["source_system"],
                 stage_name=info["stage_name"],
+                rsrc_static=info["rsrc_static"],
                 business_key_columns=info["columns"],
                 is_primary_source=info["is_primary_source"],
                 column_mappings=[
@@ -458,6 +479,8 @@ class ModelBuilder:
                 for col in table.columns.all()
             ]
 
+            values = self._source_values(table)
+
             # Generate stage name (stg__<system>__<table>)
             stage_name = f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}"
 
@@ -467,8 +490,8 @@ class ModelBuilder:
                     source_table=table.physical_table_name,
                     source_schema=table.source_system.schema_name,
                     source_system=table.source_system.name,
-                    record_source=table.record_source_value,
-                    load_date=table.load_date_value,
+                    record_source=values.record_source.value,
+                    load_date=values.load_date.value,
                     description=table.description or None,
                     hashkeys=hashkeys,
                     hashdiffs=hashdiffs,
@@ -1239,6 +1262,7 @@ class ModelBuilder:
                         source_table_map[table_key] = {
                             "source_system": table.source_system.name,
                             "stage_name": f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}",
+                            "rsrc_static": self._source_values(table).static_part.value,
                             "columns": [],
                             "hashkey_mappings": [],
                         }
@@ -1273,6 +1297,7 @@ class ModelBuilder:
                         source_table_map[table_key] = {
                             "source_system": table.source_system.name,
                             "stage_name": f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}",
+                            "rsrc_static": self._source_values(table).static_part.value,
                             "columns": [],
                         }
 
@@ -1340,6 +1365,7 @@ class ModelBuilder:
                     source_table=table_name,
                     source_system=info["source_system"],
                     stage_name=info["stage_name"],
+                    rsrc_static=info.get("rsrc_static"),
                     columns=info["columns"],
                     hashkey_mappings=info.get("hashkey_mappings", []),
                 )

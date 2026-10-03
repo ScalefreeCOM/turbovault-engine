@@ -7,8 +7,11 @@ Validates export data before generation to catch common errors early.
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+from engine.services.source_values import ValueKind, classify
 
 if TYPE_CHECKING:
     from engine.services.export.models import (
@@ -113,17 +116,25 @@ class ValidationResult:
 _PLAIN_COLUMN = re.compile(r'[A-Za-z_][A-Za-z0-9_$]*|"[^"]+"')
 
 
-def validate_export(project_export: ProjectExport) -> ValidationResult:
+def validate_export(
+    project_export: ProjectExport, *, keeps_load_columns: bool = False
+) -> ValidationResult:
     """
     Validate a project export before generation.
 
     Args:
         project_export: The project export to validate.
+        keeps_load_columns: Whether the stages keep the columns their record
+            source and load date are read from (datavault4dbt's
+            ``copy_rsrc_ldts_input_columns``); by default they drop them.
 
     Returns:
         ValidationResult with any errors and warnings found.
     """
     result = ValidationResult()
+
+    if not keeps_load_columns:
+        result.merge(_validate_load_columns_unused(project_export))
 
     # Validate sources
     for source in project_export.sources:
@@ -220,6 +231,61 @@ def _validate_stage(stage: StageDefinition) -> ValidationResult:
                 code="STG_003",
             )
 
+    return result
+
+
+def _validate_load_columns_unused(project_export: ProjectExport) -> ValidationResult:
+    """Warn when a model reads the column a stage turns into ``rsrc``/``ldts``.
+
+    datavault4dbt renames a record source or load date read from a column to
+    the stage's ``rsrc``/``ldts`` and doesn't pass the column on under its own
+    name, so a hash key or satellite that names it fails in dbt.
+    """
+    result = ValidationResult()
+    satellites_by_stage = defaultdict(list)
+    for satellite in project_export.satellites:
+        satellites_by_stage[satellite.stage_name].append(satellite)
+
+    for stage in project_export.stages:
+        load_columns: dict[str, str] = {}
+        for label, value in (
+            ("Record Source", stage.record_source),
+            ("Load Date", stage.load_date),
+        ):
+            if value and classify(value) is ValueKind.COLUMN:
+                load_columns[value.lower()] = label
+        if not load_columns:
+            continue
+
+        uses: list[tuple[str, str]] = [
+            (column, f"Hash Key {hashkey.hashkey_name}")
+            for hashkey in stage.hashkeys
+            for column in hashkey.business_key_columns
+        ]
+        uses += [
+            (column.source_column, f"Satellite {satellite.satellite_name}")
+            for satellite in satellites_by_stage[stage.stage_name]
+            for column in satellite.columns
+        ]
+        reported: set[tuple[str, str]] = set()
+        for column, user in uses:
+            label = load_columns.get(column.lower())
+            if label is None or (column.lower(), user) in reported:
+                continue
+            reported.add((column.lower(), user))
+            result.add_warning(
+                entity_type="stage",
+                entity_name=stage.stage_name,
+                field="columns",
+                message=(
+                    f"{user} uses {column}, the column the stage's {label} is "
+                    "read from. datavault4dbt turns it into the stage's "
+                    f"{label} and doesn't pass it on, so the model will fail. "
+                    "Map another column, or set the datavault4dbt variable "
+                    "copy_rsrc_ldts_input_columns"
+                ),
+                code="STG_004",
+            )
     return result
 
 

@@ -23,6 +23,13 @@ from engine.cli.utils.console import (
     print_success,
     print_warning,
 )
+from engine.services.runtime_config import EngineRuntimeConfig
+from engine.services.source_values import (
+    ResolvedValue,
+    ValueOrigin,
+    resolve_table_values,
+    written_value,
+)
 
 if TYPE_CHECKING:
     from engine.models import SourceSystem, SourceTable
@@ -35,6 +42,23 @@ model_app = typer.Typer(
 
 
 # ─── prompt helpers ───────────────────────────────────────────────────────────
+
+
+_RECORD_SOURCE_PROMPT = (
+    "Record source: a column, SQL, or fixed text after a ! (e.g. '!CRM.customers')."
+    " Leave blank to inherit:"
+)
+_LOAD_DATE_PROMPT = (
+    "Load date: a column or SQL expression (e.g. 'LOAD_DATE' or 'sysdate()')."
+    " Leave blank to inherit:"
+)
+
+
+def _describe_value(value: ResolvedValue) -> str:
+    """A table's effective value, marked when it isn't the table's own."""
+    if value.origin is ValueOrigin.TABLE:
+        return value.value or ""
+    return f"{value.value} (inherited)"
 
 
 def _ask(prompt: str, default: str = "") -> str:
@@ -172,8 +196,8 @@ def _create_source_table_interactively(
         )
         or suggested_name
     )
-    record_source = _ask_required("Record source expression (e.g. 'CRM.customers'):")
-    load_date = _ask_required("Load date column or expression (e.g. 'LOAD_DATE'):")
+    record_source = _ask(_RECORD_SOURCE_PROMPT)
+    load_date = _ask(_LOAD_DATE_PROMPT)
     alias_val = _ask("Table alias (leave blank to skip):")
 
     existing = SourceTable.objects.filter(
@@ -189,8 +213,8 @@ def _create_source_table_interactively(
         project=project,
         source_system=ss,
         physical_table_name=physical_name,
-        record_source_value=record_source,
-        load_date_value=load_date,
+        record_source_value=written_value(record_source),
+        load_date_value=written_value(load_date),
         alias=alias_val or "",
     )
     print_success(f"Source table '{tbl.physical_table_name}' created under '{ss.name}'")
@@ -439,13 +463,21 @@ def create_source_table(
     record_source: Annotated[
         str | None,
         typer.Option(
-            "--record-source", help="Record source expression (e.g. 'CRM.customers')"
+            "--record-source",
+            help=(
+                "Record source: a column, SQL, or fixed text after a ! "
+                "(e.g. '!CRM.customers'). Leave out to inherit"
+            ),
         ),
     ] = None,
     load_date: Annotated[
         str | None,
         typer.Option(
-            "--load-date", help="Load date column or expression (e.g. 'LOAD_DATE')"
+            "--load-date",
+            help=(
+                "Load date: a column or SQL expression "
+                "(e.g. 'LOAD_DATE' or 'sysdate()'). Leave out to inherit"
+            ),
         ),
     ] = None,
     alias: Annotated[
@@ -493,14 +525,10 @@ def create_source_table(
 
     if interactive or not physical_name:
         physical_name = physical_name or _ask_required("Physical table name:")
-    if interactive or not record_source:
-        record_source = record_source or _ask_required(
-            "Record source expression (e.g. 'CRM.customers'):"
-        )
-    if interactive or not load_date:
-        load_date = load_date or _ask_required(
-            "Load date column or expression (e.g. 'LOAD_DATE'):"
-        )
+    if interactive and not record_source:
+        record_source = _ask(_RECORD_SOURCE_PROMPT)
+    if interactive and not load_date:
+        load_date = _ask(_LOAD_DATE_PROMPT)
     if interactive and alias is None:
         val = _ask("Table alias (leave blank to skip):")
         alias = val or None
@@ -515,8 +543,8 @@ def create_source_table(
         project=project,
         source_system=ss,
         physical_table_name=physical_name,
-        record_source_value=record_source,
-        load_date_value=load_date,
+        record_source_value=written_value(record_source),
+        load_date_value=written_value(load_date),
         alias=alias or "",
     )
     print_success(
@@ -1324,12 +1352,14 @@ def list_entities(
         tbl2.add_column("Record Source")
         tbl2.add_column("Load Date")
         tbl2.add_column("Columns")
+        runtime_config = EngineRuntimeConfig.from_project(project)
         for t in tables:
+            values = resolve_table_values(t, runtime_config=runtime_config)
             tbl2.add_row(
                 t.physical_table_name,
                 t.source_system.name,
-                t.record_source_value,
-                t.load_date_value,
+                _describe_value(values.record_source),
+                _describe_value(values.load_date),
                 str(t.columns.count()),
             )
         console.print(tbl2)

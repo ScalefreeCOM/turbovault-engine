@@ -649,7 +649,15 @@ class _Executor:
                 "schema_name": d.schema_name,
                 "database_name": d.database_name,
             },
-            values={"name": d.name, **_only_supplied(description=d.description)},
+            values={
+                "name": d.name,
+                **_only_supplied(
+                    description=d.description,
+                    record_source_value=d.record_source_value,
+                    static_part_of_record_source=d.static_part_of_record_source,
+                    load_date_value=d.load_date_value,
+                ),
+            },
         )
         self._cache(self._source_systems, (d.name, d.schema_name, d.database_name), obj)
 
@@ -679,14 +687,15 @@ class _Executor:
                 "source_system": system,
                 "physical_table_name": table_d.physical_name,
             },
-            values={
-                "alias": table_d.alias or "",
-                "record_source_value": table_d.record_source_value or "",
-                "load_date_value": table_d.load_date_value or "sysdate()",
-                "static_part_of_record_source": table_d.static_part_of_record_source
-                or "",
-                **_only_supplied(description=table_d.description),
-            },
+            # A value the source leaves out keeps what the table has, so a
+            # re-import doesn't undo what was set in the meantime.
+            values=_only_supplied(
+                alias=table_d.alias,
+                record_source_value=table_d.record_source_value,
+                load_date_value=table_d.load_date_value,
+                static_part_of_record_source=table_d.static_part_of_record_source,
+                description=table_d.description,
+            ),
             existing=self._tables_by_key.get(table_key, LOOKUP),
         )
         self._cache(self._tables_by_key, table_key, obj)
