@@ -5,6 +5,30 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.20.0...turbovault-engine-v0.21.0) (2026-10-04)
+
+
+### Features
+
+* add `resolve_table_values`, which gives a table's effective Record Source and Load Date and where each comes from ([d66e4a8](https://github.com/ScalefreeCOM/turbovault-engine/commit/d66e4a870aba98b8db036927e725b5d1dc3c1f31))
+* give source systems their own Record Source, static part and Load Date in imports, exports, the MCP server and the CLI ([d66e4a8](https://github.com/ScalefreeCOM/turbovault-engine/commit/d66e4a870aba98b8db036927e725b5d1dc3c1f31))
+* inherit a source table's Record Source, static part and Load Date from its source system and the project defaults ([d66e4a8](https://github.com/ScalefreeCOM/turbovault-engine/commit/d66e4a870aba98b8db036927e725b5d1dc3c1f31))
+* let Record Source and Load Date values name each table with the `[[ source_system ]]` and `[[ source_table ]]` placeholders ([d66e4a8](https://github.com/ScalefreeCOM/turbovault-engine/commit/d66e4a870aba98b8db036927e725b5d1dc3c1f31))
+* pass the static Record Source part to hubs, links and record-tracking satellites as `rsrc_static` ([d66e4a8](https://github.com/ScalefreeCOM/turbovault-engine/commit/d66e4a870aba98b8db036927e725b5d1dc3c1f31))
+* warn when a model maps the column a stage turns into `rsrc` or `ldts` (`validate.stage.uses_load_column`) ([d66e4a8](https://github.com/ScalefreeCOM/turbovault-engine/commit/d66e4a870aba98b8db036927e725b5d1dc3c1f31))
+
+
+### Bug Fixes
+
+* fall back to the source system's name as fixed text (`!CRM`) instead of a column name when a table has no Record Source ([d66e4a8](https://github.com/ScalefreeCOM/turbovault-engine/commit/d66e4a870aba98b8db036927e725b5d1dc3c1f31))
+* keep a table's and source system's existing values and alias when a re-import doesn't provide them ([d66e4a8](https://github.com/ScalefreeCOM/turbovault-engine/commit/d66e4a870aba98b8db036927e725b5d1dc3c1f31))
+* keep Record Source and Load Date values that contain quotes valid in the generated stage YAML ([d66e4a8](https://github.com/ScalefreeCOM/turbovault-engine/commit/d66e4a870aba98b8db036927e725b5d1dc3c1f31))
+
+
+### Documentation
+
+* document Record Source and Load Date inheritance, the placeholders and the `validate.stage.uses_load_column` warning ([d66e4a8](https://github.com/ScalefreeCOM/turbovault-engine/commit/d66e4a870aba98b8db036927e725b5d1dc3c1f31))
+
 ## [0.20.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.19.0...turbovault-engine-v0.20.0) (2026-09-29)
 
 
