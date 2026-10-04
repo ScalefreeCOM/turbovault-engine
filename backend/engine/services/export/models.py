@@ -48,7 +48,9 @@ class SourceTableDef(BaseModel):
 
     table_name: str
     alias: str | None = None
+    # As the table sets them; None inherits from the system and the project.
     record_source: str | None = None
+    static_part_of_record_source: str | None = None
     load_date: str | None = None
     description: str | None = None
     columns: list[SourceColumnDef] = Field(default_factory=list)
@@ -65,6 +67,10 @@ class SourceSystemDef(BaseModel):
     schema_name: str
     database_name: str | None = None
     description: str | None = None
+    # Inherited by the system's tables that set none.
+    record_source: str | None = None
+    static_part_of_record_source: str | None = None
+    load_date: str | None = None
     tables: list[SourceTableDef] = Field(default_factory=list)
 
 
@@ -130,6 +136,10 @@ class HubSourceInfo(BaseModel):
     source_table: str
     source_system: str
     stage_name: str = Field(description="Stage model name for this source table")
+    rsrc_static: str | None = Field(
+        default=None,
+        description="Static part of the source table's record source, if set",
+    )
     business_key_columns: list[str] = Field(
         default_factory=list, description="Source columns mapped to business keys"
     )
@@ -297,6 +307,10 @@ class LinkSourceInfo(BaseModel):
     source_table: str
     source_system: str
     stage_name: str = Field(description="Stage model name for this source table")
+    rsrc_static: str | None = Field(
+        default=None,
+        description="Static part of the source table's record source, if set",
+    )
     columns: list[LinkColumnMapping] = Field(
         default_factory=list, description="Mapped columns from this source table"
     )

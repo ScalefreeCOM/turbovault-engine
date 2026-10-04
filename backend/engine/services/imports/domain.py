@@ -55,10 +55,12 @@ class DDerivedColumn:
 class DSourceTable:
     identifier: str  # source-side identifier used to reference this table
     physical_name: str
-    record_source_value: str = ""
-    static_part_of_record_source: str = ""
-    load_date_value: str = "sysdate()"
-    alias: str = ""
+    # None: the source sets none, so the table keeps what it has (or, when
+    # new, inherits from its source system and the project).
+    record_source_value: str | None = None
+    static_part_of_record_source: str | None = None
+    load_date_value: str | None = None
+    alias: str | None = None
     description: str | None = None
     columns: dict[str, DSourceColumn] = field(default_factory=dict)
     # Keyed by lowercased name. None when the format carries no derived
@@ -72,6 +74,10 @@ class DSourceSystem:
     schema_name: str
     database_name: str | None = None
     description: str | None = None
+    # Values the system's tables inherit; None keeps what the system has.
+    record_source_value: str | None = None
+    static_part_of_record_source: str | None = None
+    load_date_value: str | None = None
     tables: dict[str, DSourceTable] = field(default_factory=dict)
 
 

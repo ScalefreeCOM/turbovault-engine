@@ -15,6 +15,9 @@ included; that is tracked as a future polish.)
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from engine.services.export.models import ProjectExport
 from engine.services.generation.errors import make_issue
 from engine.services.generation.types import (
@@ -39,6 +42,7 @@ _LEGACY_CODE_MAP: dict[str, str] = {
     "STG_001": "validate.stage.no_source_table",
     "STG_002": "validate.stage.no_keys",
     "STG_003": "validate.stage.derived_column_no_datatype",
+    "STG_004": "validate.stage.uses_load_column",
     "HUB_001": "validate.hub.missing_hashkey",
     "HUB_002": "validate.hub.no_business_keys",
     "HUB_003": "validate.hub.no_source_tables",
@@ -58,20 +62,35 @@ _LEGACY_CODE_MAP: dict[str, str] = {
 }
 
 
+# The datavault4dbt variable that keeps the columns rsrc/ldts are read from.
+_COPY_LOAD_COLUMNS_VAR = "datavault4dbt.copy_rsrc_ldts_input_columns"
+
+
 def validate(
     *,
     project_export: ProjectExport,
     options: GenerationOptions,
+    global_vars: Mapping[str, Any] | None = None,
 ) -> list[Issue]:
     """Run validation against the export and return structured issues.
 
     Returns an empty list when `options.skip_validation` is True (the
-    caller asked to bypass validation entirely).
+    caller asked to bypass validation entirely). `global_vars` are the
+    datavault4dbt variables the project is generated with.
     """
     if options.skip_validation:
         return []
 
-    result: ValidationResult = validate_export(project_export)
+    # Off-type vars are reported when the project file is rendered, not here.
+    keeps = (
+        global_vars.get(_COPY_LOAD_COLUMNS_VAR)
+        if isinstance(global_vars, Mapping)
+        else None
+    )
+    result: ValidationResult = validate_export(
+        project_export,
+        keeps_load_columns=keeps is True or str(keeps).lower() == "true",
+    )
     group_lookup = _build_group_lookup(project_export)
 
     issues: list[Issue] = []

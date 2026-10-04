@@ -46,9 +46,21 @@ Defines source systems and source tables. Each row is one source table.
 | `source_schema_physical_name` | ✓ | Database schema name |
 | `source_table_physical_name` | ✓ | Physical source table name |
 | `source_table_identifier` | ✓ | Unique ID used to reference this table in other sheets |
-| `record_source_column` | | The record source value for this table (e.g. `ERP`) |
-| `static_part_of_record_source_column` | | Static prefix for record source |
-| `load_date_column` | | Load date expression (default: `sysdate()`) |
+| `record_source_column` | | The record source: a column name, SQL, or fixed text after a `!` (e.g. `!ERP.Customer`). Empty inherits the project's; with none, the source system's name as fixed text (`!ERP`) |
+| `static_part_of_record_source_column` | | The part of the record source that stays the same across loads, as an SQL `LIKE` pattern (e.g. `ERP/Customer/%`). Empty inherits the project's |
+| `load_date_column` | | The load date: a column name or an SQL expression. Empty inherits the project's; with none, `sysdate()` |
+
+An empty cell leaves the table's value as it is on a re-import; clear it in the project to make the table inherit again.
+
+How datavault4dbt reads the record source and load date values:
+
+| Written as | Read as | Example |
+|------------|---------|---------|
+| Starts with `!` | Fixed text: the `!` is dropped and the rest is written into every row | `!ERP` → `'ERP'` |
+| Contains `(` and `)`, `::` or `\|\|`, or is wrapped in `'…'` | SQL, used as it is | `sysdate()` |
+| Anything else | The name of a column of the source table | `LOAD_TS` |
+
+So `CURRENT_TIMESTAMP` without brackets, or `ERP.Customer` without a `!`, is read as a column name.
 
 ---
 

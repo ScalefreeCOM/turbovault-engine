@@ -341,6 +341,21 @@ class ProjectConfiguration(BaseModel):
     effectivity_satellite_naming: str | None = Field(
         None, description="Naming pattern for effectivity satellite models"
     )
+    default_record_source_value: str | None = Field(
+        None,
+        description=(
+            "Record source of tables and source systems that set none: a column, "
+            "SQL, or fixed text after a '!'"
+        ),
+    )
+    default_static_part_of_record_source: str | None = Field(
+        None,
+        description="Static part of the record source of tables that set none",
+    )
+    default_load_date_value: str | None = Field(
+        None,
+        description="Load date of tables and source systems that set none",
+    )
 
     @field_validator("stage_schema", "rdv_schema", "bdv_schema")
     @classmethod
