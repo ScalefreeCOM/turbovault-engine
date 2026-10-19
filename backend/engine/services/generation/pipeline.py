@@ -61,8 +61,9 @@ def run_pipeline(
 
     try:
         # -------------------- 1. Build --------------------
-        emit(progress, stage="build", status="started",
-             message="Building project export")
+        emit(
+            progress, stage="build", status="started", message="Building project export"
+        )
         t0 = time.perf_counter()
         project_export = build_export(
             project=project, runtime_config=runtime_config, options=options
@@ -71,8 +72,7 @@ def run_pipeline(
         emit(progress, stage="build", status="done", message="Build complete")
 
         # -------------------- 2. Validate --------------------
-        emit(progress, stage="validate", status="started",
-             message="Validating model")
+        emit(progress, stage="validate", status="started", message="Validating model")
         t0 = time.perf_counter()
         validate_issues = validate(
             project_export=project_export,
@@ -83,9 +83,8 @@ def run_pipeline(
         timings["validate"] = _ms(t0)
         emit(progress, stage="validate", status="done", message="Validation complete")
 
-        if (
-            options.error_strategy == "fail_fast"
-            and any(i.severity == "error" for i in validate_issues)
+        if options.error_strategy == "fail_fast" and any(
+            i.severity == "error" for i in validate_issues
         ):
             return _finalize(
                 project=project,
@@ -115,9 +114,8 @@ def run_pipeline(
         timings["plan"] = _ms(t0)
         emit(progress, stage="plan", status="done", message="Plan ready")
 
-        if (
-            options.error_strategy == "fail_fast"
-            and any(i.severity == "error" for i in plan_issues)
+        if options.error_strategy == "fail_fast" and any(
+            i.severity == "error" for i in plan_issues
         ):
             return _finalize(
                 project=project,
@@ -134,8 +132,12 @@ def run_pipeline(
             )
 
         # -------------------- 4. Render --------------------
-        emit(progress, stage="render", status="started",
-             message=f"Rendering {output_type}")
+        emit(
+            progress,
+            stage="render",
+            status="started",
+            message=f"Rendering {output_type}",
+        )
         t0 = time.perf_counter()
         rendered, render_issues = render(
             project_export=filtered_export,
@@ -148,9 +150,8 @@ def run_pipeline(
         timings["render"] = _ms(t0)
         emit(progress, stage="render", status="done", message="Render complete")
 
-        if (
-            options.error_strategy == "fail_fast"
-            and any(i.severity == "error" for i in render_issues)
+        if options.error_strategy == "fail_fast" and any(
+            i.severity == "error" for i in render_issues
         ):
             return _finalize(
                 project=project,
@@ -167,8 +168,12 @@ def run_pipeline(
             )
 
         # -------------------- 5. Write --------------------
-        emit(progress, stage="write", status="started",
-             message="Dry run: skipping write" if options.dry_run else "Writing files")
+        emit(
+            progress,
+            stage="write",
+            status="started",
+            message="Dry run: skipping write" if options.dry_run else "Writing files",
+        )
         t0 = time.perf_counter()
         artifacts, write_issues = write_artifacts(
             artifacts=artifacts,

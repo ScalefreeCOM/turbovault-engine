@@ -222,9 +222,11 @@ def _translate_dbt_issues(legacy_report) -> list[Issue]:
         issues.append(
             make_issue(
                 severity="warning" if is_yaml_missing else "info",
-                code=Code.RENDER_TEMPLATE_NOT_FOUND
-                if is_yaml_missing
-                else Code.RENDER_ENTITY_SKIPPED,
+                code=(
+                    Code.RENDER_TEMPLATE_NOT_FOUND
+                    if is_yaml_missing
+                    else Code.RENDER_ENTITY_SKIPPED
+                ),
                 stage="render",
                 message=warn.message,
                 entity=_entity_ref_or_none(warn.entity_type, warn.entity_name),

@@ -657,9 +657,7 @@ class DbtProjectGenerator:
                 filename = get_model_filename(rts_name, extension="sql")
                 path = output_dir / filename
                 write_sql_file(path, content)
-                self.report.add_file(
-                    path, "satellite_record_tracking", rts_name, "sql"
-                )
+                self.report.add_file(path, "satellite_record_tracking", rts_name, "sql")
 
                 if yaml_template:
                     content = yaml_template.render(**context)
@@ -687,9 +685,7 @@ class DbtProjectGenerator:
     def _generate_effectivity_satellites(self, hubs: list[HubDefinition]) -> None:
         """Generate an effectivity satellite for each flagged hub."""
         flagged = [
-            hub
-            for hub in hubs
-            if getattr(hub, "create_effectivity_satellite", False)
+            hub for hub in hubs if getattr(hub, "create_effectivity_satellite", False)
         ]
         if not flagged:
             return
@@ -710,9 +706,7 @@ class DbtProjectGenerator:
 
         for hub in flagged:
             hashkey_name = hub.hashkey.hashkey_name if hub.hashkey else None
-            stage_name = (
-                hub.source_tables[0].stage_name if hub.source_tables else None
-            )
+            stage_name = hub.source_tables[0].stage_name if hub.source_tables else None
             if not hashkey_name or not stage_name:
                 self.report.add_skipped(
                     entity_type="satellite_effectivity",
@@ -748,9 +742,7 @@ class DbtProjectGenerator:
                     filename = get_model_filename(es_name, extension="yml")
                     path = output_dir / filename
                     write_yaml_file(path, content)
-                    self.report.add_file(
-                        path, "satellite_effectivity", es_name, "yaml"
-                    )
+                    self.report.add_file(path, "satellite_effectivity", es_name, "yaml")
 
                 self.report.effectivity_satellites_generated += 1
 

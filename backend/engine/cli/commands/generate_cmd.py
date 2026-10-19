@@ -48,21 +48,24 @@ def generate(
     output: Annotated[
         Path | None,
         typer.Option(
-            "--output", "-o",
+            "--output",
+            "-o",
             help="Output directory for dbt, or output file for json/dbml",
         ),
     ] = None,
     type: Annotated[
         str | None,
         typer.Option(
-            "--type", "-t",
+            "--type",
+            "-t",
             help="Export type: dbt | json | dbml (interactive if omitted)",
         ),
     ] = None,
     mode: Annotated[
         str,
         typer.Option(
-            "--mode", "-m",
+            "--mode",
+            "-m",
             help="Error strategy: strict (fail_fast) or lenient (best_effort)",
         ),
     ] = "strict",
@@ -189,7 +192,12 @@ def generate(
         ),
     )
 
-    _announce(project=project, output_type=output_type, options=options, output_path=output_path)
+    _announce(
+        project=project,
+        output_type=output_type,
+        options=options,
+        output_path=output_path,
+    )
 
     report = run_generate(
         project=project,
@@ -251,7 +259,9 @@ def _resolve_output_type(requested: str | None) -> str:
             questionary.Choice("dbt — Generate dbt project", value="dbt"),
             questionary.Choice("json — Export model as JSON", value="json"),
             questionary.Choice("dbml — Export model as DBML diagram", value="dbml"),
-            questionary.Choice("iris — Export model to IRiS Excel templates", value="iris"),
+            questionary.Choice(
+                "iris — Export model to IRiS Excel templates", value="iris"
+            ),
         ],
         default="dbt",
     ).ask()
@@ -462,9 +472,7 @@ def _render_issues_table(report) -> None:
             "warning": "[yellow]WARN[/yellow]",
             "info": "[cyan]INFO[/cyan]",
         }[issue.severity]
-        entity = (
-            f"{issue.entity.type}:{issue.entity.name}" if issue.entity else "—"
-        )
+        entity = f"{issue.entity.type}:{issue.entity.name}" if issue.entity else "—"
         table.add_row(sev_style, issue.stage, issue.code, entity, issue.message)
     console.print(table)
 

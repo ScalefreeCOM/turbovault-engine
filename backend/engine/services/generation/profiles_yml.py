@@ -121,9 +121,7 @@ def validate_profiles_yaml(text: str, profile_name: str | None = None) -> list[I
     else:
         return []
 
-    return [
-        make_issue(severity="error", code=code, stage="render", message=message)
-    ]
+    return [make_issue(severity="error", code=code, stage="render", message=message)]
 
 
 def _check_profiles(profiles: Any, profile_name: str | None) -> None:
@@ -143,9 +141,7 @@ def _validate_structure(profiles: Any) -> None:
     if not isinstance(profiles, Mapping):
         raise InvalidProfilesError("profiles must be a mapping")
     if not profiles:
-        raise InvalidProfilesError(
-            "generate_profiles_yml is set but profiles is empty"
-        )
+        raise InvalidProfilesError("generate_profiles_yml is set but profiles is empty")
     for profile_name, profile in profiles.items():
         if not isinstance(profile_name, str) or not profile_name:
             raise InvalidProfilesError("profile names must be non-empty strings")

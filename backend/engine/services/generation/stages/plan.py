@@ -66,9 +66,7 @@ def build_plan(
     files_planned = (
         sum(by_type.values())
         if output_type == "dbt"
-        else 1
-        if any(by_type.values())
-        else 0
+        else 1 if any(by_type.values()) else 0
     )
 
     # "Empty project" is judged by USER-FACING entities (hubs / links /
@@ -90,9 +88,7 @@ def build_plan(
                     "Nothing to generate — the project (or current selection) "
                     "contains no eligible entities."
                 ),
-                suggestion=(
-                    "Widen the selection or add entities to the project."
-                ),
+                suggestion=("Widen the selection or add entities to the project."),
             )
         )
 
@@ -131,7 +127,9 @@ def _filter_export(
 
     return project_export.model_copy(
         update={
-            "hubs": [h for h in project_export.hubs if keep("hub", h.hub_name, h.group)],
+            "hubs": [
+                h for h in project_export.hubs if keep("hub", h.hub_name, h.group)
+            ],
             "links": [
                 l for l in project_export.links if keep("link", l.link_name, l.group)
             ],

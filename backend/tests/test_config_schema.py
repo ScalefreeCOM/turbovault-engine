@@ -208,7 +208,9 @@ class TestDbtProjectSettings:
             },
             output={
                 "generate_profiles_yml": True,
-                "profiles": {"tpch_dv": {"target": "dev", "outputs": {"dev": {"type": "duckdb"}}}},
+                "profiles": {
+                    "tpch_dv": {"target": "dev", "outputs": {"dev": {"type": "duckdb"}}}
+                },
             },
         )
         runtime = EngineRuntimeConfig.from_turbovault_config(config)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-
 pytestmark = pytest.mark.django_db
 
 
@@ -49,9 +48,7 @@ def test_validate_filters_by_selection(django_setup, project_export):
     # Run without selection first to see what issues the sample export
     # surfaces, then pick a single entity and confirm the selection
     # narrows the issue list.
-    full_issues = validate(
-        project_export=project_export, options=GenerationOptions()
-    )
+    full_issues = validate(project_export=project_export, options=GenerationOptions())
     if not full_issues or not any(i.entity for i in full_issues):
         pytest.skip("Sample export validates clean — no selection to compare against")
 

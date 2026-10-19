@@ -103,7 +103,9 @@ def run(django_setup, project_export, engine_project, tmp_path, monkeypatch):
             project=engine_project,
             output_type="dbt",
             output_path=out,
-            runtime_config=EngineRuntimeConfig(project_name="pipeline_e2e", **overrides),
+            runtime_config=EngineRuntimeConfig(
+                project_name="pipeline_e2e", **overrides
+            ),
             options=GenerationOptions(create_zip=create_zip),
         )
         return report, out
@@ -150,7 +152,9 @@ class TestProfilesYml:
 
     def test_rendered_as_artifact_and_counted(self, run):
         baseline, _ = run()
-        report, out = run(profile_name="scalefree_dv", generate_profiles_yml=True, profiles=PROFILES)
+        report, out = run(
+            profile_name="scalefree_dv", generate_profiles_yml=True, profiles=PROFILES
+        )
 
         assert report.status in ("success", "partial_success")
         parsed = yaml.safe_load((out / "profiles.yml").read_text(encoding="utf-8"))
@@ -182,7 +186,9 @@ class TestProfilesYml:
                 "outputs": {"dev": {"type": "postgres", "password": "hunter2"}},
             }
         }
-        report, out = run(profile_name="p", generate_profiles_yml=True, profiles=profiles)
+        report, out = run(
+            profile_name="p", generate_profiles_yml=True, profiles=profiles
+        )
 
         issues = [
             i for i in report.issues if i.code == "render.literal_secret_in_profile"

@@ -79,9 +79,7 @@ class EngineRuntimeConfig:
     profiles: dict[str, Any] = field(default_factory=dict, hash=False)
 
     @classmethod
-    def from_turbovault_config(
-        cls, config: TurboVaultConfig
-    ) -> EngineRuntimeConfig:
+    def from_turbovault_config(cls, config: TurboVaultConfig) -> EngineRuntimeConfig:
         """Create runtime config from the CLI/project YAML Pydantic config."""
         return cls(
             project_name=config.project.name,
@@ -92,8 +90,7 @@ class EngineRuntimeConfig:
             rdv_database=config.configuration.rdv_database,
             bdv_schema=config.configuration.bdv_schema,
             bdv_database=config.configuration.bdv_database,
-            hashdiff_naming=config.configuration.hashdiff_naming
-            or cls.hashdiff_naming,
+            hashdiff_naming=config.configuration.hashdiff_naming or cls.hashdiff_naming,
             hashkey_naming=config.configuration.hashkey_naming or cls.hashkey_naming,
             satellite_v0_naming=config.configuration.satellite_v0_naming
             or cls.satellite_v0_naming,

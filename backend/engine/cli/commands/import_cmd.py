@@ -219,10 +219,12 @@ def _run_interactive_import() -> dict | None:
     if not source.exists():
         print_error(f"File not found: {source}")
         return None
-    if (
-        not source.is_dir()
-        and source.suffix.lower()
-        not in (".xlsx", ".db", ".sqlite", ".sqlite3", ".json")
+    if not source.is_dir() and source.suffix.lower() not in (
+        ".xlsx",
+        ".db",
+        ".sqlite",
+        ".sqlite3",
+        ".json",
     ):
         print_error(
             f"Unsupported file type '{source.suffix}'. "
@@ -365,9 +367,7 @@ def _render_report(report: ImportReport) -> None:
     console.print()
 
     # Plan summary
-    summary = Table(
-        title="Import Plan", show_header=True, header_style="bold cyan"
-    )
+    summary = Table(title="Import Plan", show_header=True, header_style="bold cyan")
     summary.add_column("Entity", style="bold")
     columns = ("create", "update", "unchanged", "delete", "skip")
     for action in columns:
@@ -433,9 +433,7 @@ def _render_report(report: ImportReport) -> None:
                 loc_parts.append(f"<{issue.entity.type} {issue.entity.name}>")
             location_str = " ".join(loc_parts) or "—"
 
-            issues_table.add_row(
-                sev_style, issue.code, location_str, issue.message
-            )
+            issues_table.add_row(sev_style, issue.code, location_str, issue.message)
         console.print(issues_table)
     else:
         console.print("[green]No issues.[/green]")
@@ -463,9 +461,7 @@ def _render_report(report: ImportReport) -> None:
             "See the Issues table above for details on each skipped item."
         )
     elif report.status == "validation_failed":
-        print_error(
-            f"Import aborted at validation: {report.error_count} error(s)."
-        )
+        print_error(f"Import aborted at validation: {report.error_count} error(s).")
     else:
         print_error(f"Import failed with {report.error_count} error(s).")
 

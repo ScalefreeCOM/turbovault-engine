@@ -96,9 +96,7 @@ class TestRenderProfilesYml:
 
     def test_env_var_embedded_in_literal_rejected(self):
         with pytest.raises(LiteralSecretError):
-            render_profiles_yml(
-                _profiles(password="pre{{ env_var('DBT_PASSWORD') }}")
-            )
+            render_profiles_yml(_profiles(password="pre{{ env_var('DBT_PASSWORD') }}"))
 
     def test_non_mapping_raises(self):
         with pytest.raises(InvalidProfilesError, match="must be a mapping"):
@@ -155,7 +153,9 @@ class TestValidateProfilesYaml:
         assert validate_profiles_yaml(text) == []
 
     def test_literal_secret_gets_its_code(self):
-        text = self.VALID.replace("type: duckdb", "type: duckdb\n      password: hunter2")
+        text = self.VALID.replace(
+            "type: duckdb", "type: duckdb\n      password: hunter2"
+        )
         issues = validate_profiles_yaml(text)
         assert [i.code for i in issues] == ["render.literal_secret_in_profile"]
         assert "hunter2" not in issues[0].message

@@ -295,7 +295,9 @@ def test_end_to_end_is_idempotent_under_merge(project, tmp_path: Path) -> None:
         == first_tables
     )
     assert (
-        SourceColumn.objects.filter(source_table__source_system__project=project).count()
+        SourceColumn.objects.filter(
+            source_table__source_system__project=project
+        ).count()
         == first_columns
     )
 
