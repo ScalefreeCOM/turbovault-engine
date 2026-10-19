@@ -108,6 +108,7 @@ def run_pipeline(
             project_export=project_export,
             output_type=output_type,
             options=options,
+            generate_profiles_yml=runtime_config.generate_profiles_yml,
         )
         plan_for_report = plan
         issues.extend(plan_issues)

@@ -173,3 +173,72 @@ class TestFindTurboVaultConfig:
 
         result = find_turbovault_config()
         assert result == config_file
+
+
+class TestDbtProjectSettings:
+    """dbt project settings in config.yml feed EngineRuntimeConfig."""
+
+    def test_defaults_match_generated_project(self):
+        from engine.services.config_schema import TurboVaultConfig
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        config = TurboVaultConfig(project={"name": "p"})
+        runtime = EngineRuntimeConfig.from_turbovault_config(config)
+
+        assert runtime.profile_name == "default"
+        assert runtime.control_schema == "control"
+        assert runtime.control_materialization == "table"
+        assert runtime.staging_materialization == "view"
+        assert runtime.raw_vault_materialization == "incremental"
+        assert runtime.business_vault_materialization == "table"
+        assert runtime.generate_profiles_yml is False
+        assert runtime.profiles == {}
+
+    def test_values_flow_into_runtime_config(self):
+        from engine.services.config_schema import TurboVaultConfig
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        config = TurboVaultConfig(
+            project={"name": "p"},
+            configuration={
+                "profile_name": "tpch_dv",
+                "control_schema": "meta",
+                "staging_materialization": "ephemeral",
+                "business_vault_materialization": "view",
+            },
+            output={
+                "generate_profiles_yml": True,
+                "profiles": {"tpch_dv": {"target": "dev", "outputs": {"dev": {"type": "duckdb"}}}},
+            },
+        )
+        runtime = EngineRuntimeConfig.from_turbovault_config(config)
+
+        assert runtime.profile_name == "tpch_dv"
+        assert runtime.control_schema == "meta"
+        assert runtime.staging_materialization == "ephemeral"
+        assert runtime.business_vault_materialization == "view"
+        assert runtime.generate_profiles_yml is True
+        assert runtime.profiles["tpch_dv"]["target"] == "dev"
+
+    def test_unknown_materialization_rejected(self):
+        import pytest
+        from pydantic import ValidationError
+
+        from engine.services.config_schema import TurboVaultConfig
+
+        with pytest.raises(ValidationError):
+            TurboVaultConfig(
+                project={"name": "p"},
+                configuration={"raw_vault_materialization": "merge"},
+            )
+
+    def test_invalid_control_schema_rejected(self):
+        import pytest
+        from pydantic import ValidationError
+
+        from engine.services.config_schema import TurboVaultConfig
+
+        with pytest.raises(ValidationError):
+            TurboVaultConfig(
+                project={"name": "p"}, configuration={"control_schema": "a b"}
+            )

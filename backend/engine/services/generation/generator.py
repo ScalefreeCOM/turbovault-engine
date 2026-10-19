@@ -15,6 +15,7 @@ from .file_writer import write_sql_file, write_yaml_file
 from .folder_config import GenerationConfig, get_model_filename
 from .report import GenerationReport
 from .template_resolver import TemplateResolver
+from .profiles_yml import LiteralSecretError, render_profiles_yml
 from .vars_block import render_vars_block
 
 if TYPE_CHECKING:
@@ -114,12 +115,36 @@ class DbtProjectGenerator:
             )
             return self.report
 
+        # Same reasoning for the optional profiles.yml.
+        profiles_content: str | None = None
+        if self.config.generate_profiles_yml:
+            try:
+                profiles_content = render_profiles_yml(
+                    self.config.profiles, profile_name=self.config.profile_name
+                )
+            except LiteralSecretError as e:
+                self.report.add_error(
+                    entity_type="project",
+                    entity_name="profiles.yml",
+                    message=str(e),
+                    code="PRF_002",
+                )
+                return self.report
+            except ValueError as e:
+                self.report.add_error(
+                    entity_type="project",
+                    entity_name="profiles.yml",
+                    message=f"Invalid profiles: {e}",
+                    code="PRF_001",
+                )
+                return self.report
+
         try:
             # 1. Create folder structure
             self._create_folder_structure()
 
             # 2. Generate project-level files
-            self._generate_project_files(vars_block)
+            self._generate_project_files(vars_block, profiles_content)
 
             # 3. Generate sources.yml
             self._generate_sources(project_export.sources)
@@ -193,12 +218,15 @@ class DbtProjectGenerator:
                     # Log an error if the directory could not be removed
                     logger.error(f"Error removing directory {dirpath}: {e}")
 
-    def _generate_project_files(self, vars_block: str = "") -> None:
-        """Generate dbt_project.yml and packages.yml.
+    def _generate_project_files(
+        self, vars_block: str = "", profiles_content: str | None = None
+    ) -> None:
+        """Generate dbt_project.yml, packages.yml and the optional profiles.yml.
 
-        `vars_block` is the already-rendered `vars:` section (see `generate()`,
-        which resolves it up front so an invalid value fails before any file
-        is written).
+        `vars_block` is the already-rendered `vars:` section and
+        `profiles_content` the already-rendered profiles.yml, or None when not
+        requested (see `generate()`, which resolves both up front so an invalid
+        value fails before any file is written).
         """
         # Generate dbt_project.yml
         template = self.template_resolver.get_project_template("dbt_project.yml")
@@ -209,6 +237,13 @@ class DbtProjectGenerator:
                 stage_schema=self.config.stage_schema,
                 rdv_schema=self.config.rdv_schema,
                 bdv_schema=self.config.bdv_schema,
+                control_schema=self.config.control_schema,
+                control_materialization=self.config.control_materialization,
+                staging_materialization=self.config.staging_materialization,
+                raw_vault_materialization=self.config.raw_vault_materialization,
+                business_vault_materialization=(
+                    self.config.business_vault_materialization
+                ),
                 vars_block=vars_block,
             )
             path = self.output_path / "dbt_project.yml"
@@ -238,6 +273,13 @@ class DbtProjectGenerator:
                 message="Template not found, skipping",
                 code="TPL_001",
             )
+
+        # Generate profiles.yml (opt-in)
+        if profiles_content is not None:
+            path = self.output_path / "profiles.yml"
+            write_yaml_file(path, profiles_content)
+            self.report.add_file(path, "project", "profiles", "yaml")
+            logger.debug("Generated profiles.yml")
 
     def _generate_sources(self, sources: list) -> None:
         """Generate sources.yml with all source systems."""

@@ -9,9 +9,12 @@ from __future__ import annotations
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+# Materializations dbt accepts for the layers the generated project configures.
+DbtMaterialization = Literal["table", "view", "incremental", "ephemeral"]
 
 
 def _sanitize_path_string(v: object) -> str:
@@ -357,7 +360,28 @@ class ProjectConfiguration(BaseModel):
         description="Load date of tables and source systems that set none",
     )
 
-    @field_validator("stage_schema", "rdv_schema", "bdv_schema")
+    # dbt project settings (dbt_project.yml). Defaults match the project the
+    # engine has always generated.
+    profile_name: str = Field(
+        "default", description="dbt profile referenced by dbt_project.yml"
+    )
+    control_schema: str = Field(
+        "control", description="Schema name for the control layer"
+    )
+    control_materialization: DbtMaterialization = Field(
+        "table", description="Materialization of the control layer"
+    )
+    staging_materialization: DbtMaterialization = Field(
+        "view", description="Materialization of the staging layer"
+    )
+    raw_vault_materialization: DbtMaterialization = Field(
+        "incremental", description="Materialization of the Raw Data Vault layer"
+    )
+    business_vault_materialization: DbtMaterialization = Field(
+        "table", description="Materialization of the Business Data Vault layer"
+    )
+
+    @field_validator("stage_schema", "rdv_schema", "bdv_schema", "control_schema")
     @classmethod
     def validate_schema_name(cls, v: str) -> str:
         """Validate schema name is a valid SQL identifier."""
@@ -416,6 +440,16 @@ class OutputConfiguration(BaseModel):
     generate_dbml: bool = Field(
         False,
         description="Whether to generate DBML file alongside dbt project (for future use)",
+    )
+
+    # Optional profiles.yml. `profiles` is rendered verbatim (profile name ->
+    # {"target": ..., "outputs": {...}}); secrets must be env_var references.
+    generate_profiles_yml: bool = Field(
+        False, description="Whether to generate a profiles.yml for dbt"
+    )
+    profiles: dict[str, Any] = Field(
+        default_factory=dict,
+        description="dbt profiles rendered into profiles.yml when enabled",
     )
 
 

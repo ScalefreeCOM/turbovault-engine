@@ -118,7 +118,7 @@ def _build_dbt_config(
     )
     return GenerationConfig(
         project_name=(project_name or "turbovault_project").lower().replace(" ", "_"),
-        profile_name="default",
+        profile_name=runtime_config.profile_name,
         generate_satellite_v1_views=options.generate_satellite_v1_views,
         satellite_v0_naming=runtime_config.satellite_v0_naming,
         satellite_v1_naming=runtime_config.satellite_v1_naming,
@@ -132,6 +132,14 @@ def _build_dbt_config(
         # coercing it here (e.g. `dict(...)`) would turn a reportable bad value
         # into an unhandled TypeError before the renderer ever sees it.
         global_vars=runtime_config.global_vars,
+        control_schema=runtime_config.control_schema,
+        control_materialization=runtime_config.control_materialization,
+        staging_materialization=runtime_config.staging_materialization,
+        raw_vault_materialization=runtime_config.raw_vault_materialization,
+        business_vault_materialization=runtime_config.business_vault_materialization,
+        generate_profiles_yml=runtime_config.generate_profiles_yml,
+        # Same as global_vars: `render_profiles_yml` owns validating this.
+        profiles=runtime_config.profiles,
     )
 
 
@@ -187,6 +195,8 @@ def _kind_for_file(gf) -> ArtifactKind:
 # own stable code. Everything else falls through to render.template_render_failed.
 _LEGACY_ERROR_CODE_MAP: dict[str, str] = {
     "VAR_001": Code.RENDER_INVALID_GLOBAL_VARS,
+    "PRF_001": Code.RENDER_INVALID_PROFILES,
+    "PRF_002": Code.RENDER_LITERAL_SECRET_IN_PROFILE,
 }
 
 

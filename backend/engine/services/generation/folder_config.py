@@ -166,6 +166,17 @@ class GenerationConfig:
     # datavault4dbt global variables rendered into the dbt_project.yml vars: block
     global_vars: dict[str, Any] = field(default_factory=dict)
 
+    # Per-layer settings of the dbt_project.yml models: block
+    control_schema: str = "control"
+    control_materialization: str = "table"
+    staging_materialization: str = "view"
+    raw_vault_materialization: str = "incremental"
+    business_vault_materialization: str = "table"
+
+    # Optional profiles.yml, rendered from a caller-supplied mapping
+    generate_profiles_yml: bool = False
+    profiles: dict[str, Any] = field(default_factory=dict)
+
 
 def get_model_filename(
     entity_name: str, suffix: str = "", extension: str = "sql"

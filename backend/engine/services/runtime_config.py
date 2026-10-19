@@ -59,6 +59,25 @@ class EngineRuntimeConfig:
     # `__eq__`, so equal configs still hash equal.
     global_vars: dict[str, Any] = field(default_factory=dict, hash=False)
 
+    # dbt profile referenced by `profile:` in dbt_project.yml.
+    profile_name: str = "default"
+
+    # Per-layer settings of the `models:` block in dbt_project.yml. The
+    # defaults reproduce the project the engine has always generated.
+    control_schema: str = "control"
+    control_materialization: str = "table"
+    staging_materialization: str = "view"
+    raw_vault_materialization: str = "incremental"
+    business_vault_materialization: str = "table"
+
+    # Opt-in profiles.yml. `profiles` maps a profile name to
+    # `{"target": ..., "outputs": {<target>: {"type": <adapter>, ...}}}` and is
+    # rendered verbatim; the engine does not curate adapter fields (Studio
+    # does). Secrets must be `{{ env_var('...') }}` references — literal values
+    # for known secret keys are rejected (see generation.profiles_yml).
+    generate_profiles_yml: bool = False
+    profiles: dict[str, Any] = field(default_factory=dict, hash=False)
+
     @classmethod
     def from_turbovault_config(
         cls, config: TurboVaultConfig
@@ -95,11 +114,21 @@ class EngineRuntimeConfig:
                 config.configuration.default_static_part_of_record_source
             ),
             default_load_date_value=config.configuration.default_load_date_value,
+            profile_name=config.configuration.profile_name,
+            control_schema=config.configuration.control_schema,
+            control_materialization=config.configuration.control_materialization,
+            staging_materialization=config.configuration.staging_materialization,
+            raw_vault_materialization=config.configuration.raw_vault_materialization,
+            business_vault_materialization=(
+                config.configuration.business_vault_materialization
+            ),
             dbt_project_name=config.output.dbt_project_name or config.project.name,
             create_zip=config.output.create_zip,
             export_sources=config.output.export_sources,
             generate_tests=config.output.generate_tests,
             generate_dbml=config.output.generate_dbml,
+            generate_profiles_yml=config.output.generate_profiles_yml,
+            profiles=dict(config.output.profiles),
         )
 
     @classmethod

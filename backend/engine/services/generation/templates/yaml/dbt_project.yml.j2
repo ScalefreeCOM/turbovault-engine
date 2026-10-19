@@ -19,14 +19,14 @@ clean-targets:
 [[ vars_block ]]models:
   [[ project_name ]]:
     00_control:
-      +schema: control
-      +materialized: table
+      +schema: [[ control_schema ]]
+      +materialized: [[ control_materialization ]]
     02_staging:
       +schema: [[ stage_schema ]]
-      +materialized: view
+      +materialized: [[ staging_materialization ]]
     03_raw_vault:
       +schema: [[ rdv_schema ]]
-      +materialized: incremental
+      +materialized: [[ raw_vault_materialization ]]
     04_business_vault:
       +schema: [[ bdv_schema ]]
-      +materialized: table
+      +materialized: [[ business_vault_materialization ]]

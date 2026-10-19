@@ -85,6 +85,16 @@ def write_project_config(config_path: Path, config) -> None:
             "stage_schema": config.configuration.stage_schema,
             "rdv_schema": config.configuration.rdv_schema,
             "bdv_schema": config.configuration.bdv_schema,
+            "profile_name": config.configuration.profile_name,
+            "control_schema": config.configuration.control_schema,
+            "control_materialization": config.configuration.control_materialization,
+            "staging_materialization": config.configuration.staging_materialization,
+            "raw_vault_materialization": (
+                config.configuration.raw_vault_materialization
+            ),
+            "business_vault_materialization": (
+                config.configuration.business_vault_materialization
+            ),
         },
         # Output paths are determined by convention (exports/ subfolder).
         # create_zip / export_sources are still project-level preferences.
@@ -93,6 +103,10 @@ def write_project_config(config_path: Path, config) -> None:
             "export_sources": config.output.export_sources,
         },
     }
+
+    if config.output.generate_profiles_yml:
+        config_dict["output"]["generate_profiles_yml"] = True
+        config_dict["output"]["profiles"] = config.output.profiles
 
     # Add optional fields if present
     if config.configuration.stage_database:

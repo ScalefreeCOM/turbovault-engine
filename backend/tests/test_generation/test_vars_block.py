@@ -77,6 +77,11 @@ class TestDbtProjectTemplateVars:
             stage_schema="stage",
             rdv_schema="rdv",
             bdv_schema="bdv",
+            control_schema="control",
+            control_materialization="table",
+            staging_materialization="view",
+            raw_vault_materialization="incremental",
+            business_vault_materialization="table",
             **extra,
         )
 

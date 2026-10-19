@@ -189,6 +189,57 @@ The fallback `./output/<slug>` is only used when the project has no
 
 ---
 
+## dbt project settings
+
+Embedded callers (such as Studio) shape the generated `dbt_project.yml`
+through `EngineRuntimeConfig`. The defaults reproduce the project the
+engine has always generated, byte for byte.
+
+| Field | Default | Effect |
+|-------|---------|--------|
+| `profile_name` | `default` | `profile:` in `dbt_project.yml`. |
+| `control_schema` | `control` | `+schema` of `00_control`. |
+| `control_materialization` | `table` | `+materialized` of `00_control`. |
+| `staging_materialization` | `view` | `+materialized` of `02_staging`. |
+| `raw_vault_materialization` | `incremental` | `+materialized` of `03_raw_vault`. |
+| `business_vault_materialization` | `table` | `+materialized` of `04_business_vault`. |
+| `global_vars` | `{}` | Rendered verbatim into the `vars:` block. |
+
+### Optional profiles.yml
+
+Set `generate_profiles_yml=True` and pass a `profiles` mapping to also
+emit a `profiles.yml` at the project root (artifact kind `dbt_profiles`,
+counted in the plan, included in the ZIP). The mapping is rendered
+verbatim; the engine does not curate adapter fields:
+
+```python
+EngineRuntimeConfig(
+    profile_name="my_profile",
+    generate_profiles_yml=True,
+    profiles={
+        "my_profile": {
+            "target": "dev",
+            "outputs": {
+                "dev": {
+                    "type": "postgres",
+                    "host": "localhost",
+                    "user": "{{ env_var('DBT_USER') }}",
+                    "password": "{{ env_var('DBT_PASSWORD') }}",
+                },
+            },
+        },
+    },
+)
+```
+
+Secrets must be `{{ env_var('...') }}` references. A literal value for a
+known secret key (`password`, `token`, `private_key`,
+`private_key_passphrase`, `client_secret`, `keyfile_json`, …) fails the
+run with `render.literal_secret_in_profile` before anything is written;
+a malformed mapping fails with `render.invalid_profiles`.
+
+---
+
 ## The GenerationReport
 
 Every invocation of the pipeline returns a `GenerationReport`. The same
