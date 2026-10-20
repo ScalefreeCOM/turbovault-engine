@@ -41,6 +41,8 @@ def build_plan(
 
     if output_type == "dbt":
         by_type = _count_dbt(filtered, options)
+    elif output_type == "sqlmesh":
+        by_type = _count_sqlmesh(filtered, options)
     elif output_type in ("json", "dbml"):
         by_type = _count_single_artifact(filtered)
     else:  # pragma: no cover - guarded by Literal
@@ -59,7 +61,7 @@ def build_plan(
 
     files_planned = (
         sum(by_type.values())
-        if output_type == "dbt"
+        if output_type in ("dbt", "sqlmesh")
         else 1
         if any(by_type.values())
         else 0
@@ -219,6 +221,43 @@ def _count_dbt(
 
     if project_export.snapshot_controls:
         counts["snapshot_control"] = len(project_export.snapshot_controls) * 2
+
+    return counts
+
+
+def _count_sqlmesh(
+    project_export: ProjectExport, options: GenerationOptions
+) -> dict[str, int]:
+    """Count the Python model files the SQLMesh renderer will produce.
+
+    Scaffold files (config.yaml, config.json, models/__init__.py,
+    requirements.txt, README.md) are counted under 'project'. Each supported
+    entity type produces one file. Standard satellites optionally produce an
+    additional v1 file when generate_satellite_v1_views is True.
+    """
+    counts: dict[str, int] = {}
+
+    counts["project"] = 5  # scaffold files
+
+    if project_export.stages:
+        counts["stage"] = len(project_export.stages)
+
+    standard_hubs = [h for h in project_export.hubs if h.hub_type == "standard"]
+    if standard_hubs:
+        counts["hub"] = len(standard_hubs)
+
+    standard_links = [lnk for lnk in project_export.links if lnk.link_type == "standard"]
+    if standard_links:
+        counts["link"] = len(standard_links)
+
+    standard_sats = [
+        s for s in project_export.satellites if s.satellite_type == "standard"
+    ]
+    if standard_sats:
+        sat_files = len(standard_sats)
+        if options.generate_satellite_v1_views:
+            sat_files += len(standard_sats)  # one v1 file per standard satellite
+        counts["satellite"] = sat_files
 
     return counts
 

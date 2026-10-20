@@ -67,8 +67,8 @@ def write_artifacts(
             ],
         )
 
-    if output_type == "dbt":
-        return _write_dbt(artifacts, output_path, options)
+    if output_type in ("dbt", "sqlmesh"):
+        return _write_project(artifacts, output_path, options)
     return _write_single_file(artifacts, output_path, output_type, options)
 
 
@@ -97,11 +97,11 @@ def _finalize_dry_run(
 
 
 # ---------------------------------------------------------------------------
-# dbt
+# Multi-file project outputs (dbt and sqlmesh share this writer)
 # ---------------------------------------------------------------------------
 
 
-def _write_dbt(
+def _write_project(
     artifacts: list[GeneratedArtifact],
     output_path: Path,
     options: GenerationOptions,

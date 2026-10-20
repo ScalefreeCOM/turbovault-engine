@@ -95,6 +95,7 @@ class TemplateResolver:
         templates_dir: Path | None = None,
         use_db_templates: bool = True,
         templates_override: dict[str, TemplateOverride] | None = None,
+        framework: str = "dbt",
     ) -> None:
         """
         Initialize the template resolver.
@@ -105,10 +106,14 @@ class TemplateResolver:
             templates_override: In-memory per-generation template content,
                 keyed by entity_type. Takes precedence over DB and file
                 templates for the resolver's lifetime.
+            framework: Generation framework ("dbt" or "sqlmesh"). DB-backed
+                templates are filtered to this framework so overrides for one
+                framework never apply to the other.
         """
         self.templates_dir = templates_dir or TEMPLATES_DIR
         self.use_db_templates = use_db_templates
         self._overrides = templates_override or {}
+        self.framework = framework
 
         # Jinja2 environment for file-based templates and in-memory overrides
         self._env = build_jinja_environment(
@@ -228,7 +233,11 @@ class TemplateResolver:
         from engine.models.templates import ModelTemplate
 
         return (
-            ModelTemplate.objects.filter(entity_type=entity_type, is_active=True)
+            ModelTemplate.objects.filter(
+                framework=self.framework,
+                entity_type=entity_type,
+                is_active=True,
+            )
             .order_by("-priority")
             .first()
         )

@@ -1,7 +1,7 @@
 """
-`turbovault generate` — run the new generation pipeline.
+`turbovault generate` — run the generation pipeline.
 
-Supports dbt / json / dbml output types, merge of strict/lenient
+Supports dbt / sqlmesh / json / dbml output types, strict/lenient
 validation with best-effort/fail-fast error handling, `--dry-run` for
 preview, and selective generation via `--include-type` / `--exclude-type`
 / `--include-group` / `--exclude-group` / `--only TYPE:NAME`.
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from engine.services.generation import GenerationReport
 
 
-SUPPORTED_TYPES = ("dbt", "json", "dbml", "iris")
+SUPPORTED_TYPES = ("dbt", "json", "dbml", "iris", "sqlmesh")
 
 
 def generate(
@@ -100,6 +100,13 @@ def generate(
             help="Output directory for IRiS Excel files (only for type=iris)",
         ),
     ] = None,
+    sqlmesh_output: Annotated[
+        Path | None,
+        typer.Option(
+            "--sqlmesh-output",
+            help="Alias for --output when type=sqlmesh",
+        ),
+    ] = None,
     include_type: Annotated[
         list[str] | None,
         typer.Option(
@@ -130,7 +137,7 @@ def generate(
         ),
     ] = None,
 ) -> None:
-    """Generate a dbt project, JSON export, or DBML diagram."""
+    """Generate a dbt or SQLMesh project, JSON export, or DBML diagram."""
     from engine.cli.utils.debug import debug_print
     from engine.services.app_config_loader import (
         WorkspaceNotFoundError,
@@ -168,6 +175,7 @@ def generate(
         output=output,
         json_output=json_output,
         dbml_output=dbml_output,
+        sqlmesh_output=sqlmesh_output,
         project=project,
         dry_run=dry_run,
     )
@@ -249,6 +257,7 @@ def _resolve_output_type(requested: str | None) -> str:
         "Select export type:",
         choices=[
             questionary.Choice("dbt — Generate dbt project", value="dbt"),
+            questionary.Choice("sqlmesh — Generate SQLMesh project", value="sqlmesh"),
             questionary.Choice("json — Export model as JSON", value="json"),
             questionary.Choice("dbml — Export model as DBML diagram", value="dbml"),
             questionary.Choice("iris — Export model to IRiS Excel templates", value="iris"),
@@ -266,15 +275,16 @@ def _resolve_output_path(
     output: Path | None,
     json_output: Path | None,
     dbml_output: Path | None,
+    sqlmesh_output: Path | None,
     project,
     dry_run: bool,
 ) -> Path | None:
     """Pick the target path for the artifact.
 
     Priority order:
-      1. Type-specific override flags (`--json-output`, `--dbml-output`).
+      1. Type-specific override flags (`--json-output`, `--dbml-output`, `--sqlmesh-output`).
       2. Generic `--output` / `-o`.
-      3. Workspace convention: `<project_dir>/exports/{dbt_project | <name>.json | <name>.dbml}`.
+      3. Workspace convention: `<project_dir>/exports/{dbt_project | sqlmesh | <name>.json | …}`.
       4. Fallback `./output/<slug>` when the project has no `project_directory`
          set (ad-hoc / test projects).
     """
@@ -285,6 +295,8 @@ def _resolve_output_path(
         return json_output
     if output_type == "dbml" and dbml_output:
         return dbml_output
+    if output_type == "sqlmesh" and sqlmesh_output:
+        return sqlmesh_output
     if output:
         return output
 
@@ -294,12 +306,16 @@ def _resolve_output_path(
         # No project_directory configured — fall back to cwd-relative output.
         if output_type == "dbt":
             return Path(f"./output/{slug}")
+        if output_type == "sqlmesh":
+            return Path(f"./output/{slug}_sqlmesh")
         if output_type == "json":
             return Path(f"./output/{slug}.json")
         return Path(f"./output/{slug}.dbml")
 
     if output_type == "dbt":
         return exports_dir / "dbt_project"
+    if output_type == "sqlmesh":
+        return exports_dir / "sqlmesh"
     if output_type == "json":
         return exports_dir / f"{slug}.json"
     return exports_dir / f"{slug}.dbml"

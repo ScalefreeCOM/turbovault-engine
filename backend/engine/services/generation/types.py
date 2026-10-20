@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # Aliases & enums
 # ---------------------------------------------------------------------------
 
-OutputType = Literal["dbt", "json", "dbml"]
+OutputType = Literal["dbt", "json", "dbml", "sqlmesh"]
 ErrorStrategy = Literal["fail_fast", "best_effort"]
 GenerationStatus = Literal["success", "partial_success", "validation_failed", "failed"]
 PipelineStage = Literal["build", "validate", "plan", "render", "write", "report"]
@@ -37,6 +37,8 @@ ArtifactKind = Literal[
     "zip",
     "json_export",
     "dbml_export",
+    "sqlmesh_model",
+    "sqlmesh_config",
 ]
 
 

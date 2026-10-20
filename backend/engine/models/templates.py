@@ -1,8 +1,10 @@
 """
-Template models for TurboVault Engine dbt project generation.
+Template models for TurboVault Engine model generation.
 
-These models allow customization of dbt model templates through the Django admin.
-Templates are stored as Jinja2 content and used during dbt project generation.
+These models allow customization of model templates through the Django admin.
+Templates are stored as Jinja2 content and used during project generation.
+Each template is scoped to a specific framework (dbt or sqlmesh) so overrides
+for one framework never affect the other.
 """
 
 from __future__ import annotations
@@ -46,12 +48,19 @@ class TemplateCategory(models.Model):
 
 class ModelTemplate(models.Model):
     """
-    Customizable Jinja2 templates for dbt model generation.
+    Customizable Jinja2 templates for model generation.
 
-    Each template defines how a specific entity type is rendered as SQL and YAML.
-    Templates can be customized via Django Admin and take precedence over
-    file-based defaults.
+    Each template defines how a specific entity type is rendered.
+    Templates are scoped by framework (dbt or sqlmesh) so overrides for one
+    framework never apply to the other. DB-backed templates take precedence
+    over file-based defaults within the same framework.
     """
+
+    class Framework(models.TextChoices):
+        """Target generation framework."""
+
+        DBT = "dbt", "dbt"
+        SQLMESH = "sqlmesh", "SQLMesh"
 
     class EntityType(models.TextChoices):
         """Entity types that can be templated."""
@@ -101,6 +110,13 @@ class ModelTemplate(models.Model):
         max_length=100, help_text="Template name for identification"
     )
 
+    framework = models.CharField(
+        max_length=20,
+        choices=Framework.choices,
+        default=Framework.DBT,
+        help_text="Generation framework this template applies to (dbt or sqlmesh)",
+    )
+
     entity_type = models.CharField(
         max_length=50,
         choices=EntityType.choices,
@@ -147,8 +163,8 @@ class ModelTemplate(models.Model):
 
     class Meta:
         db_table = "model_template"
-        unique_together = ["entity_type", "name"]
-        ordering = ["entity_type", "-priority", "name"]
+        unique_together = ["framework", "entity_type", "name"]
+        ordering = ["framework", "entity_type", "-priority", "name"]
 
     def __str__(self) -> str:
         return f"{self.name} ({self.get_entity_type_display()})"

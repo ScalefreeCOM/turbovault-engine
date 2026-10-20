@@ -59,11 +59,46 @@ class EngineRuntimeConfig:
     # `__eq__`, so equal configs still hash equal.
     global_vars: dict[str, Any] = field(default_factory=dict, hash=False)
 
+    # SQLMesh project settings (for --type sqlmesh output).
+    sqlmesh_dialect: str = "duckdb"
+    sqlmesh_gateway: str = "local"
+    sqlmesh_connection_type: str = "duckdb"
+    sqlmesh_start: str = "2020-01-01"
+
+    # datavault4sqlglot DV config keys rendered into config.json.
+    # Stored as a tuple-of-pairs for frozen-dataclass hashability; convert
+    # with `sqlmesh_dv_config_dict` property before use.
+    sqlmesh_dv_config: tuple[tuple[str, Any], ...] = field(default=(), hash=False)
+
+    @property
+    def sqlmesh_dv_config_dict(self) -> dict[str, Any]:
+        """Return SQLMesh DV config as a plain dict for rendering."""
+        return dict(self.sqlmesh_dv_config)
+
     @classmethod
     def from_turbovault_config(
         cls, config: TurboVaultConfig
     ) -> EngineRuntimeConfig:
         """Create runtime config from the CLI/project YAML Pydantic config."""
+        sm = config.output.sqlmesh
+        dv_config_pairs: tuple[tuple[str, Any], ...] = tuple(
+            (k, v)
+            for k, v in {
+                "ldts_alias": sm.ldts_alias,
+                "rsrc_alias": sm.rsrc_alias,
+                "ledts_alias": sm.ledts_alias,
+                "hash": sm.hash,
+                "end_of_all_times": sm.end_of_all_times,
+                "beginning_of_all_times": sm.beginning_of_all_times,
+                "hashkey_input_case_sensitive": sm.hashkey_input_case_sensitive,
+                "hashdiff_input_case_sensitive": sm.hashdiff_input_case_sensitive,
+                "use_trim": sm.use_trim,
+                "quote_identifiers": sm.quote_identifiers,
+                "ghost_record_rsrc": sm.ghost_record_rsrc,
+                "ghost_record_error_rsrc": sm.ghost_record_error_rsrc,
+            }.items()
+            if v is not None
+        )
         return cls(
             project_name=config.project.name,
             project_description=config.project.description,
@@ -100,6 +135,11 @@ class EngineRuntimeConfig:
             export_sources=config.output.export_sources,
             generate_tests=config.output.generate_tests,
             generate_dbml=config.output.generate_dbml,
+            sqlmesh_dialect=sm.dialect,
+            sqlmesh_gateway=sm.gateway,
+            sqlmesh_connection_type=sm.connection_type,
+            sqlmesh_start=sm.start,
+            sqlmesh_dv_config=dv_config_pairs,
         )
 
     @classmethod

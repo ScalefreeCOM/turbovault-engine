@@ -30,6 +30,7 @@ from engine.services.export.models import ProjectExport
 from engine.services.generation.errors import Code, make_issue
 from engine.services.generation.folder_config import GenerationConfig
 from engine.services.generation.generator import DbtProjectGenerator
+from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
 from engine.services.generation.template_resolver import TemplateResolver
 from engine.services.generation.types import (
     ArtifactKind,
@@ -58,6 +59,8 @@ def render(
         return _render_json(project_export, options)
     if output_type == "dbml":
         return _render_dbml(project_export, options)
+    if output_type == "sqlmesh":
+        return render_sqlmesh(project_export, runtime_config, options)
     # Defensive: plan stage already rejects unsupported types.
     return (
         [],

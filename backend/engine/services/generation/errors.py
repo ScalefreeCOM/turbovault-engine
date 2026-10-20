@@ -111,5 +111,15 @@ class Code:
     WRITE_PATH_COLLISION = "write.path_collision"
     WRITE_ZIP_FAILED = "write.zip_failed"
 
+    # SQLMesh render stage — unsupported entity types
+    SQLMESH_UNSUPPORTED_REFERENCE_HUB = "render.sqlmesh.unsupported.reference_hub"
+    SQLMESH_UNSUPPORTED_NON_HISTORIZED_LINK = "render.sqlmesh.unsupported.non_historized_link"
+    SQLMESH_UNSUPPORTED_SATELLITE_TYPE = "render.sqlmesh.unsupported.satellite_type"
+    SQLMESH_UNSUPPORTED_REFERENCE_TABLE = "render.sqlmesh.unsupported.reference_table"
+    SQLMESH_UNSUPPORTED_PIT = "render.sqlmesh.unsupported.pit"
+    SQLMESH_UNSUPPORTED_SNAPSHOT_CONTROL = "render.sqlmesh.unsupported.snapshot_control"
+    SQLMESH_HUB_NO_SOURCES = "render.sqlmesh.hub_no_sources"
+    SQLMESH_LINK_NO_SOURCES = "render.sqlmesh.link_no_sources"
+
     # Internal
     INTERNAL_BUG = "internal.bug"
