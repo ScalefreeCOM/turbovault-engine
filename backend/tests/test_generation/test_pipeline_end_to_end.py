@@ -347,3 +347,71 @@ def test_single_entity_preview_returns_content_without_writing(
     for a in written:
         assert a.content is not None and a.content.strip(), "Content should be populated"
         assert a.path is None, "Dry-run must not record filesystem paths"
+
+
+def test_sqlmesh_end_to_end_writes_files_and_persists_run(
+    django_setup, project_export, engine_project, tmp_path, monkeypatch
+):
+    from engine.models import GenerationRun
+    from engine.services.generation import generate
+
+    _patch_build_stage(monkeypatch, project_export)
+
+    out = tmp_path / "sqlmesh_out"
+    report = generate(
+        project=engine_project,
+        output_type="sqlmesh",
+        output_path=out,
+    )
+
+    assert report.status in ("success", "partial_success")
+    assert report.is_dry_run is False
+    # Scaffold files (config.yaml, config.json, etc.) must be on disk.
+    assert (out / "config.yaml").exists()
+    assert (out / "config.json").exists()
+    assert (out / "models" / "__init__.py").exists()
+    # Per-stage timings captured for all pipeline stages.
+    for stage in ("build", "validate", "plan", "render", "write"):
+        assert stage in report.timings_ms
+    # Audit row persisted with the correct output type.
+    run = GenerationRun.objects.get(generation_run_id=report.generation_run_id)
+    assert run.status == report.status
+    assert run.output_type == "sqlmesh"
+    assert run.files_generated == report.files_generated
+
+
+def test_sqlmesh_dv_config_flows_into_generated_config_json(
+    django_setup, project_export, engine_project, tmp_path, monkeypatch
+):
+    """End-to-end handoff: runtime_config.sqlmesh_dv_config must reach config.json.
+
+    Guards the EngineRuntimeConfig → sqlmesh_renderer mapping, which the
+    direct _render_config_json unit tests miss.
+    """
+    import json
+
+    from engine.services.generation import generate
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    _patch_build_stage(monkeypatch, project_export)
+
+    out = tmp_path / "sqlmesh_out"
+    report = generate(
+        project=engine_project,
+        output_type="sqlmesh",
+        output_path=out,
+        runtime_config=EngineRuntimeConfig(
+            project_name="pipeline_e2e",
+            sqlmesh_dialect="snowflake",
+            sqlmesh_dv_config=(("hash", "SHA1"), ("use_trim", True)),
+        ),
+    )
+
+    assert report.status in ("success", "partial_success")
+    config_json_path = out / "config.json"
+    assert config_json_path.exists()
+
+    parsed = json.loads(config_json_path.read_text(encoding="utf-8"))
+    assert parsed["dialect"] == "snowflake"
+    assert parsed["hash"] == "SHA1"
+    assert parsed["use_trim"] is True

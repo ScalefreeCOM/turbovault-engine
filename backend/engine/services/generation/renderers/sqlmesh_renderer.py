@@ -224,7 +224,7 @@ def _render_config_yaml(runtime_config: EngineRuntimeConfig) -> str:
     start = runtime_config.sqlmesh_start
 
     if conn_type == "duckdb":
-        connection_lines = "      type: duckdb\n      database: :memory:"
+        connection_lines = "      type: duckdb\n      database: \":memory:\""
     else:
         connection_lines = (
             f"      type: {conn_type}\n"
