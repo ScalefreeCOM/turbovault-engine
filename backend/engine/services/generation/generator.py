@@ -12,6 +12,8 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from engine.services.config_schema import MODEL_MATERIALIZATION_DEFAULTS
+
 from .file_writer import write_sql_file, write_yaml_file
 from .folder_config import GenerationConfig, get_model_filename
 from .profiles_yml import LiteralSecretError, render_profiles_yml
@@ -43,6 +45,19 @@ _MATERIALIZATION_FIELDS = (
 )
 # A dbt materialization name: built-in (table, view, ...) or a custom one.
 _MATERIALIZATION_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# Models whose materialization differs from their layer's by nature, with
+# their default. Written into the model's config() while
+# `model_specific_materializations` is on.
+_SPECIFIC_MATERIALIZATIONS = MODEL_MATERIALIZATION_DEFAULTS
+# The layer each of those models lives in.
+_MODEL_LAYERS = {
+    "satellite_v1": "raw_vault",
+    "reference_table": "raw_vault",
+    "pit": "business_vault",
+    "snapshot_control_v0": "control",
+    "snapshot_control_v1": "control",
+}
 
 # DV type suffixes stripped when deriving a satellite base name (longest first).
 _DV_TYPE_SUFFIXES = ("_rh", "_nl", "_h", "_l")
@@ -157,6 +172,16 @@ class DbtProjectGenerator:
             for field_name in _MATERIALIZATION_FIELDS
             if not _MATERIALIZATION_NAME.match(str(getattr(self.config, field_name)))
         ]
+        model_materializations = self.config.model_materializations
+        if not isinstance(model_materializations, dict):
+            invalid.append("model_materializations")
+        else:
+            invalid.extend(
+                f"model_materializations.{kind}"
+                for kind, value in model_materializations.items()
+                if kind not in _SPECIFIC_MATERIALIZATIONS
+                or not _MATERIALIZATION_NAME.match(str(value))
+            )
         if invalid:
             self.report.add_error(
                 entity_type="project",
@@ -231,18 +256,26 @@ class DbtProjectGenerator:
 
         return self.report
 
-    def _model_materialization(self, layer: str) -> str | None:
-        """Materialization to write into a model's config() block.
+    def _specific_materialization(self, model_kind: str) -> str | None:
+        """Materialization to write into a model-specific config() block.
 
-        By default models carry none and inherit their layer's
-        `+materialized` from dbt_project.yml. With
-        `materialization_in_models` set, each model gets its layer's value
-        written in as well. `layer` is control, staging, raw_vault or
-        business_vault.
+        Models whose nature differs from their layer (see
+        `_SPECIFIC_MATERIALIZATIONS`) keep their own materialization while
+        `model_specific_materializations` is set: the caller's value from
+        `model_materializations`, else the default — unless it equals the
+        layer's. Otherwise — and for every other model — None is returned, so
+        the model inherits its layer's `+materialized` from dbt_project.yml.
         """
-        if not self.config.materialization_in_models:
+        if not self.config.model_specific_materializations:
             return None
-        return getattr(self.config, f"{layer}_materialization")
+        value = self.config.model_materializations.get(
+            model_kind, _SPECIFIC_MATERIALIZATIONS[model_kind]
+        )
+        # A value equal to the layer's adds nothing: leave it to dbt_project.yml.
+        layer_value = getattr(
+            self.config, f"{_MODEL_LAYERS[model_kind]}_materialization"
+        )
+        return None if value == layer_value else value
 
     def _create_folder_structure(self) -> None:
         """Create the dbt project directory structure."""
@@ -371,10 +404,7 @@ class DbtProjectGenerator:
 
                 # Generate SQL file
                 if sql_template:
-                    content = sql_template.render(
-                        **stage.model_dump(),
-                        materialization=self._model_materialization("staging"),
-                    )
+                    content = sql_template.render(**stage.model_dump())
                     filename = get_model_filename(stage.stage_name, extension="sql")
                     path = output_dir / filename
                     write_sql_file(path, content)
@@ -427,10 +457,7 @@ class DbtProjectGenerator:
                 )
 
                 # Generate SQL file
-                content = sql_template.render(
-                    **hub.model_dump(),
-                    materialization=self._model_materialization("raw_vault"),
-                )
+                content = sql_template.render(**hub.model_dump())
                 filename = get_model_filename(hub.hub_name, extension="sql")
                 path = output_dir / filename
                 write_sql_file(path, content)
@@ -483,10 +510,7 @@ class DbtProjectGenerator:
                 )
 
                 # Generate SQL file
-                content = sql_template.render(
-                    **link.model_dump(),
-                    materialization=self._model_materialization("raw_vault"),
-                )
+                content = sql_template.render(**link.model_dump())
                 filename = get_model_filename(link.link_name, extension="sql")
                 path = output_dir / filename
                 write_sql_file(path, content)
@@ -553,10 +577,7 @@ class DbtProjectGenerator:
                 # Generate SQL file (v0)
                 context = satellite.model_dump()
                 context["satellite_name"] = v0_name  # Override with v0 suffix
-                content = sql_template.render(
-                    **context,
-                    materialization=self._model_materialization("raw_vault"),
-                )
+                content = sql_template.render(**context)
                 filename = get_model_filename(v0_name, extension="sql")
                 path = output_dir / filename
                 write_sql_file(path, content)
@@ -623,7 +644,7 @@ class DbtProjectGenerator:
             # Generate SQL file (v1)
             content = sql_template.render(
                 **context,
-                materialization=self._model_materialization("raw_vault"),
+                materialization=self._specific_materialization("satellite_v1"),
             )
             filename = get_model_filename(v1_name, extension="sql")
             path = output_dir / filename
@@ -712,10 +733,7 @@ class DbtProjectGenerator:
                     group, self.output_path
                 )
 
-                content = sql_template.render(
-                    **context,
-                    materialization=self._model_materialization("raw_vault"),
-                )
+                content = sql_template.render(**context)
                 filename = get_model_filename(rts_name, extension="sql")
                 path = output_dir / filename
                 write_sql_file(path, content)
@@ -793,10 +811,7 @@ class DbtProjectGenerator:
                     hub.group, self.output_path
                 )
 
-                content = sql_template.render(
-                    **context,
-                    materialization=self._model_materialization("raw_vault"),
-                )
+                content = sql_template.render(**context)
                 filename = get_model_filename(es_name, extension="sql")
                 path = output_dir / filename
                 write_sql_file(path, content)
@@ -848,7 +863,7 @@ class DbtProjectGenerator:
                 # Generate SQL file
                 content = sql_template.render(
                     **pit.model_dump(),
-                    materialization=self._model_materialization("business_vault"),
+                    materialization=self._specific_materialization("pit"),
                 )
                 filename = get_model_filename(pit.pit_name, extension="sql")
                 path = output_dir / filename
@@ -904,7 +919,7 @@ class DbtProjectGenerator:
                 # Generate SQL file
                 content = sql_template.render(
                     **ref_table.model_dump(),
-                    materialization=self._model_materialization("raw_vault"),
+                    materialization=self._specific_materialization("reference_table"),
                 )
                 filename = get_model_filename(ref_table.table_name, extension="sql")
                 path = output_dir / filename
@@ -960,7 +975,9 @@ class DbtProjectGenerator:
                 if v0_sql_template:
                     content = v0_sql_template.render(
                         **snap_ctrl.model_dump(),
-                        materialization=self._model_materialization("control"),
+                        materialization=self._specific_materialization(
+                            "snapshot_control_v0"
+                        ),
                     )
                     filename = get_model_filename(snap_ctrl.v0_name, extension="sql")
                     path = output_dir / filename
@@ -984,7 +1001,9 @@ class DbtProjectGenerator:
                 if v1_sql_template:
                     content = v1_sql_template.render(
                         **snap_ctrl.model_dump(),
-                        materialization=self._model_materialization("control"),
+                        materialization=self._specific_materialization(
+                            "snapshot_control_v1"
+                        ),
                     )
                     filename = get_model_filename(snap_ctrl.v1_name, extension="sql")
                     path = output_dir / filename

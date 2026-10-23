@@ -172,8 +172,10 @@ class GenerationConfig:
     staging_materialization: str = "view"
     raw_vault_materialization: str = "incremental"
     business_vault_materialization: str = "table"
-    # Also write the layer's materialization into each model's config()
-    materialization_in_models: bool = False
+    # Keep the own materialization of models that differ from their layer
+    model_specific_materializations: bool = True
+    # Overrides of those own materializations, keyed by model kind
+    model_materializations: dict[str, str] = field(default_factory=dict)
 
     # Optional profiles.yml, rendered from a caller-supplied mapping
     generate_profiles_yml: bool = False

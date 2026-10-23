@@ -95,8 +95,8 @@ def write_project_config(config_path: Path, config) -> None:
             "business_vault_materialization": (
                 config.configuration.business_vault_materialization
             ),
-            "materialization_in_models": (
-                config.configuration.materialization_in_models
+            "model_specific_materializations": (
+                config.configuration.model_specific_materializations
             ),
         },
         # Output paths are determined by convention (exports/ subfolder).
@@ -106,6 +106,11 @@ def write_project_config(config_path: Path, config) -> None:
             "export_sources": config.output.export_sources,
         },
     }
+
+    if config.configuration.model_materializations:
+        config_dict["configuration"]["model_materializations"] = dict(
+            config.configuration.model_materializations
+        )
 
     if config.output.generate_profiles_yml:
         config_dict["output"]["generate_profiles_yml"] = True

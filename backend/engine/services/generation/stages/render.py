@@ -137,7 +137,9 @@ def _build_dbt_config(
         staging_materialization=runtime_config.staging_materialization,
         raw_vault_materialization=runtime_config.raw_vault_materialization,
         business_vault_materialization=runtime_config.business_vault_materialization,
-        materialization_in_models=runtime_config.materialization_in_models,
+        model_specific_materializations=runtime_config.model_specific_materializations,
+        # Passed through as-is: the generator validates kinds and names.
+        model_materializations=runtime_config.model_materializations,
         generate_profiles_yml=runtime_config.generate_profiles_yml,
         # Same as global_vars: `render_profiles_yml` owns validating this.
         profiles=runtime_config.profiles,

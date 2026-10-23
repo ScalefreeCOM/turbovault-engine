@@ -16,6 +16,28 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # Materializations dbt accepts for the layers the generated project configures.
 DbtMaterialization = Literal["table", "view", "incremental", "ephemeral"]
 
+# Models whose own materialization (in their config() block) can be set.
+ModelKind = Literal[
+    "satellite_v1",
+    "reference_table",
+    "pit",
+    "snapshot_control_v0",
+    "snapshot_control_v1",
+]
+
+# Default own materialization of each of those models. Derived views
+# (satellite _v1, reference tables) recompute load-end dates and current rows
+# on every query; as incremental models they would append duplicates. PITs and
+# the snapshot control table are loaded incrementally by their datavault4dbt
+# macros.
+MODEL_MATERIALIZATION_DEFAULTS: dict[str, str] = {
+    "satellite_v1": "view",
+    "reference_table": "view",
+    "pit": "incremental",
+    "snapshot_control_v0": "incremental",
+    "snapshot_control_v1": "view",
+}
+
 
 def _sanitize_path_string(v: object) -> str:
     """
@@ -380,11 +402,20 @@ class ProjectConfiguration(BaseModel):
     business_vault_materialization: DbtMaterialization = Field(
         "table", description="Materialization of the Business Data Vault layer"
     )
-    materialization_in_models: bool = Field(
-        False,
+    model_specific_materializations: bool = Field(
+        True,
         description=(
-            "Also write each layer's materialization into the config() block "
-            "of every generated model, instead of only into dbt_project.yml"
+            "Keep the own materialization of models that differ from their "
+            "layer (satellite _v1 and reference tables as view, PIT and "
+            "snapshot control v0 incremental, snapshot control v1 view) in "
+            "their config() block; off: every model follows its layer"
+        ),
+    )
+    model_materializations: dict[ModelKind, DbtMaterialization] = Field(
+        default_factory=dict,
+        description=(
+            "Overrides of those own materializations per model kind; kinds "
+            "left out keep their default"
         ),
     )
 

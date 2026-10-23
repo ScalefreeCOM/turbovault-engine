@@ -169,7 +169,7 @@ turbovault project init --config config.yml
 | `--raw-vault-materialization STR` | | Raw Vault layer materialization | `incremental` |
 | `--business-vault-materialization STR` | | Business Vault layer materialization | `table` |
 | `--control-materialization STR` | | Control layer materialization | `table` |
-| `--materialization-in-models` | | Also write each layer's materialization into every model | `false` |
+| `--model-specific-materializations / --no-model-specific-materializations` | | Keep the own materialization of satellite `_v1`, reference tables, PITs and snapshot controls; `--no-…` makes every model follow its layer | on |
 | `--zip` | | Create ZIP of generated dbt project | `false` |
 | `--overwrite` | | Overwrite existing project | `false` |
 | `--interactive` | `-i` | Run interactive setup wizard | `false` |

@@ -42,15 +42,55 @@ SECRET_KEYS: frozenset[str] = frozenset(
 )
 
 # A value consisting of exactly one dbt `env_var(...)` call whose arguments are
-# a quoted variable name and an optional quoted default, e.g.
+# a quoted variable name and an optional *empty* default, e.g.
 # `{{ env_var('DBT_PASSWORD') }}` or `{{ env_var("DBT_PASSWORD", "") }}`.
 # Nothing else may surround or follow it, so no literal text slips through.
+# A non-empty default is a literal secret too: dbt uses it whenever the
+# variable is unset, and it is written into profiles.yml as it stands.
 _ENV_VAR_REFERENCE = re.compile(
     r"""^\s*\{\{\s*env_var\(\s*
         (['"])[^'"]+\1                  # variable name
-        (?:\s*,\s*(['"])[^'"]*\2)?      # optional default
+        (?:\s*,\s*(['"])\2)?            # optional empty default
         \s*\)\s*\}\}\s*$""",
     re.VERBOSE,
+)
+
+
+class _DuplicateKeyError(yaml.YAMLError):
+    """A mapping in profiles.yml text names the same key twice."""
+
+
+def _construct_unique_mapping(loader: yaml.SafeLoader, node: yaml.MappingNode):
+    """Build a mapping like SafeLoader does, but reject a key given twice.
+
+    `safe_load` keeps only the last of two equal keys, so a literal
+    `password: hunter2` followed by an env_var reference would pass the secret
+    check while the text still holds the credential. Names the key and its
+    line, never a value.
+    """
+    loader.flatten_mapping(node)
+    seen = set()
+    for key_node, _value_node in node.value:
+        key = loader.construct_object(key_node, deep=True)
+        try:
+            duplicate = key in seen
+        except TypeError:  # unhashable key; construct_mapping reports it
+            continue
+        if duplicate:
+            raise _DuplicateKeyError(
+                f"profiles.yml defines key {key!r} more than once "
+                f"(line {key_node.start_mark.line + 1})"
+            )
+        seen.add(key)
+    yield from loader.construct_yaml_map(node)
+
+
+class _UniqueKeySafeLoader(yaml.SafeLoader):
+    """SafeLoader that rejects duplicate mapping keys."""
+
+
+_UniqueKeySafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
 )
 
 
@@ -107,7 +147,16 @@ def validate_profiles_yaml(text: str, profile_name: str | None = None) -> list[I
     acceptable; otherwise one error Issue per problem found.
     """
     try:
-        parsed = yaml.safe_load(text)
+        parsed = yaml.load(text, Loader=_UniqueKeySafeLoader)  # noqa: S506 - safe
+    except _DuplicateKeyError as exc:
+        return [
+            make_issue(
+                severity="error",
+                code=Code.RENDER_INVALID_PROFILES,
+                stage="render",
+                message=str(exc),
+            )
+        ]
     except yaml.YAMLError:
         return [
             make_issue(
@@ -185,8 +234,17 @@ def _validate_structure(profiles: Any) -> None:
                 raise InvalidProfilesError(f"{where}: keys must be strings")
 
 
-def _check_secrets(value: Any, path: str) -> None:
-    """Reject literal values under known secret keys, at any depth."""
+def _check_secrets(value: Any, path: str, _ancestors: tuple[int, ...] = ()) -> None:
+    """Reject literal values under known secret keys, at any depth.
+
+    `_ancestors` holds the containers on the current path. A container that
+    contains itself (a recursive YAML alias such as `&loop [*loop]`) is
+    rejected instead of recursing forever; one shared without a cycle is fine.
+    """
+    if isinstance(value, (Mapping, list, tuple)):
+        if id(value) in _ancestors:
+            raise InvalidProfilesError(f"{path} contains itself (recursive YAML alias)")
+        _ancestors = (*_ancestors, id(value))
     if isinstance(value, Mapping):
         for key, child in value.items():
             child_path = f"{path}.{key}"
@@ -197,10 +255,10 @@ def _check_secrets(value: Any, path: str) -> None:
                         "{{ env_var('...') }} reference instead"
                     )
             else:
-                _check_secrets(child, child_path)
+                _check_secrets(child, child_path, _ancestors)
     elif isinstance(value, (list, tuple)):
         for index, item in enumerate(value):
-            _check_secrets(item, f"{path}[{index}]")
+            _check_secrets(item, f"{path}[{index}]", _ancestors)
 
 
 def _is_allowed_secret_value(value: Any) -> bool:

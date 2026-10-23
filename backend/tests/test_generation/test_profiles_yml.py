@@ -184,7 +184,7 @@ class TestSecretBypasses:
             "{{ env_var('DBT_PASSWORD') }}",
             '{{ env_var("DBT_PASSWORD") }}',
             "{{ env_var('DBT_PASSWORD', '') }}",
-            "  {{env_var('DBT_PASSWORD','fallback')}}  ",
+            "  {{env_var('DBT_PASSWORD','')}}  ",
         ],
     )
     def test_single_env_var_reference_accepted(self, value):
@@ -198,6 +198,10 @@ class TestSecretBypasses:
             "{{ env_var('A') ~ 'hunter2' }}",
             "{{ env_var(hunter2) }}",
             "{{ env_var('') }}",
+            # A non-empty default is used whenever the variable is unset.
+            "{{ env_var('DBT_PASSWORD', 'hunter2') }}",
+            "  {{env_var('DBT_PASSWORD','fallback')}}  ",
+            '{{ env_var("DBT_PASSWORD", "hunter2") }}',
         ],
     )
     def test_anything_but_one_env_var_call_rejected(self, value):
@@ -245,3 +249,57 @@ class TestSecretBypasses:
         content = render_profiles_yml(_profiles(scopes=("a", "b")))
         parsed = yaml.safe_load(content)
         assert parsed["my_profile"]["outputs"]["dev"]["scopes"] == ["a", "b"]
+
+
+class TestReviewRegressions:
+    """Second PR review: defaults, duplicate keys and recursive aliases."""
+
+    HEAD = "p:\n  target: dev\n  outputs:\n    dev:\n      type: duckdb\n"
+
+    def test_non_empty_default_rejected_by_validate(self):
+        text = self.HEAD + "      password: \"{{ env_var('PW', 'hunter2') }}\"\n"
+        issues = validate_profiles_yaml(text)
+        assert [i.code for i in issues] == ["render.literal_secret_in_profile"]
+        assert "hunter2" not in issues[0].message
+
+    def test_duplicate_key_hiding_a_literal_rejected(self):
+        text = (
+            self.HEAD
+            + "      password: hunter2\n"
+            + "      password: \"{{ env_var('PW') }}\"\n"
+        )
+        issues = validate_profiles_yaml(text)
+        assert [i.code for i in issues] == ["render.invalid_profiles"]
+        assert "'password'" in issues[0].message
+        assert "hunter2" not in issues[0].message
+
+    def test_duplicate_profile_rejected(self):
+        issues = validate_profiles_yaml(self.HEAD + self.HEAD)
+        assert [i.code for i in issues] == ["render.invalid_profiles"]
+
+    @pytest.mark.parametrize(
+        "extras",
+        ["&loop [*loop]", "&loop {self: *loop}", "&loop [1, {nested: *loop}]"],
+    )
+    def test_recursive_alias_reported_not_crashed(self, extras):
+        issues = validate_profiles_yaml(self.HEAD + f"      extras: {extras}\n")
+        assert [i.code for i in issues] == ["render.invalid_profiles"]
+        assert "recursive" in issues[0].message
+
+    def test_recursive_python_value_rejected(self):
+        loop: dict = {}
+        loop["self"] = loop
+        with pytest.raises(InvalidProfilesError, match="recursive"):
+            render_profiles_yml(_profiles(extras=loop))
+
+    def test_shared_alias_without_cycle_allowed(self):
+        text = self.HEAD + "      a: &shared [1, 2]\n      b: *shared\n"
+        assert validate_profiles_yaml(text) == []
+
+    def test_merge_key_still_works(self):
+        text = (
+            "p:\n  target: dev\n  outputs:\n"
+            "    base: &base\n      type: duckdb\n"
+            "    dev:\n      <<: *base\n      path: x.duckdb\n"
+        )
+        assert validate_profiles_yaml(text) == []

@@ -316,8 +316,8 @@ def _model_sql_by_type(report) -> dict[str, list[str]]:
     """SQL content of every generated model, grouped by kind.
 
     The kind is the entity type's first part, so `hub_standard` counts as
-    `hub` and `satellite_standard` / `satellite_effectivity` / `satellite_v1`
-    all count as `satellite`.
+    `hub` and `satellite_standard` / `satellite_effectivity` count as
+    `satellite`. `satellite_v1` is kept apart: it has its own materialization.
     """
     from pathlib import Path
 
@@ -325,22 +325,36 @@ def _model_sql_by_type(report) -> dict[str, list[str]]:
     for artifact in report.artifacts:
         if artifact.kind == "sql_model" and artifact.path:
             content = Path(artifact.path).read_text(encoding="utf-8")
-            kind = artifact.entity_type.split("_")[0]
+            entity_type = artifact.entity_type
+            kind = (
+                entity_type
+                if entity_type == "satellite_v1"
+                else entity_type.split("_")[0]
+            )
             models.setdefault(kind, []).append(content)
     return models
 
 
 class TestModelMaterialization:
-    """Models inherit their layer's materialization from dbt_project.yml unless
-    `materialization_in_models` writes it into each model's config()."""
+    """Models inherit their layer's materialization from dbt_project.yml.
+    Models that differ from their layer by nature keep their own in config()
+    while `model_specific_materializations` is on (the default)."""
 
-    def test_models_carry_no_materialization_by_default(self, run):
+    def test_layer_models_carry_no_materialization(self, run):
         report, _ = run()
         models = _model_sql_by_type(report)
-        assert {"stage", "hub", "link", "satellite"} <= set(models)
-        for entity_type, contents in models.items():
-            for content in contents:
-                assert "materialized=" not in content, entity_type
+        for kind in ("stage", "hub", "link", "satellite"):
+            assert models[kind], kind
+            for content in models[kind]:
+                assert "materialized=" not in content, kind
+
+    def test_v1_satellites_stay_views_by_default(self, run):
+        """Derived views must not inherit the raw vault's incremental."""
+        report, _ = run()
+        v1_models = _model_sql_by_type(report)["satellite_v1"]
+        assert v1_models
+        for content in v1_models:
+            assert "materialized='view'," in content
 
     def test_layer_setting_takes_effect_without_model_config(self, run):
         """The point of the setting: nothing in the model overrides the layer."""
@@ -352,31 +366,22 @@ class TestModelMaterialization:
         for content in _model_sql_by_type(report)["stage"]:
             assert "materialized=" not in content
 
-    def test_flag_writes_layer_values_into_models(self, run):
-        report, _ = run(materialization_in_models=True)
+    def test_specific_models_keep_their_own_under_custom_layers(self, run):
+        report, _ = run(raw_vault_materialization="table")
         models = _model_sql_by_type(report)
-        for content in models["stage"]:
+        for kind in ("hub", "link", "satellite"):
+            for content in models[kind]:
+                assert "materialized=" not in content, kind
+        for content in models["satellite_v1"]:
             assert "materialized='view'," in content
-        # v1 satellite views too: with the flag, every model follows its layer.
-        for kind in ("hub", "link", "satellite"):
-            assert models[kind]
-            for content in models[kind]:
-                assert "materialized='incremental'," in content, kind
 
-    def test_flag_follows_custom_layer_values(self, run):
-        report, _ = run(
-            materialization_in_models=True,
-            staging_materialization="ephemeral",
-            raw_vault_materialization="table",
-        )
+    def test_switched_off_every_model_follows_its_layer(self, run):
+        report, _ = run(model_specific_materializations=False)
         models = _model_sql_by_type(report)
-        for content in models["stage"]:
-            assert "materialized='ephemeral'," in content
-        # Every raw vault model follows the layer, v1 satellite views included.
-        for kind in ("hub", "link", "satellite"):
-            assert models[kind]
-            for content in models[kind]:
-                assert "materialized='table'," in content, kind
+        assert models["satellite_v1"]
+        for kind, contents in models.items():
+            for content in contents:
+                assert "materialized=" not in content, kind
 
     def test_custom_materialization_name_accepted(self, run):
         report, out = run(business_vault_materialization="my_custom_mat")
@@ -389,9 +394,134 @@ class TestModelMaterialization:
 
     @pytest.mark.parametrize("value", ["view'", "table, schema='x'", "", "1table"])
     def test_invalid_materialization_writes_nothing(self, run, value):
-        report, out = run(materialization_in_models=True, staging_materialization=value)
+        report, out = run(staging_materialization=value)
         errors = [i for i in report.issues if i.severity == "error"]
         assert [i.code for i in errors] == ["render.invalid_materialization"]
         assert "staging_materialization" in errors[0].message
         assert report.status == "validation_failed"
         assert not (out / "dbt_project.yml").exists()
+
+
+class TestSpecificMaterializations:
+    """The model kinds that keep their own materialization, and their values.
+    The fixture project has no PITs, reference tables or snapshot controls, so
+    their mapping is checked on the generator directly."""
+
+    EXPECTED = {
+        "satellite_v1": "view",
+        "reference_table": "view",
+        "pit": "incremental",
+        "snapshot_control_v0": "incremental",
+        "snapshot_control_v1": "view",
+    }
+
+    def _generator(self, tmp_path, **config):
+        from engine.services.generation.folder_config import GenerationConfig
+        from engine.services.generation.generator import DbtProjectGenerator
+
+        return DbtProjectGenerator(
+            output_path=tmp_path, config=GenerationConfig(**config)
+        )
+
+    def test_values_on_by_default(self, django_setup, tmp_path):
+        generator = self._generator(tmp_path)
+        for kind, value in self.EXPECTED.items():
+            assert generator._specific_materialization(kind) == value, kind
+
+    def test_none_when_switched_off(self, django_setup, tmp_path):
+        generator = self._generator(tmp_path, model_specific_materializations=False)
+        for kind in self.EXPECTED:
+            assert generator._specific_materialization(kind) is None, kind
+
+    def test_templates_write_the_value_only_when_given(self, django_setup):
+        """Each specific model's template carries the conditional line."""
+        from engine.services.generation.template_resolver import TEMPLATES_DIR
+
+        for kind in self.EXPECTED:
+            source = (TEMPLATES_DIR / "sql" / f"{kind}.sql.j2").read_text(
+                encoding="utf-8"
+            )
+            assert "[% if materialization %]" in source, kind
+            assert "materialized='[[ materialization ]]'," in source, kind
+
+
+class TestCustomModelMaterializations:
+    def test_override_reaches_the_model(self, run):
+        report, _ = run(model_materializations={"satellite_v1": "table"})
+        for content in _model_sql_by_type(report)["satellite_v1"]:
+            assert "materialized='table'," in content
+
+    def test_override_ignored_when_switched_off(self, run):
+        report, _ = run(
+            model_specific_materializations=False,
+            model_materializations={"satellite_v1": "table"},
+        )
+        for content in _model_sql_by_type(report)["satellite_v1"]:
+            assert "materialized=" not in content
+
+    def test_kinds_left_out_keep_their_default(self, django_setup, tmp_path):
+        from engine.services.generation.folder_config import GenerationConfig
+        from engine.services.generation.generator import DbtProjectGenerator
+
+        generator = DbtProjectGenerator(
+            output_path=tmp_path,
+            config=GenerationConfig(model_materializations={"pit": "view"}),
+        )
+        assert generator._specific_materialization("pit") == "view"
+        assert generator._specific_materialization("satellite_v1") == "view"
+
+    @pytest.mark.parametrize(
+        "overrides, field",
+        [
+            ({"hub": "table"}, "model_materializations.hub"),
+            ({"satellite_v1": "view'"}, "model_materializations.satellite_v1"),
+        ],
+    )
+    def test_invalid_override_writes_nothing(self, run, overrides, field):
+        report, out = run(model_materializations=overrides)
+        errors = [i for i in report.issues if i.severity == "error"]
+        assert [i.code for i in errors] == ["render.invalid_materialization"]
+        assert field in errors[0].message
+        assert not (out / "dbt_project.yml").exists()
+
+
+class TestNoRedundantModelMaterialization:
+    """A model's own materialization is only written when it differs from its
+    layer's; otherwise the config() block carries none."""
+
+    def test_v1_equal_to_raw_vault_layer_is_left_out(self, run):
+        report, _ = run(raw_vault_materialization="view")
+        for content in _model_sql_by_type(report)["satellite_v1"]:
+            assert "materialized=" not in content
+
+    def test_override_equal_to_layer_is_left_out(self, run):
+        report, _ = run(model_materializations={"satellite_v1": "incremental"})
+        for content in _model_sql_by_type(report)["satellite_v1"]:
+            assert "materialized=" not in content
+
+    @pytest.mark.parametrize(
+        "kind, layer_field",
+        [
+            ("reference_table", "raw_vault_materialization"),
+            ("pit", "business_vault_materialization"),
+            ("snapshot_control_v0", "control_materialization"),
+            ("snapshot_control_v1", "control_materialization"),
+        ],
+    )
+    def test_every_specific_model_compares_with_its_layer(
+        self, django_setup, tmp_path, kind, layer_field
+    ):
+        from engine.services.config_schema import MODEL_MATERIALIZATION_DEFAULTS
+        from engine.services.generation.folder_config import GenerationConfig
+        from engine.services.generation.generator import DbtProjectGenerator
+
+        default = MODEL_MATERIALIZATION_DEFAULTS[kind]
+        same = DbtProjectGenerator(
+            output_path=tmp_path, config=GenerationConfig(**{layer_field: default})
+        )
+        assert same._specific_materialization(kind) is None
+        other = "table" if default != "table" else "view"
+        different = DbtProjectGenerator(
+            output_path=tmp_path, config=GenerationConfig(**{layer_field: other})
+        )
+        assert different._specific_materialization(kind) == default

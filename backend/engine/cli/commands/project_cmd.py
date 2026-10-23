@@ -119,13 +119,17 @@ def project_init(
             help="Business Vault layer materialization (default: table)",
         ),
     ] = None,
-    materialization_in_models: Annotated[
+    model_specific_materializations: Annotated[
         bool,
         typer.Option(
-            "--materialization-in-models",
-            help="Also write each layer's materialization into every model",
+            "--model-specific-materializations/--no-model-specific-materializations",
+            help=(
+                "Keep the own materialization of satellite _v1, reference "
+                "tables, PITs and snapshot controls (off: every model follows "
+                "its layer)"
+            ),
         ),
-    ] = False,
+    ] = True,
     # Options
     zip_output: Annotated[
         bool,
@@ -186,7 +190,7 @@ def project_init(
         staging_materialization=staging_materialization,
         raw_vault_materialization=raw_vault_materialization,
         business_vault_materialization=business_vault_materialization,
-        materialization_in_models=materialization_in_models,
+        model_specific_materializations=model_specific_materializations,
         overwrite=overwrite,
         interactive=interactive,
         config=Path(config) if config else None,
