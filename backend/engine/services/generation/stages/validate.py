@@ -128,13 +128,15 @@ def _to_issue(
             entity_name=raw.entity_name or None,
             field=raw.field or None,
         ),
-        entity=EntityRef(
-            type=raw.entity_type,
-            name=raw.entity_name,
-            group=group,
-        )
-        if raw.entity_type and raw.entity_name
-        else None,
+        entity=(
+            EntityRef(
+                type=raw.entity_type,
+                name=raw.entity_name,
+                group=group,
+            )
+            if raw.entity_type and raw.entity_name
+            else None
+        ),
     )
 
 

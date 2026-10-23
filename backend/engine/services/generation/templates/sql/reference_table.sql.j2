@@ -1,7 +1,9 @@
 [# Reference Table Template #]
 [# Generates a reference table that combines a reference hub with its satellites #]
 {{ config(
-    materialized='view',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['reference_table', 'raw_vault']
 ) }}
 

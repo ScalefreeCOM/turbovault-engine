@@ -1,7 +1,9 @@
 [# Non-Historized Link Template #]
 [# Generates a non-historized link model using datavault4dbt.nh_link() macro #]
 {{ config(
-    materialized='incremental',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['link', 'non_historized', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 

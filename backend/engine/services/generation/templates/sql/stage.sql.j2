@@ -2,7 +2,9 @@
 [# Generates a staging model that prepares source data for Data Vault loading #]
 [# Uses datavault4dbt.stage() macro with yaml_metadata format #]
 {{ config(
-    materialized='view',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['staging', '[[ source_system | lower | replace(" ", "_") ]]']
 ) }}
 

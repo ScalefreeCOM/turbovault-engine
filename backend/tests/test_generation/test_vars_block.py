@@ -77,6 +77,11 @@ class TestDbtProjectTemplateVars:
             stage_schema="stage",
             rdv_schema="rdv",
             bdv_schema="bdv",
+            control_schema="control",
+            control_materialization="table",
+            staging_materialization="view",
+            raw_vault_materialization="incremental",
+            business_vault_materialization="table",
             **extra,
         )
 
@@ -93,9 +98,7 @@ class TestDbtProjectTemplateVars:
 
     def test_vars_block_renders_and_parses(self, django_setup):
         global_vars = {"datavault4dbt.hash": "MD5", "beginning_of_all_times": True}
-        content = self._render(
-            django_setup, vars_block=render_vars_block(global_vars)
-        )
+        content = self._render(django_setup, vars_block=render_vars_block(global_vars))
 
         parsed = yaml.safe_load(content)
         assert parsed["vars"] == global_vars
