@@ -54,6 +54,7 @@ deep-link errors; the CLI groups them in summary tables.
 | `render.entity_skipped` | Best-effort skipped an entity due to a render error (info). | See the preceding `render.template_*` error for the root cause. |
 | `render.invalid_global_vars` | The caller-supplied `global_vars` mapping could not be serialized into the `vars:` block. Nothing is generated, so an earlier run's output is left untouched rather than half-replaced. | Fix the reported key — `global_vars` must be a mapping with string keys and YAML-serializable values. |
 | `render.invalid_profiles` | `generate_profiles_yml` is on but the `profiles` mapping is not a valid dbt profiles structure (each profile needs a `target` and an `outputs` mapping containing that target, each output a `type`), holds a non-serializable value, or does not define the profile named by `profile_name`. Nothing is generated. | Fix the reported profile / output, or set `profile_name` to a profile in `profiles`. |
+| `render.invalid_materialization` | A layer materialization (`control_`, `staging_`, `raw_vault_`, `business_vault_materialization`) is not a dbt materialization name. Nothing is generated. | Use a name such as `table`, `view`, `incremental`, `ephemeral`, or a custom materialization's name. |
 | `render.literal_secret_in_profile` | A known secret key (`password`, `token`, `private_key`, …) in `profiles` holds a literal value. Nothing is generated; the value is never echoed. | Reference the secret via `{{ env_var('...') }}` instead of a literal. |
 
 ## Write stage

@@ -95,6 +95,9 @@ def write_project_config(config_path: Path, config) -> None:
             "business_vault_materialization": (
                 config.configuration.business_vault_materialization
             ),
+            "materialization_in_models": (
+                config.configuration.materialization_in_models
+            ),
         },
         # Output paths are determined by convention (exports/ subfolder).
         # create_zip / export_sources are still project-level preferences.

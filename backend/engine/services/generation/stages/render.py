@@ -137,6 +137,7 @@ def _build_dbt_config(
         staging_materialization=runtime_config.staging_materialization,
         raw_vault_materialization=runtime_config.raw_vault_materialization,
         business_vault_materialization=runtime_config.business_vault_materialization,
+        materialization_in_models=runtime_config.materialization_in_models,
         generate_profiles_yml=runtime_config.generate_profiles_yml,
         # Same as global_vars: `render_profiles_yml` owns validating this.
         profiles=runtime_config.profiles,
@@ -197,6 +198,7 @@ _LEGACY_ERROR_CODE_MAP: dict[str, str] = {
     "VAR_001": Code.RENDER_INVALID_GLOBAL_VARS,
     "PRF_001": Code.RENDER_INVALID_PROFILES,
     "PRF_002": Code.RENDER_LITERAL_SECRET_IN_PROFILE,
+    "MAT_001": Code.RENDER_INVALID_MATERIALIZATION,
 }
 
 

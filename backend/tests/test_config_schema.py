@@ -224,9 +224,8 @@ class TestDbtProjectSettings:
 
     def test_unknown_materialization_rejected(self):
         import pytest
-        from pydantic import ValidationError
-
         from engine.services.config_schema import TurboVaultConfig
+        from pydantic import ValidationError
 
         with pytest.raises(ValidationError):
             TurboVaultConfig(
@@ -236,11 +235,35 @@ class TestDbtProjectSettings:
 
     def test_invalid_control_schema_rejected(self):
         import pytest
-        from pydantic import ValidationError
-
         from engine.services.config_schema import TurboVaultConfig
+        from pydantic import ValidationError
 
         with pytest.raises(ValidationError):
             TurboVaultConfig(
                 project={"name": "p"}, configuration={"control_schema": "a b"}
             )
+
+
+class TestMaterializationInModels:
+    def test_defaults_to_false(self):
+        from engine.services.config_schema import TurboVaultConfig
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        config = TurboVaultConfig(project={"name": "p"})
+        assert config.configuration.materialization_in_models is False
+        assert (
+            EngineRuntimeConfig.from_turbovault_config(config).materialization_in_models
+            is False
+        )
+
+    def test_flows_into_runtime_config(self):
+        from engine.services.config_schema import TurboVaultConfig
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        config = TurboVaultConfig(
+            project={"name": "p"}, configuration={"materialization_in_models": True}
+        )
+        assert (
+            EngineRuntimeConfig.from_turbovault_config(config).materialization_in_models
+            is True
+        )

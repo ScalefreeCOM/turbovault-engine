@@ -34,6 +34,17 @@ from engine.services.generation.types import (
 )
 from engine.services.runtime_config import EngineRuntimeConfig, resolve_runtime_config
 
+# Render errors that reject the caller's project-level input before the
+# generator writes anything. They are fatal under every error strategy.
+_PROJECT_INPUT_ERROR_CODES = frozenset(
+    {
+        Code.RENDER_INVALID_GLOBAL_VARS,
+        Code.RENDER_INVALID_PROFILES,
+        Code.RENDER_LITERAL_SECRET_IN_PROFILE,
+        Code.RENDER_INVALID_MATERIALIZATION,
+    }
+)
+
 
 def run_pipeline(
     *,
@@ -150,8 +161,16 @@ def run_pipeline(
         timings["render"] = _ms(t0)
         emit(progress, stage="render", status="done", message="Render complete")
 
-        if options.error_strategy == "fail_fast" and any(
-            i.severity == "error" for i in render_issues
+        # A rejected project-level input (vars block, profiles) means the
+        # renderer produced nothing, so writing would only zip an earlier
+        # run's output. Stop before the write stage whatever the strategy.
+        if any(
+            i.severity == "error"
+            and (
+                options.error_strategy == "fail_fast"
+                or i.code in _PROJECT_INPUT_ERROR_CODES
+            )
+            for i in render_issues
         ):
             return _finalize(
                 project=project,

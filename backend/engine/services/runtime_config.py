@@ -69,6 +69,10 @@ class EngineRuntimeConfig:
     staging_materialization: str = "view"
     raw_vault_materialization: str = "incremental"
     business_vault_materialization: str = "table"
+    # Models carry no materialization of their own and inherit their layer's
+    # from dbt_project.yml. When set, each model gets its layer's value
+    # written into its config() block as well.
+    materialization_in_models: bool = False
 
     # Opt-in profiles.yml. `profiles` maps a profile name to
     # `{"target": ..., "outputs": {<target>: {"type": <adapter>, ...}}}` and is
@@ -119,6 +123,7 @@ class EngineRuntimeConfig:
             business_vault_materialization=(
                 config.configuration.business_vault_materialization
             ),
+            materialization_in_models=config.configuration.materialization_in_models,
             dbt_project_name=config.output.dbt_project_name or config.project.name,
             create_zip=config.output.create_zip,
             export_sources=config.output.export_sources,

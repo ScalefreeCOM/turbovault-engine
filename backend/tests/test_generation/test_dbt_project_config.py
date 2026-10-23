@@ -211,3 +211,187 @@ def test_runtime_config_stays_hashable_with_profiles(django_setup):
 
     config = EngineRuntimeConfig(project_name="p", profiles=PROFILES)
     assert hash(config) == hash(EngineRuntimeConfig(project_name="p"))
+
+
+class TestRejectedInputWritesNothing:
+    """A rejected project-level input must leave earlier output untouched,
+    also in best_effort mode and with create_zip (no zip of stale files)."""
+
+    @pytest.mark.parametrize(
+        "overrides, code",
+        [
+            (
+                {
+                    "profile_name": "p",
+                    "generate_profiles_yml": True,
+                    "profiles": {
+                        "p": {
+                            "target": "dev",
+                            "outputs": {
+                                "dev": {"type": "postgres", "password": "hunter2"}
+                            },
+                        }
+                    },
+                },
+                "render.literal_secret_in_profile",
+            ),
+            (
+                {"generate_profiles_yml": True, "profiles": {}},
+                "render.invalid_profiles",
+            ),
+            (
+                {"global_vars": {"datavault4dbt.hash": object()}},
+                "render.invalid_global_vars",
+            ),
+        ],
+    )
+    def test_best_effort_with_zip(
+        self,
+        overrides,
+        code,
+        django_setup,
+        project_export,
+        engine_project,
+        tmp_path,
+        monkeypatch,
+    ):
+        from engine.services.generation import GenerationOptions, generate
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        _patch_build_stage(monkeypatch, project_export)
+        out = tmp_path / "dbt_out"
+
+        # An earlier, successful run left a project on disk.
+        generate(
+            project=engine_project,
+            output_type="dbt",
+            output_path=out,
+            runtime_config=EngineRuntimeConfig(project_name="pipeline_e2e"),
+        )
+        assert (out / "dbt_project.yml").exists()
+
+        report = generate(
+            project=engine_project,
+            output_type="dbt",
+            output_path=out,
+            runtime_config=EngineRuntimeConfig(
+                project_name="pipeline_e2e", **overrides
+            ),
+            options=GenerationOptions(error_strategy="best_effort", create_zip=True),
+        )
+
+        assert [i.code for i in report.issues if i.severity == "error"] == [code]
+        assert report.status == "validation_failed"
+        assert report.artifacts == []
+        assert "write" not in report.timings_ms
+        assert not out.with_suffix(".zip").exists()
+
+
+class TestYamlQuoting:
+    def test_profile_name_with_quote_round_trips(self, run):
+        report, out = run(profile_name="team's_profile")
+        assert report.status in ("success", "partial_success")
+        parsed = yaml.safe_load((out / "dbt_project.yml").read_text(encoding="utf-8"))
+        assert parsed["profile"] == "team's_profile"
+
+    @pytest.mark.parametrize("name", ["off", "yes", "null", "123", "a: b", "x #y"])
+    def test_schema_names_stay_strings(self, run, name):
+        report, out = run(control_schema=name, stage_schema=name)
+        assert report.status in ("success", "partial_success")
+        parsed = yaml.safe_load((out / "dbt_project.yml").read_text(encoding="utf-8"))
+        layers = parsed["models"]["pipeline_e2e"]
+        assert layers["00_control"]["+schema"] == name
+        assert layers["02_staging"]["+schema"] == name
+
+    def test_plain_custom_names_stay_unquoted(self, run):
+        """Names YAML already reads correctly keep their previous form."""
+        _, out = run(profile_name="tpch_dv", control_schema="meta", stage_schema="stg")
+        content = (out / "dbt_project.yml").read_text(encoding="utf-8")
+        assert "profile: 'tpch_dv'" in content
+        assert "+schema: meta\n" in content
+        assert "+schema: stg\n" in content
+
+
+def _model_sql_by_type(report) -> dict[str, list[str]]:
+    """SQL content of every generated model, grouped by kind.
+
+    The kind is the entity type's first part, so `hub_standard` counts as
+    `hub` and `satellite_standard` / `satellite_effectivity` / `satellite_v1`
+    all count as `satellite`.
+    """
+    from pathlib import Path
+
+    models: dict[str, list[str]] = {}
+    for artifact in report.artifacts:
+        if artifact.kind == "sql_model" and artifact.path:
+            content = Path(artifact.path).read_text(encoding="utf-8")
+            kind = artifact.entity_type.split("_")[0]
+            models.setdefault(kind, []).append(content)
+    return models
+
+
+class TestModelMaterialization:
+    """Models inherit their layer's materialization from dbt_project.yml unless
+    `materialization_in_models` writes it into each model's config()."""
+
+    def test_models_carry_no_materialization_by_default(self, run):
+        report, _ = run()
+        models = _model_sql_by_type(report)
+        assert {"stage", "hub", "link", "satellite"} <= set(models)
+        for entity_type, contents in models.items():
+            for content in contents:
+                assert "materialized=" not in content, entity_type
+
+    def test_layer_setting_takes_effect_without_model_config(self, run):
+        """The point of the setting: nothing in the model overrides the layer."""
+        report, out = run(staging_materialization="ephemeral")
+        parsed = yaml.safe_load((out / "dbt_project.yml").read_text(encoding="utf-8"))
+        assert parsed["models"]["pipeline_e2e"]["02_staging"]["+materialized"] == (
+            "ephemeral"
+        )
+        for content in _model_sql_by_type(report)["stage"]:
+            assert "materialized=" not in content
+
+    def test_flag_writes_layer_values_into_models(self, run):
+        report, _ = run(materialization_in_models=True)
+        models = _model_sql_by_type(report)
+        for content in models["stage"]:
+            assert "materialized='view'," in content
+        # v1 satellite views too: with the flag, every model follows its layer.
+        for kind in ("hub", "link", "satellite"):
+            assert models[kind]
+            for content in models[kind]:
+                assert "materialized='incremental'," in content, kind
+
+    def test_flag_follows_custom_layer_values(self, run):
+        report, _ = run(
+            materialization_in_models=True,
+            staging_materialization="ephemeral",
+            raw_vault_materialization="table",
+        )
+        models = _model_sql_by_type(report)
+        for content in models["stage"]:
+            assert "materialized='ephemeral'," in content
+        # Every raw vault model follows the layer, v1 satellite views included.
+        for kind in ("hub", "link", "satellite"):
+            assert models[kind]
+            for content in models[kind]:
+                assert "materialized='table'," in content, kind
+
+    def test_custom_materialization_name_accepted(self, run):
+        report, out = run(business_vault_materialization="my_custom_mat")
+        assert report.status in ("success", "partial_success")
+        parsed = yaml.safe_load((out / "dbt_project.yml").read_text(encoding="utf-8"))
+        assert (
+            parsed["models"]["pipeline_e2e"]["04_business_vault"]["+materialized"]
+            == "my_custom_mat"
+        )
+
+    @pytest.mark.parametrize("value", ["view'", "table, schema='x'", "", "1table"])
+    def test_invalid_materialization_writes_nothing(self, run, value):
+        report, out = run(materialization_in_models=True, staging_materialization=value)
+        errors = [i for i in report.issues if i.severity == "error"]
+        assert [i.code for i in errors] == ["render.invalid_materialization"]
+        assert "staging_materialization" in errors[0].message
+        assert report.status == "validation_failed"
+        assert not (out / "dbt_project.yml").exists()

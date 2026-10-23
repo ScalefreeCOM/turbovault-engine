@@ -41,9 +41,17 @@ SECRET_KEYS: frozenset[str] = frozenset(
     }
 )
 
-# A value consisting of nothing but one dbt `env_var(...)` call (optionally
-# with a default), e.g. `{{ env_var('DBT_PASSWORD') }}`.
-_ENV_VAR_REFERENCE = re.compile(r"^\s*\{\{\s*env_var\(.*\)\s*\}\}\s*$", re.DOTALL)
+# A value consisting of exactly one dbt `env_var(...)` call whose arguments are
+# a quoted variable name and an optional quoted default, e.g.
+# `{{ env_var('DBT_PASSWORD') }}` or `{{ env_var("DBT_PASSWORD", "") }}`.
+# Nothing else may surround or follow it, so no literal text slips through.
+_ENV_VAR_REFERENCE = re.compile(
+    r"""^\s*\{\{\s*env_var\(\s*
+        (['"])[^'"]+\1                  # variable name
+        (?:\s*,\s*(['"])[^'"]*\2)?      # optional default
+        \s*\)\s*\}\}\s*$""",
+    re.VERBOSE,
+)
 
 
 class InvalidProfilesError(ValueError):
@@ -128,6 +136,12 @@ def _check_profiles(profiles: Any, profile_name: str | None) -> None:
     """Run every rule that applies to a profiles mapping, in one place."""
     _validate_structure(profiles)
     for name, profile in profiles.items():
+        # The whole profile is written out, so its own fields (beside
+        # `target` and `outputs`) are scanned too.
+        _check_secrets(
+            {key: value for key, value in profile.items() if key != "outputs"},
+            name,
+        )
         for output_name, output in profile["outputs"].items():
             _check_secrets(output, f"{name}.outputs.{output_name}")
     if profile_name is not None and profile_name not in profiles:
@@ -184,7 +198,7 @@ def _check_secrets(value: Any, path: str) -> None:
                     )
             else:
                 _check_secrets(child, child_path)
-    elif isinstance(value, list):
+    elif isinstance(value, (list, tuple)):
         for index, item in enumerate(value):
             _check_secrets(item, f"{path}[{index}]")
 
@@ -196,9 +210,9 @@ def _is_allowed_secret_value(value: Any) -> bool:
 
 
 def _plain(value: Any) -> Any:
-    """Turn any Mapping into a dict so ``safe_dump`` accepts it."""
+    """Turn any Mapping into a dict and any tuple into a list for ``safe_dump``."""
     if isinstance(value, Mapping):
         return {key: _plain(child) for key, child in value.items()}
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
         return [_plain(item) for item in value]
     return value

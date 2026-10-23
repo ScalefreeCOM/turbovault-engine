@@ -171,3 +171,77 @@ class TestValidateProfilesYaml:
     def test_profile_name_check_applies(self):
         issues = validate_profiles_yaml(self.VALID, profile_name="missing")
         assert [i.code for i in issues] == ["render.invalid_profiles"]
+
+
+class TestSecretBypasses:
+    """Regressions for literal secrets that slipped past the checks."""
+
+    SMUGGLED = "{{ env_var('A') }}hunter2{{ env_var('B') }}"
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "{{ env_var('DBT_PASSWORD') }}",
+            '{{ env_var("DBT_PASSWORD") }}',
+            "{{ env_var('DBT_PASSWORD', '') }}",
+            "  {{env_var('DBT_PASSWORD','fallback')}}  ",
+        ],
+    )
+    def test_single_env_var_reference_accepted(self, value):
+        render_profiles_yml(_profiles(password=value))
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "{{ env_var('A') }}hunter2{{ env_var('B') }}",
+            "{{ env_var('A') }} {{ env_var('B') }}",
+            "{{ env_var('A') ~ 'hunter2' }}",
+            "{{ env_var(hunter2) }}",
+            "{{ env_var('') }}",
+        ],
+    )
+    def test_anything_but_one_env_var_call_rejected(self, value):
+        with pytest.raises(LiteralSecretError):
+            render_profiles_yml(_profiles(password=value))
+
+    def test_smuggled_literal_rejected_by_validate(self):
+        text = (
+            "my_profile:\n  target: dev\n  outputs:\n    dev:\n"
+            "      type: duckdb\n"
+            f'      password: "{self.SMUGGLED}"\n'
+        )
+        issues = validate_profiles_yaml(text)
+        assert [i.code for i in issues] == ["render.literal_secret_in_profile"]
+
+    def test_profile_level_secret_rejected(self):
+        profiles = _profiles()
+        profiles["my_profile"]["password"] = "hunter2"
+        with pytest.raises(LiteralSecretError, match="my_profile.password"):
+            render_profiles_yml(profiles)
+
+    def test_profile_level_secret_rejected_by_validate(self):
+        text = (
+            "my_profile:\n  target: dev\n  password: hunter2\n"
+            "  outputs:\n    dev:\n      type: duckdb\n"
+        )
+        issues = validate_profiles_yaml(text)
+        assert [i.code for i in issues] == ["render.literal_secret_in_profile"]
+
+    def test_profile_and_output_names_are_not_secret_keys(self):
+        """A profile or output called like a secret key is not a secret."""
+        profiles = {
+            "token": {
+                "target": "password",
+                "outputs": {"password": {"type": "duckdb"}},
+            }
+        }
+        render_profiles_yml(profiles)
+
+    def test_secret_inside_tuple_rejected(self):
+        with pytest.raises(LiteralSecretError, match=r"extras\[0\]\.password"):
+            render_profiles_yml(_profiles(extras=({"password": "hunter2"},)))
+
+    def test_tuple_values_render_as_lists(self):
+        content = render_profiles_yml(_profiles(scopes=("a", "b")))
+        parsed = yaml.safe_load(content)
+        assert parsed["my_profile"]["outputs"]["dev"]["scopes"] == ["a", "b"]

@@ -1,9 +1,12 @@
 [# dbt_project.yml Template #]
+[# Caller-supplied names go through yaml_single_quote / yaml_scalar, which #]
+[# leave any value YAML already reads correctly untouched and quote the rest #]
+[# (quotes, off/yes/null, numbers, ...). #]
 name: '[[ project_name ]]'
 version: '1.0.0'
 config-version: 2
 
-profile: '[[ profile_name ]]'
+profile: [[ profile_name | yaml_single_quote ]]
 
 model-paths: ["models"]
 analysis-paths: ["analyses"]
@@ -19,14 +22,14 @@ clean-targets:
 [[ vars_block ]]models:
   [[ project_name ]]:
     00_control:
-      +schema: [[ control_schema ]]
-      +materialized: [[ control_materialization ]]
+      +schema: [[ control_schema | yaml_scalar ]]
+      +materialized: [[ control_materialization | yaml_scalar ]]
     02_staging:
-      +schema: [[ stage_schema ]]
-      +materialized: [[ staging_materialization ]]
+      +schema: [[ stage_schema | yaml_scalar ]]
+      +materialized: [[ staging_materialization | yaml_scalar ]]
     03_raw_vault:
-      +schema: [[ rdv_schema ]]
-      +materialized: [[ raw_vault_materialization ]]
+      +schema: [[ rdv_schema | yaml_scalar ]]
+      +materialized: [[ raw_vault_materialization | yaml_scalar ]]
     04_business_vault:
-      +schema: [[ bdv_schema ]]
-      +materialized: [[ business_vault_materialization ]]
+      +schema: [[ bdv_schema | yaml_scalar ]]
+      +materialized: [[ business_vault_materialization | yaml_scalar ]]

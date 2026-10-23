@@ -77,6 +77,12 @@ Controls what happens when individual entities fail to render.
 CLI flag: `--mode lenient` (maps to `best_effort`) or `--mode strict`
 (maps to `fail_fast`).
 
+Errors in the caller's project-level input — `render.invalid_global_vars`,
+`render.invalid_profiles` and `render.literal_secret_in_profile` — stop the
+run before the write stage under **both** strategies. Nothing is written and
+no ZIP is created, so an earlier run's output stays untouched, and the status
+is `validation_failed`.
+
 ---
 
 ## Dry-run mode
@@ -203,7 +209,38 @@ engine has always generated, byte for byte.
 | `staging_materialization` | `view` | `+materialized` of `02_staging`. |
 | `raw_vault_materialization` | `incremental` | `+materialized` of `03_raw_vault`. |
 | `business_vault_materialization` | `table` | `+materialized` of `04_business_vault`. |
+| `materialization_in_models` | `false` | Also write each layer's materialization into every generated model's `config()`. |
 | `global_vars` | `{}` | Rendered verbatim into the `vars:` block. |
+
+### How a model's materialization is decided
+
+Generated models carry no `materialized=` in their `config()` block, so dbt
+applies the layer's `+materialized` from `dbt_project.yml` to every model in
+that folder. Changing a layer's materialization therefore changes all of its
+generated models — including the satellite `_v1` views, reference tables,
+PITs and snapshot controls, which previously had fixed materializations of
+their own.
+
+With `materialization_in_models: true`, each model additionally gets its
+layer's value written into its `config()` (for example
+`materialized='incremental'` in every raw vault model). The value is the same;
+it is only stated in the model as well. There is no separate setting per
+model type.
+
+Materializations must be dbt materialization names (`table`, `view`,
+`incremental`, `ephemeral`, or a custom materialization). Anything else fails
+the run with `render.invalid_materialization` before anything is written.
+
+> **Raw vault history:** hubs, links and satellites collect history through
+> incremental loads. Materialized as `table` or `view`, they only hold what
+> the stage currently delivers.
+
+> **Existing CLI workspaces:** `workspace init` copies the model templates into
+> the database, and those copies take precedence over the bundled files. A
+> workspace created before this change keeps generating `materialized=` from
+> its stored copies until they are refreshed with
+> `python manage.py populate_templates --overwrite`, which also replaces any
+> customised templates.
 
 ### Optional profiles.yml
 

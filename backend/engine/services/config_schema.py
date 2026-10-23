@@ -380,6 +380,13 @@ class ProjectConfiguration(BaseModel):
     business_vault_materialization: DbtMaterialization = Field(
         "table", description="Materialization of the Business Data Vault layer"
     )
+    materialization_in_models: bool = Field(
+        False,
+        description=(
+            "Also write each layer's materialization into the config() block "
+            "of every generated model, instead of only into dbt_project.yml"
+        ),
+    )
 
     @field_validator("stage_schema", "rdv_schema", "bdv_schema", "control_schema")
     @classmethod

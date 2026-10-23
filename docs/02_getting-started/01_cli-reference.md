@@ -157,14 +157,32 @@ turbovault project init --config config.yml
 | `--source PATH` | `-s` | Source metadata file (`.xlsx`, `.db`, or `.json` export), or a directory holding an IRiS three-file export | — |
 | `--stage-schema STR` | | Staging schema name | `stage` |
 | `--rdv-schema STR` | | Raw Data Vault schema name | `rdv` |
+| `--bdv-schema STR` | | Business Data Vault schema name | `bdv` |
+| `--control-schema STR` | | Control layer schema name | `control` |
 | `--stage-database STR` | | Optional staging database name | — |
 | `--rdv-database STR` | | Optional RDV database name | — |
+| `--bdv-database STR` | | Optional BDV database name — currently not saved, see note below | — |
 | `--hashdiff-naming STR` | | Hashdiff naming pattern | `hd_[[ satellite_name ]]` |
 | `--hashkey-naming STR` | | Hashkey naming pattern | `hd_[[ entity_name ]]` |
+| `--profile-name STR` | | dbt profile referenced by `dbt_project.yml` | `default` |
+| `--staging-materialization STR` | | Staging layer materialization | `view` |
+| `--raw-vault-materialization STR` | | Raw Vault layer materialization | `incremental` |
+| `--business-vault-materialization STR` | | Business Vault layer materialization | `table` |
+| `--control-materialization STR` | | Control layer materialization | `table` |
+| `--materialization-in-models` | | Also write each layer's materialization into every model | `false` |
 | `--zip` | | Create ZIP of generated dbt project | `false` |
 | `--overwrite` | | Overwrite existing project | `false` |
 | `--interactive` | `-i` | Run interactive setup wizard | `false` |
 | `--config PATH` | `-c` | Load settings from a `config.yml` | — |
+
+Materializations accept `table`, `view`, `incremental` and `ephemeral`. See
+[dbt project settings](../04_concepts/07_generation-pipeline.md#dbt-project-settings)
+for how they apply to the generated models.
+
+> **Known limitation:** the BDV database — whether given with `--bdv-database`
+> or in the interactive wizard — is not written to the project's `config.yml`.
+> Add `bdv_database` under `configuration:` in `config.yml` by hand after
+> `project init`.
 
 ---
 
