@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -478,16 +478,6 @@ class OutputConfiguration(BaseModel):
     generate_dbml: bool = Field(
         False,
         description="Whether to generate DBML file alongside dbt project (for future use)",
-    )
-
-    # Optional profiles.yml. `profiles` is rendered verbatim (profile name ->
-    # {"target": ..., "outputs": {...}}); secrets must be env_var references.
-    generate_profiles_yml: bool = Field(
-        False, description="Whether to generate a profiles.yml for dbt"
-    )
-    profiles: dict[str, Any] = Field(
-        default_factory=dict,
-        description="dbt profiles rendered into profiles.yml when enabled",
     )
 
 

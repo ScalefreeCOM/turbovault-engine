@@ -112,10 +112,6 @@ def write_project_config(config_path: Path, config) -> None:
             config.configuration.model_materializations
         )
 
-    if config.output.generate_profiles_yml:
-        config_dict["output"]["generate_profiles_yml"] = True
-        config_dict["output"]["profiles"] = config.output.profiles
-
     # Add optional fields if present
     if config.configuration.stage_database:
         config_dict["configuration"][

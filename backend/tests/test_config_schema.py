@@ -193,8 +193,6 @@ class TestDbtProjectSettings:
         assert runtime.staging_materialization == "view"
         assert runtime.raw_vault_materialization == "incremental"
         assert runtime.business_vault_materialization == "table"
-        assert runtime.generate_profiles_yml is False
-        assert runtime.profiles == {}
 
     def test_values_flow_into_runtime_config(self):
         from engine.services.config_schema import TurboVaultConfig
@@ -208,12 +206,6 @@ class TestDbtProjectSettings:
                 "staging_materialization": "ephemeral",
                 "business_vault_materialization": "view",
             },
-            output={
-                "generate_profiles_yml": True,
-                "profiles": {
-                    "tpch_dv": {"target": "dev", "outputs": {"dev": {"type": "duckdb"}}}
-                },
-            },
         )
         runtime = EngineRuntimeConfig.from_turbovault_config(config)
 
@@ -221,8 +213,25 @@ class TestDbtProjectSettings:
         assert runtime.control_schema == "meta"
         assert runtime.staging_materialization == "ephemeral"
         assert runtime.business_vault_materialization == "view"
-        assert runtime.generate_profiles_yml is True
-        assert runtime.profiles["tpch_dv"]["target"] == "dev"
+
+    def test_profiles_are_not_set_through_config_yml(self):
+        """Like global_vars, profiles.yml is driven by embedded callers only:
+        config.yml has no such setting, so the runtime config keeps it off."""
+        from engine.services.config_schema import TurboVaultConfig
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        config = TurboVaultConfig(
+            project={"name": "p"},
+            output={
+                "generate_profiles_yml": True,
+                "profiles": {"p": {"target": "dev", "outputs": {"dev": {}}}},
+            },
+        )
+        runtime = EngineRuntimeConfig.from_turbovault_config(config)
+
+        assert runtime.generate_profiles_yml is False
+        assert runtime.profiles == {}
+        assert not hasattr(config.output, "profiles")
 
     def test_unknown_materialization_rejected(self):
         import pytest

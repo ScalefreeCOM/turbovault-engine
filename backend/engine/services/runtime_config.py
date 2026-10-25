@@ -84,6 +84,8 @@ class EngineRuntimeConfig:
     # rendered verbatim; the engine does not curate adapter fields (Studio
     # does). Secrets must be `{{ env_var('...') }}` references — literal values
     # for known secret keys are rejected (see generation.profiles_yml).
+    # Like `global_vars`, set only by embedded callers: config.yml has no
+    # equivalent, so `from_turbovault_config` leaves both at their defaults.
     generate_profiles_yml: bool = False
     profiles: dict[str, Any] = field(default_factory=dict, hash=False)
 
@@ -137,8 +139,6 @@ class EngineRuntimeConfig:
             export_sources=config.output.export_sources,
             generate_tests=config.output.generate_tests,
             generate_dbml=config.output.generate_dbml,
-            generate_profiles_yml=config.output.generate_profiles_yml,
-            profiles=dict(config.output.profiles),
         )
 
     @classmethod

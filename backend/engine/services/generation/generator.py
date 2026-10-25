@@ -44,7 +44,18 @@ _MATERIALIZATION_FIELDS = (
     "business_vault_materialization",
 )
 # A dbt materialization name: built-in (table, view, ...) or a custom one.
-_MATERIALIZATION_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_MATERIALIZATION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _is_materialization_name(value: object) -> bool:
+    """Whether `value` is a usable dbt materialization name.
+
+    Only real strings count — `str(None)` would pass as "None" — and the whole
+    string must match: `$` in `re.match` also accepts a trailing newline, which
+    would break the `materialized='...'` line in the generated SQL.
+    """
+    return isinstance(value, str) and bool(_MATERIALIZATION_NAME.fullmatch(value))
+
 
 # Models whose materialization differs from their layer's by nature, with
 # their default. Written into the model's config() while
@@ -145,9 +156,7 @@ class DbtProjectGenerator:
         profiles_content: str | None = None
         if self.config.generate_profiles_yml:
             try:
-                profiles_content = render_profiles_yml(
-                    self.config.profiles, profile_name=self.config.profile_name
-                )
+                profiles_content = render_profiles_yml(self.config.profiles)
             except LiteralSecretError as e:
                 self.report.add_error(
                     entity_type="project",
@@ -170,7 +179,7 @@ class DbtProjectGenerator:
         invalid = [
             field_name
             for field_name in _MATERIALIZATION_FIELDS
-            if not _MATERIALIZATION_NAME.match(str(getattr(self.config, field_name)))
+            if not _is_materialization_name(getattr(self.config, field_name))
         ]
         model_materializations = self.config.model_materializations
         if not isinstance(model_materializations, dict):
@@ -180,7 +189,7 @@ class DbtProjectGenerator:
                 f"model_materializations.{kind}"
                 for kind, value in model_materializations.items()
                 if kind not in _SPECIFIC_MATERIALIZATIONS
-                or not _MATERIALIZATION_NAME.match(str(value))
+                or not _is_materialization_name(value)
             )
         if invalid:
             self.report.add_error(

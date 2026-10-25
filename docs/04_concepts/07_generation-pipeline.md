@@ -266,8 +266,38 @@ of them.
 > unless the raw vault layer is `table` or `view`.
 
 Materializations must be dbt materialization names (`table`, `view`,
-`incremental`, `ephemeral`, or a custom materialization). Anything else fails
-the run with `render.invalid_materialization` before anything is written.
+`incremental`, `ephemeral`, or a custom materialization) given as strings.
+Anything else — including `None` — fails the run with
+`render.invalid_materialization` before anything is written.
+
+#### Subfolders
+
+Models with a group are written to a subfolder of their layer
+(`models/03_raw_vault/<group>/`), stages to one per source system
+(`models/02_staging/<source_system>/`). dbt applies a folder's settings to all
+of its subfolders, so these models follow their layer's materialization and
+schema.
+
+The engine sets materializations per layer only; there is no setting per
+subfolder. dbt itself supports it — a more specific folder in
+`dbt_project.yml` wins over its parent:
+
+```yaml
+models:
+  my_project:
+    03_raw_vault:
+      +materialized: incremental
+      sales:                       # models/03_raw_vault/sales/
+        +materialized: table
+```
+
+To use this, add the subfolder entries to `dbt_project.yml` yourself — in
+Studio through the manual `dbt_project.yml`; a CLI run regenerates the file and
+drops them. Folder names are the sanitized group / source system names
+(lowercase, underscores). A model's own materialization in its `config()`
+block still takes precedence, so the model-specific materializations above
+(satellite `_v1`, reference tables, PITs, snapshot controls) ignore subfolder
+settings unless `model_specific_materializations` is off.
 
 > **Raw vault history:** hubs, links and satellites collect history through
 > incremental loads. Materialized as `table` or `view`, they only hold what
@@ -285,7 +315,12 @@ the run with `render.invalid_materialization` before anything is written.
 Set `generate_profiles_yml=True` and pass a `profiles` mapping to also
 emit a `profiles.yml` at the project root (artifact kind `dbt_profiles`,
 counted in the plan, included in the ZIP). The mapping is rendered
-verbatim; the engine does not curate adapter fields:
+verbatim; the engine does not curate adapter fields — which fields an adapter
+needs is up to the caller (Studio keeps a per-adapter catalog).
+
+Like `global_vars`, these are `EngineRuntimeConfig` settings for embedded
+callers only. A project's `config.yml` has no equivalent, so CLI generation
+never writes a `profiles.yml`.
 
 ```python
 EngineRuntimeConfig(
@@ -311,16 +346,17 @@ Secrets must be `{{ env_var('...') }}` references, without a default value
 or with an empty one (`{{ env_var('DBT_PASSWORD', '') }}`): dbt uses a
 default whenever the variable is unset, so a non-empty default is a literal
 secret too. A literal value for a known secret key (`password`, `token`,
-`private_key`, `private_key_passphrase`, `client_secret`, `keyfile_json`, …)
-fails the run with `render.literal_secret_in_profile` before anything is
-written; a malformed mapping — including one that contains itself through a
-recursive YAML alias — fails with `render.invalid_profiles`.
+`private_key`, `private_key_passphrase`, `client_secret`, `keyfile_json`, …),
+at any depth of the mapping, fails the run with
+`render.literal_secret_in_profile` before anything is written. A `profiles`
+value that is not a mapping, or cannot be written as YAML, fails with
+`render.invalid_profiles`.
 
-`validate_profiles_yaml()` applies the same rules to manually written
-`profiles.yml` text, and additionally rejects a key given twice in one
-mapping: YAML keeps only the last value, so `password: hunter2` followed by
-an `env_var` reference would otherwise pass while the text still holds the
-credential.
+Secrets are the only thing the engine checks. Whether the mapping is a usable
+dbt profile — targets, outputs, the adapter's fields, a profile matching
+`profile_name` — is the caller's concern, as is a manually written
+`profiles.yml` (like Studio's manual `dbt_project.yml`). A caller can run its
+mapping through `render_profiles_yml()` to apply the same secret rules.
 
 ---
 

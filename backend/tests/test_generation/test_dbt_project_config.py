@@ -200,8 +200,8 @@ class TestProfilesYml:
         assert report.files_generated == 0
         assert not (out / "dbt_project.yml").exists()
 
-    def test_invalid_structure_reported(self, run):
-        report, _ = run(generate_profiles_yml=True, profiles={})
+    def test_non_mapping_profiles_reported(self, run):
+        report, _ = run(generate_profiles_yml=True, profiles=["not", "a", "mapping"])
         assert any(i.code == "render.invalid_profiles" for i in report.issues)
         assert report.files_generated == 0
 
@@ -236,7 +236,7 @@ class TestRejectedInputWritesNothing:
                 "render.literal_secret_in_profile",
             ),
             (
-                {"generate_profiles_yml": True, "profiles": {}},
+                {"generate_profiles_yml": True, "profiles": ["not", "a", "mapping"]},
                 "render.invalid_profiles",
             ),
             (
@@ -525,3 +525,24 @@ class TestNoRedundantModelMaterialization:
             output_path=tmp_path, config=GenerationConfig(**{layer_field: other})
         )
         assert different._specific_materialization(kind) == default
+
+
+class TestNonStringMaterializations:
+    """Third PR review: only real strings that match as a whole are names."""
+
+    @pytest.mark.parametrize("value", [None, 5, "table\n", " table"])
+    def test_layer_value_rejected(self, run, value):
+        report, out = run(raw_vault_materialization=value)
+        errors = [i for i in report.issues if i.severity == "error"]
+        assert [i.code for i in errors] == ["render.invalid_materialization"]
+        assert "raw_vault_materialization" in errors[0].message
+        assert not (out / "dbt_project.yml").exists()
+
+    @pytest.mark.parametrize("value", [None, 5, "view\n"])
+    def test_model_override_rejected(self, run, value):
+        """None must not silently drop the _v1 view and inherit incremental."""
+        report, out = run(model_materializations={"satellite_v1": value})
+        errors = [i for i in report.issues if i.severity == "error"]
+        assert [i.code for i in errors] == ["render.invalid_materialization"]
+        assert "model_materializations.satellite_v1" in errors[0].message
+        assert not (out / "dbt_project.yml").exists()
