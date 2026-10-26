@@ -71,10 +71,15 @@ def render_sqlmesh(
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
     """Generate a SQLMesh project from the export and return artifacts + issues.
 
+    Hubs, links, and satellites are rendered first. The set of entity names that
+    actually produced an artifact is then used to filter stage hashkeys/hashdiffs,
+    so stages only include hashed columns for entities that will be consumed.
+    This filtering is fully dynamic — no hardcoded type lists here.
+
     Unsupported entity types produce warning Issues and are excluded from the
     artifact list (the generation continues in best-effort style regardless of
     the caller's error_strategy — these are structural limitations, not data
-    errors). The caller should set status=partial_success when warnings exist.
+    errors).
     """
     artifacts: list[GeneratedArtifact] = []
     issues: list[Issue] = []
@@ -82,79 +87,39 @@ def render_sqlmesh(
     # --- Scaffold files (always present) ---
     artifacts.extend(_render_scaffold(runtime_config))
 
-    # --- Stage models ---
-    for stage in export.stages:
-        artifacts.append(_render_stage(stage, runtime_config))
+    # --- Hubs, links, satellites first ---
+    # Collect the names of entities that were actually rendered so stages can
+    # filter their hashed_columns to only include those with a consumer.
+    rendered_hub_names: set[str] = set()
+    rendered_link_names: set[str] = set()
+    rendered_sat_names: set[str] = set()
 
-    # --- Hub models ---
     for hub in export.hubs:
-        if hub.hub_type == "reference":
-            issues.append(
-                _unsupported_warning(
-                    hub.hub_name,
-                    "hub",
-                    hub.group,
-                    Code.SQLMESH_UNSUPPORTED_REFERENCE_HUB,
-                    "Reference hubs are not yet supported in SQLMesh output.",
-                )
-            )
-            continue
-        if not hub.source_tables:
-            issues.append(
-                make_issue(
-                    severity="warning",
-                    code=Code.SQLMESH_HUB_NO_SOURCES,
-                    stage="render",
-                    message=f"Hub '{hub.hub_name}' has no source tables and was skipped.",
-                    entity=EntityRef(type="hub", name=hub.hub_name, group=hub.group),
-                )
-            )
-            continue
-        artifacts.append(_render_hub(hub, runtime_config))
+        artifact = _try_render_hub(hub, runtime_config, issues)
+        if artifact:
+            artifacts.append(artifact)
+            rendered_hub_names.add(hub.hub_name)
 
-    # --- Link models ---
     for link in export.links:
-        if link.link_type == "non_historized":
-            issues.append(
-                _unsupported_warning(
-                    link.link_name,
-                    "link",
-                    link.group,
-                    Code.SQLMESH_UNSUPPORTED_NON_HISTORIZED_LINK,
-                    "Non-historized links are not yet supported in SQLMesh output.",
-                )
-            )
-            continue
-        if not link.source_tables:
-            issues.append(
-                make_issue(
-                    severity="warning",
-                    code=Code.SQLMESH_LINK_NO_SOURCES,
-                    stage="render",
-                    message=f"Link '{link.link_name}' has no source tables and was skipped.",
-                    entity=EntityRef(type="link", name=link.link_name, group=link.group),
-                )
-            )
-            continue
-        artifacts.append(_render_link(link, runtime_config))
+        artifact = _try_render_link(link, runtime_config, issues)
+        if artifact:
+            artifacts.append(artifact)
+            rendered_link_names.add(link.link_name)
 
-    # --- Satellite models ---
     for sat in export.satellites:
-        if sat.satellite_type in _UNSUPPORTED_SAT_TYPES:
-            label = _SAT_TYPE_LABELS.get(sat.satellite_type, sat.satellite_type)
-            issues.append(
-                _unsupported_warning(
-                    sat.satellite_name,
-                    "satellite",
-                    sat.group,
-                    Code.SQLMESH_UNSUPPORTED_SATELLITE_TYPE,
-                    f"Satellite type '{label}' is not yet supported in SQLMesh output.",
-                )
-            )
-            continue
-        artifacts.append(_render_satellite(sat, runtime_config))
-        if options.generate_satellite_v1_views and sat.satellite_type == "standard":
-            artifacts.append(_render_satellite_v1(sat, runtime_config))
+        artifact = _try_render_sat(sat, runtime_config, issues)
+        if artifact:
+            artifacts.append(artifact)
+            rendered_sat_names.add(sat.satellite_name)
+            if options.generate_satellite_v1_views and sat.satellite_type == "standard":
+                artifacts.append(_render_satellite_v1(sat, runtime_config))
+
+    # --- Stage models (filtered by what was actually rendered above) ---
+    for stage in export.stages:
+        artifacts.append(
+            _render_stage(stage, runtime_config,
+                          rendered_hub_names, rendered_link_names, rendered_sat_names)
+        )
 
     # --- Unsupported top-level entities ---
     for rt in export.reference_tables:
@@ -191,6 +156,83 @@ def render_sqlmesh(
     return artifacts, issues
 
 
+def _try_render_hub(
+    hub: HubDefinition,
+    runtime_config: EngineRuntimeConfig,
+    issues: list[Issue],
+) -> GeneratedArtifact | None:
+    """Render a hub artifact, or append a warning and return None if skipped."""
+    if hub.hub_type == "reference":
+        issues.append(
+            _unsupported_warning(
+                hub.hub_name, "hub", hub.group,
+                Code.SQLMESH_UNSUPPORTED_REFERENCE_HUB,
+                "Reference hubs are not yet supported in SQLMesh output.",
+            )
+        )
+        return None
+    if not hub.source_tables:
+        issues.append(
+            make_issue(
+                severity="warning",
+                code=Code.SQLMESH_HUB_NO_SOURCES,
+                stage="render",
+                message=f"Hub '{hub.hub_name}' has no source tables and was skipped.",
+                entity=EntityRef(type="hub", name=hub.hub_name, group=hub.group),
+            )
+        )
+        return None
+    return _render_hub(hub, runtime_config)
+
+
+def _try_render_link(
+    link: LinkDefinition,
+    runtime_config: EngineRuntimeConfig,
+    issues: list[Issue],
+) -> GeneratedArtifact | None:
+    """Render a link artifact, or append a warning and return None if skipped."""
+    if link.link_type == "non_historized":
+        issues.append(
+            _unsupported_warning(
+                link.link_name, "link", link.group,
+                Code.SQLMESH_UNSUPPORTED_NON_HISTORIZED_LINK,
+                "Non-historized links are not yet supported in SQLMesh output.",
+            )
+        )
+        return None
+    if not link.source_tables:
+        issues.append(
+            make_issue(
+                severity="warning",
+                code=Code.SQLMESH_LINK_NO_SOURCES,
+                stage="render",
+                message=f"Link '{link.link_name}' has no source tables and was skipped.",
+                entity=EntityRef(type="link", name=link.link_name, group=link.group),
+            )
+        )
+        return None
+    return _render_link(link, runtime_config)
+
+
+def _try_render_sat(
+    sat: SatelliteDefinition,
+    runtime_config: EngineRuntimeConfig,
+    issues: list[Issue],
+) -> GeneratedArtifact | None:
+    """Render a satellite artifact, or append a warning and return None if skipped."""
+    if sat.satellite_type in _UNSUPPORTED_SAT_TYPES:
+        label = _SAT_TYPE_LABELS.get(sat.satellite_type, sat.satellite_type)
+        issues.append(
+            _unsupported_warning(
+                sat.satellite_name, "satellite", sat.group,
+                Code.SQLMESH_UNSUPPORTED_SATELLITE_TYPE,
+                f"Satellite type '{label}' is not yet supported in SQLMesh output.",
+            )
+        )
+        return None
+    return _render_satellite(sat, runtime_config)
+
+
 # ---------------------------------------------------------------------------
 # Scaffold files
 # ---------------------------------------------------------------------------
@@ -199,7 +241,7 @@ def render_sqlmesh(
 def _render_scaffold(runtime_config: EngineRuntimeConfig) -> list[GeneratedArtifact]:
     """Return the five project-level scaffold files."""
     return [
-        _artifact("sqlmesh_config", "config.yaml", _render_config_yaml(runtime_config)),
+        _artifact_once("sqlmesh_config", "config.yaml", _render_config_yaml(runtime_config)),
         _artifact("sqlmesh_config", "config.json", _render_config_json(runtime_config)),
         _artifact("sqlmesh_config", "models/__init__.py", _MODELS_INIT),
         _artifact("sqlmesh_config", "requirements.txt", _REQUIREMENTS),
@@ -217,33 +259,37 @@ _REQUIREMENTS = "datavault4sqlmesh>=0.1.0\n"
 
 
 def _render_config_yaml(runtime_config: EngineRuntimeConfig) -> str:
-    """Render the SQLMesh config.yaml gateway file."""
+    """Render a type-agnostic SQLMesh config.yaml hull.
+
+    Only written on first generation — never overwritten. The user fills in
+    the connection block for their target platform (postgres, snowflake, etc.).
+    """
     gateway = runtime_config.sqlmesh_gateway
-    conn_type = runtime_config.sqlmesh_connection_type
-    dialect = runtime_config.sqlmesh_dialect
     start = runtime_config.sqlmesh_start
 
-    if conn_type == "duckdb":
-        connection_lines = "      type: duckdb\n      database: \":memory:\""
-    else:
-        connection_lines = (
-            f"      type: {conn_type}\n"
-            "      host: ${SQLMESH_HOST}\n"
-            "      user: ${SQLMESH_USER}\n"
-            "      password: ${SQLMESH_PASSWORD}\n"
-            "      database: ${SQLMESH_DATABASE}"
-        )
-
     return (
+        "# SQLMesh project configuration\n"
+        "# Fill in the connection details for your target platform and run sqlmesh plan.\n"
+        "# Full reference: https://sqlmesh.readthedocs.io/en/stable/reference/configuration/\n"
+        "#\n"
+        "# Connection examples by type:\n"
+        "#   postgres:    type, host, port, user, password, database\n"
+        "#   snowflake:   type, account, user, password, database, warehouse, role\n"
+        "#   databricks:  type, server_hostname, http_path, access_token, catalog\n"
+        "#   trino:       type, host, port, user, catalog\n"
+        "#   bigquery:    type, project, dataset\n"
+        "#   duckdb:      type: duckdb / database: ':memory:'\n"
+        "\n"
         f"gateways:\n"
         f"  {gateway}:\n"
         f"    connection:\n"
-        f"{connection_lines}\n"
+        f"      type:\n"
+        f"      # add connection parameters here\n"
         f"\n"
         f"default_gateway: {gateway}\n"
         f"\n"
         f"model_defaults:\n"
-        f"  dialect: {dialect}\n"
+        f"  dialect:  # e.g. postgres, snowflake, databricks, trino, bigquery, duckdb\n"
         f'  start: "{start}"\n'
     )
 
@@ -283,34 +329,63 @@ def _render_readme(runtime_config: EngineRuntimeConfig) -> str:
 def _render_stage(
     stage: StageDefinition,
     runtime_config: EngineRuntimeConfig,
+    rendered_hub_names: set[str],
+    rendered_link_names: set[str],
+    rendered_sat_names: set[str],
 ) -> GeneratedArtifact:
-    """Render a stage_model(...) Python file."""
+    """Render a stage_model(...) Python file.
+
+    Hashkeys and hashdiffs are filtered to only those whose parent entity was
+    actually rendered — derived from the sets passed in, not from hardcoded
+    type conditions. If all hashed_columns are filtered out the argument is
+    omitted entirely, which is valid for a source-only stage.
+    """
     model_name = f"{runtime_config.stage_schema}.{stage.stage_name}"
 
     hashed_columns: dict[str, Any] = {}
     for hk in stage.hashkeys:
+        if hk.entity_type == "hub" and hk.target_entity not in rendered_hub_names:
+            continue
+        if hk.entity_type == "link" and hk.target_entity not in rendered_link_names:
+            continue
         hashed_columns[hk.hashkey_name] = hk.business_key_columns
     for hd in stage.hashdiffs:
+        if hd.satellite_name not in rendered_sat_names:
+            continue
         hashed_columns[hd.hashdiff_name] = {
             "is_hashdiff": True,
             "columns": hd.columns,
         }
 
+    # column_overrides: only needed when the caller wants to declare a precise
+    # type for a specific column (e.g. "amount": "DECIMAL(18,2)"). Business key
+    # and hashdiff/payload source columns are now auto-inferred from hashed_columns
+    # by datavault4sqlmesh's infer_stage_columns(), so they no longer need to be
+    # declared here.
     column_overrides = {
         col.column_name: col.datatype
         for col in stage.columns
         if col.datatype
     }
 
+    # derived_columns: renames and transformations the stage must apply.
+    # Passed as {target_name: expression} where a plain rename uses the source
+    # column name as the expression.
+    derived_columns: dict[str, str] = {
+        dc.target_column_name: dc.transformation or dc.source_column_name
+        for dc in stage.derived_columns
+    }
+
     lines = ["from datavault4sqlmesh import stage_model", "", "stage_model("]
     lines.append(f"    name={repr(model_name)},")
     lines.append(f"    source_table={repr(stage.source_table)},")
     lines.append(f"    source_schema={repr(stage.source_schema)},")
+    if derived_columns:
+        lines.append(f"    derived_columns={_fmt_dict(derived_columns)},")
     if hashed_columns:
         lines.append(f"    hashed_columns={_fmt_hashed_columns(hashed_columns)},")
     if column_overrides:
         lines.append(f"    column_overrides={_fmt_dict(column_overrides)},")
-    lines.append("    cast_ldts_to_timestamp=True,")
     lines.append(")")
     content = "\n".join(lines) + "\n"
 
@@ -365,9 +440,8 @@ def _render_hub(
 
 
 def _hub_business_keys(hub: HubDefinition) -> list[str]:
-    """Return the source column names used as business keys for this hub."""
-    if hub.source_tables and hub.source_tables[0].business_key_columns:
-        return hub.source_tables[0].business_key_columns
+    """Return the hub column names for the business key — these are the column
+    names that all source stages must expose after any derived-column renames."""
     return hub.business_key_columns
 
 
@@ -583,6 +657,17 @@ def _artifact(
         path=path,
         size_bytes=len(content.encode("utf-8")),
         content=content,
+    )
+
+
+def _artifact_once(kind: str, path: str, content: str) -> GeneratedArtifact:
+    """Like _artifact but with overwrite=False — written only if the file does not exist."""
+    return GeneratedArtifact(
+        kind=kind,  # type: ignore[arg-type]
+        path=path,
+        size_bytes=len(content.encode("utf-8")),
+        content=content,
+        overwrite=False,
     )
 
 

@@ -523,7 +523,7 @@ class ModelBuilder:
         for sat in satellites:
             # Get columns that should be included in hashdiff
             hashdiff_columns = [
-                col.target_column_name or col.staging_column.physical_name
+                col.staging_column.physical_name or col.target_column_name
                 for col in sat.columns.order_by("column_sort_order")
                 if col.include_in_delta_detection
             ]
@@ -768,10 +768,14 @@ class ModelBuilder:
 
         for mapping in hub_mappings:
             transformation = mapping.hub_column.target_column_transformation
-            if not transformation:
+            hub_col_name = mapping.hub_column.column_name
+            staging_col_name = mapping.staging_column.physical_name
+            # Emit a derived column when the hub column name differs from the
+            # staging column name (rename) OR when a transformation is defined.
+            if not transformation and hub_col_name == staging_col_name:
                 continue
             add(
-                mapping.staging_column.physical_name,
+                hub_col_name,
                 mapping.staging_column,
                 transformation,
                 mapping.hub_column.target_column_datatype,

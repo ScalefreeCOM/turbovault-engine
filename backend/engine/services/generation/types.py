@@ -193,6 +193,7 @@ class GeneratedArtifact(BaseModel):
     size_bytes: int = 0
     checksum: str | None = None
     content: str | None = None
+    overwrite: bool = True
 
 
 # ---------------------------------------------------------------------------

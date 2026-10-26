@@ -116,6 +116,13 @@ def _write_project(
             written.append(a)
             continue
         full = output_path / a.path
+
+        # Write-once artifacts are skipped silently when the file already exists
+        # so the user's edits (e.g. filled-in credentials) are never overwritten.
+        if not a.overwrite and full.exists():
+            written.append(a.model_copy(update={"path": str(full), "content": None}))
+            continue
+
         if full in seen_paths:
             issues.append(
                 make_issue(
@@ -154,6 +161,18 @@ def _write_project(
                 }
             )
         )
+        if not a.overwrite:
+            issues.append(
+                make_issue(
+                    severity="warning",
+                    code="write.sqlmesh.config_yaml_created",
+                    stage="write",
+                    message=(
+                        f"{a.path} was created with placeholder values — "
+                        "fill in your connection details before running sqlmesh plan."
+                    ),
+                )
+            )
 
     if options.create_zip:
         zip_artifact, zip_issues = _create_zip(output_path)
