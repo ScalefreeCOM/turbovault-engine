@@ -89,6 +89,7 @@ def _render_dbt(
     template_resolver = TemplateResolver(
         use_db_templates=options.use_db_templates,
         templates_override=options.templates_override,
+        framework="dbt",
     )
 
     # We always render into a temp tree so dry-runs cost no real-disk IO

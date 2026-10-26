@@ -1,0 +1,29 @@
+[# Reference Table Template #]
+[# Generates a reference table that combines a reference hub with its satellites #]
+{{ config(
+    materialized='view',
+    tags=['reference_table', 'raw_vault']
+) }}
+
+{%- set yaml_metadata -%}
+ref_hub: [[ reference_hub_name ]]
+ref_satellites:
+[% for sat in satellites %]
+    [[ sat.satellite_name ]]_v1:
+    [% if sat.include_columns %]
+      include:
+        [% for col in sat.include_columns %]
+        - [[ col ]]
+        [% endfor %]
+    [% endif %]
+    [% if sat.exclude_columns %]
+      exclude:
+        [% for col in sat.exclude_columns %]
+        - [[ col ]]
+        [% endfor %]
+    [% endif %]
+[% endfor %]
+historized: '[[ "full" if historization_type == "full" else "latest" ]]'
+{%- endset -%}
+
+{{ datavault4dbt.ref_table(yaml_metadata=yaml_metadata) }}

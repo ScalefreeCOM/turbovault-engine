@@ -1,0 +1,19 @@
+[# Effectivity Satellite YAML Schema Template #]
+version: 2
+
+models:
+  - name: [[ satellite_name ]]
+    description: "Effectivity satellite for [[ parent_entity ]]"
+    config:
+      tags: ['satellite', 'effectivity', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+    columns:
+      - name: [[ parent_hashkey ]]
+        description: "Parent entity hash key"
+        data_tests:
+          - not_null
+      - name: is_active
+        description: "Effectivity flag indicating if the relationship is active"
+      - name: ldts
+        description: "Load date timestamp"
+      - name: rsrc
+        description: "Record source"

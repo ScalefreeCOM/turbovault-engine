@@ -1,0 +1,32 @@
+[# dbt_project.yml Template #]
+name: '[[ project_name ]]'
+version: '1.0.0'
+config-version: 2
+
+profile: '[[ profile_name ]]'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+[[ vars_block ]]models:
+  [[ project_name ]]:
+    00_control:
+      +schema: control
+      +materialized: table
+    02_staging:
+      +schema: [[ stage_schema ]]
+      +materialized: view
+    03_raw_vault:
+      +schema: [[ rdv_schema ]]
+      +materialized: incremental
+    04_business_vault:
+      +schema: [[ bdv_schema ]]
+      +materialized: table

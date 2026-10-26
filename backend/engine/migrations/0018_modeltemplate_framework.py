@@ -27,4 +27,8 @@ class Migration(migrations.Migration):
             name="modeltemplate",
             unique_together={("framework", "entity_type", "name")},
         ),
+        migrations.AlterModelOptions(
+            name="modeltemplate",
+            options={"ordering": ["framework", "entity_type", "-priority", "name"]},
+        ),
     ]

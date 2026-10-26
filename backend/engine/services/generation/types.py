@@ -163,7 +163,7 @@ class GenerationOptions(BaseModel):
     use_db_templates: bool = True
     entity_selection: EntitySelection | None = None
     return_content: bool = False
-    templates_override: dict[str, TemplateOverride] | None = None
+    templates_override: dict[str, dict[str, TemplateOverride]] | None = None
 
 
 # ---------------------------------------------------------------------------

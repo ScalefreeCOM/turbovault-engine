@@ -1,0 +1,28 @@
+[# PIT Model YAML Schema Template #]
+version: 2
+
+models:
+  - name: [[ pit_name ]]
+    description: "Point-In-Time table for [[ tracked_entity_name ]]"
+    config:
+      tags: ['pit', 'business_vault']
+    columns:
+      - name: [[ tracked_hashkey ]]
+        description: "Tracked entity hash key"
+        data_tests:
+          - not_null
+[% if dimension_key_column %]
+      - name: [[ dimension_key_column ]]
+        description: "Dimension key"
+        data_tests:
+          - unique
+          - not_null
+[% endif %]
+      - name: sdts
+        description: "Snapshot date timestamp"
+[% for sat in satellites %]
+      - name: [[ sat ]]_ldts
+        description: "Load date timestamp for [[ sat ]]"
+      - name: [[ sat ]]_ledts
+        description: "Load end date timestamp for [[ sat ]]"
+[% endfor %]

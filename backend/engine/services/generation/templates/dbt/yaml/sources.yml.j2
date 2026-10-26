@@ -1,0 +1,26 @@
+[# sources.yml Template #]
+[# Defines source and its tables for the dbt project #]
+version: 2
+
+sources:
+  - name: [[ source.name | lower | replace(" ", "_") ]]
+[% if source.description %]
+    description: [[ source.description | yaml_quote ]]
+[% endif %]
+[% if source.database_name %]
+    database: [[ source.database_name ]]
+[% endif %]
+    schema: [[ source.schema_name ]]
+    tables:
+[% for table in source.tables %]
+      - name: [[ table.table_name ]]
+        description: [[ (table.description or ("Source table from " ~ source.name)) | yaml_quote ]]
+        columns:
+[% for column in table.columns %]
+          - name: [[ column.column_name ]]
+            data_type: [[ column.datatype ]]
+[% if column.description %]
+            description: [[ column.description | yaml_quote ]]
+[% endif %]
+[% endfor %]
+[% endfor %]

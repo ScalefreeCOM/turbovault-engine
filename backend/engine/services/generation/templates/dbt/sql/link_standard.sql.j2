@@ -1,0 +1,30 @@
+[# Standard Link Template #]
+[# Generates a link model using datavault4dbt.link() macro with yaml_metadata #]
+
+{{ config(
+    materialized='incremental',
+    tags=['link', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+) }}
+
+{%- set yaml_metadata -%}
+source_models:
+[% for source in source_tables %]
+    - name: [[ source.stage_name ]]
+[% if source.rsrc_static %]
+      rsrc_static: [[ source.rsrc_static | yaml_quote ]]
+[% endif %]
+[% if source.fk_columns %]
+      fk_columns:
+[% for fk in source.fk_columns %]
+          - [[ fk ]]
+[% endfor %]
+[% endif %]
+[% endfor %]
+link_hashkey: [[ hashkey.hashkey_name ]]
+foreign_hashkeys:
+[% for fk in foreign_hashkeys %]
+    - [[ fk ]]
+[% endfor %]
+{%- endset -%}
+
+{{ datavault4dbt.link(yaml_metadata=yaml_metadata) }}

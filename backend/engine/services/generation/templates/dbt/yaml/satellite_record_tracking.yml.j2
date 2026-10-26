@@ -1,0 +1,21 @@
+[# Record Tracking Satellite YAML Schema Template #]
+version: 2
+
+models:
+  - name: [[ satellite_name ]]
+    description: "Record tracking satellite for [[ parent_entity ]]"
+    config:
+      tags: ['satellite', 'record_tracking', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+    columns:
+      - name: [[ parent_hashkey ]]
+        description: "Parent entity hash key"
+        data_tests:
+          - not_null
+      - name: rsrc
+        description: "Record source"
+      - name: ldts
+        description: "Load date timestamp"
+      - name: ledts
+        description: "Load end date timestamp"
+      - name: tracking_status
+        description: "Record tracking status"

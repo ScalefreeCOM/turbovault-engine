@@ -94,7 +94,7 @@ class TemplateResolver:
         self,
         templates_dir: Path | None = None,
         use_db_templates: bool = True,
-        templates_override: dict[str, TemplateOverride] | None = None,
+        templates_override: dict[str, dict[str, TemplateOverride]] | None = None,
         framework: str = "dbt",
     ) -> None:
         """
@@ -104,24 +104,31 @@ class TemplateResolver:
             templates_dir: Override path to file-based templates directory.
             use_db_templates: Whether to check database for custom templates.
             templates_override: In-memory per-generation template content,
-                keyed by entity_type. Takes precedence over DB and file
-                templates for the resolver's lifetime.
+                keyed by ``{framework: {entity_type: TemplateOverride}}``.
+                Only the overrides for this resolver's framework are applied;
+                overrides for other frameworks are ignored entirely.
             framework: Generation framework ("dbt" or "sqlmesh"). DB-backed
-                templates are filtered to this framework so overrides for one
-                framework never apply to the other.
+                templates and in-memory overrides are filtered to this
+                framework so overrides for one framework never apply to
+                another.
         """
         self.templates_dir = templates_dir or TEMPLATES_DIR
         self.use_db_templates = use_db_templates
-        self._overrides = templates_override or {}
         self.framework = framework
+        # Isolate to this framework's overrides only.
+        self._overrides: dict[str, TemplateOverride] = (
+            (templates_override or {}).get(framework, {})
+        )
 
-        # Jinja2 environment for file-based templates and in-memory overrides
+        # Jinja2 environment for file-based templates and in-memory overrides.
+        # File-based defaults live under templates/<framework>/sql and yaml.
+        framework_dir = self.templates_dir / framework
         self._env = build_jinja_environment(
             loader=FileSystemLoader(
                 [
-                    str(self.templates_dir / "sql"),
-                    str(self.templates_dir / "yaml"),
-                    str(self.templates_dir),
+                    str(framework_dir / "sql"),
+                    str(framework_dir / "yaml"),
+                    str(framework_dir),
                 ]
             )
         )

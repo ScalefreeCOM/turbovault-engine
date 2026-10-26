@@ -1,0 +1,80 @@
+[# Stage Model Template #]
+[# Generates a staging model that prepares source data for Data Vault loading #]
+[# Uses datavault4dbt.stage() macro with yaml_metadata format #]
+{{ config(
+    materialized='view',
+    tags=['staging', '[[ source_system | lower | replace(" ", "_") ]]']
+) }}
+
+{%- set yaml_metadata -%}
+source_model: 
+    [[ source_system | lower | replace(" ", "_") ]]: [[ source_table ]]
+ldts: [[ load_date | yaml_quote ]]
+rsrc: [[ record_source | yaml_quote ]]
+[% if hashkeys or hashdiffs %]
+hashed_columns:
+[% for hashkey in hashkeys %]
+    [[ hashkey.hashkey_name ]]:
+[% for bk in hashkey.business_key_columns %]
+        - [[ bk ]]
+[% endfor %]
+[% endfor %]
+[% for hashdiff in hashdiffs %]
+    [[ hashdiff.hashdiff_name ]]:
+        is_hashdiff: true
+        columns:
+[% for col in hashdiff.columns %]
+            - [[ col ]]
+[% endfor %]
+[% endfor %]
+[% endif %]
+[% if prejoins %]
+prejoined_columns:
+[% for prejoin in prejoins %]
+    - extract_columns:
+    [% for extraction_col in prejoin.extraction_columns %]
+        - [[ extraction_col.source_column_name ]]
+    [% endfor %]
+      aliases:
+      [% for extraction_col in prejoin.extraction_columns %]
+        - [[ extraction_col.target_column_alias or extraction_col.source_column_name ]]
+      [% endfor %]
+      src_name: '[[ (prejoin.target_source_system or source_system) | lower | replace(" ", "_") ]]'
+      src_table: '[[ prejoin.target_table ]]'
+      this_column_name: 
+      [% for source_column in prejoin.join_conditions.source_columns %]
+        - '[[ source_column ]]'
+      [% endfor %]
+      ref_column_name: 
+      [% for target_column in prejoin.join_conditions.target_columns %]
+        - '[[ target_column ]]'
+      [% endfor %]
+      operator: '[[ prejoin.join_conditions.operator ]]'
+[% endfor %]
+[% endif %]
+[% if derived_columns | length > 0 %]
+derived_columns:
+[% for derived_column in derived_columns %]
+    [[ derived_column.target_column_name ]]:
+      value: [[ (derived_column.transformation if derived_column.transformation else derived_column.source_column_name) | yaml_quote ]]
+      [% if derived_column.datatype != '' %]
+      datatype: [[ derived_column.datatype | yaml_quote ]]
+      [% endif %]
+      [% if derived_column.src_cols_required | length > 1 %]
+      src_cols_required:
+      [% for column in derived_column.src_cols_required %]
+        - [[ column | yaml_quote ]]
+      [% endfor %]
+      [% elif derived_column.src_cols_required %]
+      src_cols_required: [[ derived_column.src_cols_required[0] | yaml_quote ]]
+      [% endif %]
+[% endfor %]
+[% endif %]
+[% if multi_active_config %]
+multi_active_config:
+    multi_active_key: '[[ multi_active_config.multi_active_key[0] ]]'
+    main_hashkey_column: '[[ hashkeys[0].hashkey_name if hashkeys else multi_active_config.main_hashkey_column ]]'
+[% endif %]
+{%- endset -%}
+
+{{ datavault4dbt.stage(yaml_metadata=yaml_metadata) }}
