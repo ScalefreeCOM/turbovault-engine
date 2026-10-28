@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from engine.models import GenerationRun, Project
+from engine.services.config_loader import ConfigValidationError
 from engine.services.generation.errors import Code, PipelineAbort, make_issue
 from engine.services.generation.progress import ProgressCallback, emit
 from engine.services.generation.stages.build import build_export
@@ -62,7 +63,6 @@ def run_pipeline(
     `report.issues` to decide what to do next.
     """
     options = options or GenerationOptions()
-    runtime_config = resolve_runtime_config(project, runtime_config)
     started_at = _now()
     timings: dict[str, int] = {}
     issues: list[Issue] = []
@@ -71,6 +71,10 @@ def run_pipeline(
     run_id = uuid.uuid4()
 
     try:
+        # An invalid config.yml stops the run here rather than generating
+        # with every setting silently reset to its default.
+        runtime_config = resolve_runtime_config(project, runtime_config)
+
         # -------------------- 1. Build --------------------
         emit(
             progress, stage="build", status="started", message="Building project export"
@@ -206,6 +210,15 @@ def run_pipeline(
 
     except PipelineAbort as abort:
         issues.append(abort.issue)
+    except ConfigValidationError as exc:
+        issues.append(
+            make_issue(
+                severity="error",
+                code=Code.BUILD_PROJECT_LOAD_FAILED,
+                stage="build",
+                message=str(exc),
+            )
+        )
     except Exception as exc:  # pragma: no cover - last-resort safety net
         issues.append(
             make_issue(

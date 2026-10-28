@@ -19,37 +19,55 @@ from typing import Any
 
 import yaml
 
-# Keys whose value is a credential in at least one dbt adapter. Matched
-# case-insensitively at any depth of the mapping.
-SECRET_KEYS: frozenset[str] = frozenset(
-    {
-        "password",
-        "pass",
-        "token",
-        "private_key",
-        "private_key_passphrase",
-        "client_secret",
-        "keyfile_json",
-        "refresh_token",
-        "access_token",
-        "secret",
-        "api_key",
-    }
+# A key is a credential when it ends in one of these (case-insensitive, at any
+# depth of the mapping): `password`, `oauth_client_secret` (Snowflake),
+# `aws_secret_access_key` / `aws_session_token` (Athena), `jwt_token` (Trino),
+# `private_key_passphrase`, … Suffixes rather than whole names catch adapter
+# prefixes, while fields like `token_uri` or `private_key_path` (a file path)
+# stay plain.
+SECRET_KEY_SUFFIXES: tuple[str, ...] = (
+    "password",
+    "passphrase",
+    "secret",
+    "token",
+    "private_key",
+    "access_key",
+    "api_key",
 )
+# Credential keys matched by their whole name.
+SECRET_KEYS: frozenset[str] = frozenset({"pass", "keyfile_json"})
+
+# BigQuery's service-account key: dbt-bigquery needs a mapping, so besides an
+# env_var reference it may be given inline, with its own secret fields
+# (`private_key`, …) checked like any other.
+_KEYFILE_JSON = "keyfile_json"
 
 # A value consisting of exactly one dbt `env_var(...)` call whose arguments are
-# a quoted variable name and an optional *empty* default, e.g.
-# `{{ env_var('DBT_PASSWORD') }}` or `{{ env_var("DBT_PASSWORD", "") }}`.
-# Nothing else may surround or follow it, so no literal text slips through.
-# A non-empty default is a literal secret too: dbt uses it whenever the
-# variable is unset, and it is written into profiles.yml as it stands.
+# a quoted variable name and an optional *empty* default, optionally piped to
+# `as_native` (which turns a JSON variable into the mapping BigQuery's
+# `keyfile_json` needs), e.g. `{{ env_var('DBT_PASSWORD') }}`,
+# `{{ env_var("DBT_PASSWORD", "") }}` or `{{ env_var('BQ_KEYFILE') | as_native }}`.
+# The name must be an identifier and nothing else may surround or follow the
+# call, so no literal text slips through. A non-empty default is a literal
+# secret too: dbt uses it whenever the variable is unset, and it is written
+# into profiles.yml as it stands.
 _ENV_VAR_REFERENCE = re.compile(
-    r"""^\s*\{\{\s*env_var\(\s*
-        (['"])[^'"]+\1                  # variable name
+    r"""\s*\{\{\s*env_var\(\s*
+        (['"])[A-Za-z_][A-Za-z0-9_]*\1  # variable name
         (?:\s*,\s*(['"])\2)?            # optional empty default
-        \s*\)\s*\}\}\s*$""",
+        \s*\)
+        (?:\s*\|\s*as_native)?          # optional as_native filter
+        \s*\}\}\s*""",
     re.VERBOSE,
 )
+
+
+def is_secret_key(key: object) -> bool:
+    """Whether a profile field named `key` holds a credential."""
+    if not isinstance(key, str):
+        return False
+    name = key.lower()
+    return name in SECRET_KEYS or name.endswith(SECRET_KEY_SUFFIXES)
 
 
 class InvalidProfilesError(ValueError):
@@ -99,7 +117,14 @@ def _check_secrets(value: Any, path: str = "") -> None:
     if isinstance(value, Mapping):
         for key, child in value.items():
             child_path = f"{path}.{key}" if path else str(key)
-            if isinstance(key, str) and key.lower() in SECRET_KEYS:
+            if (
+                isinstance(key, str)
+                and key.lower() == _KEYFILE_JSON
+                and isinstance(child, Mapping)
+            ):
+                # An inline service-account key: check its own fields.
+                _check_secrets(child, child_path)
+            elif is_secret_key(key):
                 if not _is_allowed_secret_value(child):
                     raise LiteralSecretError(
                         f"{child_path} holds a literal secret; use an "
@@ -115,7 +140,7 @@ def _check_secrets(value: Any, path: str = "") -> None:
 def _is_allowed_secret_value(value: Any) -> bool:
     if value is None or value == "":
         return True
-    return isinstance(value, str) and bool(_ENV_VAR_REFERENCE.match(value))
+    return isinstance(value, str) and bool(_ENV_VAR_REFERENCE.fullmatch(value))
 
 
 def _plain(value: Any) -> Any:

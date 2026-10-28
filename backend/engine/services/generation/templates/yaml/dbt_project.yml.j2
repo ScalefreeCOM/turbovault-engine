@@ -2,11 +2,14 @@
 [# Caller-supplied names go through yaml_single_quote / yaml_scalar, which #]
 [# leave any value YAML already reads correctly untouched and quote the rest #]
 [# (quotes, off/yes/null, numbers, ...). #]
+[# Settings fall back to the engine defaults when missing or empty, so a #]
+[# caller rendering this template with only the pre-0.22 variables (e.g. #]
+[# Studio's manual dbt_project.yml prefill) still gets a usable file. #]
 name: '[[ project_name ]]'
 version: '1.0.0'
 config-version: 2
 
-profile: [[ profile_name | yaml_single_quote ]]
+profile: [[ profile_name | default('default', true) | yaml_single_quote ]]
 
 model-paths: ["models"]
 analysis-paths: ["analyses"]
@@ -22,14 +25,14 @@ clean-targets:
 [[ vars_block ]]models:
   [[ project_name ]]:
     00_control:
-      +schema: [[ control_schema | yaml_scalar ]]
-      +materialized: [[ control_materialization | yaml_scalar ]]
+      +schema: [[ control_schema | default('control', true) | yaml_scalar ]]
+      +materialized: [[ control_materialization | default('table', true) | yaml_scalar ]]
     02_staging:
-      +schema: [[ stage_schema | yaml_scalar ]]
-      +materialized: [[ staging_materialization | yaml_scalar ]]
+      +schema: [[ stage_schema | default('stage', true) | yaml_scalar ]]
+      +materialized: [[ staging_materialization | default('view', true) | yaml_scalar ]]
     03_raw_vault:
-      +schema: [[ rdv_schema | yaml_scalar ]]
-      +materialized: [[ raw_vault_materialization | yaml_scalar ]]
+      +schema: [[ rdv_schema | default('rdv', true) | yaml_scalar ]]
+      +materialized: [[ raw_vault_materialization | default('incremental', true) | yaml_scalar ]]
     04_business_vault:
-      +schema: [[ bdv_schema | yaml_scalar ]]
-      +materialized: [[ business_vault_materialization | yaml_scalar ]]
+      +schema: [[ bdv_schema | default('bdv', true) | yaml_scalar ]]
+      +materialized: [[ business_vault_materialization | default('table', true) | yaml_scalar ]]

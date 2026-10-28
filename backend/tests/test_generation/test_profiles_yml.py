@@ -158,3 +158,72 @@ class TestSecretBypasses:
         content = render_profiles_yml(_profiles(scopes=("a", "b")))
         parsed = yaml.safe_load(content)
         assert parsed["my_profile"]["outputs"]["dev"]["scopes"] == ["a", "b"]
+
+
+class TestFinalReviewSecrets:
+    """Final review: suffix-matched secret keys, identifier-only env_var names,
+    `| as_native` and inline BigQuery keyfile_json."""
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "oauth_client_secret",  # Snowflake
+            "aws_secret_access_key",  # Athena
+            "aws_session_token",  # Athena
+            "jwt_token",  # Trino
+            "private_key_passphrase",
+            "pass",
+            "keyfile_json",
+        ],
+    )
+    def test_adapter_secret_keys_rejected(self, key):
+        with pytest.raises(LiteralSecretError, match=key):
+            render_profiles_yml(_profiles(**{key: "hunter2"}))
+
+    @pytest.mark.parametrize(
+        "key", ["token_uri", "private_key_path", "private_key_id", "authenticator"]
+    )
+    def test_non_secret_fields_stay_plain(self, key):
+        content = render_profiles_yml(_profiles(**{key: "some/value"}))
+        output = yaml.safe_load(content)["my_profile"]["outputs"]["dev"]
+        assert output[key] == "some/value"
+
+    def test_literal_hidden_in_a_quoted_variable_name_rejected(self):
+        with pytest.raises(LiteralSecretError):
+            render_profiles_yml(
+                _profiles(password="{{ env_var('A) }}hunter2{{ env_var(B') }}")
+            )
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "{{ env_var('BQ_KEYFILE') | as_native }}",
+            "{{env_var('BQ_KEYFILE')|as_native}}",
+        ],
+    )
+    def test_as_native_allowed(self, value):
+        content = render_profiles_yml(_profiles(keyfile_json=value))
+        output = yaml.safe_load(content)["my_profile"]["outputs"]["dev"]
+        assert output["keyfile_json"] == value
+
+    def test_inline_keyfile_json_with_env_var_secrets_allowed(self):
+        keyfile = {
+            "type": "service_account",
+            "project_id": "my-project",
+            "private_key_id": "abc123",
+            "private_key": "{{ env_var('BQ_PRIVATE_KEY') }}",
+            "client_email": "dbt@example.com",
+            "token_uri": "https://oauth2.example.com/token",
+        }
+        content = render_profiles_yml(_profiles(keyfile_json=keyfile))
+        output = yaml.safe_load(content)["my_profile"]["outputs"]["dev"]
+        assert output["keyfile_json"] == keyfile
+
+    def test_inline_keyfile_json_with_literal_key_rejected(self):
+        keyfile = {"type": "service_account", "private_key": "-----BEGIN KEY-----"}
+        with pytest.raises(LiteralSecretError, match=r"keyfile_json\.private_key"):
+            render_profiles_yml(_profiles(keyfile_json=keyfile))
+
+    def test_other_secret_keys_still_reject_mappings(self):
+        with pytest.raises(LiteralSecretError):
+            render_profiles_yml(_profiles(password={"value": "hunter2"}))

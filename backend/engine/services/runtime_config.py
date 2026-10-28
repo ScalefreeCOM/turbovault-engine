@@ -148,13 +148,21 @@ class EngineRuntimeConfig:
 
         If the standalone CLI project has a ``config.yml`` it is used.  Embedded
         callers such as Studio usually keep ``project_directory`` empty; in that
-        case sensible Engine defaults are returned.
+        case — or when the project has no ``config.yml`` — sensible Engine
+        defaults are returned.
+
+        Raises:
+            ConfigValidationError: the project's ``config.yml`` exists but is
+                invalid. Falling back to defaults instead would silently drop
+                every setting in it (schemas, naming, materializations).
         """
         if getattr(project, "project_directory", None):
             try:
-                return cls.from_turbovault_config(project.load_config())
-            except Exception:
+                config = project.load_config()
+            except FileNotFoundError:
                 pass
+            else:
+                return cls.from_turbovault_config(config)
 
         return cls(
             project_name=project.name,

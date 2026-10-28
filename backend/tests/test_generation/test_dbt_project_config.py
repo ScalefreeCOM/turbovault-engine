@@ -546,3 +546,118 @@ class TestNonStringMaterializations:
         assert [i.code for i in errors] == ["render.invalid_materialization"]
         assert "model_materializations.satellite_v1" in errors[0].message
         assert not (out / "dbt_project.yml").exists()
+
+
+class TestInvalidConfigYml:
+    """Final review: an invalid config.yml must not silently reset every
+    setting to its default."""
+
+    def _project_with_config(self, engine_project, tmp_path, configuration):
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        (project_dir / "config.yml").write_text(
+            yaml.safe_dump(
+                {"project": {"name": "pipeline_e2e"}, "configuration": configuration}
+            ),
+            encoding="utf-8",
+        )
+        engine_project.project_directory = str(project_dir)
+        engine_project.save()
+        return engine_project
+
+    def test_from_project_raises_on_invalid_config(self, engine_project, tmp_path):
+        from engine.services.config_loader import ConfigValidationError
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        project = self._project_with_config(
+            engine_project,
+            tmp_path,
+            {"rdv_schema": "my_rdv", "raw_vault_materialization": "Incremental"},
+        )
+        with pytest.raises(ConfigValidationError, match="raw_vault_materialization"):
+            EngineRuntimeConfig.from_project(project)
+
+    def test_from_project_reads_a_valid_config(self, engine_project, tmp_path):
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        project = self._project_with_config(
+            engine_project, tmp_path, {"rdv_schema": "my_rdv"}
+        )
+        assert EngineRuntimeConfig.from_project(project).rdv_schema == "my_rdv"
+
+    def test_missing_config_falls_back_to_defaults(self, engine_project, tmp_path):
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        engine_project.project_directory = str(tmp_path / "no_config_here")
+        engine_project.save()
+        assert EngineRuntimeConfig.from_project(engine_project).rdv_schema == "rdv"
+
+    def test_generate_reports_the_invalid_config(
+        self, django_setup, project_export, engine_project, tmp_path, monkeypatch
+    ):
+        from engine.services.generation import generate
+
+        _patch_build_stage(monkeypatch, project_export)
+        project = self._project_with_config(
+            engine_project,
+            tmp_path,
+            {"rdv_schema": "my_rdv", "raw_vault_materialization": "Incremental"},
+        )
+        out = tmp_path / "dbt_out"
+        report = generate(project=project, output_type="dbt", output_path=out)
+
+        errors = [i for i in report.issues if i.severity == "error"]
+        assert [i.code for i in errors] == ["build.project_load_failed"]
+        assert "raw_vault_materialization" in errors[0].message
+        assert report.status == "validation_failed"
+        assert not (out / "dbt_project.yml").exists()
+
+
+class TestTemplateFallbacks:
+    """Final review: rendered with only the pre-0.22 variables (as Studio's
+    manual prefill does), the template still yields usable values."""
+
+    OLD_VARIABLES = {
+        "project_name": "p",
+        "profile_name": "default",
+        "stage_schema": "stage",
+        "rdv_schema": "rdv",
+        "bdv_schema": "bdv",
+        "vars_block": "",
+    }
+
+    def _template(self):
+        from engine.services.generation import TemplateResolver
+
+        return TemplateResolver(use_db_templates=False).get_project_template(
+            "dbt_project.yml"
+        )
+
+    def test_old_variables_render_the_defaults(self, django_setup):
+        content = self._template().render(**self.OLD_VARIABLES)
+        assert '""' not in content
+        layers = yaml.safe_load(content)["models"]["p"]
+        assert layers["00_control"] == {"+schema": "control", "+materialized": "table"}
+        assert layers["02_staging"]["+materialized"] == "view"
+        assert layers["03_raw_vault"]["+materialized"] == "incremental"
+        assert layers["04_business_vault"]["+materialized"] == "table"
+
+    def test_old_render_equals_full_default_render(self, django_setup):
+        full = {
+            **self.OLD_VARIABLES,
+            "control_schema": "control",
+            "control_materialization": "table",
+            "staging_materialization": "view",
+            "raw_vault_materialization": "incremental",
+            "business_vault_materialization": "table",
+        }
+        template = self._template()
+        assert template.render(**self.OLD_VARIABLES) == template.render(**full)
+
+    def test_empty_values_fall_back_too(self, django_setup):
+        content = self._template().render(
+            **{**self.OLD_VARIABLES, "profile_name": "", "stage_schema": ""}
+        )
+        parsed = yaml.safe_load(content)
+        assert parsed["profile"] == "default"
+        assert parsed["models"]["p"]["02_staging"]["+schema"] == "stage"

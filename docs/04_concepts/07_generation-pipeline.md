@@ -345,12 +345,23 @@ EngineRuntimeConfig(
 Secrets must be `{{ env_var('...') }}` references, without a default value
 or with an empty one (`{{ env_var('DBT_PASSWORD', '') }}`): dbt uses a
 default whenever the variable is unset, so a non-empty default is a literal
-secret too. A literal value for a known secret key (`password`, `token`,
-`private_key`, `private_key_passphrase`, `client_secret`, `keyfile_json`, …),
-at any depth of the mapping, fails the run with
-`render.literal_secret_in_profile` before anything is written. A `profiles`
-value that is not a mapping, or cannot be written as YAML, fails with
-`render.invalid_profiles`.
+secret too. A reference may be piped to `as_native`
+(`{{ env_var('BQ_KEYFILE') | as_native }}`), which turns a JSON variable into
+a mapping.
+
+A key is a secret when it ends in `password`, `passphrase`, `secret`, `token`,
+`private_key`, `access_key` or `api_key`, or is `pass` or `keyfile_json`
+(case-insensitive). That covers adapter-specific names such as
+`oauth_client_secret` (Snowflake), `aws_secret_access_key` /
+`aws_session_token` (Athena) and `jwt_token` (Trino), while fields like
+`token_uri` or `private_key_path` stay plain. BigQuery's `keyfile_json` may
+also be given inline as a mapping; its own secret fields (`private_key`, …)
+are then checked the same way.
+
+A literal value for a secret key, at any depth of the mapping, fails the run
+with `render.literal_secret_in_profile` before anything is written. A
+`profiles` value that is not a mapping, or cannot be written as YAML, fails
+with `render.invalid_profiles`.
 
 Secrets are the only thing the engine checks. Whether the mapping is a usable
 dbt profile — targets, outputs, the adapter's fields, a profile matching

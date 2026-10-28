@@ -350,11 +350,16 @@ def _export_iris(*, project, iris_output: Path | None, dry_run: bool) -> None:
     IRiS writes a directory of workbooks rather than a single pipeline
     artifact. Exits with 0 on success, 2 on failure.
     """
+    from engine.services.config_loader import ConfigValidationError
     from engine.services.export.builder import ModelBuilder
     from engine.services.export.exporters.iris_exporter import IrisExporter
     from engine.services.runtime_config import resolve_runtime_config
 
-    runtime_config = resolve_runtime_config(project)
+    try:
+        runtime_config = resolve_runtime_config(project)
+    except ConfigValidationError as exc:
+        print_error(str(exc))
+        raise typer.Exit(2) from exc
     project_export = ModelBuilder(project, runtime_config=runtime_config).build(
         export_sources=runtime_config.export_sources,
         generate_tests=runtime_config.generate_tests,
