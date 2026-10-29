@@ -22,9 +22,7 @@ def import_history(
     ] = 20,
     interactive: Annotated[
         bool,
-        typer.Option(
-            "--interactive", "-i", help="Pick the project interactively"
-        ),
+        typer.Option("--interactive", "-i", help="Pick the project interactively"),
     ] = False,
 ) -> None:
     """List import runs for a project, newest first.

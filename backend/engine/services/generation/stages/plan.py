@@ -11,7 +11,8 @@ returns:
 
 For `output_type == "dbt"` the plan counts each model file the renderer
 will emit (one or two per entity depending on satellite v1 views,
-plus 3 project-level files: dbt_project.yml, packages.yml, sources.yml).
+plus 3 project-level files: dbt_project.yml, packages.yml, sources.yml,
+and a 4th, profiles.yml, when the runtime config requests it).
 For `output_type in {"json", "dbml"}` the plan is trivial — a single
 artifact — regardless of how many entities are involved.
 """
@@ -34,13 +35,18 @@ def build_plan(
     project_export: ProjectExport,
     output_type: OutputType,
     options: GenerationOptions,
+    generate_profiles_yml: bool = False,
 ) -> tuple[GenerationPlan, ProjectExport, list[Issue]]:
-    """Return (plan, filtered_export, issues)."""
+    """Return (plan, filtered_export, issues).
+
+    `generate_profiles_yml` mirrors the runtime-config flag: when set, the dbt
+    plan counts the extra project-level profiles.yml.
+    """
     issues: list[Issue] = []
     filtered = _filter_export(project_export, options)
 
     if output_type == "dbt":
-        by_type = _count_dbt(filtered, options)
+        by_type = _count_dbt(filtered, options, generate_profiles_yml)
     elif output_type in ("json", "dbml"):
         by_type = _count_single_artifact(filtered)
     else:  # pragma: no cover - guarded by Literal
@@ -60,9 +66,7 @@ def build_plan(
     files_planned = (
         sum(by_type.values())
         if output_type == "dbt"
-        else 1
-        if any(by_type.values())
-        else 0
+        else 1 if any(by_type.values()) else 0
     )
 
     # "Empty project" is judged by USER-FACING entities (hubs / links /
@@ -84,9 +88,7 @@ def build_plan(
                     "Nothing to generate — the project (or current selection) "
                     "contains no eligible entities."
                 ),
-                suggestion=(
-                    "Widen the selection or add entities to the project."
-                ),
+                suggestion=("Widen the selection or add entities to the project."),
             )
         )
 
@@ -125,7 +127,9 @@ def _filter_export(
 
     return project_export.model_copy(
         update={
-            "hubs": [h for h in project_export.hubs if keep("hub", h.hub_name, h.group)],
+            "hubs": [
+                h for h in project_export.hubs if keep("hub", h.hub_name, h.group)
+            ],
             "links": [
                 l for l in project_export.links if keep("link", l.link_name, l.group)
             ],
@@ -152,19 +156,24 @@ def _filter_export(
 
 
 def _count_dbt(
-    project_export: ProjectExport, options: GenerationOptions
+    project_export: ProjectExport,
+    options: GenerationOptions,
+    generate_profiles_yml: bool = False,
 ) -> dict[str, int]:
     """Count the SQL + YAML files the dbt renderer will produce per entity type.
 
     Two files per entity (sql + yaml) plus an extra v1 view for standard
     satellites when `generate_satellite_v1_views` is True. Project-level
-    files (dbt_project.yml, packages.yml, sources.yml) are counted under
-    `project`.
+    files (dbt_project.yml, packages.yml, sources.yml and the optional
+    profiles.yml) are counted under `project`.
     """
     counts: dict[str, int] = {}
 
-    # Project-level files: dbt_project.yml, packages.yml, sources.yml.
-    counts["project"] = 3 if project_export.sources else 2
+    # Project-level files: dbt_project.yml, packages.yml, sources.yml,
+    # plus profiles.yml when requested.
+    counts["project"] = (3 if project_export.sources else 2) + (
+        1 if generate_profiles_yml else 0
+    )
 
     # Stages: one sql + one yml per stage.
     if project_export.stages:

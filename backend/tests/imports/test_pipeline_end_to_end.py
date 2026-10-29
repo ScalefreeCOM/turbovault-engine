@@ -26,7 +26,6 @@ from engine.services.imports import (
     import_metadata,
 )
 
-
 pytestmark = pytest.mark.django_db
 
 
@@ -102,7 +101,10 @@ def test_reimport_same_file_does_not_duplicate(project, minimal_workbook):
     )
     assert report2.status == "success", report2.issues
 
-    assert Hub.objects.filter(project=project, hub_physical_name="hub_customer").count() == 1
+    assert (
+        Hub.objects.filter(project=project, hub_physical_name="hub_customer").count()
+        == 1
+    )
     assert (
         Satellite.objects.filter(
             project=project, satellite_physical_name="sat_customer_details"
@@ -170,7 +172,9 @@ def test_reimport_with_updated_fields_picks_up_changes(project, workbook_factory
 # ---------------------------------------------------------------------------
 
 
-def test_replace_all_deletes_entities_not_in_file(project, minimal_workbook, workbook_factory):
+def test_replace_all_deletes_entities_not_in_file(
+    project, minimal_workbook, workbook_factory
+):
     # Import the full minimal workbook (hub + satellite)
     import_metadata(
         project=project,
@@ -429,7 +433,9 @@ def test_default_is_best_effort_writes_valid_skips_invalid(project, workbook_fac
     )
 
     # Good entities were written
-    assert Hub.objects.filter(project=project, hub_physical_name="hub_customer").exists()
+    assert Hub.objects.filter(
+        project=project, hub_physical_name="hub_customer"
+    ).exists()
     assert Satellite.objects.filter(
         project=project, satellite_physical_name="sat_customer_details"
     ).exists()
@@ -566,7 +572,9 @@ def test_best_effort_continues_past_resolution_errors(project, workbook_factory)
     )
 
     # Hub was created; satellite was rejected.
-    assert Hub.objects.filter(project=project, hub_physical_name="hub_customer").exists()
+    assert Hub.objects.filter(
+        project=project, hub_physical_name="hub_customer"
+    ).exists()
     assert not Satellite.objects.filter(
         project=project, satellite_physical_name="sat_orphan"
     ).exists()
@@ -640,7 +648,9 @@ def test_ref_sat_parent_resolves_via_parent_table_identifier(project, workbook_f
     assert SatelliteColumn.objects.filter(satellite=sat).count() == 2
 
 
-def test_multiactive_satellite_with_explicit_regular_sort_orders(project, workbook_factory):
+def test_multiactive_satellite_with_explicit_regular_sort_orders(
+    project, workbook_factory
+):
     """Regression: a multi-active satellite with regular columns that carry
     EXPLICIT `target_column_sort_order` values and MA-key attributes that
     don't. The MA keys must NOT collide with the regular columns' sort
@@ -736,7 +746,9 @@ def test_multiactive_satellite_with_explicit_regular_sort_orders(project, workbo
     sat = Satellite.objects.get(
         project=project, satellite_physical_name="customer_n_ms"
     )
-    columns = list(SatelliteColumn.objects.filter(satellite=sat).order_by("column_sort_order"))
+    columns = list(
+        SatelliteColumn.objects.filter(satellite=sat).order_by("column_sort_order")
+    )
     # 3 regular columns + 1 MA key, no duplicates
     assert len(columns) == 4
     sort_orders = [c.column_sort_order for c in columns]

@@ -88,17 +88,29 @@ class _Resolver:
         self._skipped_keys: dict[str, dict[str, str]] = defaultdict(dict)
 
     # ------------------------------------------------------------------ helpers
-    def _loc(self, sheet: str, row: int | None = None, column: str | None = None) -> IssueLocation:
-        return IssueLocation(file=self.doc.source_name, sheet=sheet, row=row, column=column)
+    def _loc(
+        self, sheet: str, row: int | None = None, column: str | None = None
+    ) -> IssueLocation:
+        return IssueLocation(
+            file=self.doc.source_name, sheet=sheet, row=row, column=column
+        )
 
     def _error(self, code: str, message: str, **kwargs: Any) -> None:
         self.issues.append(
-            make_issue(severity="error", code=code, message=message, stage="resolve", **kwargs)
+            make_issue(
+                severity="error", code=code, message=message, stage="resolve", **kwargs
+            )
         )
 
     def _warning(self, code: str, message: str, **kwargs: Any) -> None:
         self.issues.append(
-            make_issue(severity="warning", code=code, message=message, stage="resolve", **kwargs)
+            make_issue(
+                severity="warning",
+                code=code,
+                message=message,
+                stage="resolve",
+                **kwargs,
+            )
         )
 
     def _skip(
@@ -187,7 +199,9 @@ class _Resolver:
                 self._warning(
                     Code.ENTITY_DUPLICATE_NAME,
                     f"Source table identifier '{identifier}' appears more than once in source_data.",
-                    location=self._loc("source_data", row.row_number, "source_table_identifier"),
+                    location=self._loc(
+                        "source_data", row.row_number, "source_table_identifier"
+                    ),
                     entity=EntityRef(type="source_table", name=identifier),
                 )
                 continue
@@ -241,18 +255,26 @@ class _Resolver:
         for hub in self.model.hubs.values():
             for col in hub.columns:
                 for m in col.source_mappings:
-                    self._ensure_source_column(m.source_table_identifier, m.source_column_name)
+                    self._ensure_source_column(
+                        m.source_table_identifier, m.source_column_name
+                    )
         # Link mappings
         for link in self.model.links.values():
             for col in link.columns:
                 for m in col.source_mappings:
-                    self._ensure_source_column(m.source_table_identifier, m.source_column_name)
+                    self._ensure_source_column(
+                        m.source_table_identifier, m.source_column_name
+                    )
             for m in link.hub_source_mappings:
-                self._ensure_source_column(m.source_table_identifier, m.source_column_name)
+                self._ensure_source_column(
+                    m.source_table_identifier, m.source_column_name
+                )
         # Satellites — also ensure the satellite source table is referenced
         for sat in self.model.satellites.values():
             for col in sat.columns:
-                self._ensure_source_column(sat.source_table_identifier, col.source_column_name)
+                self._ensure_source_column(
+                    sat.source_table_identifier, col.source_column_name
+                )
 
     # ------------------------------------------------------------------ hubs
     def _resolve_standard_hubs(self) -> None:
@@ -271,8 +293,12 @@ class _Resolver:
                     physical_name=hub_name,
                     hub_type="standard",
                     hashkey_name=row.get("target_primary_key_physical_name"),
-                    create_record_tracking_satellite=truthy(row.get("record_tracking_satellite")),
-                    create_effectivity_satellite=truthy(row.get("effectivity_satellite")),
+                    create_record_tracking_satellite=truthy(
+                        row.get("record_tracking_satellite")
+                    ),
+                    create_effectivity_satellite=truthy(
+                        row.get("effectivity_satellite")
+                    ),
                     group_name=row.get("group_name"),
                 )
                 self.model.hubs[hub_name] = hub
@@ -286,7 +312,9 @@ class _Resolver:
             if hub.group_name:
                 self.model.groups.add(hub.group_name)
 
-            col_name = row.get("business_key_physical_name") or row.get("source_column_physical_name")
+            col_name = row.get("business_key_physical_name") or row.get(
+                "source_column_physical_name"
+            )
             if not col_name:
                 continue
 
@@ -369,7 +397,9 @@ class _Resolver:
                 self._error(
                     Code.ENTITY_MISSING_SOURCE_TABLE,
                     f"Reference hub '{hub_name}' references unknown source table '{src_table}'.",
-                    location=self._loc("ref_hub", row.row_number, "source_table_identifier"),
+                    location=self._loc(
+                        "ref_hub", row.row_number, "source_table_identifier"
+                    ),
                     entity=EntityRef(type="hub", name=hub_name),
                 )
 
@@ -401,7 +431,8 @@ class _Resolver:
                 link = DLink(
                     physical_name=link_name,
                     link_type=link_type,
-                    hashkey_name=sample.get("target_primary_key_physical_name") or f"hk_{link_name}",
+                    hashkey_name=sample.get("target_primary_key_physical_name")
+                    or f"hk_{link_name}",
                     create_record_tracking_satellite=truthy(
                         sample.get("record_tracking_satellite")
                     ),
@@ -409,8 +440,16 @@ class _Resolver:
                 )
 
             has_hub_id = sheet.has_column("hub_identifier")
-            ref_rows = [r for r in link_rows if has_hub_id and not _empty(r.get("hub_identifier"))]
-            payload_rows = [r for r in link_rows if not has_hub_id or _empty(r.get("hub_identifier"))]
+            ref_rows = [
+                r
+                for r in link_rows
+                if has_hub_id and not _empty(r.get("hub_identifier"))
+            ]
+            payload_rows = [
+                r
+                for r in link_rows
+                if not has_hub_id or _empty(r.get("hub_identifier"))
+            ]
 
             if not self._resolve_link_hub_refs(link, link_name, ref_rows, sheet_name):
                 # Without one of its hubs the link has a different grain: left
@@ -457,7 +496,9 @@ class _Resolver:
                 self._error(
                     Code.ENTITY_MISSING_REFERENCE,
                     f"Link '{link_name}' references hub '{hub_id}' which is not defined.",
-                    location=self._loc(sheet_name, hub_rows[0].row_number, "hub_identifier"),
+                    location=self._loc(
+                        sheet_name, hub_rows[0].row_number, "hub_identifier"
+                    ),
                     entity=EntityRef(type="link", name=link_name),
                     suggestion=f"Add a hub with identifier or physical name '{hub_id}' before the link.",
                 )
@@ -470,9 +511,13 @@ class _Resolver:
                 alias_groups[alias].append(r)
 
             for alias, alias_rows in alias_groups.items():
-                hk_col_name = alias_rows[0].get("target_primary_key_physical_name") or ""
+                hk_col_name = (
+                    alias_rows[0].get("target_primary_key_physical_name") or ""
+                )
                 final_alias = "" if alias == hk_col_name else alias
-                sort_order = _int_or_none(alias_rows[0].get("target_column_sort_order")) or 0
+                sort_order = (
+                    _int_or_none(alias_rows[0].get("target_column_sort_order")) or 0
+                )
 
                 ref_idx = len(link.hub_references)
                 link.hub_references.append(
@@ -485,7 +530,9 @@ class _Resolver:
 
                 bk_cols = [c for c in hub.columns if c.column_type == "business_key"]
                 if not bk_cols:
-                    bk_cols = [c for c in hub.columns if c.column_type == "reference_key"]
+                    bk_cols = [
+                        c for c in hub.columns if c.column_type == "reference_key"
+                    ]
 
                 for idx, r in enumerate(alias_rows):
                     if idx >= len(bk_cols):
@@ -498,7 +545,9 @@ class _Resolver:
                         self._error(
                             Code.ENTITY_MISSING_SOURCE_TABLE,
                             f"Link '{link_name}' references unknown source table '{src_table}'.",
-                            location=self._loc(sheet_name, r.row_number, "source_table_identifier"),
+                            location=self._loc(
+                                sheet_name, r.row_number, "source_table_identifier"
+                            ),
                             entity=EntityRef(type="link", name=link_name),
                         )
                         continue
@@ -516,9 +565,8 @@ class _Resolver:
         self, link: DLink, link_name: str, payload_rows: list[IRRow], sheet_name: str
     ) -> None:
         for r in payload_rows:
-            col_name = (
-                r.get("target_column_physical_name")
-                or r.get("source_column_physical_name")
+            col_name = r.get("target_column_physical_name") or r.get(
+                "source_column_physical_name"
             )
             if not col_name:
                 continue
@@ -541,7 +589,9 @@ class _Resolver:
                     self._error(
                         Code.ENTITY_MISSING_SOURCE_TABLE,
                         f"Link '{link_name}' references unknown source table '{src_table}'.",
-                        location=self._loc(sheet_name, r.row_number, "source_table_identifier"),
+                        location=self._loc(
+                            sheet_name, r.row_number, "source_table_identifier"
+                        ),
                         entity=EntityRef(type="link", name=link_name),
                     )
                     continue
@@ -597,7 +647,11 @@ class _Resolver:
             src_table_id = sample.get("source_table_identifier")
 
             parent_hub = self.model.hubs.get(parent_id) if parent_id else None
-            parent_link = self.model.links.get(parent_id) if parent_id and not parent_hub else None
+            parent_link = (
+                self.model.links.get(parent_id)
+                if parent_id and not parent_hub
+                else None
+            )
 
             if not parent_hub and not parent_link:
                 location = self._loc(sheet_name, sample.row_number, "parent_identifier")
@@ -630,7 +684,9 @@ class _Resolver:
                 self._error(
                     Code.ENTITY_MISSING_SOURCE_TABLE,
                     f"Satellite '{sat_name}' source table '{src_table_id}' is not defined.",
-                    location=self._loc(sheet_name, sample.row_number, "source_table_identifier"),
+                    location=self._loc(
+                        sheet_name, sample.row_number, "source_table_identifier"
+                    ),
                     entity=EntityRef(type="satellite", name=sat_name),
                 )
                 self._skip(
@@ -841,6 +897,7 @@ class _Resolver:
 
 
 # ----------------------------------------------------------------- utilities
+
 
 def _empty(val: Any) -> bool:
     return val is None or (isinstance(val, str) and not val.strip())

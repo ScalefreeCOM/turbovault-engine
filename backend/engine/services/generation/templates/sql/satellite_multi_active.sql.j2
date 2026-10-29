@@ -1,7 +1,9 @@
 [# Multi-Active Satellite Template #]
 [# Generates a multi-active satellite model using datavault4dbt.ma_sat_v0() macro #]
 {{ config(
-    materialized='incremental',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['satellite', 'multi_active', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 

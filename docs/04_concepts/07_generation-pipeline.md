@@ -77,6 +77,12 @@ Controls what happens when individual entities fail to render.
 CLI flag: `--mode lenient` (maps to `best_effort`) or `--mode strict`
 (maps to `fail_fast`).
 
+Errors in the caller's project-level input — `render.invalid_global_vars`,
+`render.invalid_profiles` and `render.literal_secret_in_profile` — stop the
+run before the write stage under **both** strategies. Nothing is written and
+no ZIP is created, so an earlier run's output stays untouched, and the status
+is `validation_failed`.
+
 ---
 
 ## Dry-run mode
@@ -186,6 +192,182 @@ conventional `exports/` folder under the project directory:
 Explicit `--output`, `--json-output`, or `--dbml-output` always wins.
 The fallback `./output/<slug>` is only used when the project has no
 `project_directory` configured (e.g. ad-hoc or test projects).
+
+---
+
+## dbt project settings
+
+Embedded callers (such as Studio) shape the generated `dbt_project.yml`
+through `EngineRuntimeConfig`. The defaults reproduce the project the
+engine has always generated, byte for byte.
+
+| Field | Default | Effect |
+|-------|---------|--------|
+| `profile_name` | `default` | `profile:` in `dbt_project.yml`. |
+| `control_schema` | `control` | `+schema` of `00_control`. |
+| `control_materialization` | `table` | `+materialized` of `00_control`. |
+| `staging_materialization` | `view` | `+materialized` of `02_staging`. |
+| `raw_vault_materialization` | `incremental` | `+materialized` of `03_raw_vault`. |
+| `business_vault_materialization` | `table` | `+materialized` of `04_business_vault`. |
+| `model_specific_materializations` | `true` | Keep the own materialization of models that differ from their layer (see below); off, every model follows its layer. |
+| `model_materializations` | `{}` | Per-model overrides of those own materializations, e.g. `{satellite_v1: table}`. Model kinds left out keep their default. |
+| `global_vars` | `{}` | Rendered verbatim into the `vars:` block. |
+
+### How a model's materialization is decided
+
+Materializations are set on two levels:
+
+1. **Layer** — `dbt_project.yml` sets `+materialized` per layer folder. Stages,
+   hubs, links and (v0) satellites carry no `materialized=` in their
+   `config()` block, so they always follow their layer. Changing a layer's
+   materialization changes all of them.
+2. **Model** — some models differ from their layer by nature. While
+   `model_specific_materializations` is on (the default), they keep their own
+   materialization in their `config()` block, which takes precedence in dbt:
+
+   | Model | Layer | Own materialization |
+   |-------|-------|---------------------|
+   | Satellite `_v1` | raw vault | `view` |
+   | Reference table | raw vault | `view` |
+   | PIT | business vault | `incremental` |
+   | Snapshot control v0 | control | `incremental` |
+   | Snapshot control v1 | control | `view` |
+
+   A model's own materialization is only written when it differs from its
+   layer's. If the raw vault layer is `view`, for example, satellite `_v1`
+   models carry no `materialized=` at all and simply follow the layer.
+
+   With the defaults, every model is therefore built exactly as before these
+   settings existed.
+
+`model_materializations` overrides these defaults per model kind
+(`satellite_v1`, `reference_table`, `pit`, `snapshot_control_v0`,
+`snapshot_control_v1`), for example in `config.yml`:
+
+```yaml
+configuration:
+  model_specific_materializations: true
+  model_materializations:
+    satellite_v1: table
+```
+
+With `model_specific_materializations: false`, these models follow their
+layer as well, and `model_materializations` is ignored.
+
+`turbovault project init --interactive` asks for both levels: first whether
+to change the layer materializations, then whether these models keep their
+own defaults, follow their layer, or get a materialization chosen for each
+of them.
+
+> **Derived views:** satellite `_v1` models and reference tables recompute
+> load-end dates and current rows on every query. Made `incremental` — which
+> happens when the switch is off and the raw vault layer stays
+> `incremental` — each dbt run appends their rows again. Keep the switch on
+> unless the raw vault layer is `table` or `view`.
+
+Materializations must be dbt materialization names (`table`, `view`,
+`incremental`, `ephemeral`, or a custom materialization) given as strings.
+Anything else — including `None` — fails the run with
+`render.invalid_materialization` before anything is written.
+
+#### Subfolders
+
+Models with a group are written to a subfolder of their layer
+(`models/03_raw_vault/<group>/`), stages to one per source system
+(`models/02_staging/<source_system>/`). dbt applies a folder's settings to all
+of its subfolders, so these models follow their layer's materialization and
+schema.
+
+The engine sets materializations per layer only; there is no setting per
+subfolder. dbt itself supports it — a more specific folder in
+`dbt_project.yml` wins over its parent:
+
+```yaml
+models:
+  my_project:
+    03_raw_vault:
+      +materialized: incremental
+      sales:                       # models/03_raw_vault/sales/
+        +materialized: table
+```
+
+To use this, add the subfolder entries to `dbt_project.yml` yourself — in
+Studio through the manual `dbt_project.yml`; a CLI run regenerates the file and
+drops them. Folder names are the sanitized group / source system names
+(lowercase, underscores). A model's own materialization in its `config()`
+block still takes precedence, so the model-specific materializations above
+(satellite `_v1`, reference tables, PITs, snapshot controls) ignore subfolder
+settings unless `model_specific_materializations` is off.
+
+> **Raw vault history:** hubs, links and satellites collect history through
+> incremental loads. Materialized as `table` or `view`, they only hold what
+> the stage currently delivers.
+
+> **Existing CLI workspaces:** `workspace init` copies the model templates into
+> the database, and those copies take precedence over the bundled files. A
+> workspace created before this change keeps its fixed `materialized=` in
+> every model, so the layer settings have no effect there until the copies are
+> refreshed with `python manage.py populate_templates --overwrite` — which
+> also replaces any customised templates.
+
+### Optional profiles.yml
+
+Set `generate_profiles_yml=True` and pass a `profiles` mapping to also
+emit a `profiles.yml` at the project root (artifact kind `dbt_profiles`,
+counted in the plan, included in the ZIP). The mapping is rendered
+verbatim; the engine does not curate adapter fields — which fields an adapter
+needs is up to the caller (Studio keeps a per-adapter catalog).
+
+Like `global_vars`, these are `EngineRuntimeConfig` settings for embedded
+callers only. A project's `config.yml` has no equivalent, so CLI generation
+never writes a `profiles.yml`.
+
+```python
+EngineRuntimeConfig(
+    profile_name="my_profile",
+    generate_profiles_yml=True,
+    profiles={
+        "my_profile": {
+            "target": "dev",
+            "outputs": {
+                "dev": {
+                    "type": "postgres",
+                    "host": "localhost",
+                    "user": "{{ env_var('DBT_USER') }}",
+                    "password": "{{ env_var('DBT_PASSWORD') }}",
+                },
+            },
+        },
+    },
+)
+```
+
+Secrets must be `{{ env_var('...') }}` references, without a default value
+or with an empty one (`{{ env_var('DBT_PASSWORD', '') }}`): dbt uses a
+default whenever the variable is unset, so a non-empty default is a literal
+secret too. A reference may be piped to `as_native`
+(`{{ env_var('BQ_KEYFILE') | as_native }}`), which turns a JSON variable into
+a mapping.
+
+A key is a secret when it ends in `password`, `passphrase`, `secret`, `token`,
+`private_key`, `access_key` or `api_key`, or is `pass` or `keyfile_json`
+(case-insensitive). That covers adapter-specific names such as
+`oauth_client_secret` (Snowflake), `aws_secret_access_key` /
+`aws_session_token` (Athena) and `jwt_token` (Trino), while fields like
+`token_uri` or `private_key_path` stay plain. BigQuery's `keyfile_json` may
+also be given inline as a mapping; its own secret fields (`private_key`, …)
+are then checked the same way.
+
+A literal value for a secret key, at any depth of the mapping, fails the run
+with `render.literal_secret_in_profile` before anything is written. A
+`profiles` value that is not a mapping, or cannot be written as YAML, fails
+with `render.invalid_profiles`.
+
+Secrets are the only thing the engine checks. Whether the mapping is a usable
+dbt profile — targets, outputs, the adapter's fields, a profile matching
+`profile_name` — is the caller's concern, as is a manually written
+`profiles.yml` (like Studio's manual `dbt_project.yml`). A caller can run its
+mapping through `render_profiles_yml()` to apply the same secret rules.
 
 ---
 

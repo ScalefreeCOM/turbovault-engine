@@ -11,6 +11,7 @@ from typing import Annotated
 
 import questionary
 import typer
+from pydantic import ValidationError
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
@@ -25,6 +26,7 @@ from engine.cli.utils.console import (
     print_warning,
 )
 from engine.services.config_loader import ConfigValidationError, load_config_from_path
+from engine.services.config_schema import MODEL_MATERIALIZATION_DEFAULTS
 
 
 def init(
@@ -111,6 +113,56 @@ def init(
             help="Hashkey naming pattern (e.g. 'hd_[[ entity_name ]]')",
         ),
     ] = None,
+    # ── dbt project flags ────────────────────────────────────────────
+    profile_name: Annotated[
+        str | None,
+        typer.Option("--profile-name", help="dbt profile (default: default)"),
+    ] = None,
+    control_schema: Annotated[
+        str | None,
+        typer.Option(
+            "--control-schema", help="Control layer schema (default: control)"
+        ),
+    ] = None,
+    control_materialization: Annotated[
+        str | None,
+        typer.Option(
+            "--control-materialization",
+            help="Control layer materialization (default: table)",
+        ),
+    ] = None,
+    staging_materialization: Annotated[
+        str | None,
+        typer.Option(
+            "--staging-materialization",
+            help="Staging layer materialization (default: view)",
+        ),
+    ] = None,
+    raw_vault_materialization: Annotated[
+        str | None,
+        typer.Option(
+            "--raw-vault-materialization",
+            help="Raw Vault layer materialization (default: incremental)",
+        ),
+    ] = None,
+    business_vault_materialization: Annotated[
+        str | None,
+        typer.Option(
+            "--business-vault-materialization",
+            help="Business Vault layer materialization (default: table)",
+        ),
+    ] = None,
+    model_specific_materializations: Annotated[
+        bool,
+        typer.Option(
+            "--model-specific-materializations/--no-model-specific-materializations",
+            help=(
+                "Keep the own materialization of satellite _v1, reference "
+                "tables, PITs and snapshot controls (off: every model follows "
+                "its layer)"
+            ),
+        ),
+    ] = True,
     # ── Overwrite flag ───────────────────────────────────────────────
     overwrite: Annotated[
         bool,
@@ -184,6 +236,15 @@ def init(
             hashkey_naming=hashkey_naming,
             overwrite=overwrite,
             snapshot_controls=snapshot_controls,
+            dbt_overrides=_dbt_overrides(
+                profile_name=profile_name,
+                control_schema=control_schema,
+                control_materialization=control_materialization,
+                staging_materialization=staging_materialization,
+                raw_vault_materialization=raw_vault_materialization,
+                business_vault_materialization=business_vault_materialization,
+                model_specific_materializations=model_specific_materializations,
+            ),
         )
     else:
         print_error("Please provide --name, --config, or --interactive")
@@ -218,6 +279,7 @@ def _init_from_flags(
     hashkey_naming: str | None,
     overwrite: bool,
     snapshot_controls: bool = True,
+    dbt_overrides: dict | None = None,
 ) -> None:
     """Build a TurboVaultConfig from CLI flags and delegate to shared init logic."""
     from engine.services.config_schema import (
@@ -259,25 +321,43 @@ def _init_from_flags(
     if hashkey_naming:
         naming_overrides["hashkey_naming"] = hashkey_naming
 
-    config = TurboVaultConfig(
-        project=ProjectInfo(name=name, description=description or ""),
-        source=source_cfg,
-        configuration=ProjectConfiguration(
-            stage_schema=stage_schema,
-            rdv_schema=rdv_schema,
-            bdv_schema=bdv_schema,
-            stage_database=stage_database or None,
-            rdv_database=rdv_database or None,
-            bdv_database=bdv_database or None,
-            **naming_overrides,
-        ),
-        output=OutputConfiguration(
-            dbt_project_dir=output_dir,
-            create_zip=create_zip,
-        ),
-    )
+    try:
+        config = TurboVaultConfig(
+            project=ProjectInfo(name=name, description=description or ""),
+            source=source_cfg,
+            configuration=ProjectConfiguration(
+                stage_schema=stage_schema,
+                rdv_schema=rdv_schema,
+                bdv_schema=bdv_schema,
+                stage_database=stage_database or None,
+                rdv_database=rdv_database or None,
+                bdv_database=bdv_database or None,
+                **naming_overrides,
+                **(dbt_overrides or {}),
+            ),
+            output=OutputConfiguration(
+                dbt_project_dir=output_dir,
+                create_zip=create_zip,
+            ),
+        )
+    except ValidationError as e:
+        # e.g. --staging-materialization foo: name the flag's field, not a traceback
+        for error in e.errors():
+            field_name = ".".join(str(part) for part in error["loc"])
+            print_error(f"{field_name}: {error['msg']}")
+        raise typer.Exit(1)
 
     _create_project(config, overwrite=overwrite, snapshot_controls=snapshot_controls)
+
+
+def _dbt_overrides(
+    *, model_specific_materializations: bool, **settings: str | None
+) -> dict:
+    """dbt project settings given as flags; unset ones keep the schema defaults."""
+    overrides: dict = {key: value for key, value in settings.items() if value}
+    if not model_specific_materializations:
+        overrides["model_specific_materializations"] = False
+    return overrides
 
 
 def _init_from_config(
@@ -383,6 +463,10 @@ def _create_project(
 [bold]Stage Schema:[/bold] {config.configuration.stage_schema}
 [bold]RDV Schema:[/bold] {config.configuration.rdv_schema}
 [bold]BDV Schema:[/bold] {config.configuration.bdv_schema}
+[bold]Control Schema:[/bold] {config.configuration.control_schema}
+[bold]dbt Profile:[/bold] {config.configuration.profile_name}
+[bold]Materializations:[/bold] staging={config.configuration.staging_materialization}, raw vault={config.configuration.raw_vault_materialization}, business vault={config.configuration.business_vault_materialization}, control={config.configuration.control_materialization}
+[bold]Model-specific materializations:[/bold] {_describe_model_materializations(config.configuration)}
 """
     print_panel("Project Summary", summary.strip(), style="success")
 
@@ -624,6 +708,8 @@ def _run_interactive_init() -> None:
     stage_schema = "stage"
     rdv_schema = "rdv"
     bdv_schema = "bdv"
+    control_schema = "control"
+    profile_name = "default"
     stage_database = None
     rdv_database = None
     create_zip = False
@@ -639,12 +725,35 @@ def _run_interactive_init() -> None:
         stage_database = (
             questionary.text("Stage database (optional):", default="").ask() or None
         )
-        rdv_schema = questionary.text("RDV schema name:", default="rdv").ask()
+        rdv_schema = questionary.text(
+            "Raw Data Vault (RDV) schema name:", default="rdv"
+        ).ask()
         rdv_database = (
-            questionary.text("RDV database (optional):", default="").ask() or None
+            questionary.text(
+                "Raw Data Vault (RDV) database (optional):", default=""
+            ).ask()
+            or None
         )
-        bdv_schema = questionary.text("BDV schema name:", default="bdv").ask()
-        questionary.text("BDV database (optional):", default="").ask()
+        bdv_schema = questionary.text(
+            "Business Data Vault (BDV) schema name:", default="bdv"
+        ).ask()
+        # Known gap: the BDV database answer is asked but not stored, unlike
+        # the stage and RDV databases. --bdv-database is lost too, because
+        # write_project_config never writes bdv_database. Add `bdv_database`
+        # to the project's config.yml by hand after init.
+        questionary.text(
+            "Business Data Vault (BDV) database (optional):", default=""
+        ).ask()
+        control_schema = questionary.text(
+            "Control schema name:",
+            default="control",
+            validate=_validate_schema_answer,
+        ).ask()
+        profile_name = questionary.text(
+            "dbt profile name:",
+            default="default",
+            validate=lambda x: len(x.strip()) > 0 or "Profile name cannot be empty",
+        ).ask()
 
         # Removed dbt output directory prompt - defaults to ./dbt_project inside project folder
 
@@ -670,6 +779,8 @@ def _run_interactive_init() -> None:
                 "Satellite V1 naming pattern:", default="[[ satellite_name ]]_v1"
             ).ask()
 
+    dbt_config = _ask_materializations()
+
     # Build config object
     config = TurboVaultConfig(
         project=ProjectInfo(name=project_name, description=description),
@@ -678,9 +789,12 @@ def _run_interactive_init() -> None:
             stage_schema=stage_schema,
             rdv_schema=rdv_schema,
             bdv_schema=bdv_schema,
+            control_schema=control_schema,
+            profile_name=profile_name,
             stage_database=stage_database,
             rdv_database=rdv_database,
             **naming_config,
+            **dbt_config,
         ),
         output=OutputConfiguration(
             dbt_project_dir="dbt_project",  # Default relative path
@@ -690,3 +804,150 @@ def _run_interactive_init() -> None:
 
     # Directly create project instead of writing config.yml first
     _create_project(config, snapshot_controls=create_snapshot_controls)
+
+
+# Choices offered for each layer's materialization, in display order.
+_MATERIALIZATION_CHOICES = ["view", "table", "incremental", "ephemeral"]
+
+
+_LAYER_MATERIALIZATION_DEFAULTS = {
+    "staging_materialization": "view",
+    "raw_vault_materialization": "incremental",
+    "business_vault_materialization": "table",
+    "control_materialization": "table",
+}
+
+
+def _describe_model_materializations(configuration) -> str:
+    """One summary line for the model-specific materializations."""
+    if not configuration.model_specific_materializations:
+        return "off (all models follow their layer)"
+    if not configuration.model_materializations:
+        return "defaults (_v1, reference tables, PIT, snapshot controls)"
+    values = {**MODEL_MATERIALIZATION_DEFAULTS, **configuration.model_materializations}
+    return ", ".join(f"{kind}={value}" for kind, value in values.items())
+
+
+# Prompt labels of the models whose own materialization can be customized.
+_MODEL_LABELS = {
+    "satellite_v1": "Satellite _v1",
+    "reference_table": "Reference table",
+    "pit": "PIT",
+    "snapshot_control_v0": "Snapshot control v0",
+    "snapshot_control_v1": "Snapshot control v1",
+}
+
+
+def _ask_materializations() -> dict:
+    """Ask for the materializations, on two levels.
+
+    1. The layer materializations in dbt_project.yml, or keep the defaults.
+    2. Whether models that differ from their layer by nature (satellite _v1,
+       reference tables, PITs, snapshot controls) keep their own default
+       materialization in their config() block, follow their layer too, or
+       get a materialization chosen for each of them.
+
+    Returns only the values that differ from the schema defaults, so a project
+    whose answers are all defaults gets the same config as before.
+    """
+    # j/k would move a selection, so pasted or stray text (e.g. a path
+    # containing "j") could silently change an answer.
+    select_options = {"use_jk_keys": False}
+    settings = dict(_LAYER_MATERIALIZATION_DEFAULTS)
+
+    change_layers = questionary.confirm(
+        "Do you want to change the layer materializations in dbt_project.yml? "
+        "(No keeps the defaults: staging=view, raw vault=incremental, "
+        "business vault=table, control=table)",
+        default=False,
+    ).ask()
+
+    if change_layers:
+        for key, label in (
+            ("staging_materialization", "Staging"),
+            ("raw_vault_materialization", "Raw Vault"),
+            ("business_vault_materialization", "Business Vault"),
+            ("control_materialization", "Control"),
+        ):
+            settings[key] = questionary.select(
+                f"{label} layer materialization:",
+                choices=_MATERIALIZATION_CHOICES,
+                default=_LAYER_MATERIALIZATION_DEFAULTS[key],
+                **select_options,
+            ).ask()
+
+        if settings["raw_vault_materialization"] != "incremental":
+            print_warning(
+                "Raw Vault hubs, links and satellites collect history through "
+                "incremental loads. As a table or view they only hold what the "
+                "stage currently delivers."
+            )
+
+    specific = questionary.select(
+        "Materialization of satellite _v1, reference tables, PITs and "
+        "snapshot controls:",
+        choices=[
+            questionary.Choice(
+                "Keep their own defaults (_v1 and reference tables as view, PIT "
+                "and snapshot control v0 incremental, snapshot control v1 view)",
+                value="own",
+            ),
+            questionary.Choice(
+                "Use the layer materialization for all models", value="layer"
+            ),
+            questionary.Choice("Customize each model", value="customize"),
+        ],
+        default="own",
+        **select_options,
+    ).ask()
+    settings["model_specific_materializations"] = specific != "layer"
+
+    duplicates_risk = (
+        specific == "layer" and settings["raw_vault_materialization"] == "incremental"
+    )
+
+    model_materializations: dict[str, str] = {}
+    if specific == "customize":
+        for kind, label in _MODEL_LABELS.items():
+            default = MODEL_MATERIALIZATION_DEFAULTS[kind]
+            value = questionary.select(
+                f"{label} materialization:",
+                choices=_MATERIALIZATION_CHOICES,
+                default=default,
+                **select_options,
+            ).ask()
+            if value is not None and value != default:
+                model_materializations[kind] = value
+        duplicates_risk = any(
+            model_materializations.get(kind) == "incremental"
+            for kind in ("satellite_v1", "reference_table")
+        )
+
+    if duplicates_risk:
+        print_warning(
+            "Satellite _v1 views and reference tables recompute their rows on "
+            "every run. As incremental models they append duplicates on each "
+            "dbt run."
+        )
+
+    defaults = {
+        **_LAYER_MATERIALIZATION_DEFAULTS,
+        "model_specific_materializations": True,
+    }
+    result = {
+        key: value
+        for key, value in settings.items()
+        if value is not None and value != defaults[key]
+    }
+    if model_materializations:
+        result["model_materializations"] = model_materializations
+    return result
+
+
+def _validate_schema_answer(value: str) -> bool | str:
+    """Same rule as ProjectConfiguration's schema validator, for prompt feedback."""
+    if not value:
+        return "Schema name cannot be empty"
+    if not value.replace("_", "").replace("-", "").isalnum():
+        return "Use only letters, numbers, underscores, and hyphens"
+    return True

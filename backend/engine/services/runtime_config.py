@@ -59,10 +59,38 @@ class EngineRuntimeConfig:
     # `__eq__`, so equal configs still hash equal.
     global_vars: dict[str, Any] = field(default_factory=dict, hash=False)
 
+    # dbt profile referenced by `profile:` in dbt_project.yml.
+    profile_name: str = "default"
+
+    # Per-layer settings of the `models:` block in dbt_project.yml. The
+    # defaults reproduce the project the engine has always generated.
+    control_schema: str = "control"
+    control_materialization: str = "table"
+    staging_materialization: str = "view"
+    raw_vault_materialization: str = "incremental"
+    business_vault_materialization: str = "table"
+    # Models inherit their layer's materialization from dbt_project.yml. While
+    # set, models that differ from their layer by nature (satellite _v1 and
+    # reference table views, PITs, snapshot controls) keep their own in their
+    # config() block. Off: every model follows its layer.
+    model_specific_materializations: bool = True
+    # Per-model overrides of those own materializations, keyed by model kind
+    # (satellite_v1, reference_table, pit, snapshot_control_v0,
+    # snapshot_control_v1). Kinds left out keep their default.
+    model_materializations: dict[str, str] = field(default_factory=dict, hash=False)
+
+    # Opt-in profiles.yml. `profiles` maps a profile name to
+    # `{"target": ..., "outputs": {<target>: {"type": <adapter>, ...}}}` and is
+    # rendered verbatim; the engine does not curate adapter fields (Studio
+    # does). Secrets must be `{{ env_var('...') }}` references — literal values
+    # for known secret keys are rejected (see generation.profiles_yml).
+    # Like `global_vars`, set only by embedded callers: config.yml has no
+    # equivalent, so `from_turbovault_config` leaves both at their defaults.
+    generate_profiles_yml: bool = False
+    profiles: dict[str, Any] = field(default_factory=dict, hash=False)
+
     @classmethod
-    def from_turbovault_config(
-        cls, config: TurboVaultConfig
-    ) -> EngineRuntimeConfig:
+    def from_turbovault_config(cls, config: TurboVaultConfig) -> EngineRuntimeConfig:
         """Create runtime config from the CLI/project YAML Pydantic config."""
         return cls(
             project_name=config.project.name,
@@ -73,8 +101,7 @@ class EngineRuntimeConfig:
             rdv_database=config.configuration.rdv_database,
             bdv_schema=config.configuration.bdv_schema,
             bdv_database=config.configuration.bdv_database,
-            hashdiff_naming=config.configuration.hashdiff_naming
-            or cls.hashdiff_naming,
+            hashdiff_naming=config.configuration.hashdiff_naming or cls.hashdiff_naming,
             hashkey_naming=config.configuration.hashkey_naming or cls.hashkey_naming,
             satellite_v0_naming=config.configuration.satellite_v0_naming
             or cls.satellite_v0_naming,
@@ -95,6 +122,18 @@ class EngineRuntimeConfig:
                 config.configuration.default_static_part_of_record_source
             ),
             default_load_date_value=config.configuration.default_load_date_value,
+            profile_name=config.configuration.profile_name,
+            control_schema=config.configuration.control_schema,
+            control_materialization=config.configuration.control_materialization,
+            staging_materialization=config.configuration.staging_materialization,
+            raw_vault_materialization=config.configuration.raw_vault_materialization,
+            business_vault_materialization=(
+                config.configuration.business_vault_materialization
+            ),
+            model_specific_materializations=(
+                config.configuration.model_specific_materializations
+            ),
+            model_materializations=dict(config.configuration.model_materializations),
             dbt_project_name=config.output.dbt_project_name or config.project.name,
             create_zip=config.output.create_zip,
             export_sources=config.output.export_sources,
@@ -109,13 +148,21 @@ class EngineRuntimeConfig:
 
         If the standalone CLI project has a ``config.yml`` it is used.  Embedded
         callers such as Studio usually keep ``project_directory`` empty; in that
-        case sensible Engine defaults are returned.
+        case — or when the project has no ``config.yml`` — sensible Engine
+        defaults are returned.
+
+        Raises:
+            ConfigValidationError: the project's ``config.yml`` exists but is
+                invalid. Falling back to defaults instead would silently drop
+                every setting in it (schemas, naming, materializations).
         """
         if getattr(project, "project_directory", None):
             try:
-                return cls.from_turbovault_config(project.load_config())
-            except Exception:
+                config = project.load_config()
+            except FileNotFoundError:
                 pass
+            else:
+                return cls.from_turbovault_config(config)
 
         return cls(
             project_name=project.name,

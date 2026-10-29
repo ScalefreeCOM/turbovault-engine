@@ -48,21 +48,24 @@ def generate(
     output: Annotated[
         Path | None,
         typer.Option(
-            "--output", "-o",
+            "--output",
+            "-o",
             help="Output directory for dbt, or output file for json/dbml",
         ),
     ] = None,
     type: Annotated[
         str | None,
         typer.Option(
-            "--type", "-t",
+            "--type",
+            "-t",
             help="Export type: dbt | json | dbml (interactive if omitted)",
         ),
     ] = None,
     mode: Annotated[
         str,
         typer.Option(
-            "--mode", "-m",
+            "--mode",
+            "-m",
             help="Error strategy: strict (fail_fast) or lenient (best_effort)",
         ),
     ] = "strict",
@@ -189,7 +192,12 @@ def generate(
         ),
     )
 
-    _announce(project=project, output_type=output_type, options=options, output_path=output_path)
+    _announce(
+        project=project,
+        output_type=output_type,
+        options=options,
+        output_path=output_path,
+    )
 
     report = run_generate(
         project=project,
@@ -251,7 +259,9 @@ def _resolve_output_type(requested: str | None) -> str:
             questionary.Choice("dbt — Generate dbt project", value="dbt"),
             questionary.Choice("json — Export model as JSON", value="json"),
             questionary.Choice("dbml — Export model as DBML diagram", value="dbml"),
-            questionary.Choice("iris — Export model to IRiS Excel templates", value="iris"),
+            questionary.Choice(
+                "iris — Export model to IRiS Excel templates", value="iris"
+            ),
         ],
         default="dbt",
     ).ask()
@@ -340,11 +350,16 @@ def _export_iris(*, project, iris_output: Path | None, dry_run: bool) -> None:
     IRiS writes a directory of workbooks rather than a single pipeline
     artifact. Exits with 0 on success, 2 on failure.
     """
+    from engine.services.config_loader import ConfigValidationError
     from engine.services.export.builder import ModelBuilder
     from engine.services.export.exporters.iris_exporter import IrisExporter
     from engine.services.runtime_config import resolve_runtime_config
 
-    runtime_config = resolve_runtime_config(project)
+    try:
+        runtime_config = resolve_runtime_config(project)
+    except ConfigValidationError as exc:
+        print_error(str(exc))
+        raise typer.Exit(2) from exc
     project_export = ModelBuilder(project, runtime_config=runtime_config).build(
         export_sources=runtime_config.export_sources,
         generate_tests=runtime_config.generate_tests,
@@ -462,9 +477,7 @@ def _render_issues_table(report) -> None:
             "warning": "[yellow]WARN[/yellow]",
             "info": "[cyan]INFO[/cyan]",
         }[issue.severity]
-        entity = (
-            f"{issue.entity.type}:{issue.entity.name}" if issue.entity else "—"
-        )
+        entity = f"{issue.entity.type}:{issue.entity.name}" if issue.entity else "—"
         table.add_row(sev_style, issue.stage, issue.code, entity, issue.message)
     console.print(table)
 

@@ -23,15 +23,14 @@ def generation_history(
     output_type: Annotated[
         str | None,
         typer.Option(
-            "--type", "-t",
+            "--type",
+            "-t",
             help="Filter to one output type: dbt | json | dbml",
         ),
     ] = None,
     interactive: Annotated[
         bool,
-        typer.Option(
-            "--interactive", "-i", help="Pick the project interactively"
-        ),
+        typer.Option("--interactive", "-i", help="Pick the project interactively"),
     ] = False,
 ) -> None:
     """List generation runs for a project, newest first."""
@@ -40,9 +39,7 @@ def generation_history(
     if interactive or project_name is None:
         projects = list(Project.objects.order_by("name"))
         if not projects:
-            print_error(
-                "No projects exist. Create one with `turbovault project init`."
-            )
+            print_error("No projects exist. Create one with `turbovault project init`.")
             raise typer.Exit(2)
         if len(projects) == 1 and not interactive:
             project_name = projects[0].name

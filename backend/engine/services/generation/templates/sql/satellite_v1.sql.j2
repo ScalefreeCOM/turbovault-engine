@@ -2,7 +2,9 @@
 [# Creates a view on top of the v0 satellite that adds load_end_date column #]
 [# Handles: standard, effectivity, multi_active, and reference satellite types #]
 {{ config(
-    materialized='view',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['satellite', 'v1', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 
