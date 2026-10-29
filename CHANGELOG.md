@@ -5,6 +5,13 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.21.0...turbovault-engine-v0.22.0) (2026-10-29)
+
+
+### Features
+
+* configurable dbt_project.yml and optional profiles.yml [#394](https://github.com/ScalefreeCOM/turbovault-engine/issues/394) ([#213](https://github.com/ScalefreeCOM/turbovault-engine/issues/213)) ([2dd2d98](https://github.com/ScalefreeCOM/turbovault-engine/commit/2dd2d9802f8884ea6002b5657a72e8a09e253ee9))
+
 ## [0.21.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.20.0...turbovault-engine-v0.21.0) (2026-10-04)
 
 
