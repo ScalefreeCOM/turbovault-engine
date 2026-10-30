@@ -1,7 +1,9 @@
 [# PIT (Point-In-Time) Template #]
 [# Generates a PIT structure for dimensional views #]
 {{ config(
-    materialized='incremental',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['pit', 'business_vault'],
     post_hook="{{ datavault4dbt.clean_up_pit('[[ snapshot_control_name ]]') }}"
 ) }}

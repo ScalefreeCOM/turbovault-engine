@@ -1,7 +1,9 @@
 [# Reference Satellite Template #]
 [# Generates a satellite for reference/lookup data #]
 {{ config(
-    materialized='incremental',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['satellite', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 

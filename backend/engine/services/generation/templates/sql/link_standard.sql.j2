@@ -2,7 +2,9 @@
 [# Generates a link model using datavault4dbt.link() macro with yaml_metadata #]
 
 {{ config(
-    materialized='incremental',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['link', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 

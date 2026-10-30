@@ -6,7 +6,9 @@
 [% set control_v0_name = base_name ~ '_v0' -%]
 
 {{ config(
-    materialized='view',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['snapshot_control', 'control']
 ) }}
 

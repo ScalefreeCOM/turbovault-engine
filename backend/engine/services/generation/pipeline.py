@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from engine.models import GenerationRun, Project
+from engine.services.config_loader import ConfigValidationError
 from engine.services.generation.errors import Code, PipelineAbort, make_issue
 from engine.services.generation.progress import ProgressCallback, emit
 from engine.services.generation.stages.build import build_export
@@ -34,6 +35,17 @@ from engine.services.generation.types import (
 )
 from engine.services.runtime_config import EngineRuntimeConfig, resolve_runtime_config
 
+# Render errors that reject the caller's project-level input before the
+# generator writes anything. They are fatal under every error strategy.
+_PROJECT_INPUT_ERROR_CODES = frozenset(
+    {
+        Code.RENDER_INVALID_GLOBAL_VARS,
+        Code.RENDER_INVALID_PROFILES,
+        Code.RENDER_LITERAL_SECRET_IN_PROFILE,
+        Code.RENDER_INVALID_MATERIALIZATION,
+    }
+)
+
 
 def run_pipeline(
     *,
@@ -51,7 +63,6 @@ def run_pipeline(
     `report.issues` to decide what to do next.
     """
     options = options or GenerationOptions()
-    runtime_config = resolve_runtime_config(project, runtime_config)
     started_at = _now()
     timings: dict[str, int] = {}
     issues: list[Issue] = []
@@ -60,9 +71,14 @@ def run_pipeline(
     run_id = uuid.uuid4()
 
     try:
+        # An invalid config.yml stops the run here rather than generating
+        # with every setting silently reset to its default.
+        runtime_config = resolve_runtime_config(project, runtime_config)
+
         # -------------------- 1. Build --------------------
-        emit(progress, stage="build", status="started",
-             message="Building project export")
+        emit(
+            progress, stage="build", status="started", message="Building project export"
+        )
         t0 = time.perf_counter()
         project_export = build_export(
             project=project, runtime_config=runtime_config, options=options
@@ -71,8 +87,7 @@ def run_pipeline(
         emit(progress, stage="build", status="done", message="Build complete")
 
         # -------------------- 2. Validate --------------------
-        emit(progress, stage="validate", status="started",
-             message="Validating model")
+        emit(progress, stage="validate", status="started", message="Validating model")
         t0 = time.perf_counter()
         validate_issues = validate(
             project_export=project_export,
@@ -83,9 +98,8 @@ def run_pipeline(
         timings["validate"] = _ms(t0)
         emit(progress, stage="validate", status="done", message="Validation complete")
 
-        if (
-            options.error_strategy == "fail_fast"
-            and any(i.severity == "error" for i in validate_issues)
+        if options.error_strategy == "fail_fast" and any(
+            i.severity == "error" for i in validate_issues
         ):
             return _finalize(
                 project=project,
@@ -108,15 +122,15 @@ def run_pipeline(
             project_export=project_export,
             output_type=output_type,
             options=options,
+            generate_profiles_yml=runtime_config.generate_profiles_yml,
         )
         plan_for_report = plan
         issues.extend(plan_issues)
         timings["plan"] = _ms(t0)
         emit(progress, stage="plan", status="done", message="Plan ready")
 
-        if (
-            options.error_strategy == "fail_fast"
-            and any(i.severity == "error" for i in plan_issues)
+        if options.error_strategy == "fail_fast" and any(
+            i.severity == "error" for i in plan_issues
         ):
             return _finalize(
                 project=project,
@@ -133,8 +147,12 @@ def run_pipeline(
             )
 
         # -------------------- 4. Render --------------------
-        emit(progress, stage="render", status="started",
-             message=f"Rendering {output_type}")
+        emit(
+            progress,
+            stage="render",
+            status="started",
+            message=f"Rendering {output_type}",
+        )
         t0 = time.perf_counter()
         rendered, render_issues = render(
             project_export=filtered_export,
@@ -147,9 +165,16 @@ def run_pipeline(
         timings["render"] = _ms(t0)
         emit(progress, stage="render", status="done", message="Render complete")
 
-        if (
-            options.error_strategy == "fail_fast"
-            and any(i.severity == "error" for i in render_issues)
+        # A rejected project-level input (vars block, profiles) means the
+        # renderer produced nothing, so writing would only zip an earlier
+        # run's output. Stop before the write stage whatever the strategy.
+        if any(
+            i.severity == "error"
+            and (
+                options.error_strategy == "fail_fast"
+                or i.code in _PROJECT_INPUT_ERROR_CODES
+            )
+            for i in render_issues
         ):
             return _finalize(
                 project=project,
@@ -166,8 +191,12 @@ def run_pipeline(
             )
 
         # -------------------- 5. Write --------------------
-        emit(progress, stage="write", status="started",
-             message="Dry run: skipping write" if options.dry_run else "Writing files")
+        emit(
+            progress,
+            stage="write",
+            status="started",
+            message="Dry run: skipping write" if options.dry_run else "Writing files",
+        )
         t0 = time.perf_counter()
         artifacts, write_issues = write_artifacts(
             artifacts=artifacts,
@@ -181,6 +210,15 @@ def run_pipeline(
 
     except PipelineAbort as abort:
         issues.append(abort.issue)
+    except ConfigValidationError as exc:
+        issues.append(
+            make_issue(
+                severity="error",
+                code=Code.BUILD_PROJECT_LOAD_FAILED,
+                stage="build",
+                message=str(exc),
+            )
+        )
     except Exception as exc:  # pragma: no cover - last-resort safety net
         issues.append(
             make_issue(

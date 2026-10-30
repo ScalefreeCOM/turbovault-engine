@@ -8,11 +8,15 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from engine.services.config_schema import MODEL_MATERIALIZATION_DEFAULTS
+
 from .file_writer import write_sql_file, write_yaml_file
 from .folder_config import GenerationConfig, get_model_filename
+from .profiles_yml import LiteralSecretError, render_profiles_yml
 from .report import GenerationReport
 from .template_resolver import TemplateResolver
 from .vars_block import render_vars_block
@@ -31,6 +35,40 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+# Layer materialization settings, checked before generation starts.
+_MATERIALIZATION_FIELDS = (
+    "control_materialization",
+    "staging_materialization",
+    "raw_vault_materialization",
+    "business_vault_materialization",
+)
+# A dbt materialization name: built-in (table, view, ...) or a custom one.
+_MATERIALIZATION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _is_materialization_name(value: object) -> bool:
+    """Whether `value` is a usable dbt materialization name.
+
+    Only real strings count — `str(None)` would pass as "None" — and the whole
+    string must match: `$` in `re.match` also accepts a trailing newline, which
+    would break the `materialized='...'` line in the generated SQL.
+    """
+    return isinstance(value, str) and bool(_MATERIALIZATION_NAME.fullmatch(value))
+
+
+# Models whose materialization differs from their layer's by nature, with
+# their default. Written into the model's config() while
+# `model_specific_materializations` is on.
+_SPECIFIC_MATERIALIZATIONS = MODEL_MATERIALIZATION_DEFAULTS
+# The layer each of those models lives in.
+_MODEL_LAYERS = {
+    "satellite_v1": "raw_vault",
+    "reference_table": "raw_vault",
+    "pit": "business_vault",
+    "snapshot_control_v0": "control",
+    "snapshot_control_v1": "control",
+}
 
 # DV type suffixes stripped when deriving a satellite base name (longest first).
 _DV_TYPE_SUFFIXES = ("_rh", "_nl", "_h", "_l")
@@ -114,12 +152,64 @@ class DbtProjectGenerator:
             )
             return self.report
 
+        # Same reasoning for the optional profiles.yml.
+        profiles_content: str | None = None
+        if self.config.generate_profiles_yml:
+            try:
+                profiles_content = render_profiles_yml(self.config.profiles)
+            except LiteralSecretError as e:
+                self.report.add_error(
+                    entity_type="project",
+                    entity_name="profiles.yml",
+                    message=str(e),
+                    code="PRF_002",
+                )
+                return self.report
+            except ValueError as e:
+                self.report.add_error(
+                    entity_type="project",
+                    entity_name="profiles.yml",
+                    message=f"Invalid profiles: {e}",
+                    code="PRF_001",
+                )
+                return self.report
+
+        # Materializations end up in SQL (`materialized='...'`) and YAML, so
+        # only dbt identifiers are accepted — built-in or custom ones.
+        invalid = [
+            field_name
+            for field_name in _MATERIALIZATION_FIELDS
+            if not _is_materialization_name(getattr(self.config, field_name))
+        ]
+        model_materializations = self.config.model_materializations
+        if not isinstance(model_materializations, dict):
+            invalid.append("model_materializations")
+        else:
+            invalid.extend(
+                f"model_materializations.{kind}"
+                for kind, value in model_materializations.items()
+                if kind not in _SPECIFIC_MATERIALIZATIONS
+                or not _is_materialization_name(value)
+            )
+        if invalid:
+            self.report.add_error(
+                entity_type="project",
+                entity_name="dbt_project.yml",
+                message=(
+                    f"Invalid materialization in {', '.join(invalid)}: use a dbt "
+                    "materialization name such as table, view, incremental or "
+                    "ephemeral"
+                ),
+                code="MAT_001",
+            )
+            return self.report
+
         try:
             # 1. Create folder structure
             self._create_folder_structure()
 
             # 2. Generate project-level files
-            self._generate_project_files(vars_block)
+            self._generate_project_files(vars_block, profiles_content)
 
             # 3. Generate sources.yml
             self._generate_sources(project_export.sources)
@@ -175,6 +265,27 @@ class DbtProjectGenerator:
 
         return self.report
 
+    def _specific_materialization(self, model_kind: str) -> str | None:
+        """Materialization to write into a model-specific config() block.
+
+        Models whose nature differs from their layer (see
+        `_SPECIFIC_MATERIALIZATIONS`) keep their own materialization while
+        `model_specific_materializations` is set: the caller's value from
+        `model_materializations`, else the default — unless it equals the
+        layer's. Otherwise — and for every other model — None is returned, so
+        the model inherits its layer's `+materialized` from dbt_project.yml.
+        """
+        if not self.config.model_specific_materializations:
+            return None
+        value = self.config.model_materializations.get(
+            model_kind, _SPECIFIC_MATERIALIZATIONS[model_kind]
+        )
+        # A value equal to the layer's adds nothing: leave it to dbt_project.yml.
+        layer_value = getattr(
+            self.config, f"{_MODEL_LAYERS[model_kind]}_materialization"
+        )
+        return None if value == layer_value else value
+
     def _create_folder_structure(self) -> None:
         """Create the dbt project directory structure."""
         self.folder_config.create_project_structure(self.output_path)
@@ -193,12 +304,15 @@ class DbtProjectGenerator:
                     # Log an error if the directory could not be removed
                     logger.error(f"Error removing directory {dirpath}: {e}")
 
-    def _generate_project_files(self, vars_block: str = "") -> None:
-        """Generate dbt_project.yml and packages.yml.
+    def _generate_project_files(
+        self, vars_block: str = "", profiles_content: str | None = None
+    ) -> None:
+        """Generate dbt_project.yml, packages.yml and the optional profiles.yml.
 
-        `vars_block` is the already-rendered `vars:` section (see `generate()`,
-        which resolves it up front so an invalid value fails before any file
-        is written).
+        `vars_block` is the already-rendered `vars:` section and
+        `profiles_content` the already-rendered profiles.yml, or None when not
+        requested (see `generate()`, which resolves both up front so an invalid
+        value fails before any file is written).
         """
         # Generate dbt_project.yml
         template = self.template_resolver.get_project_template("dbt_project.yml")
@@ -209,6 +323,13 @@ class DbtProjectGenerator:
                 stage_schema=self.config.stage_schema,
                 rdv_schema=self.config.rdv_schema,
                 bdv_schema=self.config.bdv_schema,
+                control_schema=self.config.control_schema,
+                control_materialization=self.config.control_materialization,
+                staging_materialization=self.config.staging_materialization,
+                raw_vault_materialization=self.config.raw_vault_materialization,
+                business_vault_materialization=(
+                    self.config.business_vault_materialization
+                ),
                 vars_block=vars_block,
             )
             path = self.output_path / "dbt_project.yml"
@@ -238,6 +359,13 @@ class DbtProjectGenerator:
                 message="Template not found, skipping",
                 code="TPL_001",
             )
+
+        # Generate profiles.yml (opt-in)
+        if profiles_content is not None:
+            path = self.output_path / "profiles.yml"
+            write_yaml_file(path, profiles_content)
+            self.report.add_file(path, "project", "profiles", "yaml")
+            logger.debug("Generated profiles.yml")
 
     def _generate_sources(self, sources: list) -> None:
         """Generate sources.yml with all source systems."""
@@ -523,7 +651,10 @@ class DbtProjectGenerator:
 
         try:
             # Generate SQL file (v1)
-            content = sql_template.render(**context)
+            content = sql_template.render(
+                **context,
+                materialization=self._specific_materialization("satellite_v1"),
+            )
             filename = get_model_filename(v1_name, extension="sql")
             path = output_dir / filename
             write_sql_file(path, content)
@@ -615,9 +746,7 @@ class DbtProjectGenerator:
                 filename = get_model_filename(rts_name, extension="sql")
                 path = output_dir / filename
                 write_sql_file(path, content)
-                self.report.add_file(
-                    path, "satellite_record_tracking", rts_name, "sql"
-                )
+                self.report.add_file(path, "satellite_record_tracking", rts_name, "sql")
 
                 if yaml_template:
                     content = yaml_template.render(**context)
@@ -645,9 +774,7 @@ class DbtProjectGenerator:
     def _generate_effectivity_satellites(self, hubs: list[HubDefinition]) -> None:
         """Generate an effectivity satellite for each flagged hub."""
         flagged = [
-            hub
-            for hub in hubs
-            if getattr(hub, "create_effectivity_satellite", False)
+            hub for hub in hubs if getattr(hub, "create_effectivity_satellite", False)
         ]
         if not flagged:
             return
@@ -668,9 +795,7 @@ class DbtProjectGenerator:
 
         for hub in flagged:
             hashkey_name = hub.hashkey.hashkey_name if hub.hashkey else None
-            stage_name = (
-                hub.source_tables[0].stage_name if hub.source_tables else None
-            )
+            stage_name = hub.source_tables[0].stage_name if hub.source_tables else None
             if not hashkey_name or not stage_name:
                 self.report.add_skipped(
                     entity_type="satellite_effectivity",
@@ -706,9 +831,7 @@ class DbtProjectGenerator:
                     filename = get_model_filename(es_name, extension="yml")
                     path = output_dir / filename
                     write_yaml_file(path, content)
-                    self.report.add_file(
-                        path, "satellite_effectivity", es_name, "yaml"
-                    )
+                    self.report.add_file(path, "satellite_effectivity", es_name, "yaml")
 
                 self.report.effectivity_satellites_generated += 1
 
@@ -747,7 +870,10 @@ class DbtProjectGenerator:
                 )
 
                 # Generate SQL file
-                content = sql_template.render(**pit.model_dump())
+                content = sql_template.render(
+                    **pit.model_dump(),
+                    materialization=self._specific_materialization("pit"),
+                )
                 filename = get_model_filename(pit.pit_name, extension="sql")
                 path = output_dir / filename
                 write_sql_file(path, content)
@@ -800,7 +926,10 @@ class DbtProjectGenerator:
                 )
 
                 # Generate SQL file
-                content = sql_template.render(**ref_table.model_dump())
+                content = sql_template.render(
+                    **ref_table.model_dump(),
+                    materialization=self._specific_materialization("reference_table"),
+                )
                 filename = get_model_filename(ref_table.table_name, extension="sql")
                 path = output_dir / filename
                 write_sql_file(path, content)
@@ -853,7 +982,12 @@ class DbtProjectGenerator:
 
                 # Generate v0 model (control table)
                 if v0_sql_template:
-                    content = v0_sql_template.render(**snap_ctrl.model_dump())
+                    content = v0_sql_template.render(
+                        **snap_ctrl.model_dump(),
+                        materialization=self._specific_materialization(
+                            "snapshot_control_v0"
+                        ),
+                    )
                     filename = get_model_filename(snap_ctrl.v0_name, extension="sql")
                     path = output_dir / filename
                     write_sql_file(path, content)
@@ -874,7 +1008,12 @@ class DbtProjectGenerator:
 
                 # Generate v1 model (control logic)
                 if v1_sql_template:
-                    content = v1_sql_template.render(**snap_ctrl.model_dump())
+                    content = v1_sql_template.render(
+                        **snap_ctrl.model_dump(),
+                        materialization=self._specific_materialization(
+                            "snapshot_control_v1"
+                        ),
+                    )
                     filename = get_model_filename(snap_ctrl.v1_name, extension="sql")
                     path = output_dir / filename
                     write_sql_file(path, content)

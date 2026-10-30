@@ -82,8 +82,16 @@ def _roundtrip(tmp_path: Path, link_type: str) -> Project:
     schema = ModelImportSchema.model_validate(
         {
             "hubs": [
-                {"name": "ORDER_H", "business_keys": ["O_ORDERKEY"], "source_table": "orders"},
-                {"name": "CUSTOMER_H", "business_keys": ["O_CUSTKEY"], "source_table": "orders"},
+                {
+                    "name": "ORDER_H",
+                    "business_keys": ["O_ORDERKEY"],
+                    "source_table": "orders",
+                },
+                {
+                    "name": "CUSTOMER_H",
+                    "business_keys": ["O_CUSTKEY"],
+                    "source_table": "orders",
+                },
             ],
             "links": [
                 {
@@ -91,7 +99,9 @@ def _roundtrip(tmp_path: Path, link_type: str) -> Project:
                     "link_type": link_type,
                     "hubs": ["ORDER_H", "CUSTOMER_H"],
                     "dependent_child_keys": ["O_COMMENT"],
-                    "payload_columns": ["O_TOTALPRICE"] if link_type == "non_historized" else [],
+                    "payload_columns": (
+                        ["O_TOTALPRICE"] if link_type == "non_historized" else []
+                    ),
                     "source_table": "orders",
                 }
             ],
@@ -117,7 +127,9 @@ def test_standard_link_dependent_child_key_survives_json_roundtrip(tmp_path):
     link = Link.objects.get(project=dst, link_physical_name="ORDERS_CUSTOMERS_L")
 
     # Both hub keys are still wired.
-    assert LinkHubSourceMapping.objects.filter(link_hub_reference__link=link).count() == 2
+    assert (
+        LinkHubSourceMapping.objects.filter(link_hub_reference__link=link).count() == 2
+    )
 
     # The dependent child key column and its source mapping survived.
     dck = LinkColumn.objects.get(link=link, column_name="O_COMMENT")
@@ -222,8 +234,16 @@ def test_business_key_falls_back_to_name_match_without_foreign_hashkey(tmp_path)
         ModelImportSchema.model_validate(
             {
                 "hubs": [
-                    {"name": "ORDER_H", "business_keys": ["O_ORDERKEY"], "source_table": "orders"},
-                    {"name": "CUSTOMER_H", "business_keys": ["O_CUSTKEY"], "source_table": "orders"},
+                    {
+                        "name": "ORDER_H",
+                        "business_keys": ["O_ORDERKEY"],
+                        "source_table": "orders",
+                    },
+                    {
+                        "name": "CUSTOMER_H",
+                        "business_keys": ["O_CUSTKEY"],
+                        "source_table": "orders",
+                    },
                 ],
                 "links": [
                     {
@@ -254,7 +274,9 @@ def test_business_key_falls_back_to_name_match_without_foreign_hashkey(tmp_path)
     )
     assert report.status == "success", report.issues
     link = Link.objects.get(project=dst, link_physical_name="ORDERS_CUSTOMERS_L")
-    assert LinkHubSourceMapping.objects.filter(link_hub_reference__link=link).count() == 2
+    assert (
+        LinkHubSourceMapping.objects.filter(link_hub_reference__link=link).count() == 2
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-
 pytestmark = pytest.mark.django_db
 
 
@@ -345,5 +344,7 @@ def test_single_entity_preview_returns_content_without_writing(
     written = [a for a in report.artifacts if a.kind in ("sql_model", "yaml_schema")]
     assert written, "Expected at least one sql/yaml artifact for the previewed hub"
     for a in written:
-        assert a.content is not None and a.content.strip(), "Content should be populated"
+        assert (
+            a.content is not None and a.content.strip()
+        ), "Content should be populated"
         assert a.path is None, "Dry-run must not record filesystem paths"
