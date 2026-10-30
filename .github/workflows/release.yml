@@ -17,11 +17,20 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
       upload_url: ${{ steps.release.outputs.upload_url }}
     steps:
+      # GitHub App token instead of GITHUB_TOKEN: tags created with GITHUB_TOKEN
+      # do not trigger other workflows, so send_to_docs.yml would never run on releases
+      - name: Generate Token from GitHub App
+        id: generate-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.DOCS_APP_ID }}
+          private-key: ${{ secrets.DOCS_APP_PRIVATE_KEY }}
+
       - uses: google-github-actions/release-please-action@v4
         id: release
         with:
           # Token for creating PRs and releases
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.generate-token.outputs.token }}
 
   build-package:
     name: Build Python Package
