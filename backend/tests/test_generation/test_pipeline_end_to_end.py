@@ -415,3 +415,52 @@ def test_sqlmesh_dv_config_flows_into_generated_config_json(
     assert parsed["dialect"] == "snowflake"
     assert parsed["hash"] == "SHA1"
     assert parsed["use_trim"] is True
+
+
+def test_sqlmesh_dialect_written_to_both_configs_and_mismatch_warned(
+    django_setup, project_export, engine_project, tmp_path, monkeypatch
+):
+    """The chosen dialect lands in config.yaml and config.json on first run.
+
+    A later run with another dialect rewrites config.json, keeps the
+    write-once config.yaml, and reports a dialect-mismatch warning.
+    """
+    import json
+
+    import yaml
+
+    from engine.services.generation import generate
+    from engine.services.generation.sqlmesh_dialect import (
+        CONFIG_YAML_DIALECT_MISMATCH,
+    )
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    _patch_build_stage(monkeypatch, project_export)
+    out = tmp_path / "sqlmesh_out"
+
+    def _run(dialect: str):
+        return generate(
+            project=engine_project,
+            output_type="sqlmesh",
+            output_path=out,
+            runtime_config=EngineRuntimeConfig(
+                project_name="pipeline_e2e", sqlmesh_dialect=dialect
+            ),
+        )
+
+    first = _run("postgres")
+    config_yaml = yaml.safe_load((out / "config.yaml").read_text(encoding="utf-8"))
+    config_json = json.loads((out / "config.json").read_text(encoding="utf-8"))
+    assert config_yaml["model_defaults"]["dialect"] == "postgres"
+    assert config_json["dialect"] == "postgres"
+    assert not any(i.code == CONFIG_YAML_DIALECT_MISMATCH for i in first.issues)
+
+    second = _run("snowflake")
+    config_yaml = yaml.safe_load((out / "config.yaml").read_text(encoding="utf-8"))
+    config_json = json.loads((out / "config.json").read_text(encoding="utf-8"))
+    assert config_yaml["model_defaults"]["dialect"] == "postgres"
+    assert config_json["dialect"] == "snowflake"
+    mismatches = [i for i in second.issues if i.code == CONFIG_YAML_DIALECT_MISMATCH]
+    assert len(mismatches) == 1
+    assert mismatches[0].severity == "warning"
+    assert second.status in ("success", "partial_success")

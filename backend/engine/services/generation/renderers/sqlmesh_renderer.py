@@ -42,6 +42,10 @@ from engine.services.export.models import (
     StageDefinition,
 )
 from engine.services.generation.errors import Code, make_issue
+from engine.services.generation.sqlmesh_dialect import (
+    dialect_not_set_warning,
+    resolve_driver_requirement,
+)
 from engine.services.generation.types import (
     ArtifactKind,
     EntityRef,
@@ -75,7 +79,7 @@ def _is_static_rsrc(value: str | None) -> bool:
     return bool(value and value.startswith("!"))
 
 
-def _normalise_source_id(value: str, dialect: str) -> str:
+def _normalise_source_id(value: str, dialect: str | None) -> str:
     """Lowercase *value* for case-folding dialects so quoted references match the DB."""
     return value.lower() if dialect in _LOWERCASE_DIALECTS else value
 
@@ -118,6 +122,9 @@ def render_sqlmesh(
     """
     artifacts: list[GeneratedArtifact] = []
     issues: list[Issue] = []
+
+    if not runtime_config.sqlmesh_dialect:
+        issues.append(dialect_not_set_warning())
 
     # --- Scaffold files (always present) ---
     artifacts.extend(_render_scaffold(runtime_config))
@@ -283,7 +290,7 @@ def _render_scaffold(runtime_config: EngineRuntimeConfig) -> list[GeneratedArtif
         _artifact_once("sqlmesh_config", "config.yaml", _render_config_yaml(runtime_config)),
         _artifact("sqlmesh_config", "config.json", _render_config_json(runtime_config)),
         _artifact("sqlmesh_config", "models/__init__.py", _MODELS_INIT),
-        _artifact("sqlmesh_config", "requirements.txt", _REQUIREMENTS),
+        _artifact("sqlmesh_config", "requirements.txt", _render_requirements(runtime_config)),
         _artifact("sqlmesh_config", "README.md", _render_readme(runtime_config)),
     ]
 
@@ -294,7 +301,20 @@ _MODELS_INIT = textwrap.dedent("""\
     load_dv_config()
 """)
 
-_REQUIREMENTS = "datavault4sqlmesh>=0.1.0\n"
+def _render_requirements(runtime_config: EngineRuntimeConfig) -> str:
+    """Render requirements.txt: datavault4sqlmesh plus the dialect's DB driver.
+
+    datavault4sqlmesh only depends on plain ``sqlmesh``; the connection driver
+    comes from the matching SQLMesh extra (e.g. ``sqlmesh[postgres]``), or from
+    the requirement the user entered for a manually chosen dialect.
+    """
+    lines = ["datavault4sqlmesh>=0.1.0"]
+    driver = resolve_driver_requirement(
+        runtime_config.sqlmesh_dialect, runtime_config.sqlmesh_requirement
+    )
+    if driver:
+        lines.append(driver)
+    return "\n".join(lines) + "\n"
 
 
 def _render_config_yaml(runtime_config: EngineRuntimeConfig) -> str:
@@ -302,9 +322,18 @@ def _render_config_yaml(runtime_config: EngineRuntimeConfig) -> str:
 
     Only written on first generation — never overwritten. The user fills in
     the connection block for their target platform (postgres, snowflake, etc.).
+    Without a dialect, the connection type and model dialect are left as
+    commented placeholders for the user to fill in.
     """
     gateway = runtime_config.sqlmesh_gateway
+    dialect = runtime_config.sqlmesh_dialect
     start = runtime_config.sqlmesh_start
+    if dialect:
+        type_line = f"      type: {dialect}\n"
+        dialect_line = f"  dialect: {dialect}\n"
+    else:
+        type_line = "      # type: <your connection type, e.g. postgres>\n"
+        dialect_line = "  # dialect: <your SQL dialect, e.g. postgres>  (required)\n"
 
     return (
         "# SQLMesh project configuration\n"
@@ -322,27 +351,30 @@ def _render_config_yaml(runtime_config: EngineRuntimeConfig) -> str:
         f"gateways:\n"
         f"  {gateway}:\n"
         f"    connection:\n"
-        f"      type:\n"
+        f"{type_line}"
         f"      # add connection parameters here\n"
         f"\n"
         f"default_gateway: {gateway}\n"
         f"\n"
         f"model_defaults:\n"
-        f"  dialect:  # e.g. postgres, snowflake, databricks, trino, bigquery, duckdb\n"
+        f"{dialect_line}"
         f'  start: "{start}"\n'
     )
 
 
 def _render_config_json(runtime_config: EngineRuntimeConfig) -> str:
-    """Render the datavault4sqlglot config.json DV configuration.
+    """Render the datavault4sqlmesh config.json DV configuration.
 
     If the project's default load-date or record-source value is a plain
     column reference (not a SQL expression or a ``!static`` literal),
     ``ldts_alias`` / ``rsrc_alias`` are set automatically so that downstream
     DV models address the column by its real name rather than the DV default
     ``ldts`` / ``rsrc``.  Explicit values in ``output.sqlmesh`` always win.
+    Without a dialect the ``dialect`` key is left out for the user to add.
     """
-    cfg: dict[str, Any] = {"dialect": runtime_config.sqlmesh_dialect}
+    cfg: dict[str, Any] = {}
+    if runtime_config.sqlmesh_dialect:
+        cfg["dialect"] = runtime_config.sqlmesh_dialect
     # Merge any user-supplied DV config keys on top of the dialect default.
     cfg.update(runtime_config.sqlmesh_dv_config_dict)
 
@@ -451,7 +483,7 @@ def _render_stage(
         else:
             derived_columns[dc.target_column_name] = _normalise_source_id(source_expr, dialect)
 
-    # Resolve the output column names that datavault4sqlglot uses for ldts/rsrc
+    # Resolve the output column names that datavault4sqlmesh uses for ldts/rsrc
     # (either the DV defaults or whatever ldts_alias/rsrc_alias is configured).
     dv_cfg = runtime_config.sqlmesh_dv_config_dict
     ldts_col = dv_cfg.get("ldts_alias", "ldts")

@@ -375,15 +375,27 @@ class ProjectConfiguration(BaseModel):
 
 
 class SQLMeshConfig(BaseModel):
-    """SQLMesh project and datavault4sqlglot configuration."""
+    """SQLMesh project and datavault4sqlmesh configuration."""
 
     # SQLMesh project settings (rendered into config.yaml)
-    dialect: str = Field("duckdb", description="SQL dialect for SQLMesh and datavault4sqlglot")
+    dialect: str | None = Field(
+        "duckdb",
+        description=(
+            "SQL dialect for SQLMesh and datavault4sqlmesh; null to leave it out "
+            "and fill in config.yaml / config.json manually"
+        ),
+    )
     gateway: str = Field("local", description="Default SQLMesh gateway name")
-    connection_type: str = Field("duckdb", description="SQLMesh connection type")
     start: str = Field("2020-01-01", description="Model default start date (YYYY-MM-DD)")
+    requirement: str | None = Field(
+        None,
+        description=(
+            "Database driver line for requirements.txt (e.g. 'sqlmesh[mssql]'); "
+            "derived from the dialect when unset, '' for none"
+        ),
+    )
 
-    # datavault4sqlglot DV config keys (rendered into config.json)
+    # datavault4sqlmesh DV config keys (rendered into config.json)
     ldts_alias: str | None = Field(None, description="Load date timestamp column alias")
     rsrc_alias: str | None = Field(None, description="Record source column alias")
     ledts_alias: str | None = Field(None, description="Load end date timestamp column alias")
@@ -448,7 +460,7 @@ class OutputConfiguration(BaseModel):
 
     sqlmesh: SQLMeshConfig = Field(
         default_factory=SQLMeshConfig,
-        description="SQLMesh project and datavault4sqlglot configuration",
+        description="SQLMesh project and datavault4sqlmesh configuration",
     )
 
 

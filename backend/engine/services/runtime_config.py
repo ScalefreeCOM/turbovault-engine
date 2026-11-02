@@ -60,12 +60,15 @@ class EngineRuntimeConfig:
     global_vars: dict[str, Any] = field(default_factory=dict, hash=False)
 
     # SQLMesh project settings (for --type sqlmesh output).
-    sqlmesh_dialect: str = "duckdb"
+    # None = no dialect: the user fills it into config.yaml / config.json later.
+    sqlmesh_dialect: str | None = "duckdb"
     sqlmesh_gateway: str = "local"
-    sqlmesh_connection_type: str = "duckdb"
     sqlmesh_start: str = "2020-01-01"
+    # Driver line for requirements.txt (e.g. "sqlmesh[mssql]"). None derives it
+    # from the dialect; an empty string writes no driver line.
+    sqlmesh_requirement: str | None = None
 
-    # datavault4sqlglot DV config keys rendered into config.json.
+    # datavault4sqlmesh DV config keys rendered into config.json.
     # Stored as a tuple-of-pairs for frozen-dataclass hashability; convert
     # with `sqlmesh_dv_config_dict` property before use.
     sqlmesh_dv_config: tuple[tuple[str, Any], ...] = field(default=(), hash=False)
@@ -137,8 +140,8 @@ class EngineRuntimeConfig:
             generate_dbml=config.output.generate_dbml,
             sqlmesh_dialect=sm.dialect,
             sqlmesh_gateway=sm.gateway,
-            sqlmesh_connection_type=sm.connection_type,
             sqlmesh_start=sm.start,
+            sqlmesh_requirement=sm.requirement,
             sqlmesh_dv_config=dv_config_pairs,
         )
 

@@ -177,6 +177,19 @@ class TestScaffoldFiles:
         req = next(a for a in artifacts if a.path == "requirements.txt")
         assert "datavault4sqlmesh" in req.content
 
+    def test_requirements_txt_adds_driver_extra_for_dialect(self):
+        from engine.services.generation.renderers.sqlmesh_renderer import _render_requirements
+
+        for dialect in ("postgres", "snowflake", "databricks", "trino", "bigquery"):
+            lines = _render_requirements(_runtime_config(sqlmesh_dialect=dialect)).splitlines()
+            assert lines == ["datavault4sqlmesh>=0.1.0", f"sqlmesh[{dialect}]"], dialect
+
+    def test_requirements_txt_duckdb_needs_no_driver_extra(self):
+        from engine.services.generation.renderers.sqlmesh_renderer import _render_requirements
+
+        lines = _render_requirements(_runtime_config(sqlmesh_dialect="duckdb")).splitlines()
+        assert lines == ["datavault4sqlmesh>=0.1.0"]
+
     def test_readme_includes_agpl_license_notice(self):
         from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
 
@@ -528,3 +541,72 @@ class TestTemplateResolverIntegration:
         assert hub_artifact is not None
         assert "hub_model(" in (hub_artifact.content or "")
         assert "hub_customer" in (hub_artifact.content or "")
+
+
+class TestManualRequirement:
+    def test_manual_requirement_written_for_unlisted_dialect(self):
+        from engine.services.generation.renderers.sqlmesh_renderer import _render_requirements
+
+        rc = _runtime_config(sqlmesh_dialect="mssql", sqlmesh_requirement="sqlmesh[mssql]")
+        assert _render_requirements(rc).splitlines() == [
+            "datavault4sqlmesh>=0.1.0",
+            "sqlmesh[mssql]",
+        ]
+
+    def test_empty_requirement_writes_no_driver_line(self):
+        from engine.services.generation.renderers.sqlmesh_renderer import _render_requirements
+
+        rc = _runtime_config(sqlmesh_dialect="postgres", sqlmesh_requirement="")
+        assert _render_requirements(rc).splitlines() == ["datavault4sqlmesh>=0.1.0"]
+
+
+class TestNoDialect:
+    """A project generated without a dialect: placeholders + a warning."""
+
+    def test_config_yaml_leaves_type_and_dialect_as_placeholders(self):
+        import yaml
+
+        from engine.services.generation.renderers.sqlmesh_renderer import _render_config_yaml
+
+        content = _render_config_yaml(_runtime_config(sqlmesh_dialect=None))
+        assert "# type: <your connection type" in content
+        assert "# dialect: <your SQL dialect" in content
+        assert "None" not in content
+        parsed = yaml.safe_load(content)
+        assert parsed["gateways"]["local"]["connection"] is None
+        assert "dialect" not in parsed["model_defaults"]
+
+    def test_config_json_has_no_dialect_key(self):
+        import json
+
+        from engine.services.generation.renderers.sqlmesh_renderer import _render_config_json
+
+        parsed = json.loads(_render_config_json(_runtime_config(sqlmesh_dialect=None)))
+        assert "dialect" not in parsed
+
+    def test_requirements_have_no_driver_unless_given(self):
+        from engine.services.generation.renderers.sqlmesh_renderer import _render_requirements
+
+        assert _render_requirements(_runtime_config(sqlmesh_dialect=None)).splitlines() == [
+            "datavault4sqlmesh>=0.1.0"
+        ]
+        rc = _runtime_config(sqlmesh_dialect=None, sqlmesh_requirement="sqlmesh[mssql]")
+        assert _render_requirements(rc).splitlines()[-1] == "sqlmesh[mssql]"
+
+    def test_render_warns_that_dialect_is_not_set(self):
+        from engine.services.generation.errors import Code
+        from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+
+        _, issues = render_sqlmesh(
+            _minimal_export(), _runtime_config(sqlmesh_dialect=None), _options()
+        )
+        warnings = [i for i in issues if i.code == Code.SQLMESH_DIALECT_NOT_SET]
+        assert len(warnings) == 1
+        assert warnings[0].severity == "warning"
+
+    def test_render_does_not_warn_when_dialect_set(self):
+        from engine.services.generation.errors import Code
+        from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+
+        _, issues = render_sqlmesh(_minimal_export(), _runtime_config(), _options())
+        assert not any(i.code == Code.SQLMESH_DIALECT_NOT_SET for i in issues)

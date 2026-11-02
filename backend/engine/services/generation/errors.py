@@ -120,6 +120,7 @@ class Code:
     SQLMESH_UNSUPPORTED_SNAPSHOT_CONTROL = "render.sqlmesh.unsupported.snapshot_control"
     SQLMESH_HUB_NO_SOURCES = "render.sqlmesh.hub_no_sources"
     SQLMESH_LINK_NO_SOURCES = "render.sqlmesh.link_no_sources"
+    SQLMESH_DIALECT_NOT_SET = "render.sqlmesh.dialect_not_set"
 
     # Internal
     INTERNAL_BUG = "internal.bug"

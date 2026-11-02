@@ -22,6 +22,7 @@ from engine.services.generation.stages.build import build_export
 from engine.services.generation.stages.plan import build_plan
 from engine.services.generation.stages.render import render
 from engine.services.generation.stages.validate import validate
+from engine.services.generation.sqlmesh_dialect import check_config_yaml_dialect
 from engine.services.generation.stages.write import write_artifacts
 from engine.services.generation.types import (
     GeneratedArtifact,
@@ -176,6 +177,13 @@ def run_pipeline(
             options=options,
         )
         issues.extend(write_issues)
+        if output_type == "sqlmesh" and not options.dry_run and output_path:
+            # config.yaml is write-once; flag it if it disagrees with config.json.
+            mismatch = check_config_yaml_dialect(
+                output_path, runtime_config.sqlmesh_dialect
+            )
+            if mismatch is not None:
+                issues.append(mismatch)
         timings["write"] = _ms(t0)
         emit(progress, stage="write", status="done", message="Write complete")
 

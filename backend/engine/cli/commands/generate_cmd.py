@@ -107,6 +107,27 @@ def generate(
             help="Alias for --output when type=sqlmesh",
         ),
     ] = None,
+    dialect: Annotated[
+        str | None,
+        typer.Option(
+            "--dialect",
+            help=(
+                "SQL dialect for SQLMesh output (duckdb | postgres | snowflake | "
+                "databricks | trino | bigquery, any other SQLMesh dialect, or "
+                "'none' to leave it out and fill it in yourself); interactive if omitted"
+            ),
+        ),
+    ] = None,
+    sqlmesh_requirement: Annotated[
+        str | None,
+        typer.Option(
+            "--sqlmesh-requirement",
+            help=(
+                "Database driver line for the SQLMesh requirements.txt "
+                "(e.g. 'sqlmesh[mssql]'); '' for none. Defaults from the dialect"
+            ),
+        ),
+    ] = None,
     include_type: Annotated[
         list[str] | None,
         typer.Option(
@@ -197,12 +218,20 @@ def generate(
         ),
     )
 
+    runtime_config = None
+    if output_type == "sqlmesh":
+        runtime_config = _resolve_sqlmesh_runtime_config(
+            project, dialect, sqlmesh_requirement
+        )
+        _announce_sqlmesh_settings(runtime_config)
+
     _announce(project=project, output_type=output_type, options=options, output_path=output_path)
 
     report = run_generate(
         project=project,
         output_type=output_type,
         output_path=output_path,
+        runtime_config=runtime_config,
         options=options,
     )
 
@@ -267,6 +296,159 @@ def _resolve_output_type(requested: str | None) -> str:
     if not chosen:
         raise typer.Exit(0)
     return chosen
+
+
+_MANUAL_DIALECT = "__manual__"
+_SKIP_DIALECT = "__skip__"
+
+
+def _resolve_sqlmesh_runtime_config(
+    project, requested_dialect: str | None, requested_requirement: str | None
+):
+    """Return the project's runtime config with the chosen SQLMesh dialect/driver.
+
+    Uses ``--dialect`` / ``--sqlmesh-requirement`` when given. Otherwise prompts
+    with the supported dialects plus an "other" entry for typing a dialect and
+    its driver requirement manually.
+    """
+    from dataclasses import replace
+
+    from engine.services.generation.sqlmesh_dialect import choose_requirement
+    from engine.services.runtime_config import resolve_runtime_config
+
+    runtime_config = resolve_runtime_config(project)
+    configured = runtime_config.sqlmesh_dialect
+
+    if requested_dialect:
+        dialect = _validate_dialect_flag(requested_dialect)
+        explicit_requirement = requested_requirement
+    else:
+        dialect, explicit_requirement = _prompt_dialect(runtime_config)
+        if requested_requirement is not None:
+            explicit_requirement = requested_requirement
+
+    requirement = choose_requirement(
+        dialect=dialect,
+        configured_dialect=configured,
+        configured_requirement=runtime_config.sqlmesh_requirement,
+        explicit_requirement=explicit_requirement,
+    )
+    return replace(
+        runtime_config, sqlmesh_dialect=dialect, sqlmesh_requirement=requirement
+    )
+
+
+def _validate_dialect_flag(requested: str) -> str | None:
+    """Accept any well-formed dialect name (or ``none``); warn on untested ones.
+
+    Returns None for ``--dialect none``: no dialect is written.
+    """
+    from engine.services.generation.sqlmesh_dialect import (
+        NO_DIALECT,
+        SQLMESH_DIALECTS,
+        is_valid_dialect_name,
+    )
+
+    if requested == NO_DIALECT:
+        return None
+    if not is_valid_dialect_name(requested):
+        print_error(
+            f"Invalid --dialect '{requested}'. Use a SQLMesh dialect name such as "
+            f"{', '.join(SQLMESH_DIALECTS)}, e.g. mssql, or 'none' to leave it out."
+        )
+        raise typer.Exit(2)
+    if requested not in SQLMESH_DIALECTS:
+        print_warning(
+            f"Dialect '{requested}' is not one TurboVault has tested; the generated "
+            "project may need manual fixes."
+        )
+    return requested
+
+
+def _prompt_dialect(runtime_config) -> tuple[str | None, str | None]:
+    """Ask for the dialect; for "other", also ask for the driver requirement.
+
+    Returns ``(dialect, explicit_requirement)``. The dialect is None when the
+    user skips it; the requirement is None unless it was entered manually.
+    """
+    from engine.services.generation.sqlmesh_dialect import SQLMESH_DIALECTS
+
+    configured = runtime_config.sqlmesh_dialect
+    if configured is None:
+        default = _SKIP_DIALECT
+    elif configured in SQLMESH_DIALECTS:
+        default = configured
+    else:
+        default = _MANUAL_DIALECT
+    choices = [questionary.Choice(d, value=d) for d in SQLMESH_DIALECTS]
+    choices.append(
+        questionary.Choice("other — enter dialect and requirement manually", value=_MANUAL_DIALECT)
+    )
+    choices.append(
+        questionary.Choice(
+            "none — skip, I'll fill in the dialect myself (project not runnable until then)",
+            value=_SKIP_DIALECT,
+        )
+    )
+    chosen = questionary.select(
+        "Select SQL dialect for SQLMesh:", choices=choices, default=default
+    ).ask()
+    if not chosen:
+        raise typer.Exit(0)
+    if chosen == _SKIP_DIALECT:
+        return None, None
+    if chosen != _MANUAL_DIALECT:
+        return chosen, None
+    return _prompt_manual_dialect(runtime_config)
+
+
+def _prompt_manual_dialect(runtime_config) -> tuple[str, str]:
+    """Ask for a free-form dialect name and its requirements.txt driver line."""
+    from engine.services.generation.sqlmesh_dialect import is_valid_dialect_name
+
+    configured = runtime_config.sqlmesh_dialect
+    dialect = questionary.text(
+        "SQLMesh dialect name (e.g. mssql, redshift):",
+        default=configured or "",
+        validate=lambda v: is_valid_dialect_name(v.strip())
+        or "Use lowercase letters, digits and underscores (e.g. mssql).",
+    ).ask()
+    if dialect is None:
+        raise typer.Exit(0)
+    dialect = dialect.strip()
+
+    stored = runtime_config.sqlmesh_requirement
+    suggested = stored if dialect == configured and stored is not None else f"sqlmesh[{dialect}]"
+    requirement = questionary.text(
+        "requirements.txt line for the database driver (leave empty for none):",
+        default=suggested,
+    ).ask()
+    if requirement is None:
+        raise typer.Exit(0)
+    return dialect, requirement.strip()
+
+
+def _announce_sqlmesh_settings(runtime_config) -> None:
+    from rich.markup import escape
+
+    from engine.services.generation.sqlmesh_dialect import (
+        SQLMESH_DIALECTS,
+        resolve_driver_requirement,
+    )
+
+    dialect = runtime_config.sqlmesh_dialect
+    driver = resolve_driver_requirement(dialect, runtime_config.sqlmesh_requirement)
+    print_info(f"SQLMesh dialect: {dialect or '(not set — fill it in yourself)'}")
+    # escape(): Rich would otherwise read "[postgres]" in "sqlmesh[postgres]" as markup.
+    print_info(f"SQLMesh driver requirement: {escape(driver) if driver else '(none)'}")
+    if dialect and driver is None and dialect not in SQLMESH_DIALECTS:
+        print_warning(
+            escape(
+                f"No driver requirement for dialect '{dialect}': requirements.txt "
+                f"won't install a database driver. Pass e.g. "
+                f"--sqlmesh-requirement 'sqlmesh[{dialect}]' if SQLMesh needs one."
+            )
+        )
 
 
 def _resolve_output_path(

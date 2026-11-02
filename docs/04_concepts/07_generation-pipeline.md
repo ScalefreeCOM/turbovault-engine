@@ -413,7 +413,6 @@ output:
   sqlmesh:
     dialect: snowflake
     gateway: prod
-    connection_type: snowflake
 ```
 
 Then generate:

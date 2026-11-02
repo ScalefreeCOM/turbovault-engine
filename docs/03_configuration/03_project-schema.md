@@ -328,10 +328,10 @@ Fine-grained settings for SQLMesh project generation. All fields are optional; d
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `dialect` | string | No | `duckdb` | Target SQL dialect (`duckdb`, `postgres`, `snowflake`, `databricks`, `trino`, `bigquery`) — written into `config.json` and used by datavault4sqlglot |
+| `dialect` | string | No | `duckdb` | Target SQL dialect (`duckdb`, `postgres`, `snowflake`, `databricks`, `trino`, `bigquery`). Written into `config.json` for datavault4sqlmesh, and into `config.yaml` as `model_defaults.dialect` and the gateway's connection `type`. Set `null` to leave the dialect out and fill it in yourself (the project isn't runnable until then) |
 | `gateway` | string | No | `local` | SQLMesh gateway name written into `config.yaml` |
-| `connection_type` | string | No | `duckdb` | SQLMesh connection type written into `config.yaml` |
 | `start` | string | No | `2020-01-01` | Default model start date written into `config.yaml` (ISO 8601) |
+| `requirement` | string | No | `null` | Database driver line written into `requirements.txt`, e.g. `sqlmesh[mssql]`. When unset it is derived from `dialect` (`sqlmesh[postgres]`, `sqlmesh[snowflake]`, …; none for DuckDB or dialects TurboVault doesn't list). Set `""` for no driver line. Only applies while `dialect` is unchanged |
 | `ldts_alias` | string | No | `null` | Alias for the load date timestamp column |
 | `rsrc_alias` | string | No | `null` | Alias for the record source column |
 | `ledts_alias` | string | No | `null` | Alias for the load end date timestamp column |
@@ -341,11 +341,13 @@ Fine-grained settings for SQLMesh project generation. All fields are optional; d
 | `hashkey_input_case_sensitive` | boolean | No | `null` | Whether hashkey inputs are case-sensitive |
 | `hashdiff_input_case_sensitive` | boolean | No | `null` | Whether hashdiff inputs are case-sensitive |
 | `use_trim` | boolean | No | `null` | Whether to trim string columns before hashing |
-| `quote_identifiers` | boolean | No | `null` | Whether to quote SQL identifiers |
+| `quote_identifiers` | boolean | No | `null` | Whether to quote SQL identifiers (datavault4sqlmesh default: `true`). Usually leave unset; see the note below |
 | `ghost_record_rsrc` | string | No | `null` | Record source value for ghost records |
 | `ghost_record_error_rsrc` | string | No | `null` | Record source value for ghost error records |
 
-Only non-null values are written into `config.json`. Fields set to `null` are omitted, and datavault4sqlglot uses its own defaults.
+Only non-null values are written into `config.json`. Fields set to `null` are omitted, and datavault4sqlmesh uses its own defaults.
+
+**Identifier case:** SQLMesh normalizes model and column names to the dialect's default case: lower case on PostgreSQL, DuckDB, Trino, Databricks and BigQuery, and upper case on Snowflake. So on PostgreSQL a hub named `rdv.CUSTOMER_H` becomes the table `rdv.customer_h`, with a column `hk_customer_h`. datavault4sqlmesh writes the generated names in the same case, so quoting can stay on. Source schema, table and column references in stage models keep their exact case, so mixed-case source tables still work. This requires a datavault4sqlmesh version that includes this normalization. With an older version, PostgreSQL stage models fail with `column "hk_..." does not exist`, and setting `quote_identifiers: false` works around it. That workaround also unquotes source references, which breaks mixed-case source tables.
 
 **Minimal SQLMesh example (DuckDB, all defaults):**
 ```yaml
@@ -360,7 +362,6 @@ output:
   sqlmesh:
     dialect: postgres
     gateway: prod
-    connection_type: postgres
     start: "2023-01-01"
 ```
 

@@ -41,7 +41,7 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
 ### 🔄 SQLMesh Project Generation
 - **Python model files** - One `.py` file per entity using datavault4sqlmesh factories (`hub_model`, `link_model`, `satellite_model`, `stage_model`)
 - **Multi-dialect support** - Configure the SQL dialect (`duckdb`, `postgres`, `snowflake`, `databricks`, `trino`, `bigquery`) in your project config
-- **DV config file** - Generates `config.json` for datavault4sqlglot aliasing and hash settings
+- **DV config file** - Generates `config.json` for datavault4sqlmesh aliasing and hash settings
 - **Ready-to-run** - Outputs `requirements.txt`, `config.yaml`, and `models/__init__.py` so `sqlmesh plan` works out of the box
 - **Selective coverage** - Standard hubs, links, and satellites (v0 + v1) are fully supported; unsupported types (PITs, reference tables, non-historized links, etc.) are skipped with a warning rather than failing the run
 

@@ -41,7 +41,7 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
 ### 🔄 SQLMesh Project Generation
 - **Python model files** - One `.py` file per entity using datavault4sqlmesh factories (`hub_model`, `link_model`, `satellite_model`, `stage_model`)
 - **Multi-dialect support** - Configure the SQL dialect (`duckdb`, `postgres`, `snowflake`, `databricks`, `trino`, `bigquery`) in your project config
-- **DV config file** - Generates `config.json` for datavault4sqlglot aliasing and hash settings
+- **DV config file** - Generates `config.json` for datavault4sqlmesh aliasing and hash settings
 - **Ready-to-run** - Outputs `requirements.txt`, `config.yaml`, and `models/__init__.py` so `sqlmesh plan` works out of the box
 - **Selective coverage** - Standard hubs, links, and satellites (v0 + v1) are fully supported; unsupported types (PITs, reference tables, non-historized links, etc.) are skipped with a warning rather than failing the run
 
@@ -542,11 +542,11 @@ turbovault generate --type sqlmesh --project my_project --no-v1-satellites
 Generates a ready-to-run SQLMesh project with:
 - **Python model files** (`.py`) using datavault4sqlmesh factories — one file per stage, hub, link, and satellite
 - **`config.yaml`** — SQLMesh gateway and connection template (written only if it does not already exist)
-- **`config.json`** — datavault4sqlglot DV settings (dialect, hash algorithm, aliasing, etc.)
-- **`models/__init__.py`** — calls `datavault4sqlglot.load_dv_config()` to load the DV config at startup
-- **`requirements.txt`** — declares `datavault4sqlmesh>=0.1.0`
+- **`config.json`** — datavault4sqlmesh DV settings (dialect, hash algorithm, aliasing, etc.)
+- **`models/__init__.py`** — calls `datavault4sqlmesh.load_dv_config()` to load the DV config at startup
+- **`requirements.txt`** — declares `datavault4sqlmesh>=0.1.0` plus the database driver for the chosen dialect as a SQLMesh extra (e.g. `sqlmesh[postgres]`, `sqlmesh[snowflake]`). DuckDB needs no extra.
 
-**SQL dialect** is configured via `output.sqlmesh.dialect` in your project `config.yml` (default: `duckdb`). Supported dialects: `duckdb`, `postgres`, `snowflake`, `databricks`, `trino`, `bigquery`.
+**SQL dialect** is configured via `output.sqlmesh.dialect` in your project `config.yml` (default: `duckdb`). Supported dialects: `duckdb`, `postgres`, `snowflake`, `databricks`, `trino`, `bigquery`. `turbovault generate --type sqlmesh` asks you to pick the dialect, defaulting to the configured one; pass `--dialect <name>` to skip the prompt. For a dialect that isn't listed (e.g. `mssql`), choose **other** in the prompt and type the dialect name and the `requirements.txt` driver line (suggested: `sqlmesh[<dialect>]`), or pass `--dialect mssql --sqlmesh-requirement "sqlmesh[mssql]"`. Unlisted dialects print a warning, because TurboVault hasn't tested them. `--sqlmesh-requirement ""` writes no driver line. To fill in the dialect yourself, choose **none** in the prompt or pass `--dialect none`. `config.yaml` then gets commented placeholders for the connection `type` and `model_defaults.dialect`, `config.json` gets no `dialect` key, and `requirements.txt` gets no driver unless you pass `--sqlmesh-requirement`. Generation warns that the project isn't runnable until you fill these in. The choice is written to both `config.yaml` and `config.json`. Since `config.yaml` is never overwritten, re-generating with a different dialect prints a warning so you can update `config.yaml` by hand. Generated table and column names follow the dialect's case. On PostgreSQL, for example, `HK_CUSTOMER_H` becomes `hk_customer_h`, matching how SQLMesh creates the tables (see `output.sqlmesh` in the project schema docs).
 
 **Unsupported entity types** (PITs, reference tables, non-historized links, multi-active / effectivity / non-historized / reference satellites) are skipped with a warning — the run does not fail.
 
