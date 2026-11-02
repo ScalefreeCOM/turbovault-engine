@@ -82,6 +82,54 @@ def project_init(
         str | None,
         typer.Option("--satellite-v1-naming", help="Satellite v1 naming pattern"),
     ] = None,
+    # dbt project settings
+    profile_name: Annotated[
+        str | None,
+        typer.Option("--profile-name", help="dbt profile (default: default)"),
+    ] = None,
+    control_schema: Annotated[
+        str | None,
+        typer.Option("--control-schema", help="Control schema name (default: control)"),
+    ] = None,
+    control_materialization: Annotated[
+        str | None,
+        typer.Option(
+            "--control-materialization",
+            help="Control layer materialization (default: table)",
+        ),
+    ] = None,
+    staging_materialization: Annotated[
+        str | None,
+        typer.Option(
+            "--staging-materialization",
+            help="Staging layer materialization (default: view)",
+        ),
+    ] = None,
+    raw_vault_materialization: Annotated[
+        str | None,
+        typer.Option(
+            "--raw-vault-materialization",
+            help="Raw Vault layer materialization (default: incremental)",
+        ),
+    ] = None,
+    business_vault_materialization: Annotated[
+        str | None,
+        typer.Option(
+            "--business-vault-materialization",
+            help="Business Vault layer materialization (default: table)",
+        ),
+    ] = None,
+    model_specific_materializations: Annotated[
+        bool,
+        typer.Option(
+            "--model-specific-materializations/--no-model-specific-materializations",
+            help=(
+                "Keep the own materialization of satellite _v1, reference "
+                "tables, PITs and snapshot controls (off: every model follows "
+                "its layer)"
+            ),
+        ),
+    ] = True,
     # Options
     zip_output: Annotated[
         bool,
@@ -136,6 +184,13 @@ def project_init(
         create_zip=zip_output,
         hashdiff_naming=hashdiff_naming,
         hashkey_naming=hashkey_naming,
+        profile_name=profile_name,
+        control_schema=control_schema,
+        control_materialization=control_materialization,
+        staging_materialization=staging_materialization,
+        raw_vault_materialization=raw_vault_materialization,
+        business_vault_materialization=business_vault_materialization,
+        model_specific_materializations=model_specific_materializations,
         overwrite=overwrite,
         interactive=interactive,
         config=Path(config) if config else None,

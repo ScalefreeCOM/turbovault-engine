@@ -252,7 +252,9 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
         link = DLink(
             physical_name=link_def.link_name,
             link_type=(
-                "non_historized" if link_def.link_type == "non_historized" else "standard"
+                "non_historized"
+                if link_def.link_type == "non_historized"
+                else "standard"
             ),
             hashkey_name=link_def.hashkey.hashkey_name,
             create_record_tracking_satellite=link_def.create_record_tracking_satellite,
@@ -285,8 +287,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
         for ref in link.hub_references:
             hub = model.hubs.get(ref.hub_physical_name)
             ref_foreign_hashkeys.append(
-                ref.hub_hashkey_alias_in_link
-                or (hub.hashkey_name if hub else None)
+                ref.hub_hashkey_alias_in_link or (hub.hashkey_name if hub else None)
             )
 
         col_by_name = {c.name: c for c in link.columns}
@@ -515,7 +516,9 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             prejoin = DPrejoin(
                 source_table_identifier=source_table_id,
                 target_table_identifier=target_id,
-                operator=pj.join_conditions.operator.upper() if pj.join_conditions else "AND",
+                operator=(
+                    pj.join_conditions.operator.upper() if pj.join_conditions else "AND"
+                ),
                 source_join_columns=list(pj.join_conditions.source_columns or []),
                 target_join_columns=list(pj.join_conditions.target_columns or []),
             )

@@ -1,7 +1,9 @@
 [# Non-Historized Satellite Template #]
 [# Generates a satellite model that only keeps the latest record (no history) #]
 {{ config(
-    materialized='incremental',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['satellite', 'non_historized', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 

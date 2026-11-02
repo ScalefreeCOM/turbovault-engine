@@ -19,7 +19,9 @@ def project(db) -> Project:
 def workbook_factory(tmp_path: Path):
     """Build an Excel workbook from a dict of {sheet_name: [headers, *rows]}."""
 
-    def _factory(sheets: dict[str, list[list]], filename: str = "metadata.xlsx") -> Path:
+    def _factory(
+        sheets: dict[str, list[list]], filename: str = "metadata.xlsx"
+    ) -> Path:
         wb = openpyxl.Workbook()
         wb.remove(wb.active)
         for name, rows in sheets.items():
@@ -47,7 +49,14 @@ def minimal_workbook(workbook_factory) -> Path:
                     "record_source_column",
                     "load_date_column",
                 ],
-                ["crm", "crm_raw", "customer", "crm.customer", "crm.customer", "load_dt"],
+                [
+                    "crm",
+                    "crm_raw",
+                    "customer",
+                    "crm.customer",
+                    "crm.customer",
+                    "load_dt",
+                ],
             ],
             "standard_hub": [
                 [

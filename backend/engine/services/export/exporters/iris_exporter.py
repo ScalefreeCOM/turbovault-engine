@@ -145,9 +145,7 @@ class IrisExporter:
                     break
                 seen_hubs.add(ref.hub_name)
         for link_name in self_ref:
-            result.add_warning(
-                f"Self-referencing link {link_name!r} skipped "
-            )
+            result.add_warning(f"Self-referencing link {link_name!r} skipped ")
         return self_ref
 
     def _collect_links_with_unresolved_sources(
@@ -217,6 +215,7 @@ class IrisExporter:
         a same-named source column (dropping renamed/foreign secondaries);
         if none match, all are kept so the hub isn't left empty.
         """
+
         def _name_matches(hub: "HubDefinition", src) -> bool:
             if src.column_mappings:
                 return any(
@@ -303,6 +302,7 @@ class IrisExporter:
         column. A source feeds a hub either directly (HubSourceInfo) or
         indirectly through a Link (LinkSourceInfo + hub_references).
         """
+
         def _register(system: str, table: str, hub_name: str) -> None:
             iris_hub = _iris_table_name(hub_name, "hub")
             if not iris_hub:
@@ -322,7 +322,10 @@ class IrisExporter:
                 _register(src.source_system, src.source_table, hub.hub_name)
 
         for link in project_export.links:
-            if _name_blacklisted(link.link_name) or link.link_type in _LINK_TYPES_SKIPPED:
+            if (
+                _name_blacklisted(link.link_name)
+                or link.link_type in _LINK_TYPES_SKIPPED
+            ):
                 continue
             if link.link_name in self._self_ref_links:
                 continue
@@ -441,9 +444,7 @@ class IrisExporter:
                 system.schema_name or system.name, _IRIS_TABLE_NAME_MAX
             )
             for table in system.tables:
-                table_name = _sanitize_iris_name(
-                    table.table_name, _IRIS_TABLE_NAME_MAX
-                )
+                table_name = _sanitize_iris_name(table.table_name, _IRIS_TABLE_NAME_MAX)
                 if not table_name:
                     result.add_warning(
                         f"Source table {table.table_name!r}: name degenerate "
@@ -753,9 +754,7 @@ class IrisExporter:
             return
 
         for ref in link.hub_references:
-            related_hub_name = self._canonical(
-                _iris_table_name(ref.hub_name, "hub")
-            )
+            related_hub_name = self._canonical(_iris_table_name(ref.hub_name, "hub"))
             if not related_hub_name:
                 continue
             if related_hub_name.lower() not in hubs_emitted:
@@ -1102,7 +1101,10 @@ class IrisExporter:
             hub_base = _iris_hub_base_name(hub_name)
             hub_bkcc_src_col = _link_bkcc_column_name(hub_base)
             for source in hub.source_tables:
-                if (hub.hub_name, source.source_table) not in self._emittable_hub_sources:
+                if (
+                    hub.hub_name,
+                    source.source_table,
+                ) not in self._emittable_hub_sources:
                     continue
                 mset = _mapping_set_name(
                     source.source_system, source.source_table, hub_name
@@ -1189,8 +1191,7 @@ class IrisExporter:
                         ref_iris_hub,
                     )
                     hub_bks = list(
-                        hub_def.business_key_columns
-                        or hub_def.reference_key_columns
+                        hub_def.business_key_columns or hub_def.reference_key_columns
                     )
                     hub_bk_lookup = {bk.lower(): bk for bk in hub_bks}
                     for m in source.columns:
@@ -1271,13 +1272,9 @@ class IrisExporter:
             ):
                 continue
             sat_name = self._canonical(
-                _iris_table_name(
-                    sat.satellite_name, "satellite", sat.satellite_type
-                )
+                _iris_table_name(sat.satellite_name, "satellite", sat.satellite_type)
             )
-            mset = _mapping_set_name(
-                sat.source_system, sat.source_table, sat_name
-            )
+            mset = _mapping_set_name(sat.source_system, sat.source_table, sat_name)
             for col in sat.columns:
                 target_name = col.target_column_name or col.source_column
                 _append(
@@ -1423,9 +1420,7 @@ def _sanitize_mapping_set(name: str) -> str:
     return "".join(c if (c.isalnum() or c in ("-", "_")) else "_" for c in name)
 
 
-def _mapping_set_name(
-    source_system: str, source_table: str, target_table: str
-) -> str:
+def _mapping_set_name(source_system: str, source_table: str, target_table: str) -> str:
     """
     Mapping Set Name keyed by source table
     """
@@ -1612,7 +1607,7 @@ def _convert_inline_to_shared_strings(xlsx_path: Path) -> None:
     # 2. Build xl/sharedStrings.xml.
     if ordered_strings:
         si_blocks = "".join(
-            f"<si><t xml:space=\"preserve\">{_text_xml(s)}</t></si>"
+            f'<si><t xml:space="preserve">{_text_xml(s)}</t></si>'
             for s in ordered_strings
         )
         members["xl/sharedStrings.xml"] = (
@@ -1638,9 +1633,7 @@ def _convert_inline_to_shared_strings(xlsx_path: Path) -> None:
         rels_path = "xl/_rels/workbook.xml.rels"
         rels_xml = members[rels_path].decode("utf-8")
         if "sharedStrings.xml" not in rels_xml:
-            existing_ids = {
-                int(m) for m in re.findall(r'Id="rId(\d+)"', rels_xml)
-            }
+            existing_ids = {int(m) for m in re.findall(r'Id="rId(\d+)"', rels_xml)}
             next_id = max(existing_ids, default=0) + 1
             new_rel = (
                 f'<Relationship Id="rId{next_id}" '

@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import yaml
 from jinja2 import Environment, FileSystemLoader, Template, select_autoescape
 from markupsafe import Markup
 
@@ -49,6 +50,37 @@ def yaml_quote(value: object) -> Markup:
     return Markup(quoted)
 
 
+def yaml_scalar(value: object) -> Markup:
+    """``value`` as a YAML scalar, quoted only when it has to be.
+
+    A value YAML reads back as the same string (``stage``, ``my_schema``) is
+    written as-is, so existing output stays byte-identical. Anything else —
+    ``off``/``yes``/``null`` (booleans and null), numbers, ``: `` or ``#`` —
+    goes through ``yaml_quote``.
+    """
+    text = "" if value is None else str(value)
+    if text and not any(char in text for char in "\n\r" + "".join(_YAML_LINE_BREAKS)):
+        try:
+            if yaml.safe_load(text) == text:
+                return Markup(text)
+        except yaml.YAMLError:
+            pass
+    return yaml_quote(text)
+
+
+def yaml_single_quote(value: object) -> Markup:
+    """``value`` as a single-quoted YAML scalar, e.g. ``'default'``.
+
+    Doubles embedded single quotes, the YAML escape inside single quotes.
+    Line breaks cannot be kept inside single quotes, so such values fall back
+    to ``yaml_quote``.
+    """
+    text = "" if value is None else str(value)
+    if any(char in text for char in "\n\r" + "".join(_YAML_LINE_BREAKS)):
+        return yaml_quote(text)
+    return Markup("'" + text.replace("'", "''") + "'")
+
+
 def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     """Build the Jinja2 environment shared by template rendering and validation.
 
@@ -57,7 +89,8 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     - [[ ]] for variable expressions (instead of {{ }})
     - [# #] for comments (instead of {# #})
 
-    Adds the ``yaml_quote`` filter for writing user text into YAML.
+    Adds the ``yaml_quote``, ``yaml_scalar`` and ``yaml_single_quote`` filters
+    for writing user text into YAML.
     """
     environment = Environment(
         loader=loader,
@@ -73,6 +106,8 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
         comment_end_string="#]",
     )
     environment.filters["yaml_quote"] = yaml_quote
+    environment.filters["yaml_scalar"] = yaml_scalar
+    environment.filters["yaml_single_quote"] = yaml_single_quote
     return environment
 
 

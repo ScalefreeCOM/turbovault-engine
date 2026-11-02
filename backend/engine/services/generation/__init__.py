@@ -36,6 +36,7 @@ from engine.models import Project
 from engine.services.generation.folder_config import FolderConfig, GenerationConfig
 from engine.services.generation.generator import DbtProjectGenerator
 from engine.services.generation.pipeline import run_pipeline
+from engine.services.generation.profiles_yml import render_profiles_yml
 from engine.services.generation.progress import ProgressCallback
 from engine.services.generation.template_resolver import (
     TemplateResolver,
@@ -67,6 +68,7 @@ from engine.services.runtime_config import EngineRuntimeConfig
 
 __all__ = [
     "generate",
+    "render_profiles_yml",
     "GenerationOptions",
     "GenerationReport",
     "GenerationPlan",

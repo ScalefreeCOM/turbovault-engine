@@ -8,7 +8,7 @@ deep-link errors; the CLI groups them in summary tables.
 
 | Code | Cause | Suggestion shown to user |
 |------|-------|--------------------------|
-| `build.project_load_failed` | Project metadata could not be read from the database. | Confirm the project exists and migrations are up to date. |
+| `build.project_load_failed` | Project metadata could not be read from the database, or the project's `config.yml` exists but is invalid (e.g. an unknown materialization). Nothing is generated — the run does not fall back to default settings. | Confirm the project exists and migrations are up to date; fix the `config.yml` field named in the message. |
 | `build.export_inconsistent` | The Pydantic export model could not be assembled (missing references, type mismatch). | Review the project in the metadata editor for missing relationships. |
 
 ## Validate stage
@@ -53,6 +53,9 @@ deep-link errors; the CLI groups them in summary tables.
 | `render.template_render_failed` | A template raised during render (Jinja syntax, undefined variable). | Check the template for the listed entity. |
 | `render.entity_skipped` | Best-effort skipped an entity due to a render error (info). | See the preceding `render.template_*` error for the root cause. |
 | `render.invalid_global_vars` | The caller-supplied `global_vars` mapping could not be serialized into the `vars:` block. Nothing is generated, so an earlier run's output is left untouched rather than half-replaced. | Fix the reported key — `global_vars` must be a mapping with string keys and YAML-serializable values. |
+| `render.invalid_profiles` | `generate_profiles_yml` is on but `profiles` is not a mapping or holds a value that cannot be written as YAML. The engine does not check the dbt profile shape (targets, outputs, adapter fields) — that is the caller's concern. Nothing is generated. | Pass `profiles` as a mapping of YAML-serializable values. |
+| `render.invalid_materialization` | A layer materialization (`control_`, `staging_`, `raw_vault_`, `business_vault_materialization`) or a `model_materializations` entry is not a dbt materialization name, or names an unknown model kind. Nothing is generated. | Use a name such as `table`, `view`, `incremental`, `ephemeral`, or a custom materialization's name. |
+| `render.literal_secret_in_profile` | A secret key in `profiles` — one ending in `password`, `passphrase`, `secret`, `token`, `private_key`, `access_key` or `api_key`, or `pass` / `keyfile_json` — holds a literal value, or an `env_var` reference with a non-empty default (dbt uses the default whenever the variable is unset). Nothing is generated; the value is never echoed. | Reference the secret via `{{ env_var('...') }}` (optionally `\| as_native`), without a default or with an empty one. An inline `keyfile_json` mapping is allowed when its own secret fields are references. |
 
 ## Write stage
 

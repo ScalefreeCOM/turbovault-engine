@@ -385,9 +385,7 @@ def _ms(start_perf: float) -> int:
     return int((time.perf_counter() - start_perf) * 1000)
 
 
-def _filter_bad_sheets(
-    doc: IRDocument, schema_errors: list[Issue]
-) -> IRDocument:
+def _filter_bad_sheets(doc: IRDocument, schema_errors: list[Issue]) -> IRDocument:
     """Return a copy of `doc` with sheets affected by header-level schema
     errors removed.
 

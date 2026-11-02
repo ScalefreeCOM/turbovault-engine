@@ -179,6 +179,7 @@ class TurboVaultToolset(MCPToolset):
         flat source_tables list with full column details.
         """
         from engine.models import Project, SourceColumn, SourceSystem, SourceTable
+        from engine.services.config_loader import ConfigValidationError
         from engine.services.runtime_config import EngineRuntimeConfig
         from engine.services.source_values import resolve_table_values
 
@@ -187,7 +188,10 @@ class TurboVaultToolset(MCPToolset):
         except Project.DoesNotExist:
             return {"error": f"Project '{project_name}' not found"}
 
-        runtime_config = EngineRuntimeConfig.from_project(project)
+        try:
+            runtime_config = EngineRuntimeConfig.from_project(project)
+        except ConfigValidationError as exc:
+            return {"error": str(exc)}
 
         def table_entry(tbl: SourceTable) -> dict:
             # What the stage uses, whether the table sets it or inherits it.

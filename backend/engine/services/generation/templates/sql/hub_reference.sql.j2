@@ -1,7 +1,9 @@
 [# Reference Hub Template #]
 [# Generates a reference hub model using datavault4dbt.ref_hub() macro #]
 {{ config(
-    materialized='incremental',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['hub', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 

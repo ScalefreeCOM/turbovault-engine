@@ -224,7 +224,9 @@ class _PlanBuilder:
                         skip_reason="update_only",
                     )
                     continue
-                self._record(CreateOp(entity_type="source_system", name=d.name, payload=d))
+                self._record(
+                    CreateOp(entity_type="source_system", name=d.name, payload=d)
+                )
             else:
                 used_pks.add(existing.pk)
                 self._record(
@@ -443,7 +445,9 @@ class _PlanBuilder:
                         skip_reason="update_only",
                     )
                     continue
-                self._record(CreateOp(entity_type="hub", name=d.physical_name, payload=d))
+                self._record(
+                    CreateOp(entity_type="hub", name=d.physical_name, payload=d)
+                )
             else:
                 used_pks.add(existing.pk)
                 self._record(
@@ -491,7 +495,9 @@ class _PlanBuilder:
                         skip_reason="update_only",
                     )
                     continue
-                self._record(CreateOp(entity_type="link", name=d.physical_name, payload=d))
+                self._record(
+                    CreateOp(entity_type="link", name=d.physical_name, payload=d)
+                )
             else:
                 used_pks.add(existing.pk)
                 self._record(
@@ -633,7 +639,9 @@ class _PlanBuilder:
                 if existing is not None:
                     used_pks.add(existing.pk)
                 self._record(
-                    SkipOp(entity_type="pit", name=d.physical_name, reason="skip_snapshots"),
+                    SkipOp(
+                        entity_type="pit", name=d.physical_name, reason="skip_snapshots"
+                    ),
                     skip_reason="skip_snapshots",
                 )
                 continue
@@ -648,7 +656,9 @@ class _PlanBuilder:
                         skip_reason="update_only",
                     )
                     continue
-                self._record(CreateOp(entity_type="pit", name=d.physical_name, payload=d))
+                self._record(
+                    CreateOp(entity_type="pit", name=d.physical_name, payload=d)
+                )
             else:
                 used_pks.add(existing.pk)
                 self._record(

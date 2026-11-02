@@ -1,7 +1,9 @@
 [# Standard Hub Template #]
 [# Generates a standard hub model using datavault4dbt.hub() macro #]
 {{ config(
-    materialized='incremental',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['hub', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 

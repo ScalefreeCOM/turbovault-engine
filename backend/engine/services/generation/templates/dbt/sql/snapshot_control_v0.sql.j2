@@ -1,7 +1,9 @@
 [# Snapshot Control V0 Template #]
 [# Generates the snapshot control table with date ranges #]
 {{ config(
-    materialized='incremental',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['snapshot_control', 'control']
 ) }}
 

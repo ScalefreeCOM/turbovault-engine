@@ -23,6 +23,7 @@ from engine.cli.utils.console import (
     print_success,
     print_warning,
 )
+from engine.services.config_loader import ConfigValidationError
 from engine.services.runtime_config import EngineRuntimeConfig
 from engine.services.source_values import (
     ResolvedValue,
@@ -1352,7 +1353,11 @@ def list_entities(
         tbl2.add_column("Record Source")
         tbl2.add_column("Load Date")
         tbl2.add_column("Columns")
-        runtime_config = EngineRuntimeConfig.from_project(project)
+        try:
+            runtime_config = EngineRuntimeConfig.from_project(project)
+        except ConfigValidationError as exc:
+            print_error(str(exc))
+            raise typer.Exit(1) from exc
         for t in tables:
             values = resolve_table_values(t, runtime_config=runtime_config)
             tbl2.add_row(

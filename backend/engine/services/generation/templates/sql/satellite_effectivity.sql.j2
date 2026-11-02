@@ -1,7 +1,9 @@
 [# Effectivity Satellite Template #]
 [# Tracks the effectivity (active/inactive status) of relationships #]
 {{ config(
-    materialized='incremental',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['satellite', 'effectivity', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 

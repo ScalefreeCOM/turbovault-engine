@@ -4,6 +4,8 @@ Unit tests for configuration schema and output path handling.
 
 from pathlib import Path
 
+import pytest
+
 
 class TestOutputConfiguration:
     """Tests for OutputConfiguration schema fields."""
@@ -173,3 +175,159 @@ class TestFindTurboVaultConfig:
 
         result = find_turbovault_config()
         assert result == config_file
+
+
+class TestDbtProjectSettings:
+    """dbt project settings in config.yml feed EngineRuntimeConfig."""
+
+    def test_defaults_match_generated_project(self):
+        from engine.services.config_schema import TurboVaultConfig
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        config = TurboVaultConfig(project={"name": "p"})
+        runtime = EngineRuntimeConfig.from_turbovault_config(config)
+
+        assert runtime.profile_name == "default"
+        assert runtime.control_schema == "control"
+        assert runtime.control_materialization == "table"
+        assert runtime.staging_materialization == "view"
+        assert runtime.raw_vault_materialization == "incremental"
+        assert runtime.business_vault_materialization == "table"
+
+    def test_values_flow_into_runtime_config(self):
+        from engine.services.config_schema import TurboVaultConfig
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        config = TurboVaultConfig(
+            project={"name": "p"},
+            configuration={
+                "profile_name": "tpch_dv",
+                "control_schema": "meta",
+                "staging_materialization": "ephemeral",
+                "business_vault_materialization": "view",
+            },
+        )
+        runtime = EngineRuntimeConfig.from_turbovault_config(config)
+
+        assert runtime.profile_name == "tpch_dv"
+        assert runtime.control_schema == "meta"
+        assert runtime.staging_materialization == "ephemeral"
+        assert runtime.business_vault_materialization == "view"
+
+    def test_profiles_are_not_set_through_config_yml(self):
+        """Like global_vars, profiles.yml is driven by embedded callers only:
+        config.yml has no such setting, so the runtime config keeps it off."""
+        from engine.services.config_schema import TurboVaultConfig
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        config = TurboVaultConfig(
+            project={"name": "p"},
+            output={
+                "generate_profiles_yml": True,
+                "profiles": {"p": {"target": "dev", "outputs": {"dev": {}}}},
+            },
+        )
+        runtime = EngineRuntimeConfig.from_turbovault_config(config)
+
+        assert runtime.generate_profiles_yml is False
+        assert runtime.profiles == {}
+        assert not hasattr(config.output, "profiles")
+
+    def test_unknown_materialization_rejected(self):
+        import pytest
+        from engine.services.config_schema import TurboVaultConfig
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            TurboVaultConfig(
+                project={"name": "p"},
+                configuration={"raw_vault_materialization": "merge"},
+            )
+
+    def test_invalid_control_schema_rejected(self):
+        import pytest
+        from engine.services.config_schema import TurboVaultConfig
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            TurboVaultConfig(
+                project={"name": "p"}, configuration={"control_schema": "a b"}
+            )
+
+
+class TestModelSpecificMaterializations:
+    def test_defaults_to_true(self):
+        from engine.services.config_schema import TurboVaultConfig
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        config = TurboVaultConfig(project={"name": "p"})
+        assert config.configuration.model_specific_materializations is True
+        runtime = EngineRuntimeConfig.from_turbovault_config(config)
+        assert runtime.model_specific_materializations is True
+
+    def test_switch_off_flows_into_runtime_config(self):
+        from engine.services.config_schema import TurboVaultConfig
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        config = TurboVaultConfig(
+            project={"name": "p"},
+            configuration={"model_specific_materializations": False},
+        )
+        runtime = EngineRuntimeConfig.from_turbovault_config(config)
+        assert runtime.model_specific_materializations is False
+
+
+class TestModelMaterializations:
+    def test_defaults_to_empty(self):
+        from engine.services.config_schema import TurboVaultConfig
+
+        config = TurboVaultConfig(project={"name": "p"})
+        assert config.configuration.model_materializations == {}
+
+    def test_flows_into_runtime_config(self):
+        from engine.services.config_schema import TurboVaultConfig
+        from engine.services.runtime_config import EngineRuntimeConfig
+
+        config = TurboVaultConfig(
+            project={"name": "p"},
+            configuration={"model_materializations": {"satellite_v1": "table"}},
+        )
+        runtime = EngineRuntimeConfig.from_turbovault_config(config)
+        assert runtime.model_materializations == {"satellite_v1": "table"}
+
+    @pytest.mark.parametrize(
+        "value",
+        [{"hub": "table"}, {"satellite_v1": "merge"}],
+    )
+    def test_unknown_kind_or_materialization_rejected(self, value):
+        from engine.services.config_schema import TurboVaultConfig
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            TurboVaultConfig(
+                project={"name": "p"}, configuration={"model_materializations": value}
+            )
+
+    def test_written_to_config_yml_only_when_set(self, tmp_path):
+        import yaml
+        from engine.services.config_schema import TurboVaultConfig
+        from engine.services.project_config import write_project_config
+
+        plain = tmp_path / "plain.yml"
+        write_project_config(plain, TurboVaultConfig(project={"name": "p"}))
+        assert (
+            "model_materializations"
+            not in yaml.safe_load(plain.read_text(encoding="utf-8"))["configuration"]
+        )
+
+        custom = tmp_path / "custom.yml"
+        write_project_config(
+            custom,
+            TurboVaultConfig(
+                project={"name": "p"},
+                configuration={"model_materializations": {"pit": "table"}},
+            ),
+        )
+        assert yaml.safe_load(custom.read_text(encoding="utf-8"))["configuration"][
+            "model_materializations"
+        ] == {"pit": "table"}

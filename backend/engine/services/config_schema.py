@@ -13,6 +13,31 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+# Materializations dbt accepts for the layers the generated project configures.
+DbtMaterialization = Literal["table", "view", "incremental", "ephemeral"]
+
+# Models whose own materialization (in their config() block) can be set.
+ModelKind = Literal[
+    "satellite_v1",
+    "reference_table",
+    "pit",
+    "snapshot_control_v0",
+    "snapshot_control_v1",
+]
+
+# Default own materialization of each of those models. Derived views
+# (satellite _v1, reference tables) recompute load-end dates and current rows
+# on every query; as incremental models they would append duplicates. PITs and
+# the snapshot control table are loaded incrementally by their datavault4dbt
+# macros.
+MODEL_MATERIALIZATION_DEFAULTS: dict[str, str] = {
+    "satellite_v1": "view",
+    "reference_table": "view",
+    "pit": "incremental",
+    "snapshot_control_v0": "incremental",
+    "snapshot_control_v1": "view",
+}
+
 
 def _sanitize_path_string(v: object) -> str:
     """
@@ -357,7 +382,44 @@ class ProjectConfiguration(BaseModel):
         description="Load date of tables and source systems that set none",
     )
 
-    @field_validator("stage_schema", "rdv_schema", "bdv_schema")
+    # dbt project settings (dbt_project.yml). Defaults match the project the
+    # engine has always generated.
+    profile_name: str = Field(
+        "default", description="dbt profile referenced by dbt_project.yml"
+    )
+    control_schema: str = Field(
+        "control", description="Schema name for the control layer"
+    )
+    control_materialization: DbtMaterialization = Field(
+        "table", description="Materialization of the control layer"
+    )
+    staging_materialization: DbtMaterialization = Field(
+        "view", description="Materialization of the staging layer"
+    )
+    raw_vault_materialization: DbtMaterialization = Field(
+        "incremental", description="Materialization of the Raw Data Vault layer"
+    )
+    business_vault_materialization: DbtMaterialization = Field(
+        "table", description="Materialization of the Business Data Vault layer"
+    )
+    model_specific_materializations: bool = Field(
+        True,
+        description=(
+            "Keep the own materialization of models that differ from their "
+            "layer (satellite _v1 and reference tables as view, PIT and "
+            "snapshot control v0 incremental, snapshot control v1 view) in "
+            "their config() block; off: every model follows its layer"
+        ),
+    )
+    model_materializations: dict[ModelKind, DbtMaterialization] = Field(
+        default_factory=dict,
+        description=(
+            "Overrides of those own materializations per model kind; kinds "
+            "left out keep their default"
+        ),
+    )
+
+    @field_validator("stage_schema", "rdv_schema", "bdv_schema", "control_schema")
     @classmethod
     def validate_schema_name(cls, v: str) -> str:
         """Validate schema name is a valid SQL identifier."""

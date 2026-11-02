@@ -185,9 +185,7 @@ def _load_first_sheet(path: Path) -> list[IRRow]:
     return list(sheet.rows) if sheet is not None else []
 
 
-def _abort_issue(
-    message: str, path: Path, *, suggestion: str | None = None
-):
+def _abort_issue(message: str, path: Path, *, suggestion: str | None = None):
     return make_issue(
         severity="error",
         code=Code.SOURCE_UNREADABLE,
@@ -220,9 +218,7 @@ def _as_int(value: object) -> int | None:
         return None
 
 
-def _compose_datatype(
-    base: str | None, size: object, scale: object
-) -> str:
+def _compose_datatype(base: str | None, size: object, scale: object) -> str:
     """Recompose a TurboVault datatype string from IRiS's separate cells, e.g.
     (``varchar``, 4000, None) -> ``varchar(4000)`` and
     (``decimal``, 18, 4) -> ``decimal(18,4)``."""
@@ -282,13 +278,21 @@ class _LinkWork:
     def add_hub_ref(self, hub_iris_name: str) -> None:
         if not hub_iris_name:
             return
-        if any(hub_iris_name.lower() == existing.lower() for existing in self.hub_ref_iris):
+        if any(
+            hub_iris_name.lower() == existing.lower() for existing in self.hub_ref_iris
+        ):
             return
         self.hub_ref_iris.append(hub_iris_name)
 
 
 class _SatWork:
-    __slots__ = ("iris_name", "base", "is_multi_active", "parent_iris", "target_columns")
+    __slots__ = (
+        "iris_name",
+        "base",
+        "is_multi_active",
+        "parent_iris",
+        "target_columns",
+    )
 
     def __init__(
         self, iris_name: str, base: str, is_multi_active: bool, parent_iris: str
@@ -367,9 +371,7 @@ class _Resolver:
                 continue
             table = tables_by_id.get(table_name)
             if table is None:
-                table = DSourceTable(
-                    identifier=table_name, physical_name=table_name
-                )
+                table = DSourceTable(identifier=table_name, physical_name=table_name)
                 tables_by_id[table_name] = table
                 system = self._model.source_systems.setdefault(
                     schema, DSourceSystem(name=schema, schema_name=schema)
@@ -476,9 +478,7 @@ class _Resolver:
             dhub = DHub(physical_name=hub.iris_name, hub_type="standard")
             col_by_lower: dict[str, DHubColumn] = {}
             for i, bk in enumerate(hub.bk_columns):
-                col = DHubColumn(
-                    name=bk, column_type="business_key", sort_order=i + 1
-                )
+                col = DHubColumn(name=bk, column_type="business_key", sort_order=i + 1)
                 dhub.columns.append(col)
                 col_by_lower[bk.lower()] = col
 
@@ -517,9 +517,7 @@ class _Resolver:
             for i, hub_iris in enumerate(link.hub_ref_iris):
                 hub_name = hub_canon.get(hub_iris.lower(), hub_iris)
                 dlink.hub_references.append(
-                    DLinkHubReference(
-                        hub_physical_name=hub_name, sort_order=i + 1
-                    )
+                    DLinkHubReference(hub_physical_name=hub_name, sort_order=i + 1)
                 )
                 ref_index_by_hub[hub_iris.lower()] = i
 
@@ -534,7 +532,9 @@ class _Resolver:
             # rows too to capture the source of BKCC-only links.
             for row in self._mappings_rows:
                 v = row.values
-                if (clean(v.get("target table")) or "").lower() == link.iris_name.lower():
+                if (
+                    clean(v.get("target table")) or ""
+                ).lower() == link.iris_name.lower():
                     src = clean(v.get("source table"))
                     if src:
                         link_source_tables.add(src.lower())
@@ -601,7 +601,9 @@ class _Resolver:
                 parent_name, parent_kind = hub_canon[parent_lower], "hub"
             else:
                 parent_name = sat.parent_iris
-                parent_kind = "link" if _strip_prefix(sat.parent_iris)[1] == "link" else "hub"
+                parent_kind = (
+                    "link" if _strip_prefix(sat.parent_iris)[1] == "link" else "hub"
+                )
 
             # A satellite on a link whose base matches the link is the exporter's
             # synthesized non-historized payload satellite: fold it into the link.
@@ -679,9 +681,7 @@ class _Resolver:
         used_names.add(candidate.lower())
         return candidate
 
-    def _satellite_column_sources(
-        self, sat: _SatWork
-    ) -> dict[str, tuple[str, str]]:
+    def _satellite_column_sources(self, sat: _SatWork) -> dict[str, tuple[str, str]]:
         """Map a satellite's lower-cased target column -> (source_table,
         source_column) from the Mappings file."""
         sources: dict[str, tuple[str, str]] = {}

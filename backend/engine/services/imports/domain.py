@@ -352,7 +352,9 @@ class DomainModel:
 
     # ---------------- helpers ----------------
 
-    def get_source_table(self, identifier: str) -> tuple[DSourceSystem, DSourceTable] | None:
+    def get_source_table(
+        self, identifier: str
+    ) -> tuple[DSourceSystem, DSourceTable] | None:
         """Find a source table by its identifier across all systems."""
         for system in self.source_systems.values():
             table = system.tables.get(identifier)

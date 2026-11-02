@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 # Free-text note columns accepted on every sheet, in either spelling.
 NOTE_COLUMNS: tuple[str, ...] = ("note", "notes")
 
@@ -25,9 +24,7 @@ class SheetSchema:
     @property
     def known_columns(self) -> set[str]:
         return (
-            set(self.required_columns)
-            | set(self.optional_columns)
-            | set(NOTE_COLUMNS)
+            set(self.required_columns) | set(self.optional_columns) | set(NOTE_COLUMNS)
         )
 
 

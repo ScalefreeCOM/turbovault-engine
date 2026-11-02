@@ -1,7 +1,9 @@
 [# Record Tracking Satellite Template #]
 [# Tracks the presence/absence of business objects in source systems #]
 {{ config(
-    materialized='incremental',
+[% if materialization %]
+    materialized='[[ materialization ]]',
+[% endif %]
     tags=['satellite', 'record_tracking', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
 ) }}
 
