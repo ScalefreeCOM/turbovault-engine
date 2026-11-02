@@ -25,6 +25,7 @@ Unsupported entities produce warnings and are skipped:
 from __future__ import annotations
 
 import json
+import re
 import textwrap  # used by _render_readme and _MODELS_INIT
 from typing import TYPE_CHECKING, Any
 
@@ -49,6 +50,36 @@ from engine.services.generation.types import (
     Issue,
 )
 from engine.services.runtime_config import EngineRuntimeConfig
+
+# ---------------------------------------------------------------------------
+# Identifier & value helpers
+# ---------------------------------------------------------------------------
+
+# Dialects that fold unquoted identifiers to lowercase (like PostgreSQL).
+# Used to normalise source_schema / source_table so quoted names match the DB.
+_LOWERCASE_DIALECTS: frozenset[str] = frozenset(
+    {"postgres", "duckdb", "trino", "bigquery", "mysql", "spark", "databricks"}
+)
+
+# A plain SQL identifier — no parens, spaces, dots or operator characters.
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _is_col_ref(value: str | None) -> bool:
+    """Return True when *value* looks like a bare column name, not a SQL expression."""
+    return bool(value and _IDENTIFIER_RE.match(value.strip()))
+
+
+def _is_static_rsrc(value: str | None) -> bool:
+    """Return True when *value* is a TurboVault static literal (``!text`` prefix)."""
+    return bool(value and value.startswith("!"))
+
+
+def _normalise_source_id(value: str, dialect: str) -> str:
+    """Lowercase *value* for case-folding dialects so quoted references match the DB."""
+    return value.lower() if dialect in _LOWERCASE_DIALECTS else value
+
+
 
 # ---------------------------------------------------------------------------
 # Public entry point
@@ -123,7 +154,7 @@ def render_sqlmesh(
         artifacts.append(
             _render_stage(stage, runtime_config,
                           rendered_hub_names, rendered_link_names, rendered_sat_names,
-                          template_resolver)
+                          template_resolver, issues)
         )
 
     # --- Unsupported top-level entities ---
@@ -303,10 +334,31 @@ def _render_config_yaml(runtime_config: EngineRuntimeConfig) -> str:
 
 
 def _render_config_json(runtime_config: EngineRuntimeConfig) -> str:
-    """Render the datavault4sqlglot config.json DV configuration."""
+    """Render the datavault4sqlglot config.json DV configuration.
+
+    If the project's default load-date or record-source value is a plain
+    column reference (not a SQL expression or a ``!static`` literal),
+    ``ldts_alias`` / ``rsrc_alias`` are set automatically so that downstream
+    DV models address the column by its real name rather than the DV default
+    ``ldts`` / ``rsrc``.  Explicit values in ``output.sqlmesh`` always win.
+    """
     cfg: dict[str, Any] = {"dialect": runtime_config.sqlmesh_dialect}
     # Merge any user-supplied DV config keys on top of the dialect default.
     cfg.update(runtime_config.sqlmesh_dv_config_dict)
+
+    # Auto-derive ldts_alias when the project load-date is a bare column name.
+    if "ldts_alias" not in cfg and _is_col_ref(runtime_config.default_load_date_value):
+        cfg["ldts_alias"] = runtime_config.default_load_date_value
+
+    # Auto-derive rsrc_alias when the project record-source is a bare column name
+    # (but NOT a !static literal, which is a fixed string, not a column).
+    if (
+        "rsrc_alias" not in cfg
+        and _is_col_ref(runtime_config.default_record_source_value)
+        and not _is_static_rsrc(runtime_config.default_record_source_value)
+    ):
+        cfg["rsrc_alias"] = runtime_config.default_record_source_value
+
     return json.dumps(cfg, indent=4, ensure_ascii=False) + "\n"
 
 
@@ -341,6 +393,7 @@ def _render_stage(
     rendered_link_names: set[str],
     rendered_sat_names: set[str],
     template_resolver: TemplateResolver | None = None,
+    issues: list[Issue] | None = None,
 ) -> GeneratedArtifact:
     """Render a stage_model(...) Python file.
 
@@ -349,7 +402,14 @@ def _render_stage(
     type conditions. If all hashed_columns are filtered out the argument is
     omitted entirely, which is valid for a source-only stage.
     """
+    dialect = runtime_config.sqlmesh_dialect
     model_name = f"{runtime_config.stage_schema}.{stage.stage_name}"
+
+    # Normalise source identifiers for case-folding dialects (e.g. postgres).
+    # Without this, quoted names like "TPCH_SF1"."Customer" don't match the
+    # lowercase table names that PostgreSQL stores by default.
+    source_schema = _normalise_source_id(stage.source_schema, dialect)
+    source_table = _normalise_source_id(stage.source_table, dialect)
 
     hashed_columns: dict[str, Any] = {}
     for hk in stage.hashkeys:
@@ -357,13 +417,16 @@ def _render_stage(
             continue
         if hk.entity_type == "link" and hk.target_entity not in rendered_link_names:
             continue
-        hashed_columns[hk.hashkey_name] = hk.business_key_columns
+        # Normalise source column names for case-folding dialects.
+        hashed_columns[hk.hashkey_name] = [
+            _normalise_source_id(col, dialect) for col in hk.business_key_columns
+        ]
     for hd in stage.hashdiffs:
         if hd.satellite_name not in rendered_sat_names:
             continue
         hashed_columns[hd.hashdiff_name] = {
             "is_hashdiff": True,
-            "columns": hd.columns,
+            "columns": [_normalise_source_id(col, dialect) for col in hd.columns],
         }
 
     # column_overrides: only needed when the caller wants to declare a precise
@@ -378,12 +441,47 @@ def _render_stage(
     }
 
     # derived_columns: renames and transformations the stage must apply.
-    # Passed as {target_name: expression} where a plain rename uses the source
-    # column name as the expression.
-    derived_columns: dict[str, str] = {
-        dc.target_column_name: dc.transformation or dc.source_column_name
-        for dc in stage.derived_columns
-    }
+    # Plain column renames have their source name normalised for case-folding
+    # dialects; SQL transformation expressions are passed through unchanged.
+    derived_columns: dict[str, str] = {}
+    for dc in stage.derived_columns:
+        source_expr = dc.transformation or dc.source_column_name
+        if dc.transformation:
+            derived_columns[dc.target_column_name] = source_expr
+        else:
+            derived_columns[dc.target_column_name] = _normalise_source_id(source_expr, dialect)
+
+    # Resolve the output column names that datavault4sqlglot uses for ldts/rsrc
+    # (either the DV defaults or whatever ldts_alias/rsrc_alias is configured).
+    dv_cfg = runtime_config.sqlmesh_dv_config_dict
+    ldts_col = dv_cfg.get("ldts_alias", "ldts")
+    rsrc_col = dv_cfg.get("rsrc_alias", "rsrc")
+
+    # load_date handling:
+    #   - bare column name  → pass as load_date_col so datavault4sqlmesh reads it
+    #   - SQL expression    → inject as a derived column so the stage computes it,
+    #                         transpiled to the target dialect (e.g. sysdate() →
+    #                         CURRENT_TIMESTAMP on postgres)
+    #   - !static literal   → not applicable for load dates; silently ignore
+    load_date_col_arg: str | None = None
+    if _is_col_ref(stage.load_date):
+        load_date_col_arg = stage.load_date
+    elif stage.load_date and not _is_static_rsrc(stage.load_date):
+        derived_columns[ldts_col] = stage.load_date
+
+    # record_source handling:
+    #   - bare column name  → pass as record_source_col (read from source)
+    #   - !static literal   → emit as a SQL string constant in derived_columns
+    #   - SQL expression    → inject as a derived column expression
+    record_source_col_arg: str | None = None
+    if _is_col_ref(stage.record_source):
+        record_source_col_arg = stage.record_source
+    elif stage.record_source and _is_static_rsrc(stage.record_source):
+        # Strip the leading '!' and wrap in SQL single quotes: !Customer → 'Customer'
+        literal = stage.record_source[1:]
+        derived_columns[rsrc_col] = f"'{literal}'"
+    elif stage.record_source:
+        derived_columns[rsrc_col] = stage.record_source
 
     path = f"models/stg/{_slug(stage.source_system)}/{stage.stage_name}.py"
 
@@ -405,8 +503,12 @@ def _render_stage(
 
     lines = ["from datavault4sqlmesh import stage_model", "", "stage_model("]
     lines.append(f"    name={repr(model_name)},")
-    lines.append(f"    source_table={repr(stage.source_table)},")
-    lines.append(f"    source_schema={repr(stage.source_schema)},")
+    lines.append(f"    source_table={repr(source_table)},")
+    lines.append(f"    source_schema={repr(source_schema)},")
+    if load_date_col_arg:
+        lines.append(f"    load_date_col={repr(load_date_col_arg)},")
+    if record_source_col_arg:
+        lines.append(f"    record_source_col={repr(record_source_col_arg)},")
     if derived_columns:
         lines.append(f"    derived_columns={_fmt_dict(derived_columns)},")
     if hashed_columns:
@@ -611,6 +713,7 @@ def _render_satellite_v1(
     template_resolver: TemplateResolver | None = None,
 ) -> GeneratedArtifact:
     """Render a satellite_v1_model(...) Python file (end-dated view)."""
+    dialect = runtime_config.sqlmesh_dialect
     v1_name = _derive_v1_name(
         sat.satellite_name,
         runtime_config.satellite_v0_naming,
@@ -620,6 +723,9 @@ def _render_satellite_v1(
     payload = _sat_payload(sat)
     group_slug = _slug(sat.group) if sat.group else "shared"
     path = f"models/rdv/{group_slug}/{v1_name}.py"
+    # The v0 table is created by SQLMesh using the satellite name; for
+    # case-folding dialects (e.g. postgres) it is stored lowercase.
+    sat_v0_table = _normalise_source_id(sat.satellite_name, dialect)
 
     if template_resolver is not None:
         sql_template = template_resolver.get_sql_template("satellite_standard_v1")
@@ -630,7 +736,7 @@ def _render_satellite_v1(
                 parent_hash_key=sat.parent_hashkey,
                 hash_diff=sat.hashdiff_name,
                 payload=payload,
-                sat_v0_table=sat.satellite_name,
+                sat_v0_table=sat_v0_table,
                 sat_v0_schema=runtime_config.rdv_schema,
                 rdv_schema=runtime_config.rdv_schema,
                 sat=sat,
@@ -642,7 +748,7 @@ def _render_satellite_v1(
     lines.append(f"    parent_hash_key={repr(sat.parent_hashkey)},")
     lines.append(f"    hash_diff={repr(sat.hashdiff_name)},")
     lines.append(f"    payload={repr(payload)},")
-    lines.append(f"    sat_v0_table={repr(sat.satellite_name)},")
+    lines.append(f"    sat_v0_table={repr(sat_v0_table)},")
     lines.append(f"    sat_v0_schema={repr(runtime_config.rdv_schema)},")
     lines.append(")")
     content = "\n".join(lines) + "\n"
