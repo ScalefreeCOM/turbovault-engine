@@ -128,6 +128,36 @@ class TestConfigYamlWriteOnce:
         assert (tmp_path / "config.yaml").read_text(encoding="utf-8") == user_config
         assert issues == []
 
+    def test_scaffold_config_files_are_all_write_once(self):
+        from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+        from engine.services.generation.types import GenerationOptions
+        from engine.services.export.models import ProjectExport
+
+        artifacts, _ = render_sqlmesh(
+            ProjectExport(project_name="p"), _runtime_config(), GenerationOptions()
+        )
+        write_once = {a.path for a in artifacts if not a.overwrite}
+        assert write_once == {"config.yaml", "config.json", "requirements.txt"}
+
+    def test_new_requirements_txt_gets_no_placeholder_warning(self, tmp_path):
+        from engine.services.generation.stages.write import write_artifacts
+        from engine.services.generation.types import GeneratedArtifact, GenerationOptions
+
+        artifact = GeneratedArtifact(
+            kind="sqlmesh_config",
+            path="requirements.txt",
+            content="datavault4sqlmesh>=0.1.0\n",
+            overwrite=False,
+        )
+        _, issues = write_artifacts(
+            artifacts=[artifact],
+            output_type="sqlmesh",
+            output_path=tmp_path,
+            options=GenerationOptions(),
+        )
+        assert (tmp_path / "requirements.txt").exists()
+        assert issues == []
+
 
 # ---------------------------------------------------------------------------
 # config.json

@@ -288,9 +288,13 @@ def _render_scaffold(runtime_config: EngineRuntimeConfig) -> list[GeneratedArtif
     """Return the five project-level scaffold files."""
     return [
         _artifact_once("sqlmesh_config", "config.yaml", _render_config_yaml(runtime_config)),
-        _artifact("sqlmesh_config", "config.json", _render_config_json(runtime_config)),
+        # Write-once: users may edit the DV settings by hand.
+        _artifact_once("sqlmesh_config", "config.json", _render_config_json(runtime_config)),
         _artifact("sqlmesh_config", "models/__init__.py", _MODELS_INIT),
-        _artifact("sqlmesh_config", "requirements.txt", _render_requirements(runtime_config)),
+        # Write-once like config.yaml: users may pin versions or add packages.
+        _artifact_once(
+            "sqlmesh_config", "requirements.txt", _render_requirements(runtime_config)
+        ),
         _artifact("sqlmesh_config", "README.md", _render_readme(runtime_config)),
     ]
 

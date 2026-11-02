@@ -1,24 +1,29 @@
 """
 SQLMesh dialect helpers.
 
-The dialect is rendered into both ``config.yaml`` (``model_defaults.dialect``
-and the gateway ``connection.type``) and ``config.json`` (datavault4sqlmesh).
-``config.json`` is rewritten on every run, but ``config.yaml`` is write-once
-so filled-in connection details are never lost. That means re-generating with
-a different dialect can leave the two files disagreeing; this module detects
-that case so callers can warn instead of silently producing a broken project.
+The dialect is rendered into ``config.yaml`` (``model_defaults.dialect`` and
+the gateway ``connection.type``), ``config.json`` (datavault4sqlmesh) and the
+driver line of ``requirements.txt``. All three files are write-once so users'
+edits are never lost. Re-generating with other settings therefore leaves them
+as they were; this module detects kept files that disagree with the current
+run so callers can warn instead of silently producing a broken project.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 
 from engine.services.generation.errors import Code, make_issue
 from engine.services.generation.types import Issue
+
+if TYPE_CHECKING:
+    from engine.services.runtime_config import EngineRuntimeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +149,100 @@ def read_config_yaml_dialect(config_yaml_path: Path) -> str | None:
     return str(dialect) if dialect is not None else None
 
 
+REQUIREMENTS_DRIVER_MISSING = "write.sqlmesh.requirements_driver_missing"
+
+
+CONFIG_JSON_KEPT_DIFFERS = "write.sqlmesh.config_json_kept_differs"
+
+
+def check_kept_scaffold_files(
+    output_path: Path,
+    runtime_config: EngineRuntimeConfig,
+    rendered_config_json: str | None,
+) -> list[Issue]:
+    """
+    Check existing write-once scaffold files against this run's settings.
+
+    config.yaml, config.json and requirements.txt are never overwritten. Call
+    this *before* writing: it returns warnings for files that already exist
+    and disagree with what this run would have generated.
+    """
+    dialect = runtime_config.sqlmesh_dialect
+    driver = resolve_driver_requirement(dialect, runtime_config.sqlmesh_requirement)
+    checks = (
+        check_config_yaml_dialect(output_path, dialect),
+        check_config_json_kept(output_path, rendered_config_json),
+        check_requirements_driver(output_path, driver),
+    )
+    return [issue for issue in checks if issue is not None]
+
+
+def check_config_json_kept(output_path: Path, rendered: str | None) -> Issue | None:
+    """
+    Warn when an existing config.json differs from the *rendered* one.
+
+    Only keys this run would write are compared, so keys the user added by
+    hand don't trigger the warning. Returns None when the file is missing,
+    unreadable, or matches.
+    """
+    config_json_path = output_path / "config.json"
+    if rendered is None or not config_json_path.is_file():
+        return None
+    try:
+        existing = json.loads(config_json_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        logger.warning("Could not read %s: %s", config_json_path, exc)
+        return None
+    expected = json.loads(rendered)
+    if not isinstance(existing, dict):
+        existing = {}
+    differing = sorted(k for k, v in expected.items() if existing.get(k) != v)
+    if not differing:
+        return None
+    return make_issue(
+        severity="warning",
+        code=CONFIG_JSON_KEPT_DIFFERS,
+        stage="write",
+        message=(
+            "config.json already exists and was kept; it differs from the current "
+            f"settings in: {', '.join(differing)}."
+        ),
+        suggestion=(
+            f"Update {config_json_path} by hand, or delete it and re-generate."
+        ),
+    )
+
+
+def check_requirements_driver(output_path: Path, driver: str | None) -> Issue | None:
+    """
+    Warn when an existing requirements.txt lacks the *driver* line.
+
+    requirements.txt is write-once, so a project re-generated for another
+    dialect keeps its old driver. Returns a warning Issue in that case,
+    otherwise None (also when no driver is needed or the file is missing).
+    """
+    requirements_path = output_path / "requirements.txt"
+    if not driver or not requirements_path.is_file():
+        return None
+    try:
+        lines = requirements_path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        logger.warning("Could not read %s: %s", requirements_path, exc)
+        return None
+    if driver in (line.strip() for line in lines):
+        return None
+    return make_issue(
+        severity="warning",
+        code=REQUIREMENTS_DRIVER_MISSING,
+        stage="write",
+        message=(
+            f"requirements.txt already exists and was kept; it does not list the "
+            f"driver '{driver}' for this dialect."
+        ),
+        suggestion=f"Add '{driver}' to {requirements_path}, or delete the file and re-generate.",
+    )
+
+
 def check_config_yaml_dialect(output_path: Path, dialect: str | None) -> Issue | None:
     """
     Warn when an existing config.yaml uses a different dialect than *dialect*.
@@ -163,7 +262,7 @@ def check_config_yaml_dialect(output_path: Path, dialect: str | None) -> Issue |
         stage="write",
         message=(
             f"config.yaml already exists with dialect '{existing}' and was kept; "
-            f"config.json now uses '{dialect}'."
+            f"this run uses '{dialect}'."
         ),
         suggestion=(
             f"Edit {config_yaml_path}: set model_defaults.dialect (and the gateway "

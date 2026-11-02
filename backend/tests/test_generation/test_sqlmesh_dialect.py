@@ -125,3 +125,47 @@ class TestNoDialectHelpers:
         from engine.services.generation.sqlmesh_dialect import default_driver_requirement
 
         assert default_driver_requirement(None) is None
+
+
+class TestKeptFileChecks:
+    def test_config_json_differing_keys_are_named(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import (
+            CONFIG_JSON_KEPT_DIFFERS,
+            check_config_json_kept,
+        )
+
+        (tmp_path / "config.json").write_text(
+            '{"dialect": "postgres", "hash": "MD5", "my_key": 1}', encoding="utf-8"
+        )
+        issue = check_config_json_kept(tmp_path, '{"dialect": "snowflake", "hash": "MD5"}')
+        assert issue is not None
+        assert issue.code == CONFIG_JSON_KEPT_DIFFERS
+        assert "dialect" in issue.message
+        assert "hash" not in issue.message
+
+    def test_config_json_user_added_keys_do_not_warn(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import check_config_json_kept
+
+        (tmp_path / "config.json").write_text(
+            '{"dialect": "postgres", "my_key": 1}', encoding="utf-8"
+        )
+        assert check_config_json_kept(tmp_path, '{"dialect": "postgres"}') is None
+
+    def test_config_json_missing_file_no_warning(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import check_config_json_kept
+
+        assert check_config_json_kept(tmp_path, '{"dialect": "postgres"}') is None
+
+    def test_requirements_missing_driver_warns(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import (
+            REQUIREMENTS_DRIVER_MISSING,
+            check_requirements_driver,
+        )
+
+        (tmp_path / "requirements.txt").write_text(
+            "datavault4sqlmesh>=0.1.0\nsqlmesh[postgres]\n", encoding="utf-8"
+        )
+        issue = check_requirements_driver(tmp_path, "sqlmesh[snowflake]")
+        assert issue is not None and issue.code == REQUIREMENTS_DRIVER_MISSING
+        assert check_requirements_driver(tmp_path, "sqlmesh[postgres]") is None
+        assert check_requirements_driver(tmp_path, None) is None

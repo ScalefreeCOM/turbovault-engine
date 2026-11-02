@@ -161,7 +161,9 @@ def _write_project(
                 }
             )
         )
-        if not a.overwrite:
+        # Only config.yaml carries placeholder connection values; other
+        # write-once files (e.g. requirements.txt) are complete as generated.
+        if not a.overwrite and a.path == "config.yaml":
             issues.append(
                 make_issue(
                     severity="warning",

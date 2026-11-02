@@ -420,10 +420,10 @@ def test_sqlmesh_dv_config_flows_into_generated_config_json(
 def test_sqlmesh_dialect_written_to_both_configs_and_mismatch_warned(
     django_setup, project_export, engine_project, tmp_path, monkeypatch
 ):
-    """The chosen dialect lands in config.yaml and config.json on first run.
+    """The chosen dialect lands in config.yaml, config.json and requirements.txt.
 
-    A later run with another dialect rewrites config.json, keeps the
-    write-once config.yaml, and reports a dialect-mismatch warning.
+    A later run with another dialect keeps all three write-once files and
+    warns once per file that no longer matches.
     """
     import json
 
@@ -431,8 +431,16 @@ def test_sqlmesh_dialect_written_to_both_configs_and_mismatch_warned(
 
     from engine.services.generation import generate
     from engine.services.generation.sqlmesh_dialect import (
+        CONFIG_JSON_KEPT_DIFFERS,
         CONFIG_YAML_DIALECT_MISMATCH,
+        REQUIREMENTS_DRIVER_MISSING,
     )
+
+    kept_codes = {
+        CONFIG_YAML_DIALECT_MISMATCH,
+        CONFIG_JSON_KEPT_DIFFERS,
+        REQUIREMENTS_DRIVER_MISSING,
+    }
     from engine.services.runtime_config import EngineRuntimeConfig
 
     _patch_build_stage(monkeypatch, project_export)
@@ -451,16 +459,32 @@ def test_sqlmesh_dialect_written_to_both_configs_and_mismatch_warned(
     first = _run("postgres")
     config_yaml = yaml.safe_load((out / "config.yaml").read_text(encoding="utf-8"))
     config_json = json.loads((out / "config.json").read_text(encoding="utf-8"))
+    requirements = (out / "requirements.txt").read_text(encoding="utf-8").splitlines()
     assert config_yaml["model_defaults"]["dialect"] == "postgres"
     assert config_json["dialect"] == "postgres"
-    assert not any(i.code == CONFIG_YAML_DIALECT_MISMATCH for i in first.issues)
+    assert "sqlmesh[postgres]" in requirements
+    assert not any(i.code in kept_codes for i in first.issues)
 
+    # The user edits the kept files; a re-run must not touch them.
+    (out / "requirements.txt").write_text(
+        "datavault4sqlmesh==0.1.1\nsqlmesh[postgres]\n", encoding="utf-8"
+    )
     second = _run("snowflake")
     config_yaml = yaml.safe_load((out / "config.yaml").read_text(encoding="utf-8"))
     config_json = json.loads((out / "config.json").read_text(encoding="utf-8"))
+    requirements = (out / "requirements.txt").read_text(encoding="utf-8").splitlines()
     assert config_yaml["model_defaults"]["dialect"] == "postgres"
-    assert config_json["dialect"] == "snowflake"
-    mismatches = [i for i in second.issues if i.code == CONFIG_YAML_DIALECT_MISMATCH]
-    assert len(mismatches) == 1
-    assert mismatches[0].severity == "warning"
+    assert config_json["dialect"] == "postgres"
+    assert requirements == ["datavault4sqlmesh==0.1.1", "sqlmesh[postgres]"]
+    warned = [i for i in second.issues if i.code in kept_codes]
+    assert sorted(i.code for i in warned) == sorted(kept_codes)
+    assert all(i.severity == "warning" for i in warned)
     assert second.status in ("success", "partial_success")
+
+    # Same settings again: nothing to warn about for kept files.
+    (out / "config.yaml").unlink()
+    (out / "config.json").unlink()
+    (out / "requirements.txt").unlink()
+    _run("snowflake")
+    third = _run("snowflake")
+    assert not any(i.code in kept_codes for i in third.issues)

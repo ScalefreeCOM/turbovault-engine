@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Annotated
 
 import questionary
 import typer
+from rich.markup import escape
 from rich.table import Table
 
 from engine.cli.utils.console import (
@@ -429,8 +430,6 @@ def _prompt_manual_dialect(runtime_config) -> tuple[str, str]:
 
 
 def _announce_sqlmesh_settings(runtime_config) -> None:
-    from rich.markup import escape
-
     from engine.services.generation.sqlmesh_dialect import (
         SQLMESH_DIALECTS,
         resolve_driver_requirement,
@@ -663,7 +662,11 @@ def _render_issues_table(report) -> None:
         entity = (
             f"{issue.entity.type}:{issue.entity.name}" if issue.entity else "—"
         )
-        table.add_row(sev_style, issue.stage, issue.code, entity, issue.message)
+        # escape(): messages are plain text; "[...]" (e.g. sqlmesh[postgres] or
+        # entity names) must not be read as Rich markup.
+        table.add_row(
+            sev_style, issue.stage, issue.code, escape(entity), escape(issue.message)
+        )
     console.print(table)
 
 

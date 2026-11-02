@@ -22,7 +22,7 @@ from engine.services.generation.stages.build import build_export
 from engine.services.generation.stages.plan import build_plan
 from engine.services.generation.stages.render import render
 from engine.services.generation.stages.validate import validate
-from engine.services.generation.sqlmesh_dialect import check_config_yaml_dialect
+from engine.services.generation.sqlmesh_dialect import check_kept_scaffold_files
 from engine.services.generation.stages.write import write_artifacts
 from engine.services.generation.types import (
     GeneratedArtifact,
@@ -170,6 +170,17 @@ def run_pipeline(
         emit(progress, stage="write", status="started",
              message="Dry run: skipping write" if options.dry_run else "Writing files")
         t0 = time.perf_counter()
+        if output_type == "sqlmesh" and not options.dry_run and output_path:
+            # config.yaml / config.json / requirements.txt are write-once. Check
+            # before writing, while the rendered content is still available, so
+            # kept files that disagree with this run are flagged.
+            issues.extend(
+                check_kept_scaffold_files(
+                    output_path,
+                    runtime_config,
+                    rendered_config_json=_rendered_content(artifacts, "config.json"),
+                )
+            )
         artifacts, write_issues = write_artifacts(
             artifacts=artifacts,
             output_type=output_type,
@@ -177,13 +188,6 @@ def run_pipeline(
             options=options,
         )
         issues.extend(write_issues)
-        if output_type == "sqlmesh" and not options.dry_run and output_path:
-            # config.yaml is write-once; flag it if it disagrees with config.json.
-            mismatch = check_config_yaml_dialect(
-                output_path, runtime_config.sqlmesh_dialect
-            )
-            if mismatch is not None:
-                issues.append(mismatch)
         timings["write"] = _ms(t0)
         emit(progress, stage="write", status="done", message="Write complete")
 
@@ -305,3 +309,8 @@ def _now() -> datetime:
 
 def _ms(start_perf: float) -> int:
     return int((time.perf_counter() - start_perf) * 1000)
+
+
+def _rendered_content(artifacts: list[GeneratedArtifact], path: str) -> str | None:
+    """Return the rendered content of the artifact at relative *path*, if any."""
+    return next((a.content for a in artifacts if a.path == path), None)

@@ -347,6 +347,8 @@ Fine-grained settings for SQLMesh project generation. All fields are optional; d
 
 Only non-null values are written into `config.json`. Fields set to `null` are omitted, and datavault4sqlmesh uses its own defaults.
 
+**Existing projects:** these settings only reach `config.yaml`, `config.json` and `requirements.txt` when the files are first created. Re-generating never overwrites them, so your manual edits are kept. If you change a setting here later, generation warns about each kept file that no longer matches. For `config.json` it names the differing keys. Update the files by hand, or delete them and re-generate.
+
 **Identifier case:** SQLMesh normalizes model and column names to the dialect's default case: lower case on PostgreSQL, DuckDB, Trino, Databricks and BigQuery, and upper case on Snowflake. So on PostgreSQL a hub named `rdv.CUSTOMER_H` becomes the table `rdv.customer_h`, with a column `hk_customer_h`. datavault4sqlmesh writes the generated names in the same case, so quoting can stay on. Source schema, table and column references in stage models keep their exact case, so mixed-case source tables still work. This requires a datavault4sqlmesh version that includes this normalization. With an older version, PostgreSQL stage models fail with `column "hk_..." does not exist`, and setting `quote_identifiers: false` works around it. That workaround also unquotes source references, which breaks mixed-case source tables.
 
 **Minimal SQLMesh example (DuckDB, all defaults):**
