@@ -37,6 +37,7 @@ from typing import Any
 from jinja2 import TemplateError
 
 from engine.services.export.models import (
+    HubColumnMapping,
     HubDefinition,
     HubSourceInfo,
     LinkDefinition,
@@ -172,11 +173,13 @@ def render_sqlmesh(
                 artifacts.append(_render_satellite_v1(sat, runtime_config, template_resolver))
 
     # --- Stage models (filtered by what was actually rendered above) ---
+    hub_key_mappings = _hub_key_mappings_by_stage(export.hubs, rendered_hub_names)
     for stage in export.stages:
         artifacts.append(
             _render_stage(stage, runtime_config,
                           rendered_hub_names, rendered_link_names, rendered_sat_names,
-                          template_resolver, issues)
+                          template_resolver, issues,
+                          hub_key_mappings=hub_key_mappings.get(stage.stage_name, []))
         )
 
     # --- Unsupported top-level entities ---
@@ -445,6 +448,7 @@ def _render_stage(
     rendered_sat_names: set[str],
     template_resolver: TemplateResolver,
     issues: list[Issue] | None = None,
+    hub_key_mappings: list[HubColumnMapping] | None = None,
 ) -> GeneratedArtifact:
     """Render a stage_model(...) Python file.
 
@@ -452,6 +456,10 @@ def _render_stage(
     actually rendered — derived from the sets passed in, not from hardcoded
     type conditions. If all hashed_columns are filtered out the argument is
     omitted entirely, which is valid for a source-only stage.
+
+    *hub_key_mappings* are the column mappings of the rendered hubs this stage
+    loads; renamed business keys become derived columns (see
+    ``_add_hub_key_renames``).
     """
     dialect = runtime_config.sqlmesh_dialect
     model_name = f"{runtime_config.stage_schema}.{stage.stage_name}"
@@ -501,6 +509,7 @@ def _render_stage(
             derived_columns[dc.target_column_name] = source_expr
         else:
             derived_columns[dc.target_column_name] = _normalise_source_id(source_expr, dialect)
+    _add_hub_key_renames(derived_columns, hub_key_mappings or [], dialect)
 
     # Resolve the output column names that datavault4sqlmesh uses for ldts/rsrc
     # (either the DV defaults or whatever ldts_alias/rsrc_alias is configured).
@@ -551,6 +560,47 @@ def _render_stage(
         stage=stage,
     )
     return _artifact("sqlmesh_model", path, content, "stage", stage.stage_name)
+
+
+def _hub_key_mappings_by_stage(
+    hubs: list[HubDefinition], rendered_hub_names: set[str]
+) -> dict[str, list[HubColumnMapping]]:
+    """Map each stage name to the column mappings of the rendered hubs it loads."""
+    by_stage: dict[str, list[HubColumnMapping]] = {}
+    for hub in hubs:
+        if hub.hub_name not in rendered_hub_names:
+            continue
+        for src in hub.source_tables:
+            by_stage.setdefault(src.stage_name, []).extend(src.column_mappings)
+    return by_stage
+
+
+def _add_hub_key_renames(
+    derived_columns: dict[str, str],
+    hub_key_mappings: list[HubColumnMapping],
+    dialect: str | None,
+) -> None:
+    """Expose renamed hub business keys in the stage under the hub column name.
+
+    SQLMesh-only. datavault4sqlmesh's ``hub_model(business_keys=[...])`` reads
+    the business keys from the stage by the hub's column names — unlike
+    datavault4dbt's hub, it has no per-source ``bk_columns`` mapping. So a hub
+    column fed from a differently named stage column (``REGION_NAME`` from
+    ``R_NAME``) must exist in the stage as a derived column.
+
+    A transformed key reuses the stage's derived expression for the source
+    column (the export applies hub key transformations in place); existing
+    derived columns are never overwritten.
+    """
+    for mapping in hub_key_mappings:
+        target = mapping.hub_column
+        source = mapping.source_column
+        if target == source or target in derived_columns:
+            continue
+        if mapping.target_column_transformation and source in derived_columns:
+            derived_columns[target] = derived_columns[source]
+        else:
+            derived_columns[target] = _normalise_source_id(source, dialect)
 
 
 # ---------------------------------------------------------------------------

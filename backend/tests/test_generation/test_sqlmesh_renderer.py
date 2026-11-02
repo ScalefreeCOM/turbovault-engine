@@ -611,3 +611,113 @@ class TestNoDialect:
 
         _, issues = render_sqlmesh(_minimal_export(), _runtime_config(), _options())
         assert not any(i.code == Code.SQLMESH_DIALECT_NOT_SET for i in issues)
+
+
+# ---------------------------------------------------------------------------
+# Renamed hub business keys (SQLMesh-only derived columns)
+# ---------------------------------------------------------------------------
+
+
+class TestHubKeyRenames:
+    """datavault4sqlmesh reads hub business keys from the stage by the hub's
+    column names, so renamed keys must be derived in the SQLMesh stage only."""
+
+    @staticmethod
+    def _mapping(hub_column, source_column, transformation=None):
+        from engine.services.export.models import HubColumnMapping
+
+        return HubColumnMapping(
+            hub_column=hub_column,
+            source_column=source_column,
+            target_column_transformation=transformation,
+        )
+
+    def test_renamed_key_becomes_derived_column(self):
+        from engine.services.generation.renderers.sqlmesh_renderer import _add_hub_key_renames
+
+        derived: dict[str, str] = {}
+        _add_hub_key_renames(derived, [self._mapping("REGION_NAME", "R_NAME")], "postgres")
+        assert derived == {"REGION_NAME": "r_name"}
+
+    def test_same_name_key_adds_nothing(self):
+        from engine.services.generation.renderers.sqlmesh_renderer import _add_hub_key_renames
+
+        derived: dict[str, str] = {}
+        _add_hub_key_renames(derived, [self._mapping("C_CUSTKEY", "C_CUSTKEY")], "postgres")
+        assert derived == {}
+
+    def test_existing_derived_column_is_not_overwritten(self):
+        from engine.services.generation.renderers.sqlmesh_renderer import _add_hub_key_renames
+
+        derived = {"REGION_NAME": "UPPER(r_name)"}
+        _add_hub_key_renames(derived, [self._mapping("REGION_NAME", "R_NAME")], "postgres")
+        assert derived == {"REGION_NAME": "UPPER(r_name)"}
+
+    def test_transformed_key_reuses_the_in_place_expression(self):
+        """The export applies hub key transformations in place (under the
+        stage column's name); the renamed hub column takes the same value."""
+        from engine.services.generation.renderers.sqlmesh_renderer import _add_hub_key_renames
+
+        derived = {"R_NAME": "TRIM(R_NAME)"}
+        mapping = self._mapping("REGION_NAME", "R_NAME", transformation="TRIM(R_NAME)")
+        _add_hub_key_renames(derived, [mapping], "postgres")
+        assert derived == {"R_NAME": "TRIM(R_NAME)", "REGION_NAME": "TRIM(R_NAME)"}
+
+    def test_case_preserving_dialect_keeps_source_name(self):
+        from engine.services.generation.renderers.sqlmesh_renderer import _add_hub_key_renames
+
+        derived: dict[str, str] = {}
+        _add_hub_key_renames(derived, [self._mapping("REGION_NAME", "R_NAME")], "snowflake")
+        assert derived == {"REGION_NAME": "R_NAME"}
+
+    def test_stage_render_adds_renames_of_rendered_hubs_only(self):
+        from engine.services.export.models import (
+            HashkeyDefinition,
+            HubColumnMapping,
+            HubDefinition,
+            HubSourceInfo,
+            ProjectExport,
+            StageDefinition,
+        )
+        from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+
+        def hub(name, hub_type):
+            return HubDefinition(
+                hub_name=name,
+                hub_type=hub_type,
+                hashkey=HashkeyDefinition(hashkey_name=f"hk_{name}", business_keys=["REGION_NAME"]),
+                business_key_columns=["REGION_NAME"],
+                source_tables=[
+                    HubSourceInfo(
+                        source_table="region",
+                        source_system="tpch",
+                        stage_name="stg__tpch__region",
+                        business_key_columns=["R_NAME"],
+                        is_primary_source=True,
+                        column_mappings=[
+                            HubColumnMapping(hub_column="REGION_NAME", source_column="R_NAME"),
+                            HubColumnMapping(hub_column="REF_KEY", source_column="R_COMMENT"),
+                        ]
+                        if hub_type == "reference"
+                        else [HubColumnMapping(hub_column="REGION_NAME", source_column="R_NAME")],
+                    )
+                ],
+            )
+
+        export = ProjectExport(
+            project_name="test",
+            hubs=[hub("region_h", "standard"), hub("region_rh", "reference")],
+            stages=[
+                StageDefinition(
+                    stage_name="stg__tpch__region",
+                    source_table="region",
+                    source_schema="tpch_sf1",
+                    source_system="tpch",
+                )
+            ],
+        )
+        artifacts, _ = render_sqlmesh(export, _runtime_config(sqlmesh_dialect="postgres"), _options())
+        stage = next(a for a in artifacts if a.entity_type == "stage")
+        assert "'REGION_NAME': 'r_name'," in stage.content
+        # The reference hub is not rendered for SQLMesh, so its key isn't added.
+        assert "REF_KEY" not in stage.content
