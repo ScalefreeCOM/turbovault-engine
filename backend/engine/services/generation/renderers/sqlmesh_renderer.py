@@ -26,7 +26,10 @@ from __future__ import annotations
 
 import json
 import textwrap  # used by _render_readme and _MODELS_INIT
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from engine.services.generation.template_resolver import TemplateResolver
 
 from engine.services.export.models import (
     HubDefinition,
@@ -68,6 +71,7 @@ def render_sqlmesh(
     export: ProjectExport,
     runtime_config: EngineRuntimeConfig,
     options: GenerationOptions,
+    template_resolver: TemplateResolver | None = None,
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
     """Generate a SQLMesh project from the export and return artifacts + issues.
 
@@ -95,30 +99,31 @@ def render_sqlmesh(
     rendered_sat_names: set[str] = set()
 
     for hub in export.hubs:
-        artifact = _try_render_hub(hub, runtime_config, issues)
+        artifact = _try_render_hub(hub, runtime_config, issues, template_resolver)
         if artifact:
             artifacts.append(artifact)
             rendered_hub_names.add(hub.hub_name)
 
     for link in export.links:
-        artifact = _try_render_link(link, runtime_config, issues)
+        artifact = _try_render_link(link, runtime_config, issues, template_resolver)
         if artifact:
             artifacts.append(artifact)
             rendered_link_names.add(link.link_name)
 
     for sat in export.satellites:
-        artifact = _try_render_sat(sat, runtime_config, issues)
+        artifact = _try_render_sat(sat, runtime_config, issues, template_resolver)
         if artifact:
             artifacts.append(artifact)
             rendered_sat_names.add(sat.satellite_name)
             if options.generate_satellite_v1_views and sat.satellite_type == "standard":
-                artifacts.append(_render_satellite_v1(sat, runtime_config))
+                artifacts.append(_render_satellite_v1(sat, runtime_config, template_resolver))
 
     # --- Stage models (filtered by what was actually rendered above) ---
     for stage in export.stages:
         artifacts.append(
             _render_stage(stage, runtime_config,
-                          rendered_hub_names, rendered_link_names, rendered_sat_names)
+                          rendered_hub_names, rendered_link_names, rendered_sat_names,
+                          template_resolver)
         )
 
     # --- Unsupported top-level entities ---
@@ -160,6 +165,7 @@ def _try_render_hub(
     hub: HubDefinition,
     runtime_config: EngineRuntimeConfig,
     issues: list[Issue],
+    template_resolver: TemplateResolver | None = None,
 ) -> GeneratedArtifact | None:
     """Render a hub artifact, or append a warning and return None if skipped."""
     if hub.hub_type == "reference":
@@ -182,13 +188,14 @@ def _try_render_hub(
             )
         )
         return None
-    return _render_hub(hub, runtime_config)
+    return _render_hub(hub, runtime_config, template_resolver)
 
 
 def _try_render_link(
     link: LinkDefinition,
     runtime_config: EngineRuntimeConfig,
     issues: list[Issue],
+    template_resolver: TemplateResolver | None = None,
 ) -> GeneratedArtifact | None:
     """Render a link artifact, or append a warning and return None if skipped."""
     if link.link_type == "non_historized":
@@ -211,13 +218,14 @@ def _try_render_link(
             )
         )
         return None
-    return _render_link(link, runtime_config)
+    return _render_link(link, runtime_config, template_resolver)
 
 
 def _try_render_sat(
     sat: SatelliteDefinition,
     runtime_config: EngineRuntimeConfig,
     issues: list[Issue],
+    template_resolver: TemplateResolver | None = None,
 ) -> GeneratedArtifact | None:
     """Render a satellite artifact, or append a warning and return None if skipped."""
     if sat.satellite_type in _UNSUPPORTED_SAT_TYPES:
@@ -230,7 +238,7 @@ def _try_render_sat(
             )
         )
         return None
-    return _render_satellite(sat, runtime_config)
+    return _render_satellite(sat, runtime_config, template_resolver)
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +340,7 @@ def _render_stage(
     rendered_hub_names: set[str],
     rendered_link_names: set[str],
     rendered_sat_names: set[str],
+    template_resolver: TemplateResolver | None = None,
 ) -> GeneratedArtifact:
     """Render a stage_model(...) Python file.
 
@@ -376,6 +385,24 @@ def _render_stage(
         for dc in stage.derived_columns
     }
 
+    path = f"models/stg/{_slug(stage.source_system)}/{stage.stage_name}.py"
+
+    if template_resolver is not None:
+        sql_template = template_resolver.get_sql_template("stage")
+        if sql_template is not None:
+            content = sql_template.render(
+                name=model_name,
+                stage_name=stage.stage_name,
+                source_table=stage.source_table,
+                source_schema=stage.source_schema,
+                derived_columns=derived_columns,
+                hashed_columns=hashed_columns,
+                column_overrides=column_overrides,
+                stage_schema=runtime_config.stage_schema,
+                stage=stage,
+            )
+            return _artifact("sqlmesh_model", path, content, "stage", stage.stage_name)
+
     lines = ["from datavault4sqlmesh import stage_model", "", "stage_model("]
     lines.append(f"    name={repr(model_name)},")
     lines.append(f"    source_table={repr(stage.source_table)},")
@@ -388,8 +415,6 @@ def _render_stage(
         lines.append(f"    column_overrides={_fmt_dict(column_overrides)},")
     lines.append(")")
     content = "\n".join(lines) + "\n"
-
-    path = f"models/stg/{_slug(stage.source_system)}/{stage.stage_name}.py"
     return _artifact("sqlmesh_model", path, content, "stage", stage.stage_name)
 
 
@@ -401,13 +426,38 @@ def _render_stage(
 def _render_hub(
     hub: HubDefinition,
     runtime_config: EngineRuntimeConfig,
+    template_resolver: TemplateResolver | None = None,
 ) -> GeneratedArtifact:
     """Render a hub_model(...) Python file."""
     model_name = f"{runtime_config.rdv_schema}.{hub.hub_name}"
     hashkey = hub.hashkey.hashkey_name if hub.hashkey else ""
     business_keys = _hub_business_keys(hub)
-
     is_multi_source = len(hub.source_tables) > 1
+    group_slug = _slug(hub.group) if hub.group else "shared"
+    path = f"models/rdv/{group_slug}/{hub.hub_name}.py"
+
+    if template_resolver is not None:
+        sql_template = template_resolver.get_sql_template("hub_standard")
+        if sql_template is not None:
+            ctx: dict[str, Any] = {
+                "name": model_name,
+                "hub_name": hub.hub_name,
+                "hashkey": hashkey,
+                "business_keys": business_keys,
+                "is_multi_source": is_multi_source,
+                "stage_schema": runtime_config.stage_schema,
+                "rdv_schema": runtime_config.rdv_schema,
+                "hub": hub,
+            }
+            if is_multi_source:
+                ctx["sources"] = hub.source_tables
+                ctx["rsrc_statics"] = [src.rsrc_static or "" for src in hub.source_tables]
+            else:
+                src = hub.source_tables[0]
+                ctx["source_table"] = src.stage_name
+                ctx["rsrc_statics"] = [src.rsrc_static] if src.rsrc_static else []
+            content = sql_template.render(**ctx)
+            return _artifact("sqlmesh_model", path, content, "hub", hub.hub_name)
 
     lines: list[str]
     if is_multi_source:
@@ -433,9 +483,6 @@ def _render_hub(
 
     lines.append(")")
     content = "\n".join(lines) + "\n"
-
-    group_slug = _slug(hub.group) if hub.group else "shared"
-    path = f"models/rdv/{group_slug}/{hub.hub_name}.py"
     return _artifact("sqlmesh_model", path, content, "hub", hub.hub_name)
 
 
@@ -453,13 +500,38 @@ def _hub_business_keys(hub: HubDefinition) -> list[str]:
 def _render_link(
     link: LinkDefinition,
     runtime_config: EngineRuntimeConfig,
+    template_resolver: TemplateResolver | None = None,
 ) -> GeneratedArtifact:
     """Render a link_model(...) Python file."""
     model_name = f"{runtime_config.rdv_schema}.{link.link_name}"
     link_hash_key = link.hashkey.hashkey_name
     foreign_hash_keys = link.foreign_hashkeys
-
     is_multi_source = len(link.source_tables) > 1
+    group_slug = _slug(link.group) if link.group else "shared"
+    path = f"models/rdv/{group_slug}/{link.link_name}.py"
+
+    if template_resolver is not None:
+        sql_template = template_resolver.get_sql_template("link_standard")
+        if sql_template is not None:
+            ctx: dict[str, Any] = {
+                "name": model_name,
+                "link_name": link.link_name,
+                "link_hash_key": link_hash_key,
+                "foreign_hash_keys": foreign_hash_keys,
+                "is_multi_source": is_multi_source,
+                "stage_schema": runtime_config.stage_schema,
+                "rdv_schema": runtime_config.rdv_schema,
+                "link": link,
+            }
+            if is_multi_source:
+                ctx["sources"] = link.source_tables
+                ctx["rsrc_statics"] = [src.rsrc_static or "" for src in link.source_tables]
+            else:
+                src = link.source_tables[0]
+                ctx["source_table"] = src.stage_name
+                ctx["rsrc_statics"] = [src.rsrc_static] if src.rsrc_static else []
+            content = sql_template.render(**ctx)
+            return _artifact("sqlmesh_model", path, content, "link", link.link_name)
 
     lines: list[str]
     if is_multi_source:
@@ -485,9 +557,6 @@ def _render_link(
 
     lines.append(")")
     content = "\n".join(lines) + "\n"
-
-    group_slug = _slug(link.group) if link.group else "shared"
-    path = f"models/rdv/{group_slug}/{link.link_name}.py"
     return _artifact("sqlmesh_model", path, content, "link", link.link_name)
 
 
@@ -499,10 +568,30 @@ def _render_link(
 def _render_satellite(
     sat: SatelliteDefinition,
     runtime_config: EngineRuntimeConfig,
+    template_resolver: TemplateResolver | None = None,
 ) -> GeneratedArtifact:
     """Render a satellite_model(...) Python file (v0 / standard)."""
     model_name = f"{runtime_config.rdv_schema}.{sat.satellite_name}"
     payload = _sat_payload(sat)
+    group_slug = _slug(sat.group) if sat.group else "shared"
+    path = f"models/rdv/{group_slug}/{sat.satellite_name}.py"
+
+    if template_resolver is not None:
+        sql_template = template_resolver.get_sql_template("satellite_standard")
+        if sql_template is not None:
+            content = sql_template.render(
+                name=model_name,
+                satellite_name=sat.satellite_name,
+                parent_hash_key=sat.parent_hashkey,
+                hash_diff=sat.hashdiff_name,
+                payload=payload,
+                source_schema=runtime_config.stage_schema,
+                source_table=sat.stage_name,
+                stage_schema=runtime_config.stage_schema,
+                rdv_schema=runtime_config.rdv_schema,
+                sat=sat,
+            )
+            return _artifact("sqlmesh_model", path, content, "satellite", sat.satellite_name)
 
     lines = ["from datavault4sqlmesh import satellite_model", "", "satellite_model("]
     lines.append(f"    name={repr(model_name)},")
@@ -513,15 +602,13 @@ def _render_satellite(
     lines.append(f"    source_table={repr(sat.stage_name)},")
     lines.append(")")
     content = "\n".join(lines) + "\n"
-
-    group_slug = _slug(sat.group) if sat.group else "shared"
-    path = f"models/rdv/{group_slug}/{sat.satellite_name}.py"
     return _artifact("sqlmesh_model", path, content, "satellite", sat.satellite_name)
 
 
 def _render_satellite_v1(
     sat: SatelliteDefinition,
     runtime_config: EngineRuntimeConfig,
+    template_resolver: TemplateResolver | None = None,
 ) -> GeneratedArtifact:
     """Render a satellite_v1_model(...) Python file (end-dated view)."""
     v1_name = _derive_v1_name(
@@ -531,6 +618,24 @@ def _render_satellite_v1(
     )
     model_name = f"{runtime_config.rdv_schema}.{v1_name}"
     payload = _sat_payload(sat)
+    group_slug = _slug(sat.group) if sat.group else "shared"
+    path = f"models/rdv/{group_slug}/{v1_name}.py"
+
+    if template_resolver is not None:
+        sql_template = template_resolver.get_sql_template("satellite_standard_v1")
+        if sql_template is not None:
+            content = sql_template.render(
+                name=model_name,
+                v1_name=v1_name,
+                parent_hash_key=sat.parent_hashkey,
+                hash_diff=sat.hashdiff_name,
+                payload=payload,
+                sat_v0_table=sat.satellite_name,
+                sat_v0_schema=runtime_config.rdv_schema,
+                rdv_schema=runtime_config.rdv_schema,
+                sat=sat,
+            )
+            return _artifact("sqlmesh_model", path, content, "satellite_v1", v1_name)
 
     lines = ["from datavault4sqlmesh import satellite_v1_model", "", "satellite_v1_model("]
     lines.append(f"    name={repr(model_name)},")
@@ -541,9 +646,6 @@ def _render_satellite_v1(
     lines.append(f"    sat_v0_schema={repr(runtime_config.rdv_schema)},")
     lines.append(")")
     content = "\n".join(lines) + "\n"
-
-    group_slug = _slug(sat.group) if sat.group else "shared"
-    path = f"models/rdv/{group_slug}/{v1_name}.py"
     return _artifact("sqlmesh_model", path, content, "satellite_v1", v1_name)
 
 

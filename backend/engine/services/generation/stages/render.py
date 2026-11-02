@@ -60,7 +60,7 @@ def render(
     if output_type == "dbml":
         return _render_dbml(project_export, options)
     if output_type == "sqlmesh":
-        return render_sqlmesh(project_export, runtime_config, options)
+        return _render_sqlmesh(project_export, runtime_config, options)
     # Defensive: plan stage already rejects unsupported types.
     return (
         [],
@@ -241,6 +241,24 @@ def _entity_ref_or_none(entity_type: str, entity_name: str) -> EntityRef | None:
     if not entity_type or not entity_name:
         return None
     return EntityRef(type=entity_type, name=entity_name)
+
+
+# ---------------------------------------------------------------------------
+# SQLMesh
+# ---------------------------------------------------------------------------
+
+
+def _render_sqlmesh(
+    project_export: ProjectExport,
+    runtime_config: EngineRuntimeConfig,
+    options: GenerationOptions,
+) -> tuple[list[GeneratedArtifact], list[Issue]]:
+    template_resolver = TemplateResolver(
+        use_db_templates=options.use_db_templates,
+        templates_override=options.templates_override,
+        framework="sqlmesh",
+    )
+    return render_sqlmesh(project_export, runtime_config, options, template_resolver)
 
 
 # ---------------------------------------------------------------------------

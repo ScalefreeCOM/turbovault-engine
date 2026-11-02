@@ -7,6 +7,11 @@ from __future__ import annotations
 
 import pytest
 
+# All tests in this file import from engine.services.generation, which triggers
+# the package __init__.py that loads Django models. The django_setup fixture
+# (session-scoped) must run before any import to avoid AppRegistryNotReady.
+pytestmark = pytest.mark.usefixtures("django_setup")
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -415,3 +420,111 @@ class TestUnsupportedEntityWarnings:
         _, issues = render_sqlmesh(export, _runtime_config(), _options())
         assert issues, "Expected at least one issue for an unsupported reference hub"
         assert all(i.severity == "warning" for i in issues)
+
+
+# ---------------------------------------------------------------------------
+# TemplateResolver integration
+# ---------------------------------------------------------------------------
+
+
+class TestTemplateResolverIntegration:
+    """render_sqlmesh() uses a TemplateResolver when provided.
+
+    These tests use in-memory overrides so no Django DB or file templates
+    are required (pure-function behaviour).
+    """
+
+    def _hub_export(self):
+        from engine.services.export.models import (
+            HashkeyDefinition,
+            HubDefinition,
+            HubSourceInfo,
+            ProjectExport,
+        )
+
+        return ProjectExport(
+            project_name="test",
+            hubs=[
+                HubDefinition(
+                    hub_name="hub_customer",
+                    hub_type="standard",
+                    hashkey=HashkeyDefinition(
+                        hashkey_name="hk_customer", business_keys=["customer_id"]
+                    ),
+                    business_key_columns=["customer_id"],
+                    source_tables=[
+                        HubSourceInfo(
+                            source_table="customer",
+                            source_system="crm",
+                            stage_name="stg_customer",
+                            rsrc_static=None,
+                        )
+                    ],
+                )
+            ],
+        )
+
+    def test_hub_rendered_via_in_memory_override(self):
+        """When a sqlmesh/hub_standard override is present the template output
+        replaces the hardcoded generator."""
+        from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+        from engine.services.generation.template_resolver import TemplateResolver
+        from engine.services.generation.types import TemplateOverride
+
+        resolver = TemplateResolver(
+            use_db_templates=False,
+            framework="sqlmesh",
+            templates_override={
+                "sqlmesh": {
+                    "hub_standard": TemplateOverride(sql="# custom hub: [[ hub_name ]]")
+                }
+            },
+        )
+        artifacts, issues = render_sqlmesh(
+            self._hub_export(), _runtime_config(), _options(), resolver
+        )
+        hub_artifact = next(
+            (a for a in artifacts if a.entity_type == "hub"), None
+        )
+        assert hub_artifact is not None
+        assert hub_artifact.content == "# custom hub: hub_customer"
+
+    def test_dbt_override_does_not_affect_sqlmesh_render(self):
+        """An override scoped to 'dbt' must not change SQLMesh output."""
+        from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+        from engine.services.generation.template_resolver import TemplateResolver
+        from engine.services.generation.types import TemplateOverride
+
+        resolver = TemplateResolver(
+            use_db_templates=False,
+            framework="sqlmesh",
+            templates_override={
+                "dbt": {
+                    "hub_standard": TemplateOverride(sql="# should never appear")
+                }
+            },
+        )
+        artifacts, _ = render_sqlmesh(
+            self._hub_export(), _runtime_config(), _options(), resolver
+        )
+        hub_artifact = next(
+            (a for a in artifacts if a.entity_type == "hub"), None
+        )
+        assert hub_artifact is not None
+        # Must use the hardcoded generator, not the dbt override.
+        assert "hub_model(" in (hub_artifact.content or "")
+        assert "should never appear" not in (hub_artifact.content or "")
+
+    def test_no_resolver_uses_hardcoded_generator(self):
+        """render_sqlmesh() without a resolver produces the standard output."""
+        from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+
+        artifacts, _ = render_sqlmesh(
+            self._hub_export(), _runtime_config(), _options()
+        )
+        hub_artifact = next(
+            (a for a in artifacts if a.entity_type == "hub"), None
+        )
+        assert hub_artifact is not None
+        assert "hub_model(" in (hub_artifact.content or "")
+        assert "hub_customer" in (hub_artifact.content or "")
