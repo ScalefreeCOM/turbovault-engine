@@ -25,8 +25,19 @@ if TYPE_CHECKING:
     from engine.services.generation.types import TemplateOverride
 
 
-# Path to default file-based templates
+# Path to default file-based templates. Each framework has its own subdirectory
+# (templates/dbt/, templates/sqlmesh/), each with sql/ and yaml/ inside.
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+
+def framework_templates_dir(framework: str, templates_dir: Path | None = None) -> Path:
+    """
+    Return the file-based default template directory for *framework*.
+
+    ``templates_dir`` overrides the bundled ``TEMPLATES_DIR`` root. The
+    returned directory holds ``sql/`` and ``yaml/`` subdirectories.
+    """
+    return (templates_dir or TEMPLATES_DIR) / framework
 
 
 # Characters YAML treats as line breaks that JSON leaves unescaped.
@@ -157,7 +168,7 @@ class TemplateResolver:
 
         # Jinja2 environment for file-based templates and in-memory overrides.
         # File-based defaults live under templates/<framework>/sql and yaml.
-        framework_dir = self.templates_dir / framework
+        framework_dir = framework_templates_dir(framework, self.templates_dir)
         self._env = build_jinja_environment(
             loader=FileSystemLoader(
                 [

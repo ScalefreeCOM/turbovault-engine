@@ -1,8 +1,8 @@
 """
 Django management command to populate database with template files.
 
-Reads all SQL and YAML templates from the templates directory and creates
-ModelTemplate records in the database for each one.
+Reads the dbt SQL and YAML templates from templates/dbt/ and creates
+ModelTemplate records (framework="dbt") in the database for each one.
 """
 
 from pathlib import Path
@@ -11,7 +11,11 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from engine.models.templates import ModelTemplate, TemplateCategory
-from engine.services.generation.template_resolver import TEMPLATES_DIR
+from engine.services.generation.template_resolver import framework_templates_dir
+
+# The bundled file templates seeded into the DB are the dbt set
+# (templates/dbt/); SQLMesh has no file-based defaults yet.
+_FRAMEWORK = ModelTemplate.Framework.DBT
 
 
 class Command(BaseCommand):
@@ -44,8 +48,9 @@ class Command(BaseCommand):
         if created:
             self.stdout.write(self.style.SUCCESS(f"Created category: {category_name}"))
 
-        sql_templates_dir = TEMPLATES_DIR / "sql"
-        yaml_templates_dir = TEMPLATES_DIR / "yaml"
+        framework_dir = framework_templates_dir(_FRAMEWORK)
+        sql_templates_dir = framework_dir / "sql"
+        yaml_templates_dir = framework_dir / "yaml"
 
         created_count = 0
         updated_count = 0
@@ -125,9 +130,10 @@ class Command(BaseCommand):
         # Template name based on entity type and template type
         template_name = f"{entity_type} ({template_type.upper()})"
 
-        # Check if template exists
+        # Check if template exists. Scoped to the framework so a same-named
+        # SQLMesh template is never overwritten with dbt content.
         existing = ModelTemplate.objects.filter(
-            entity_type=entity_type, name=template_name
+            entity_type=entity_type, name=template_name, framework=_FRAMEWORK
         ).first()
 
         if existing:
@@ -154,6 +160,7 @@ class Command(BaseCommand):
             kwargs = {
                 "name": template_name,
                 "entity_type": entity_type,
+                "framework": _FRAMEWORK,
                 "category": category,
                 "description": f"Default {template_type.upper()} template for {entity_type}",
                 "priority": 0,  # Default priority

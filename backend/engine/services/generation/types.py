@@ -138,9 +138,11 @@ class EntitySelection(BaseModel):
 class TemplateOverride(BaseModel):
     """In-memory template content supplied for a single generation run.
 
-    Keyed by entity_type in GenerationOptions.templates_override. Either
-    field may be None to inherit from the DB / bundled file default; a
-    non-None value takes precedence. SQL and YAML resolve independently.
+    Keyed by framework, then entity_type, in GenerationOptions.templates_override
+    (e.g. ``{"sqlmesh": {"hub_standard": TemplateOverride(...)}}``); an
+    override for one framework never applies to another. Either field may be
+    None to inherit from the DB / bundled file default; a non-None value takes
+    precedence. SQL and YAML resolve independently.
     """
 
     model_config = ConfigDict(extra="forbid")

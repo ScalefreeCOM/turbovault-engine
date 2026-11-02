@@ -201,6 +201,79 @@ def test_db_template_for_sqlmesh_not_visible_to_dbt_resolver(django_setup):
 
 
 # ---------------------------------------------------------------------------
+# Bundled template layout and DB seeding
+# ---------------------------------------------------------------------------
+
+
+def test_bundled_templates_live_only_in_framework_directories():
+    """No flat templates/sql or templates/yaml copies: a second copy next to
+    templates/dbt/ silently drifts (edits to it are never rendered)."""
+    from engine.services.generation.template_resolver import TEMPLATES_DIR
+
+    top_level = {p.name for p in TEMPLATES_DIR.iterdir() if not p.name.startswith(".")}
+    assert top_level <= {"dbt", "sqlmesh"}, top_level
+    assert any((TEMPLATES_DIR / "dbt" / "sql").glob("*.sql.j2"))
+    assert any((TEMPLATES_DIR / "dbt" / "yaml").glob("*.yml.j2"))
+
+
+def test_framework_templates_dir_helper():
+    from pathlib import Path
+
+    from engine.services.generation.template_resolver import (
+        TEMPLATES_DIR,
+        framework_templates_dir,
+    )
+
+    assert framework_templates_dir("dbt") == TEMPLATES_DIR / "dbt"
+    assert framework_templates_dir("sqlmesh", Path("custom")) == Path("custom") / "sqlmesh"
+
+
+@pytest.mark.django_db
+def test_populate_templates_seeds_dbt_templates_as_framework_dbt(django_setup):
+    import io
+
+    from django.core.management import call_command
+    from engine.models.templates import ModelTemplate
+    from engine.services.generation.template_resolver import TEMPLATES_DIR
+
+    call_command("populate_templates", stdout=io.StringIO())
+
+    seeded = ModelTemplate.objects.filter(name="hub_standard (SQL)")
+    assert seeded.count() == 1
+    row = seeded.get()
+    assert row.framework == "dbt"
+    expected = (TEMPLATES_DIR / "dbt" / "sql" / "hub_standard.sql.j2").read_text(
+        encoding="utf-8"
+    )
+    assert row.sql_template_content == expected
+
+
+@pytest.mark.django_db
+def test_populate_templates_overwrite_leaves_sqlmesh_templates_alone(django_setup):
+    """--overwrite updates the dbt row only, never a same-named SQLMesh row."""
+    import io
+
+    from django.core.management import call_command
+    from engine.models.templates import ModelTemplate
+
+    sqlmesh_row = ModelTemplate.objects.create(
+        name="hub_standard (SQL)",
+        framework="sqlmesh",
+        entity_type="hub_standard",
+        sql_template_content="# custom sqlmesh hub",
+        is_active=True,
+    )
+
+    call_command("populate_templates", "--overwrite", stdout=io.StringIO())
+
+    sqlmesh_row.refresh_from_db()
+    assert sqlmesh_row.sql_template_content == "# custom sqlmesh hub"
+    assert ModelTemplate.objects.filter(
+        name="hub_standard (SQL)", framework="dbt"
+    ).exists()
+
+
+# ---------------------------------------------------------------------------
 # validate_template: Python syntax check
 # ---------------------------------------------------------------------------
 

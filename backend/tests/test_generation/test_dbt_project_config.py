@@ -438,7 +438,7 @@ class TestSpecificMaterializations:
         from engine.services.generation.template_resolver import TEMPLATES_DIR
 
         for kind in self.EXPECTED:
-            source = (TEMPLATES_DIR / "sql" / f"{kind}.sql.j2").read_text(
+            source = (TEMPLATES_DIR / "dbt" / "sql" / f"{kind}.sql.j2").read_text(
                 encoding="utf-8"
             )
             assert "[% if materialization %]" in source, kind

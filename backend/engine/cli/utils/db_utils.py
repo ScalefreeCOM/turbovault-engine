@@ -137,7 +137,7 @@ def ensure_templates_populated() -> None:
     debug_print("ensure_templates_populated() called")
 
     from engine.models.templates import ModelTemplate, TemplateCategory
-    from engine.services.generation.template_resolver import TEMPLATES_DIR
+    from engine.services.generation.template_resolver import framework_templates_dir
 
     # Check if we should skip template population
     if os.environ.get("TURBOVAULT_SKIP_TEMPLATE_POPULATION", "").lower() in (
@@ -163,8 +163,12 @@ def ensure_templates_populated() -> None:
             defaults={"description": "Default templates from file system"},
         )
 
-        sql_templates_dir = TEMPLATES_DIR / "sql"
-        yaml_templates_dir = TEMPLATES_DIR / "yaml"
+        # The bundled file templates are the dbt set; SQLMesh has no
+        # file-based defaults yet.
+        framework = ModelTemplate.Framework.DBT
+        framework_dir = framework_templates_dir(framework)
+        sql_templates_dir = framework_dir / "sql"
+        yaml_templates_dir = framework_dir / "yaml"
 
         created_count = 0
 
@@ -180,6 +184,7 @@ def ensure_templates_populated() -> None:
                     ModelTemplate.objects.create(
                         name=f"{entity_type} (SQL)",
                         entity_type=entity_type,
+                        framework=framework,
                         category=category,
                         description=f"Default SQL template for {entity_type}",
                         sql_template_content=content,
@@ -201,7 +206,9 @@ def ensure_templates_populated() -> None:
                     content = yaml_file.read_text(encoding="utf-8")
                     # Check if SQL template exists for this entity
                     sql_template = ModelTemplate.objects.filter(
-                        entity_type=entity_type, name=f"{entity_type} (SQL)"
+                        entity_type=entity_type,
+                        name=f"{entity_type} (SQL)",
+                        framework=framework,
                     ).first()
 
                     if sql_template:
@@ -213,6 +220,7 @@ def ensure_templates_populated() -> None:
                         ModelTemplate.objects.create(
                             name=f"{entity_type} (YAML)",
                             entity_type=entity_type,
+                            framework=framework,
                             category=category,
                             description=f"Default YAML template for {entity_type}",
                             yaml_template_content=content,
