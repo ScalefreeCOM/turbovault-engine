@@ -1,0 +1,27 @@
+[#
+  SQLMesh standard (v0) satellite model — calls datavault4sqlmesh's satellite_model().
+
+  Context:
+    name             model name, e.g. 'rdv.sat_customer_details'
+    satellite_name   model name without the schema
+    parent_hash_key  hash key of the parent hub or link
+    hash_diff        hash diff column
+    payload          [payload columns]
+    source_schema    schema of the stage model loading the satellite
+    source_table     the stage model loading the satellite
+    stage_schema     stage schema name
+    rdv_schema       raw vault schema name
+    sat              the full SatelliteDefinition
+
+  Filters: py (Python literal)
+#]
+from datavault4sqlmesh import satellite_model
+
+satellite_model(
+    name=[[ name | py ]],
+    parent_hash_key=[[ parent_hash_key | py ]],
+    hash_diff=[[ hash_diff | py ]],
+    payload=[[ payload | py ]],
+    source_schema=[[ source_schema | py ]],
+    source_table=[[ source_table | py ]],
+)

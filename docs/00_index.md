@@ -402,7 +402,7 @@ All SQL and YAML templates can be customized:
 3. **Edit any template** to customize generation
 4. **Higher priority templates** are selected first
 
-Templates are automatically populated from files during `turbovault workspace init`.
+Templates are automatically populated from files during `turbovault workspace init`, for both frameworks: the dbt templates from `templates/dbt/` and the SQLMesh model templates from `templates/sqlmesh/models/`. Each template only applies to its own framework (see the admin guide's "Managing Templates").
 
 ### Manual Template Management
 

@@ -5,6 +5,11 @@ Generates a ready-to-use SQLMesh project built on datavault4sqlmesh.
 Each Data Vault entity becomes a compact Python file that calls the
 appropriate datavault4sqlmesh factory function (hub_model, link_model, etc.).
 
+The model files are rendered from SQLMesh templates resolved per entity type
+by a ``TemplateResolver(framework="sqlmesh")``: a per-run override, a DB
+template, or the bundled default in ``templates/sqlmesh/models/``. This module
+computes the template context; the templates own the generated code.
+
 datavault4sqlmesh is NOT imported here — only the generated Python source
 files call it. This keeps sqlmesh/datavault4sqlmesh out of the engine's
 runtime dependencies.
@@ -27,10 +32,9 @@ from __future__ import annotations
 import json
 import re
 import textwrap  # used by _render_readme and _MODELS_INIT
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from engine.services.generation.template_resolver import TemplateResolver
+from jinja2 import TemplateError
 
 from engine.services.export.models import (
     HubDefinition,
@@ -46,6 +50,7 @@ from engine.services.generation.sqlmesh_dialect import (
     dialect_not_set_warning,
     resolve_driver_requirement,
 )
+from engine.services.generation.template_resolver import TemplateResolver
 from engine.services.generation.types import (
     ArtifactKind,
     EntityRef,
@@ -54,6 +59,11 @@ from engine.services.generation.types import (
     Issue,
 )
 from engine.services.runtime_config import EngineRuntimeConfig
+
+
+class SQLMeshTemplateError(Exception):
+    """A SQLMesh model template is missing or failed to render."""
+
 
 # ---------------------------------------------------------------------------
 # Identifier & value helpers
@@ -119,7 +129,12 @@ def render_sqlmesh(
     artifact list (the generation continues in best-effort style regardless of
     the caller's error_strategy — these are structural limitations, not data
     errors).
+
+    Without a *template_resolver*, the bundled SQLMesh templates are used
+    (no DB templates, no overrides).
     """
+    if template_resolver is None:
+        template_resolver = TemplateResolver(use_db_templates=False, framework="sqlmesh")
     artifacts: list[GeneratedArtifact] = []
     issues: list[Issue] = []
 
@@ -203,7 +218,7 @@ def _try_render_hub(
     hub: HubDefinition,
     runtime_config: EngineRuntimeConfig,
     issues: list[Issue],
-    template_resolver: TemplateResolver | None = None,
+    template_resolver: TemplateResolver,
 ) -> GeneratedArtifact | None:
     """Render a hub artifact, or append a warning and return None if skipped."""
     if hub.hub_type == "reference":
@@ -233,7 +248,7 @@ def _try_render_link(
     link: LinkDefinition,
     runtime_config: EngineRuntimeConfig,
     issues: list[Issue],
-    template_resolver: TemplateResolver | None = None,
+    template_resolver: TemplateResolver,
 ) -> GeneratedArtifact | None:
     """Render a link artifact, or append a warning and return None if skipped."""
     if link.link_type == "non_historized":
@@ -263,7 +278,7 @@ def _try_render_sat(
     sat: SatelliteDefinition,
     runtime_config: EngineRuntimeConfig,
     issues: list[Issue],
-    template_resolver: TemplateResolver | None = None,
+    template_resolver: TemplateResolver,
 ) -> GeneratedArtifact | None:
     """Render a satellite artifact, or append a warning and return None if skipped."""
     if sat.satellite_type in _UNSUPPORTED_SAT_TYPES:
@@ -428,7 +443,7 @@ def _render_stage(
     rendered_hub_names: set[str],
     rendered_link_names: set[str],
     rendered_sat_names: set[str],
-    template_resolver: TemplateResolver | None = None,
+    template_resolver: TemplateResolver,
     issues: list[Issue] | None = None,
 ) -> GeneratedArtifact:
     """Render a stage_model(...) Python file.
@@ -520,39 +535,21 @@ def _render_stage(
         derived_columns[rsrc_col] = stage.record_source
 
     path = f"models/stg/{_slug(stage.source_system)}/{stage.stage_name}.py"
-
-    if template_resolver is not None:
-        sql_template = template_resolver.get_sql_template("stage")
-        if sql_template is not None:
-            content = sql_template.render(
-                name=model_name,
-                stage_name=stage.stage_name,
-                source_table=stage.source_table,
-                source_schema=stage.source_schema,
-                derived_columns=derived_columns,
-                hashed_columns=hashed_columns,
-                column_overrides=column_overrides,
-                stage_schema=runtime_config.stage_schema,
-                stage=stage,
-            )
-            return _artifact("sqlmesh_model", path, content, "stage", stage.stage_name)
-
-    lines = ["from datavault4sqlmesh import stage_model", "", "stage_model("]
-    lines.append(f"    name={repr(model_name)},")
-    lines.append(f"    source_table={repr(source_table)},")
-    lines.append(f"    source_schema={repr(source_schema)},")
-    if load_date_col_arg:
-        lines.append(f"    load_date_col={repr(load_date_col_arg)},")
-    if record_source_col_arg:
-        lines.append(f"    record_source_col={repr(record_source_col_arg)},")
-    if derived_columns:
-        lines.append(f"    derived_columns={_fmt_dict(derived_columns)},")
-    if hashed_columns:
-        lines.append(f"    hashed_columns={_fmt_hashed_columns(hashed_columns)},")
-    if column_overrides:
-        lines.append(f"    column_overrides={_fmt_dict(column_overrides)},")
-    lines.append(")")
-    content = "\n".join(lines) + "\n"
+    content = _render_model(
+        template_resolver,
+        "stage",
+        name=model_name,
+        stage_name=stage.stage_name,
+        source_table=source_table,
+        source_schema=source_schema,
+        load_date_col=load_date_col_arg,
+        record_source_col=record_source_col_arg,
+        derived_columns=derived_columns,
+        hashed_columns=hashed_columns,
+        column_overrides=column_overrides,
+        stage_schema=runtime_config.stage_schema,
+        stage=stage,
+    )
     return _artifact("sqlmesh_model", path, content, "stage", stage.stage_name)
 
 
@@ -564,7 +561,7 @@ def _render_stage(
 def _render_hub(
     hub: HubDefinition,
     runtime_config: EngineRuntimeConfig,
-    template_resolver: TemplateResolver | None = None,
+    template_resolver: TemplateResolver,
 ) -> GeneratedArtifact:
     """Render a hub_model(...) Python file."""
     model_name = f"{runtime_config.rdv_schema}.{hub.hub_name}"
@@ -574,54 +571,41 @@ def _render_hub(
     group_slug = _slug(hub.group) if hub.group else "shared"
     path = f"models/rdv/{group_slug}/{hub.hub_name}.py"
 
-    if template_resolver is not None:
-        sql_template = template_resolver.get_sql_template("hub_standard")
-        if sql_template is not None:
-            ctx: dict[str, Any] = {
-                "name": model_name,
-                "hub_name": hub.hub_name,
-                "hashkey": hashkey,
-                "business_keys": business_keys,
-                "is_multi_source": is_multi_source,
-                "stage_schema": runtime_config.stage_schema,
-                "rdv_schema": runtime_config.rdv_schema,
-                "hub": hub,
-            }
-            if is_multi_source:
-                ctx["sources"] = hub.source_tables
-                ctx["rsrc_statics"] = [src.rsrc_static or "" for src in hub.source_tables]
-            else:
-                src = hub.source_tables[0]
-                ctx["source_table"] = src.stage_name
-                ctx["rsrc_statics"] = [src.rsrc_static] if src.rsrc_static else []
-            content = sql_template.render(**ctx)
-            return _artifact("sqlmesh_model", path, content, "hub", hub.hub_name)
-
-    lines: list[str]
-    if is_multi_source:
-        lines = ["from datavault4sqlmesh import hub_model, SourceModel", "", "hub_model("]
-    else:
-        lines = ["from datavault4sqlmesh import hub_model", "", "hub_model("]
-
-    lines.append(f"    name={repr(model_name)},")
-    lines.append(f"    hashkey={repr(hashkey)},")
-    lines.append(f"    business_keys={repr(business_keys)},")
-
-    if is_multi_source:
-        sources_str = _fmt_source_models(hub.source_tables, runtime_config.stage_schema)
-        lines.append(f"    sources={sources_str},")
-        rsrc_statics = [src.rsrc_static or "" for src in hub.source_tables]
-        lines.append(f"    rsrc_statics={repr(rsrc_statics)},")
-    else:
-        src = hub.source_tables[0]
-        lines.append(f"    source_schema={repr(runtime_config.stage_schema)},")
-        lines.append(f"    source_table={repr(src.stage_name)},")
-        if src.rsrc_static:
-            lines.append(f"    rsrc_statics={repr([src.rsrc_static])},")
-
-    lines.append(")")
-    content = "\n".join(lines) + "\n"
+    content = _render_model(
+        template_resolver,
+        "hub_standard",
+        name=model_name,
+        hub_name=hub.hub_name,
+        hashkey=hashkey,
+        business_keys=business_keys,
+        is_multi_source=is_multi_source,
+        stage_schema=runtime_config.stage_schema,
+        rdv_schema=runtime_config.rdv_schema,
+        hub=hub,
+        **_source_context(hub.source_tables, is_multi_source),
+    )
     return _artifact("sqlmesh_model", path, content, "hub", hub.hub_name)
+
+
+def _source_context(
+    sources: list[HubSourceInfo] | list[LinkSourceInfo], is_multi_source: bool
+) -> dict[str, Any]:
+    """Template context describing a hub's or link's source stage(s).
+
+    Multi-source: ``sources`` plus one static record source part per source
+    ('' when unset). Single source: ``source_table`` plus ``rsrc_statics``
+    holding the static part only when it is set.
+    """
+    if is_multi_source:
+        return {
+            "sources": sources,
+            "rsrc_statics": [src.rsrc_static or "" for src in sources],
+        }
+    src = sources[0]
+    return {
+        "source_table": src.stage_name,
+        "rsrc_statics": [src.rsrc_static] if src.rsrc_static else [],
+    }
 
 
 def _hub_business_keys(hub: HubDefinition) -> list[str]:
@@ -638,7 +622,7 @@ def _hub_business_keys(hub: HubDefinition) -> list[str]:
 def _render_link(
     link: LinkDefinition,
     runtime_config: EngineRuntimeConfig,
-    template_resolver: TemplateResolver | None = None,
+    template_resolver: TemplateResolver,
 ) -> GeneratedArtifact:
     """Render a link_model(...) Python file."""
     model_name = f"{runtime_config.rdv_schema}.{link.link_name}"
@@ -648,53 +632,19 @@ def _render_link(
     group_slug = _slug(link.group) if link.group else "shared"
     path = f"models/rdv/{group_slug}/{link.link_name}.py"
 
-    if template_resolver is not None:
-        sql_template = template_resolver.get_sql_template("link_standard")
-        if sql_template is not None:
-            ctx: dict[str, Any] = {
-                "name": model_name,
-                "link_name": link.link_name,
-                "link_hash_key": link_hash_key,
-                "foreign_hash_keys": foreign_hash_keys,
-                "is_multi_source": is_multi_source,
-                "stage_schema": runtime_config.stage_schema,
-                "rdv_schema": runtime_config.rdv_schema,
-                "link": link,
-            }
-            if is_multi_source:
-                ctx["sources"] = link.source_tables
-                ctx["rsrc_statics"] = [src.rsrc_static or "" for src in link.source_tables]
-            else:
-                src = link.source_tables[0]
-                ctx["source_table"] = src.stage_name
-                ctx["rsrc_statics"] = [src.rsrc_static] if src.rsrc_static else []
-            content = sql_template.render(**ctx)
-            return _artifact("sqlmesh_model", path, content, "link", link.link_name)
-
-    lines: list[str]
-    if is_multi_source:
-        lines = ["from datavault4sqlmesh import link_model, SourceModel", "", "link_model("]
-    else:
-        lines = ["from datavault4sqlmesh import link_model", "", "link_model("]
-
-    lines.append(f"    name={repr(model_name)},")
-    lines.append(f"    link_hash_key={repr(link_hash_key)},")
-    lines.append(f"    foreign_hash_keys={repr(foreign_hash_keys)},")
-
-    if is_multi_source:
-        sources_str = _fmt_source_models(link.source_tables, runtime_config.stage_schema)
-        lines.append(f"    sources={sources_str},")
-        rsrc_statics = [src.rsrc_static or "" for src in link.source_tables]
-        lines.append(f"    rsrc_statics={repr(rsrc_statics)},")
-    else:
-        src = link.source_tables[0]
-        lines.append(f"    source_schema={repr(runtime_config.stage_schema)},")
-        lines.append(f"    source_table={repr(src.stage_name)},")
-        if src.rsrc_static:
-            lines.append(f"    rsrc_statics={repr([src.rsrc_static])},")
-
-    lines.append(")")
-    content = "\n".join(lines) + "\n"
+    content = _render_model(
+        template_resolver,
+        "link_standard",
+        name=model_name,
+        link_name=link.link_name,
+        link_hash_key=link_hash_key,
+        foreign_hash_keys=foreign_hash_keys,
+        is_multi_source=is_multi_source,
+        stage_schema=runtime_config.stage_schema,
+        rdv_schema=runtime_config.rdv_schema,
+        link=link,
+        **_source_context(link.source_tables, is_multi_source),
+    )
     return _artifact("sqlmesh_model", path, content, "link", link.link_name)
 
 
@@ -706,7 +656,7 @@ def _render_link(
 def _render_satellite(
     sat: SatelliteDefinition,
     runtime_config: EngineRuntimeConfig,
-    template_resolver: TemplateResolver | None = None,
+    template_resolver: TemplateResolver,
 ) -> GeneratedArtifact:
     """Render a satellite_model(...) Python file (v0 / standard)."""
     model_name = f"{runtime_config.rdv_schema}.{sat.satellite_name}"
@@ -714,39 +664,27 @@ def _render_satellite(
     group_slug = _slug(sat.group) if sat.group else "shared"
     path = f"models/rdv/{group_slug}/{sat.satellite_name}.py"
 
-    if template_resolver is not None:
-        sql_template = template_resolver.get_sql_template("satellite_standard")
-        if sql_template is not None:
-            content = sql_template.render(
-                name=model_name,
-                satellite_name=sat.satellite_name,
-                parent_hash_key=sat.parent_hashkey,
-                hash_diff=sat.hashdiff_name,
-                payload=payload,
-                source_schema=runtime_config.stage_schema,
-                source_table=sat.stage_name,
-                stage_schema=runtime_config.stage_schema,
-                rdv_schema=runtime_config.rdv_schema,
-                sat=sat,
-            )
-            return _artifact("sqlmesh_model", path, content, "satellite", sat.satellite_name)
-
-    lines = ["from datavault4sqlmesh import satellite_model", "", "satellite_model("]
-    lines.append(f"    name={repr(model_name)},")
-    lines.append(f"    parent_hash_key={repr(sat.parent_hashkey)},")
-    lines.append(f"    hash_diff={repr(sat.hashdiff_name)},")
-    lines.append(f"    payload={repr(payload)},")
-    lines.append(f"    source_schema={repr(runtime_config.stage_schema)},")
-    lines.append(f"    source_table={repr(sat.stage_name)},")
-    lines.append(")")
-    content = "\n".join(lines) + "\n"
+    content = _render_model(
+        template_resolver,
+        "satellite_standard",
+        name=model_name,
+        satellite_name=sat.satellite_name,
+        parent_hash_key=sat.parent_hashkey,
+        hash_diff=sat.hashdiff_name,
+        payload=payload,
+        source_schema=runtime_config.stage_schema,
+        source_table=sat.stage_name,
+        stage_schema=runtime_config.stage_schema,
+        rdv_schema=runtime_config.rdv_schema,
+        sat=sat,
+    )
     return _artifact("sqlmesh_model", path, content, "satellite", sat.satellite_name)
 
 
 def _render_satellite_v1(
     sat: SatelliteDefinition,
     runtime_config: EngineRuntimeConfig,
-    template_resolver: TemplateResolver | None = None,
+    template_resolver: TemplateResolver,
 ) -> GeneratedArtifact:
     """Render a satellite_v1_model(...) Python file (end-dated view)."""
     dialect = runtime_config.sqlmesh_dialect
@@ -763,31 +701,20 @@ def _render_satellite_v1(
     # case-folding dialects (e.g. postgres) it is stored lowercase.
     sat_v0_table = _normalise_source_id(sat.satellite_name, dialect)
 
-    if template_resolver is not None:
-        sql_template = template_resolver.get_sql_template("satellite_standard_v1")
-        if sql_template is not None:
-            content = sql_template.render(
-                name=model_name,
-                v1_name=v1_name,
-                parent_hash_key=sat.parent_hashkey,
-                hash_diff=sat.hashdiff_name,
-                payload=payload,
-                sat_v0_table=sat_v0_table,
-                sat_v0_schema=runtime_config.rdv_schema,
-                rdv_schema=runtime_config.rdv_schema,
-                sat=sat,
-            )
-            return _artifact("sqlmesh_model", path, content, "satellite_v1", v1_name)
-
-    lines = ["from datavault4sqlmesh import satellite_v1_model", "", "satellite_v1_model("]
-    lines.append(f"    name={repr(model_name)},")
-    lines.append(f"    parent_hash_key={repr(sat.parent_hashkey)},")
-    lines.append(f"    hash_diff={repr(sat.hashdiff_name)},")
-    lines.append(f"    payload={repr(payload)},")
-    lines.append(f"    sat_v0_table={repr(sat_v0_table)},")
-    lines.append(f"    sat_v0_schema={repr(runtime_config.rdv_schema)},")
-    lines.append(")")
-    content = "\n".join(lines) + "\n"
+    content = _render_model(
+        template_resolver,
+        # The entity type is "satellite_v1", as for dbt and ModelTemplate.
+        "satellite_v1",
+        name=model_name,
+        v1_name=v1_name,
+        parent_hash_key=sat.parent_hashkey,
+        hash_diff=sat.hashdiff_name,
+        payload=payload,
+        sat_v0_table=sat_v0_table,
+        sat_v0_schema=runtime_config.rdv_schema,
+        rdv_schema=runtime_config.rdv_schema,
+        sat=sat,
+    )
     return _artifact("sqlmesh_model", path, content, "satellite_v1", v1_name)
 
 
@@ -828,53 +755,31 @@ def _derive_v1_name(sat_v0_name: str, v0_naming: str, v1_naming: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _fmt_hashed_columns(hashed_columns: dict[str, Any]) -> str:
-    """Format the hashed_columns dict for Python source — multi-line."""
-    lines = ["{"]
-    for key, value in hashed_columns.items():
-        if isinstance(value, list):
-            inner = ", ".join(repr(v) for v in value)
-            lines.append(f"        {repr(key)}: [{inner}],")
-        elif isinstance(value, dict):
-            inner_lines = ["{"]
-            for ik, iv in value.items():
-                if isinstance(iv, list):
-                    iv_str = "[" + ", ".join(repr(v) for v in iv) + "]"
-                else:
-                    iv_str = repr(iv)
-                inner_lines.append(f"            {repr(ik)}: {iv_str},")
-            inner_lines.append("        }")
-            lines.append(f"        {repr(key)}: " + "\n".join(inner_lines) + ",")
-        else:
-            lines.append(f"        {repr(key)}: {repr(value)},")
-    lines.append("    }")
-    return "\n".join(lines)
-
-
-def _fmt_dict(d: dict[str, str]) -> str:
-    """Format a flat str→str dict for Python source — multi-line."""
-    if not d:
-        return "{}"
-    lines = ["{"]
-    for k, v in d.items():
-        lines.append(f"        {repr(k)}: {repr(v)},")
-    lines.append("    }")
-    return "\n".join(lines)
-
-
-def _fmt_source_models(
-    sources: list[HubSourceInfo] | list[LinkSourceInfo],
-    stage_schema: str,
+def _render_model(
+    template_resolver: TemplateResolver, entity_type: str, **context: Any
 ) -> str:
-    """Format a list of SourceModel(...) calls for Python source."""
-    items = [
-        f"SourceModel(schema_name={repr(stage_schema)}, table_name={repr(src.stage_name)})"
-        for src in sources
-    ]
-    if len(items) == 1:
-        return f"[{items[0]}]"
-    inner = ",\n        ".join(items)
-    return f"[\n        {inner},\n    ]"
+    """Render the SQLMesh model template for *entity_type* with *context*.
+
+    The template comes from the resolver (per-run override, DB template or
+    the bundled ``templates/sqlmesh/models/<entity_type>.py.j2``). The result
+    always ends with exactly one newline, as Jinja drops a template's final one.
+
+    Raises SQLMeshTemplateError when no template exists or rendering fails.
+    """
+    try:
+        # Compiling an override / DB template happens in the lookup, so a
+        # syntax error (e.g. an unknown filter) surfaces here already.
+        template = template_resolver.get_sql_template(entity_type)
+        if template is None:
+            raise SQLMeshTemplateError(
+                f"No SQLMesh template found for entity type '{entity_type}'."
+            )
+        content = template.render(**context)
+    except TemplateError as exc:
+        raise SQLMeshTemplateError(
+            f"SQLMesh template for '{entity_type}' failed to render: {exc}"
+        ) from exc
+    return content.rstrip("\n") + "\n"
 
 
 def _slug(name: str) -> str:

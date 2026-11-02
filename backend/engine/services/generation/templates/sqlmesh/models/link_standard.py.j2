@@ -1,0 +1,39 @@
+[#
+  SQLMesh standard link model — calls datavault4sqlmesh's link_model().
+
+  Context:
+    name               model name, e.g. 'rdv.link_order_customer'
+    link_name          model name without the schema
+    link_hash_key      link hash key column
+    foreign_hash_keys  [hash keys of the connected hubs]
+    is_multi_source    true when the link loads from more than one stage
+    sources            (multi-source) [LinkSourceInfo], each with stage_name
+    source_table       (single source) the stage model loading the link
+    rsrc_statics       [static record source part per source]; '' when unset
+    stage_schema       stage schema name
+    rdv_schema         raw vault schema name
+    link               the full LinkDefinition
+
+  Filters: py (Python literal), py_source_models(stage_schema)
+#]
+[% if is_multi_source %]
+from datavault4sqlmesh import link_model, SourceModel
+[% else %]
+from datavault4sqlmesh import link_model
+[% endif %]
+
+link_model(
+    name=[[ name | py ]],
+    link_hash_key=[[ link_hash_key | py ]],
+    foreign_hash_keys=[[ foreign_hash_keys | py ]],
+[% if is_multi_source %]
+    sources=[[ sources | py_source_models(stage_schema) ]],
+    rsrc_statics=[[ rsrc_statics | py ]],
+[% else %]
+    source_schema=[[ stage_schema | py ]],
+    source_table=[[ source_table | py ]],
+[% if rsrc_statics %]
+    rsrc_statics=[[ rsrc_statics | py ]],
+[% endif %]
+[% endif %]
+)

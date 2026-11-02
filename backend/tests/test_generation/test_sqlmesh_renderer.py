@@ -500,7 +500,8 @@ class TestTemplateResolverIntegration:
             (a for a in artifacts if a.entity_type == "hub"), None
         )
         assert hub_artifact is not None
-        assert hub_artifact.content == "# custom hub: hub_customer"
+        # Rendered model files always end with exactly one newline.
+        assert hub_artifact.content == "# custom hub: hub_customer\n"
 
     def test_dbt_override_does_not_affect_sqlmesh_render(self):
         """An override scoped to 'dbt' must not change SQLMesh output."""

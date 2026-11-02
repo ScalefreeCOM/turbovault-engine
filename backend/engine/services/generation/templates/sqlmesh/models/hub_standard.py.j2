@@ -1,0 +1,39 @@
+[#
+  SQLMesh standard hub model — calls datavault4sqlmesh's hub_model().
+
+  Context:
+    name             model name, e.g. 'rdv.hub_customer'
+    hub_name         model name without the schema
+    hashkey          hash key column
+    business_keys    [business key columns]
+    is_multi_source  true when the hub loads from more than one stage
+    sources          (multi-source) [HubSourceInfo], each with stage_name
+    source_table     (single source) the stage model loading the hub
+    rsrc_statics     [static record source part per source]; '' when unset
+    stage_schema     stage schema name
+    rdv_schema       raw vault schema name
+    hub              the full HubDefinition
+
+  Filters: py (Python literal), py_source_models(stage_schema)
+#]
+[% if is_multi_source %]
+from datavault4sqlmesh import hub_model, SourceModel
+[% else %]
+from datavault4sqlmesh import hub_model
+[% endif %]
+
+hub_model(
+    name=[[ name | py ]],
+    hashkey=[[ hashkey | py ]],
+    business_keys=[[ business_keys | py ]],
+[% if is_multi_source %]
+    sources=[[ sources | py_source_models(stage_schema) ]],
+    rsrc_statics=[[ rsrc_statics | py ]],
+[% else %]
+    source_schema=[[ stage_schema | py ]],
+    source_table=[[ source_table | py ]],
+[% if rsrc_statics %]
+    rsrc_statics=[[ rsrc_statics | py ]],
+[% endif %]
+[% endif %]
+)

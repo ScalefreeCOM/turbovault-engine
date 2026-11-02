@@ -1,0 +1,27 @@
+[#
+  SQLMesh satellite v1 model (load-end-dated view over the v0 satellite) —
+  calls datavault4sqlmesh's satellite_v1_model().
+
+  Context:
+    name             model name, e.g. 'rdv.sat_customer_details_v1'
+    v1_name          model name without the schema
+    parent_hash_key  hash key of the parent hub or link
+    hash_diff        hash diff column
+    payload          [payload columns]
+    sat_v0_table     the v0 satellite (lowercased for case-folding dialects)
+    sat_v0_schema    schema of the v0 satellite
+    rdv_schema       raw vault schema name
+    sat              the full SatelliteDefinition of the v0 satellite
+
+  Filters: py (Python literal)
+#]
+from datavault4sqlmesh import satellite_v1_model
+
+satellite_v1_model(
+    name=[[ name | py ]],
+    parent_hash_key=[[ parent_hash_key | py ]],
+    hash_diff=[[ hash_diff | py ]],
+    payload=[[ payload | py ]],
+    sat_v0_table=[[ sat_v0_table | py ]],
+    sat_v0_schema=[[ sat_v0_schema | py ]],
+)

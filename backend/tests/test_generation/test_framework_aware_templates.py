@@ -13,6 +13,12 @@ from __future__ import annotations
 import pytest
 
 
+def _is_bundled_sqlmesh_template(template, entity_type: str) -> bool:
+    """True if *template* is the bundled templates/sqlmesh/models/<entity>.py.j2."""
+    filename = (getattr(template, "filename", None) or "").replace("\\", "/")
+    return filename.endswith(f"/sqlmesh/models/{entity_type}.py.j2")
+
+
 # ---------------------------------------------------------------------------
 # File-based template resolution per framework
 # ---------------------------------------------------------------------------
@@ -31,15 +37,30 @@ def test_dbt_resolver_loads_from_dbt_directory(django_setup):
     assert "hub_standard.yml.j2" in (yaml_template.filename or "")
 
 
-def test_sqlmesh_resolver_returns_none_for_missing_templates(django_setup):
-    """SQLMesh has no bundled file-based templates yet — resolver returns None
-    rather than falling through to dbt templates."""
+@pytest.mark.parametrize(
+    "entity_type",
+    ["stage", "hub_standard", "link_standard", "satellite_standard", "satellite_v1"],
+)
+def test_sqlmesh_resolver_loads_bundled_sqlmesh_templates(django_setup, entity_type):
+    """SQLMesh model templates come from templates/sqlmesh/models/*.py.j2 —
+    never from the dbt files. SQLMesh has no YAML templates."""
     from engine.services.generation import TemplateResolver
 
     resolver = TemplateResolver(use_db_templates=False, framework="sqlmesh")
-    sql_template, yaml_template = resolver.get_templates("hub_standard")
+    sql_template, yaml_template = resolver.get_templates(entity_type)
 
-    # No sqlmesh file templates exist; must not return the dbt files.
+    assert _is_bundled_sqlmesh_template(sql_template, entity_type)
+    assert yaml_template is None
+
+
+def test_sqlmesh_resolver_has_no_template_for_unsupported_entity(django_setup):
+    """Entity types SQLMesh output doesn't support have no SQLMesh template,
+    and the resolver must not fall through to the dbt one."""
+    from engine.services.generation import TemplateResolver
+
+    resolver = TemplateResolver(use_db_templates=False, framework="sqlmesh")
+    sql_template, yaml_template = resolver.get_templates("pit")
+
     assert sql_template is None
     assert yaml_template is None
 
@@ -90,8 +111,8 @@ def test_dbt_override_not_visible_to_sqlmesh_resolver(django_setup):
     )
     sql_template, _ = sqlmesh_resolver.get_templates("hub_standard")
 
-    # sqlmesh has no file template and the dbt override must not bleed in.
-    assert sql_template is None
+    # The dbt override must not bleed in: the bundled sqlmesh file is used.
+    assert _is_bundled_sqlmesh_template(sql_template, "hub_standard")
 
 
 def test_sqlmesh_override_not_visible_to_dbt_resolver(django_setup):
@@ -150,7 +171,8 @@ def test_no_override_for_framework_returns_none_overrides(django_setup):
         templates_override=override_map,
     )
     sql_template, _ = resolver.get_templates("hub_standard")
-    assert sql_template is None  # no file template + no override
+    # No sqlmesh override: the bundled sqlmesh file template is used.
+    assert _is_bundled_sqlmesh_template(sql_template, "hub_standard")
 
 
 # ---------------------------------------------------------------------------
@@ -174,8 +196,8 @@ def test_db_template_for_dbt_not_visible_to_sqlmesh_resolver(django_setup):
     resolver = TemplateResolver(use_db_templates=True, framework="sqlmesh")
     sql_template, _ = resolver.get_templates("hub_standard")
 
-    # DB template is dbt-only; sqlmesh resolver must not find it.
-    assert sql_template is None
+    # DB template is dbt-only; sqlmesh resolver falls back to its own file.
+    assert _is_bundled_sqlmesh_template(sql_template, "hub_standard")
 
 
 @pytest.mark.django_db
@@ -271,6 +293,159 @@ def test_populate_templates_overwrite_leaves_sqlmesh_templates_alone(django_setu
     assert ModelTemplate.objects.filter(
         name="hub_standard (SQL)", framework="dbt"
     ).exists()
+
+
+@pytest.mark.django_db
+def test_populate_templates_seeds_sqlmesh_templates(django_setup):
+    import io
+
+    from django.core.management import call_command
+    from engine.models.templates import ModelTemplate
+    from engine.services.generation.template_resolver import bundled_model_templates
+
+    call_command("populate_templates", stdout=io.StringIO())
+
+    for entity_type, path in bundled_model_templates("sqlmesh"):
+        row = ModelTemplate.objects.get(
+            framework="sqlmesh", entity_type=entity_type, name=f"{entity_type} (Python)"
+        )
+        assert row.sql_template_content == path.read_text(encoding="utf-8")
+        assert row.yaml_template_content == ""
+
+
+@pytest.mark.django_db
+def test_seeded_db_templates_render_like_the_bundled_files(django_setup, project_export):
+    """After seeding, both frameworks resolve to DB copies of the bundled files,
+    so the generated SQLMesh models are unchanged."""
+    import io
+
+    from django.core.management import call_command
+    from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+    from engine.services.generation.template_resolver import TemplateResolver
+    from engine.services.generation.types import GenerationOptions
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    def models(resolver):
+        artifacts, _ = render_sqlmesh(
+            project_export, EngineRuntimeConfig(), GenerationOptions(), resolver
+        )
+        return [a.content for a in artifacts if a.kind == "sqlmesh_model"]
+
+    from_files = models(TemplateResolver(use_db_templates=False, framework="sqlmesh"))
+    call_command("populate_templates", stdout=io.StringIO())
+    db_resolver = TemplateResolver(use_db_templates=True, framework="sqlmesh")
+    sql_template, _ = db_resolver.get_templates("hub_standard")
+    assert sql_template.filename in (None, "<template>")  # really the DB copy
+    assert models(db_resolver) == from_files
+
+
+@pytest.mark.django_db
+def test_ensure_templates_populated_seeds_both_frameworks(django_setup, monkeypatch):
+    from engine.cli.utils.db_utils import ensure_templates_populated
+    from engine.models.templates import ModelTemplate
+
+    monkeypatch.delenv("TURBOVAULT_SKIP_TEMPLATE_POPULATION", raising=False)
+    ModelTemplate.objects.all().delete()
+    ensure_templates_populated()
+
+    dbt_hub = ModelTemplate.objects.get(framework="dbt", name="hub_standard (SQL)")
+    assert dbt_hub.has_sql_template and dbt_hub.has_yaml_template  # YAML merged in
+    sqlmesh_hub = ModelTemplate.objects.get(framework="sqlmesh", name="hub_standard (Python)")
+    assert sqlmesh_hub.has_sql_template and not sqlmesh_hub.has_yaml_template
+    assert not ModelTemplate.objects.filter(framework="sqlmesh", name__endswith="(YAML)").exists()
+
+
+# ---------------------------------------------------------------------------
+# Resolution precedence per framework: override > DB > file
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("framework", ["dbt", "sqlmesh"])
+def test_resolution_precedence_per_framework(django_setup, framework):
+    from engine.models.templates import ModelTemplate
+    from engine.services.generation import TemplateOverride, TemplateResolver
+
+    def resolve(**kwargs):
+        sql_template, _ = TemplateResolver(framework=framework, **kwargs).get_templates(
+            "hub_standard"
+        )
+        return sql_template
+
+    # 1. Nothing else: the bundled file of this framework.
+    file_template = resolve(use_db_templates=True)
+    suffix = ".py.j2" if framework == "sqlmesh" else ".sql.j2"
+    assert file_template.filename.replace("\\", "/").endswith(
+        f"/{framework}/{'models' if framework == 'sqlmesh' else 'sql'}/hub_standard{suffix}"
+    )
+
+    # 2. An active DB template of this framework beats the file; the
+    #    higher-priority one wins, inactive and other-framework rows are ignored.
+    other = "dbt" if framework == "sqlmesh" else "sqlmesh"
+    ModelTemplate.objects.create(
+        name="low", framework=framework, entity_type="hub_standard",
+        sql_template_content="-- db low", priority=1, is_active=True,
+    )
+    ModelTemplate.objects.create(
+        name="high", framework=framework, entity_type="hub_standard",
+        sql_template_content="-- db high", priority=5, is_active=True,
+    )
+    ModelTemplate.objects.create(
+        name="inactive", framework=framework, entity_type="hub_standard",
+        sql_template_content="-- db inactive", priority=9, is_active=False,
+    )
+    ModelTemplate.objects.create(
+        name="other framework", framework=other, entity_type="hub_standard",
+        sql_template_content="-- other framework", priority=99, is_active=True,
+    )
+    assert resolve(use_db_templates=True).render() == "-- db high"
+    assert resolve(use_db_templates=False).filename == file_template.filename
+
+    # 3. A per-run override for this framework beats the DB template.
+    override = {framework: {"hub_standard": TemplateOverride(sql="-- override")}}
+    assert resolve(use_db_templates=True, templates_override=override).render() == "-- override"
+
+    # 4. An override for the other framework changes nothing.
+    other_override = {other: {"hub_standard": TemplateOverride(sql="-- other override")}}
+    assert (
+        resolve(use_db_templates=True, templates_override=other_override).render()
+        == "-- db high"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Migration 0018: existing rows become framework="dbt"
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_migration_0018_sets_existing_rows_to_dbt(django_setup):
+    from django.db import connection
+    from django.db.migrations.executor import MigrationExecutor
+
+    before = [("engine", "0017_source_value_inheritance")]
+    after = [("engine", "0018_modeltemplate_framework")]
+
+    executor = MigrationExecutor(connection)
+    executor.migrate(before)
+    old_apps = executor.loader.project_state(before).apps
+    OldModelTemplate = old_apps.get_model("engine", "ModelTemplate")
+    assert "framework" not in {f.name for f in OldModelTemplate._meta.get_fields()}
+    OldModelTemplate.objects.create(
+        name="pre-existing", entity_type="hub_standard", sql_template_content="-- old"
+    )
+
+    executor = MigrationExecutor(connection)
+    executor.loader.build_graph()
+    executor.migrate(after)
+    new_apps = executor.loader.project_state(after).apps
+    NewModelTemplate = new_apps.get_model("engine", "ModelTemplate")
+    assert NewModelTemplate.objects.get(name="pre-existing").framework == "dbt"
+
+    # Leave the test DB fully migrated for the tests that follow.
+    executor = MigrationExecutor(connection)
+    executor.loader.build_graph()
+    executor.migrate(executor.loader.graph.leaf_nodes())
 
 
 # ---------------------------------------------------------------------------

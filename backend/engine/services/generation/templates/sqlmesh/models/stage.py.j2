@@ -1,0 +1,40 @@
+[#
+  SQLMesh stage model — calls datavault4sqlmesh's stage_model().
+
+  Context:
+    name               model name, e.g. 'stage.stg__crm__customer'
+    stage_name         model name without the schema
+    source_schema      source schema (lowercased for case-folding dialects)
+    source_table       source table (lowercased for case-folding dialects)
+    load_date_col      source column holding the load date, or none
+    record_source_col  source column holding the record source, or none
+    derived_columns    {target column: SQL expression or source column}
+    hashed_columns     {hash key: [columns], hash diff: {'is_hashdiff': True, 'columns': [...]}}
+    column_overrides   {column: SQL type}
+    stage_schema       stage schema name
+    stage              the full StageDefinition
+
+  Filters: py (Python literal), py_dict, py_hashed_columns
+#]
+from datavault4sqlmesh import stage_model
+
+stage_model(
+    name=[[ name | py ]],
+    source_table=[[ source_table | py ]],
+    source_schema=[[ source_schema | py ]],
+[% if load_date_col %]
+    load_date_col=[[ load_date_col | py ]],
+[% endif %]
+[% if record_source_col %]
+    record_source_col=[[ record_source_col | py ]],
+[% endif %]
+[% if derived_columns %]
+    derived_columns=[[ derived_columns | py_dict ]],
+[% endif %]
+[% if hashed_columns %]
+    hashed_columns=[[ hashed_columns | py_hashed_columns ]],
+[% endif %]
+[% if column_overrides %]
+    column_overrides=[[ column_overrides | py_dict ]],
+[% endif %]
+)

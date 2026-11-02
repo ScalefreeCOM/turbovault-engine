@@ -137,7 +137,7 @@ def ensure_templates_populated() -> None:
     debug_print("ensure_templates_populated() called")
 
     from engine.models.templates import ModelTemplate, TemplateCategory
-    from engine.services.generation.template_resolver import framework_templates_dir
+    from engine.services.generation.template_resolver import bundled_templates
 
     # Check if we should skip template population
     if os.environ.get("TURBOVAULT_SKIP_TEMPLATE_POPULATION", "").lower() in (
@@ -163,71 +163,58 @@ def ensure_templates_populated() -> None:
             defaults={"description": "Default templates from file system"},
         )
 
-        # The bundled file templates are the dbt set; SQLMesh has no
-        # file-based defaults yet.
-        framework = ModelTemplate.Framework.DBT
-        framework_dir = framework_templates_dir(framework)
-        sql_templates_dir = framework_dir / "sql"
-        yaml_templates_dir = framework_dir / "yaml"
-
         created_count = 0
+        valid_types = {choice[0] for choice in ModelTemplate.EntityType.choices}
 
-        # Valid entity types from ModelTemplate.EntityType
-        valid_types = [choice[0] for choice in ModelTemplate.EntityType.choices]
-
-        # Process SQL templates
-        if sql_templates_dir.exists():
-            for sql_file in sql_templates_dir.glob("*.sql.j2"):
-                entity_type = sql_file.stem.removesuffix(".sql")
-                if entity_type in valid_types:
-                    content = sql_file.read_text(encoding="utf-8")
+        # Model templates come first (bundled_templates orders them so); a dbt
+        # entity's YAML is then merged into its model row.
+        for framework in ModelTemplate.Framework.values:
+            for template in bundled_templates(framework):
+                if template.entity_type not in valid_types:
+                    continue
+                content = template.path.read_text(encoding="utf-8")
+                if template.template_type == "sql":
                     ModelTemplate.objects.create(
-                        name=f"{entity_type} (SQL)",
-                        entity_type=entity_type,
+                        name=f"{template.entity_type} ({template.label})",
+                        entity_type=template.entity_type,
                         framework=framework,
                         category=category,
-                        description=f"Default SQL template for {entity_type}",
+                        description=(
+                            f"Default {framework} {template.label} template "
+                            f"for {template.entity_type}"
+                        ),
                         sql_template_content=content,
                         priority=0,
                         is_active=True,
                     )
                     created_count += 1
-
-        # Process YAML templates
-        if yaml_templates_dir.exists():
-            for yaml_file in yaml_templates_dir.glob("*.yml.j2"):
-                entity_type = yaml_file.stem.removesuffix(".yml")
-
-                # Skip project-level files
-                if entity_type in ["dbt_project", "packages", "sources"]:
                     continue
 
-                if entity_type in valid_types:
-                    content = yaml_file.read_text(encoding="utf-8")
-                    # Check if SQL template exists for this entity
-                    sql_template = ModelTemplate.objects.filter(
-                        entity_type=entity_type,
-                        name=f"{entity_type} (SQL)",
+                # sql_template_content is blank (not NULL) when unset.
+                model_row = (
+                    ModelTemplate.objects.filter(
+                        framework=framework, entity_type=template.entity_type
+                    )
+                    .exclude(sql_template_content="")
+                    .first()
+                )
+                if model_row:
+                    model_row.yaml_template_content = content
+                    model_row.save()
+                else:
+                    ModelTemplate.objects.create(
+                        name=f"{template.entity_type} ({template.label})",
+                        entity_type=template.entity_type,
                         framework=framework,
-                    ).first()
-
-                    if sql_template:
-                        # Update existing SQL template with YAML content
-                        sql_template.yaml_template_content = content
-                        sql_template.save()
-                    else:
-                        # Create YAML-only template
-                        ModelTemplate.objects.create(
-                            name=f"{entity_type} (YAML)",
-                            entity_type=entity_type,
-                            framework=framework,
-                            category=category,
-                            description=f"Default YAML template for {entity_type}",
-                            yaml_template_content=content,
-                            priority=0,
-                            is_active=True,
-                        )
-                    created_count += 1
+                        category=category,
+                        description=(
+                            f"Default {framework} YAML template for {template.entity_type}"
+                        ),
+                        yaml_template_content=content,
+                        priority=0,
+                        is_active=True,
+                    )
+                created_count += 1
 
         console.print(f"[dim]  Populated {created_count} template files[/dim]")
         console.print("[green]✓ Templates ready[/green]\n")
