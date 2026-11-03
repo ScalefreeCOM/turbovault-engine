@@ -799,10 +799,16 @@ def _add_hub_key_renames(
     column (the export applies hub key transformations in place); existing
     derived columns are never overwritten.
 
-    The stage can expose only one column per name. When two hubs load the
-    same hub column name from different source columns, the first mapping is
-    kept and an error Issue naming both hubs is returned: the second hub would
-    otherwise silently load the first hub's values as its business key.
+    The stage can expose only one column per name, so a conflict keeps the
+    existing column and returns an error Issue (the hub would otherwise
+    silently load other values as its business key than its hash key is
+    computed from):
+
+    - two hubs load the same hub column name from different source columns;
+      the first mapping is kept and the Issue names both hubs;
+    - the stage already has a derived column with the hub column's name (a
+      derived column of the table, or a renamed/transformed satellite column)
+      whose expression differs from the one the hub needs.
     """
     issues: list[Issue] = []
     # hub column name -> (hub name, source column) of the mapping that claimed it
@@ -820,12 +826,21 @@ def _add_hub_key_renames(
                 )
             continue
         claimed[target] = (hub_name, source)
-        if target == source or target in derived_columns:
+        if target == source:
             continue
         if mapping.target_column_transformation and source in derived_columns:
-            derived_columns[target] = derived_columns[source]
+            expression = derived_columns[source]
         else:
-            derived_columns[target] = _normalise_source_id(source, dialect)
+            expression = _normalise_source_id(source, dialect)
+        existing = derived_columns.get(target)
+        if existing is None:
+            derived_columns[target] = expression
+        elif existing.strip() != expression.strip():
+            issues.append(
+                _hub_key_derived_column_conflict(
+                    stage_name, target, existing, hub_name, source
+                )
+            )
     return issues
 
 
@@ -853,6 +868,34 @@ def _hub_key_rename_conflict(
         suggestion=(
             f"Give the hub column a distinct name in one of the hubs, "
             f"e.g. rename '{hub_column}' in '{hub_name}'."
+        ),
+    )
+
+
+def _hub_key_derived_column_conflict(
+    stage_name: str,
+    hub_column: str,
+    existing_expression: str,
+    hub_name: str,
+    source: str,
+) -> Issue:
+    """Error Issue for a hub column name already taken by another stage derived column."""
+    return make_issue(
+        severity="error",
+        code=Code.SQLMESH_HUB_KEY_RENAME_CONFLICT,
+        stage="render",
+        message=(
+            f"Hub '{hub_name}' loads the hub column '{hub_column}' from source "
+            f"column '{source}' in stage '{stage_name}', but the stage already "
+            f"derives a column '{hub_column}' as '{existing_expression}' (a derived "
+            f"column of the source table or a renamed satellite column). The stage "
+            f"can only expose one '{hub_column}' column, so '{hub_name}' would load "
+            f"that value as its business key."
+        ),
+        entity=EntityRef(type="hub", name=hub_name),
+        suggestion=(
+            f"Give the hub column '{hub_column}' in '{hub_name}' a distinct name, "
+            f"or rename the other derived column."
         ),
     )
 

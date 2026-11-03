@@ -847,15 +847,64 @@ class TestHubKeyRenames:
         assert derived == {}
 
     def test_existing_derived_column_is_not_overwritten(self):
+        """A different expression under the hub column's name is kept, but reported:
+        the hub would load UPPER(r_name) while its hash key hashes r_name."""
+        from engine.services.generation.errors import Code
         from engine.services.generation.renderers.sqlmesh_renderer import (
             _add_hub_key_renames,
         )
 
         derived = {"REGION_NAME": "UPPER(r_name)"}
-        _add_hub_key_renames(
+        issues = _add_hub_key_renames(
             derived, [self._mapping("REGION_NAME", "R_NAME")], "postgres", "stg"
         )
         assert derived == {"REGION_NAME": "UPPER(r_name)"}
+        (issue,) = issues
+        assert issue.code == Code.SQLMESH_HUB_KEY_RENAME_CONFLICT
+
+    def test_matching_existing_derived_column_is_no_conflict(self):
+        """E.g. a satellite renames R_NAME to REGION_NAME, like the hub does."""
+        from engine.services.generation.renderers.sqlmesh_renderer import (
+            _add_hub_key_renames,
+        )
+
+        derived = {"REGION_NAME": "r_name"}
+        issues = _add_hub_key_renames(
+            derived, [self._mapping("REGION_NAME", "R_NAME")], "postgres", "stg"
+        )
+        assert derived == {"REGION_NAME": "r_name"}
+        assert issues == []
+
+    def test_satellite_rename_onto_hub_column_reports_an_error(self):
+        """A satellite renaming x_code to CODE must not silently feed hub a_h's CODE."""
+        from engine.services.generation.errors import Code
+        from engine.services.generation.renderers.sqlmesh_renderer import (
+            _add_hub_key_renames,
+        )
+
+        derived = {"CODE": "x_code"}
+        issues = _add_hub_key_renames(
+            derived,
+            [self._mapping("CODE", "a_code", hub_name="a_h")],
+            "postgres",
+            "stg__src__codes",
+        )
+        assert derived == {"CODE": "x_code"}
+        (issue,) = issues
+        assert issue.severity == "error"
+        assert issue.code == Code.SQLMESH_HUB_KEY_RENAME_CONFLICT
+        assert "'a_h'" in issue.message and "'a_code'" in issue.message
+        assert "'x_code'" in issue.message
+        assert issue.entity is not None and issue.entity.name == "a_h"
+
+    def test_transformed_key_matching_existing_derived_column_is_no_conflict(self):
+        from engine.services.generation.renderers.sqlmesh_renderer import (
+            _add_hub_key_renames,
+        )
+
+        derived = {"R_NAME": "TRIM(R_NAME)", "REGION_NAME": "TRIM(R_NAME)"}
+        mapping = self._mapping("REGION_NAME", "R_NAME", transformation="TRIM(R_NAME)")
+        assert _add_hub_key_renames(derived, [mapping], "postgres", "stg") == []
 
     def test_transformed_key_reuses_the_in_place_expression(self):
         """The export applies hub key transformations in place (under the
