@@ -721,3 +721,71 @@ class TestHubKeyRenames:
         assert "'REGION_NAME': 'r_name'," in stage.content
         # The reference hub is not rendered for SQLMesh, so its key isn't added.
         assert "REF_KEY" not in stage.content
+
+
+class TestLdtsRsrcAliasesMatchConfigJson:
+    """Stage ldts/rsrc columns must use the aliases config.json declares.
+
+    Hubs, links and satellites read the ``ldts_alias`` / ``rsrc_alias``
+    columns from the stage, so a stage that computes them (``now()``,
+    ``!Static``) must name them the same way config.json does.
+    """
+
+    @staticmethod
+    def _render(stage_load_date, stage_record_source, **runtime_kwargs):
+        import json
+
+        from engine.services.export.models import ProjectExport, StageDefinition
+        from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+
+        export = ProjectExport(
+            project_name="test",
+            stages=[
+                StageDefinition(
+                    stage_name="stg__crm__customer",
+                    source_table="customer",
+                    source_schema="crm_raw",
+                    source_system="crm",
+                    load_date=stage_load_date,
+                    record_source=stage_record_source,
+                )
+            ],
+        )
+        artifacts, _ = render_sqlmesh(export, _runtime_config(**runtime_kwargs), _options())
+        stage = next(a for a in artifacts if a.entity_type == "stage")
+        config_json = json.loads(next(a for a in artifacts if a.path == "config.json").content)
+        return stage.content, config_json
+
+    def test_derived_aliases_from_project_defaults_are_used_by_stage(self):
+        content, config_json = self._render(
+            "now()",
+            "!Customer",
+            default_load_date_value="LOAD_DT",
+            default_record_source_value="RSRC_COL",
+        )
+        assert config_json["ldts_alias"] == "LOAD_DT"
+        assert config_json["rsrc_alias"] == "RSRC_COL"
+        assert "'LOAD_DT': 'now()'," in content
+        assert "'RSRC_COL': \"'Customer'\"," in content
+        assert "'ldts':" not in content
+        assert "'rsrc':" not in content
+
+    def test_explicit_aliases_win_over_project_defaults(self):
+        content, config_json = self._render(
+            "now()",
+            "!Customer",
+            default_load_date_value="LOAD_DT",
+            default_record_source_value="RSRC_COL",
+            sqlmesh_dv_config=(("ldts_alias", "load_ts"), ("rsrc_alias", "rec_src")),
+        )
+        assert config_json["ldts_alias"] == "load_ts"
+        assert config_json["rsrc_alias"] == "rec_src"
+        assert "'load_ts': 'now()'," in content
+        assert "'rec_src': \"'Customer'\"," in content
+
+    def test_dv_defaults_without_aliases(self):
+        content, config_json = self._render("now()", "!Customer")
+        assert "ldts_alias" not in config_json
+        assert "rsrc_alias" not in config_json
+        assert "'ldts': 'now()'," in content
+        assert "'rsrc': \"'Customer'\"," in content

@@ -385,7 +385,17 @@ def _render_config_yaml(runtime_config: EngineRuntimeConfig) -> str:
 
 
 def _render_config_json(runtime_config: EngineRuntimeConfig) -> str:
-    """Render the datavault4sqlmesh config.json DV configuration.
+    """Render the datavault4sqlmesh config.json DV configuration."""
+    cfg = _effective_dv_config(runtime_config)
+    return json.dumps(cfg, indent=4, ensure_ascii=False) + "\n"
+
+
+def _effective_dv_config(runtime_config: EngineRuntimeConfig) -> dict[str, Any]:
+    """Return the datavault4sqlmesh DV config as written to config.json.
+
+    Single source of truth for config.json and for the ldts/rsrc column
+    names stage models emit: hubs, links and satellites read the columns
+    named ``ldts_alias`` / ``rsrc_alias`` from the stage, so both must agree.
 
     If the project's default load-date or record-source value is a plain
     column reference (not a SQL expression or a ``!static`` literal),
@@ -413,7 +423,7 @@ def _render_config_json(runtime_config: EngineRuntimeConfig) -> str:
     ):
         cfg["rsrc_alias"] = runtime_config.default_record_source_value
 
-    return json.dumps(cfg, indent=4, ensure_ascii=False) + "\n"
+    return cfg
 
 
 def _render_readme(runtime_config: EngineRuntimeConfig) -> str:
@@ -511,9 +521,10 @@ def _render_stage(
             derived_columns[dc.target_column_name] = _normalise_source_id(source_expr, dialect)
     _add_hub_key_renames(derived_columns, hub_key_mappings or [], dialect)
 
-    # Resolve the output column names that datavault4sqlmesh uses for ldts/rsrc
-    # (either the DV defaults or whatever ldts_alias/rsrc_alias is configured).
-    dv_cfg = runtime_config.sqlmesh_dv_config_dict
+    # Resolve the ldts/rsrc column names exactly as config.json declares them
+    # (user-set alias, alias derived from the project default, or the DV
+    # default), so downstream models find the columns this stage computes.
+    dv_cfg = _effective_dv_config(runtime_config)
     ldts_col = dv_cfg.get("ldts_alias", "ldts")
     rsrc_col = dv_cfg.get("rsrc_alias", "rsrc")
 
