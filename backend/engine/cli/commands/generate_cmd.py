@@ -475,8 +475,9 @@ def _resolve_output_path(
     Priority order:
       1. Type-specific override flags (`--json-output`, `--dbml-output`, `--sqlmesh-output`).
       2. Generic `--output` / `-o`.
-      3. Workspace convention: `<project_dir>/exports/{dbt_project | sqlmesh | <name>.json | …}`.
-      4. Fallback `./output/<slug>` when the project has no `project_directory`
+      3. `output.sqlmesh_output_dir` from the project's config.yml (SQLMesh only).
+      4. Workspace convention: `<project_dir>/exports/{dbt_project | sqlmesh | <name>.json | …}`.
+      5. Fallback `./output/<slug>` when the project has no `project_directory`
          set (ad-hoc / test projects).
     """
     if dry_run:
@@ -490,6 +491,11 @@ def _resolve_output_path(
         return sqlmesh_output
     if output:
         return output
+
+    if output_type == "sqlmesh":
+        configured_dir = _configured_sqlmesh_output_dir(project)
+        if configured_dir is not None:
+            return configured_dir
 
     slug = project.name.lower().replace(" ", "_")
     exports_dir = _project_exports_dir(project)
@@ -510,6 +516,38 @@ def _resolve_output_path(
     if output_type == "json":
         return exports_dir / f"{slug}.json"
     return exports_dir / f"{slug}.dbml"
+
+
+def _configured_sqlmesh_output_dir(project) -> Path | None:
+    """Return `output.sqlmesh_output_dir` from config.yml, resolved, or None.
+
+    `~` is expanded and relative paths are resolved from the project folder,
+    as documented in 03_project-schema.md. Returns None when the project has
+    no `project_directory`, no config.yml, or the field is unset. An invalid
+    config.yml exits with status 2.
+    """
+    project_directory = getattr(project, "project_directory", None)
+    if not project_directory:
+        return None
+
+    from engine.services.app_config_loader import resolve_project_path
+    from engine.services.config_loader import ConfigValidationError
+
+    try:
+        config = project.load_config()
+    except FileNotFoundError:
+        return None
+    except ConfigValidationError as exc:
+        print_error(str(exc))
+        raise typer.Exit(2) from exc
+
+    configured = config.output.sqlmesh_output_dir
+    if configured is None:
+        return None
+    configured = configured.expanduser()
+    if configured.is_absolute():
+        return configured
+    return (resolve_project_path(project_directory) / configured).resolve()
 
 
 def _project_exports_dir(project) -> Path | None:
