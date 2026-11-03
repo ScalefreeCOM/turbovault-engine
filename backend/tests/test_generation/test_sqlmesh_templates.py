@@ -112,6 +112,12 @@ def test_stage_template_writes_every_optional_argument(django_setup):
         "    source_schema='crm_raw',\n"
         "    load_date_col='LOAD_DTS',\n"
         "    record_source_col='REC_SRC',\n"
+        # No ldts/rsrc alias is configured, so the columns are exposed under
+        # the DV defaults that downstream models read.
+        "    derived_columns={\n"
+        "        'ldts': 'load_dts',\n"
+        "        'rsrc': 'rec_src',\n"
+        "    },\n"
         "    column_overrides={\n"
         "        'amount': 'DECIMAL(18,2)',\n"
         "    },\n"

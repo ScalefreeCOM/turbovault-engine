@@ -529,7 +529,8 @@ def _render_stage(
     rsrc_col = dv_cfg.get("rsrc_alias", "rsrc")
 
     # load_date handling:
-    #   - bare column name  → pass as load_date_col so datavault4sqlmesh reads it
+    #   - bare column name  → pass as load_date_col so datavault4sqlmesh reads it,
+    #                         and alias it to ldts_col if it has another name
     #   - SQL expression    → inject as a derived column so the stage computes it,
     #                         transpiled to the target dialect (e.g. sysdate() →
     #                         CURRENT_TIMESTAMP on postgres)
@@ -537,16 +538,19 @@ def _render_stage(
     load_date_col_arg: str | None = None
     if _is_col_ref(stage.load_date):
         load_date_col_arg = stage.load_date
+        _alias_source_column(derived_columns, ldts_col, stage.load_date, dialect)
     elif stage.load_date and not _is_static_rsrc(stage.load_date):
         derived_columns[ldts_col] = stage.load_date
 
     # record_source handling:
-    #   - bare column name  → pass as record_source_col (read from source)
+    #   - bare column name  → pass as record_source_col (read from source),
+    #                         and alias it to rsrc_col if it has another name
     #   - !static literal   → emit as a SQL string constant in derived_columns
     #   - SQL expression    → inject as a derived column expression
     record_source_col_arg: str | None = None
     if _is_col_ref(stage.record_source):
         record_source_col_arg = stage.record_source
+        _alias_source_column(derived_columns, rsrc_col, stage.record_source, dialect)
     elif stage.record_source and _is_static_rsrc(stage.record_source):
         # Strip the leading '!' and wrap in SQL single quotes: !Customer → 'Customer'
         literal = stage.record_source[1:]
@@ -571,6 +575,26 @@ def _render_stage(
         stage=stage,
     )
     return _artifact("sqlmesh_model", path, content, "stage", stage.stage_name)
+
+
+def _alias_source_column(
+    derived_columns: dict[str, str], alias: str, column: str, dialect: str | None
+) -> None:
+    """Expose source *column* under the DV *alias* (ldts/rsrc) when the names differ.
+
+    datavault4sqlmesh declares the ``ldts_alias`` / ``rsrc_alias`` columns on
+    the stage and downstream models read them by that name, but the stage
+    passes source columns through unchanged. A table whose load date or record
+    source column has another name (e.g. ``LOAD_TS`` while config.json says
+    ``LOAD_DT``) therefore needs a derived column ``{alias: column}``.
+
+    Names that differ only in case refer to the same column after the
+    dialect's normalization, so they need no alias (and aliasing would
+    duplicate the column).
+    """
+    if column.strip().casefold() == alias.casefold():
+        return
+    derived_columns[alias] = _normalise_source_id(column.strip(), dialect)
 
 
 def _hub_key_mappings_by_stage(

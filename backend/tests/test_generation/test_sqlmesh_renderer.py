@@ -789,3 +789,33 @@ class TestLdtsRsrcAliasesMatchConfigJson:
         assert "rsrc_alias" not in config_json
         assert "'ldts': 'now()'," in content
         assert "'rsrc': \"'Customer'\"," in content
+
+    def test_table_column_differing_from_alias_is_aliased(self):
+        """A table's own load date / record source column is exposed under the alias."""
+        content, config_json = self._render(
+            "LOAD_TS",
+            "SRC_SYS",
+            default_load_date_value="LOAD_DT",
+            default_record_source_value="RSRC_COL",
+        )
+        assert config_json["ldts_alias"] == "LOAD_DT"
+        assert "load_date_col='LOAD_TS'," in content
+        # Default dialect duckdb lowercases source references.
+        assert "'LOAD_DT': 'load_ts'," in content
+        assert "'RSRC_COL': 'src_sys'," in content
+
+    def test_table_column_aliased_against_dv_defaults(self):
+        content, _ = self._render("LOAD_TS", "SRC_SYS")
+        assert "'ldts': 'load_ts'," in content
+        assert "'rsrc': 'src_sys'," in content
+
+    def test_aliased_source_column_keeps_case_on_non_folding_dialects(self):
+        content, _ = self._render("LOAD_TS", None, sqlmesh_dialect="snowflake")
+        assert "'ldts': 'LOAD_TS'," in content
+
+    @pytest.mark.parametrize("column", ["LOAD_DT", "load_dt"])
+    def test_column_matching_alias_needs_no_derived_column(self, column):
+        """Same name (ignoring case) is the same column: no alias, no duplicate."""
+        content, _ = self._render(column, "RSRC_COL", default_load_date_value="LOAD_DT",
+                                  default_record_source_value="RSRC_COL")
+        assert "derived_columns" not in content
