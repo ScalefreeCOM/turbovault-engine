@@ -623,34 +623,38 @@ class TestHubKeyRenames:
     column names, so renamed keys must be derived in the SQLMesh stage only."""
 
     @staticmethod
-    def _mapping(hub_column, source_column, transformation=None):
+    def _mapping(hub_column, source_column, transformation=None, hub_name="region_h"):
         from engine.services.export.models import HubColumnMapping
+        from engine.services.generation.renderers.sqlmesh_renderer import _HubKeyMapping
 
-        return HubColumnMapping(
-            hub_column=hub_column,
-            source_column=source_column,
-            target_column_transformation=transformation,
+        return _HubKeyMapping(
+            hub_name,
+            HubColumnMapping(
+                hub_column=hub_column,
+                source_column=source_column,
+                target_column_transformation=transformation,
+            ),
         )
 
     def test_renamed_key_becomes_derived_column(self):
         from engine.services.generation.renderers.sqlmesh_renderer import _add_hub_key_renames
 
         derived: dict[str, str] = {}
-        _add_hub_key_renames(derived, [self._mapping("REGION_NAME", "R_NAME")], "postgres")
+        _add_hub_key_renames(derived, [self._mapping("REGION_NAME", "R_NAME")], "postgres", "stg")
         assert derived == {"REGION_NAME": "r_name"}
 
     def test_same_name_key_adds_nothing(self):
         from engine.services.generation.renderers.sqlmesh_renderer import _add_hub_key_renames
 
         derived: dict[str, str] = {}
-        _add_hub_key_renames(derived, [self._mapping("C_CUSTKEY", "C_CUSTKEY")], "postgres")
+        _add_hub_key_renames(derived, [self._mapping("C_CUSTKEY", "C_CUSTKEY")], "postgres", "stg")
         assert derived == {}
 
     def test_existing_derived_column_is_not_overwritten(self):
         from engine.services.generation.renderers.sqlmesh_renderer import _add_hub_key_renames
 
         derived = {"REGION_NAME": "UPPER(r_name)"}
-        _add_hub_key_renames(derived, [self._mapping("REGION_NAME", "R_NAME")], "postgres")
+        _add_hub_key_renames(derived, [self._mapping("REGION_NAME", "R_NAME")], "postgres", "stg")
         assert derived == {"REGION_NAME": "UPPER(r_name)"}
 
     def test_transformed_key_reuses_the_in_place_expression(self):
@@ -660,15 +664,119 @@ class TestHubKeyRenames:
 
         derived = {"R_NAME": "TRIM(R_NAME)"}
         mapping = self._mapping("REGION_NAME", "R_NAME", transformation="TRIM(R_NAME)")
-        _add_hub_key_renames(derived, [mapping], "postgres")
+        _add_hub_key_renames(derived, [mapping], "postgres", "stg")
         assert derived == {"R_NAME": "TRIM(R_NAME)", "REGION_NAME": "TRIM(R_NAME)"}
 
     def test_case_preserving_dialect_keeps_source_name(self):
         from engine.services.generation.renderers.sqlmesh_renderer import _add_hub_key_renames
 
         derived: dict[str, str] = {}
-        _add_hub_key_renames(derived, [self._mapping("REGION_NAME", "R_NAME")], "snowflake")
+        _add_hub_key_renames(derived, [self._mapping("REGION_NAME", "R_NAME")], "snowflake", "stg")
         assert derived == {"REGION_NAME": "R_NAME"}
+
+    def test_conflicting_renames_report_an_error_naming_both_hubs(self):
+        from engine.services.generation.errors import Code
+        from engine.services.generation.renderers.sqlmesh_renderer import _add_hub_key_renames
+
+        derived: dict[str, str] = {}
+        issues = _add_hub_key_renames(
+            derived,
+            [
+                self._mapping("CODE", "a_code", hub_name="a_h"),
+                self._mapping("CODE", "b_code", hub_name="b_h"),
+            ],
+            "postgres",
+            "stg__src__codes",
+        )
+        assert derived == {"CODE": "a_code"}  # first mapping kept
+        (issue,) = issues
+        assert issue.severity == "error"
+        assert issue.code == Code.SQLMESH_HUB_KEY_RENAME_CONFLICT
+        assert "'a_h'" in issue.message and "'b_h'" in issue.message
+        assert "'a_code'" in issue.message and "'b_code'" in issue.message
+        assert issue.entity is not None and issue.entity.name == "b_h"
+
+    def test_unrenamed_key_also_claims_the_column_name(self):
+        """A hub reading CODE as-is conflicts with a hub deriving CODE from another column."""
+        from engine.services.generation.renderers.sqlmesh_renderer import _add_hub_key_renames
+
+        derived: dict[str, str] = {}
+        issues = _add_hub_key_renames(
+            derived,
+            [
+                self._mapping("CODE", "CODE", hub_name="a_h"),
+                self._mapping("CODE", "b_code", hub_name="b_h"),
+            ],
+            "postgres",
+            "stg",
+        )
+        assert derived == {}
+        assert len(issues) == 1
+
+    def test_same_source_for_shared_hub_column_is_no_conflict(self):
+        from engine.services.generation.renderers.sqlmesh_renderer import _add_hub_key_renames
+
+        derived: dict[str, str] = {}
+        issues = _add_hub_key_renames(
+            derived,
+            [
+                self._mapping("CODE", "a_code", hub_name="a_h"),
+                self._mapping("CODE", "A_CODE", hub_name="b_h"),
+            ],
+            "postgres",
+            "stg",
+        )
+        assert derived == {"CODE": "a_code"}
+        assert issues == []
+
+    def test_render_reports_rename_conflict_between_hubs_of_one_stage(self):
+        from engine.services.export.models import (
+            HashkeyDefinition,
+            HubColumnMapping,
+            HubDefinition,
+            HubSourceInfo,
+            ProjectExport,
+            StageDefinition,
+        )
+        from engine.services.generation.errors import Code
+        from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+
+        def hub(name, source_column):
+            return HubDefinition(
+                hub_name=name,
+                hub_type="standard",
+                hashkey=HashkeyDefinition(hashkey_name=f"hk_{name}", business_keys=["CODE"]),
+                business_key_columns=["CODE"],
+                source_tables=[
+                    HubSourceInfo(
+                        source_table="codes",
+                        source_system="src",
+                        stage_name="stg__src__codes",
+                        business_key_columns=[source_column],
+                        is_primary_source=True,
+                        column_mappings=[
+                            HubColumnMapping(hub_column="CODE", source_column=source_column)
+                        ],
+                    )
+                ],
+            )
+
+        export = ProjectExport(
+            project_name="test",
+            hubs=[hub("a_h", "a_code"), hub("b_h", "b_code")],
+            stages=[
+                StageDefinition(
+                    stage_name="stg__src__codes",
+                    source_table="codes",
+                    source_schema="src",
+                    source_system="src",
+                )
+            ],
+        )
+        _, issues = render_sqlmesh(export, _runtime_config(sqlmesh_dialect="postgres"), _options())
+        conflicts = [i for i in issues if i.code == Code.SQLMESH_HUB_KEY_RENAME_CONFLICT]
+        assert len(conflicts) == 1
+        assert conflicts[0].severity == "error"
 
     def test_stage_render_adds_renames_of_rendered_hubs_only(self):
         from engine.services.export.models import (

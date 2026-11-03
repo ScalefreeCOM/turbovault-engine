@@ -32,7 +32,7 @@ from __future__ import annotations
 import json
 import re
 import textwrap  # used by _render_readme and _MODELS_INIT
-from typing import Any
+from typing import Any, NamedTuple
 
 from jinja2 import TemplateError
 
@@ -64,6 +64,13 @@ from engine.services.runtime_config import EngineRuntimeConfig
 
 class SQLMeshTemplateError(Exception):
     """A SQLMesh model template is missing or failed to render."""
+
+
+class _HubKeyMapping(NamedTuple):
+    """A hub column mapping together with the hub it belongs to."""
+
+    hub_name: str
+    mapping: HubColumnMapping
 
 
 # ---------------------------------------------------------------------------
@@ -458,7 +465,7 @@ def _render_stage(
     rendered_sat_names: set[str],
     template_resolver: TemplateResolver,
     issues: list[Issue] | None = None,
-    hub_key_mappings: list[HubColumnMapping] | None = None,
+    hub_key_mappings: list[_HubKeyMapping] | None = None,
 ) -> GeneratedArtifact:
     """Render a stage_model(...) Python file.
 
@@ -469,7 +476,8 @@ def _render_stage(
 
     *hub_key_mappings* are the column mappings of the rendered hubs this stage
     loads; renamed business keys become derived columns (see
-    ``_add_hub_key_renames``).
+    ``_add_hub_key_renames``). Conflicting renames are appended to *issues*
+    as errors.
     """
     dialect = runtime_config.sqlmesh_dialect
     model_name = f"{runtime_config.stage_schema}.{stage.stage_name}"
@@ -519,7 +527,11 @@ def _render_stage(
             derived_columns[dc.target_column_name] = source_expr
         else:
             derived_columns[dc.target_column_name] = _normalise_source_id(source_expr, dialect)
-    _add_hub_key_renames(derived_columns, hub_key_mappings or [], dialect)
+    rename_conflicts = _add_hub_key_renames(
+        derived_columns, hub_key_mappings or [], dialect, stage.stage_name
+    )
+    if issues is not None:
+        issues.extend(rename_conflicts)
 
     # Resolve the ldts/rsrc column names exactly as config.json declares them
     # (user-set alias, alias derived from the project default, or the DV
@@ -599,22 +611,25 @@ def _alias_source_column(
 
 def _hub_key_mappings_by_stage(
     hubs: list[HubDefinition], rendered_hub_names: set[str]
-) -> dict[str, list[HubColumnMapping]]:
+) -> dict[str, list[_HubKeyMapping]]:
     """Map each stage name to the column mappings of the rendered hubs it loads."""
-    by_stage: dict[str, list[HubColumnMapping]] = {}
+    by_stage: dict[str, list[_HubKeyMapping]] = {}
     for hub in hubs:
         if hub.hub_name not in rendered_hub_names:
             continue
         for src in hub.source_tables:
-            by_stage.setdefault(src.stage_name, []).extend(src.column_mappings)
+            by_stage.setdefault(src.stage_name, []).extend(
+                _HubKeyMapping(hub.hub_name, mapping) for mapping in src.column_mappings
+            )
     return by_stage
 
 
 def _add_hub_key_renames(
     derived_columns: dict[str, str],
-    hub_key_mappings: list[HubColumnMapping],
+    hub_key_mappings: list[_HubKeyMapping],
     dialect: str | None,
-) -> None:
+    stage_name: str,
+) -> list[Issue]:
     """Expose renamed hub business keys in the stage under the hub column name.
 
     SQLMesh-only. datavault4sqlmesh's ``hub_model(business_keys=[...])`` reads
@@ -626,16 +641,63 @@ def _add_hub_key_renames(
     A transformed key reuses the stage's derived expression for the source
     column (the export applies hub key transformations in place); existing
     derived columns are never overwritten.
+
+    The stage can expose only one column per name. When two hubs load the
+    same hub column name from different source columns, the first mapping is
+    kept and an error Issue naming both hubs is returned: the second hub would
+    otherwise silently load the first hub's values as its business key.
     """
-    for mapping in hub_key_mappings:
+    issues: list[Issue] = []
+    # hub column name -> (hub name, source column) of the mapping that claimed it
+    claimed: dict[str, tuple[str, str]] = {}
+    for hub_name, mapping in hub_key_mappings:
         target = mapping.hub_column
         source = mapping.source_column
+        if target in claimed:
+            first_hub, first_source = claimed[target]
+            if first_source.casefold() != source.casefold():
+                issues.append(
+                    _hub_key_rename_conflict(
+                        stage_name, target, first_hub, first_source, hub_name, source
+                    )
+                )
+            continue
+        claimed[target] = (hub_name, source)
         if target == source or target in derived_columns:
             continue
         if mapping.target_column_transformation and source in derived_columns:
             derived_columns[target] = derived_columns[source]
         else:
             derived_columns[target] = _normalise_source_id(source, dialect)
+    return issues
+
+
+def _hub_key_rename_conflict(
+    stage_name: str,
+    hub_column: str,
+    first_hub: str,
+    first_source: str,
+    hub_name: str,
+    source: str,
+) -> Issue:
+    """Error Issue for two hubs loading one hub column name from different columns."""
+    return make_issue(
+        severity="error",
+        code=Code.SQLMESH_HUB_KEY_RENAME_CONFLICT,
+        stage="render",
+        message=(
+            f"Hubs '{first_hub}' and '{hub_name}' both load the hub column "
+            f"'{hub_column}' from stage '{stage_name}', but from different source "
+            f"columns ('{first_source}' and '{source}'). The stage can only expose "
+            f"one '{hub_column}' column, so '{hub_name}' would load the values of "
+            f"'{first_source}' as its business key."
+        ),
+        entity=EntityRef(type="hub", name=hub_name),
+        suggestion=(
+            f"Give the hub column a distinct name in one of the hubs, "
+            f"e.g. rename '{hub_column}' in '{hub_name}'."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
