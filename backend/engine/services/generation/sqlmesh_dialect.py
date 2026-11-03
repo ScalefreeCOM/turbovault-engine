@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import yaml
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import canonicalize_name
 
 from engine.services.generation.errors import Code, make_issue
 from engine.services.generation.types import Issue
@@ -213,6 +215,32 @@ def check_config_json_kept(output_path: Path, rendered: str | None) -> Issue | N
     )
 
 
+def _requirement_satisfies(line: str, driver: str) -> bool:
+    """
+    Return True when requirements.txt *line* installs *driver*.
+
+    Compares the normalized project name and requires the line to carry at
+    least the driver's extras; version specifiers and markers are ignored so
+    that pinning (``sqlmesh[postgres]==0.x``) doesn't count as missing.
+    Lines that aren't requirements (comments, ``-r``/``-e`` options) never
+    match. If *driver* itself can't be parsed, falls back to an exact match.
+    """
+    stripped = line.split("#", 1)[0].strip()
+    if not stripped:
+        return False
+    try:
+        wanted = Requirement(driver)
+    except InvalidRequirement:
+        return stripped == driver.strip()
+    try:
+        existing = Requirement(stripped)
+    except InvalidRequirement:
+        return False
+    return canonicalize_name(existing.name) == canonicalize_name(wanted.name) and {
+        canonicalize_name(extra) for extra in wanted.extras
+    } <= {canonicalize_name(extra) for extra in existing.extras}
+
+
 def check_requirements_driver(output_path: Path, driver: str | None) -> Issue | None:
     """
     Warn when an existing requirements.txt lacks the *driver* line.
@@ -229,7 +257,7 @@ def check_requirements_driver(output_path: Path, driver: str | None) -> Issue | 
     except OSError as exc:
         logger.warning("Could not read %s: %s", requirements_path, exc)
         return None
-    if driver in (line.strip() for line in lines):
+    if any(_requirement_satisfies(line, driver) for line in lines):
         return None
     return make_issue(
         severity="warning",

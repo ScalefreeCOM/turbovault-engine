@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 def _write_config_yaml(root: Path, body: str) -> None:
     root.mkdir(parents=True, exist_ok=True)
@@ -169,3 +171,35 @@ class TestKeptFileChecks:
         assert issue is not None and issue.code == REQUIREMENTS_DRIVER_MISSING
         assert check_requirements_driver(tmp_path, "sqlmesh[postgres]") is None
         assert check_requirements_driver(tmp_path, None) is None
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "sqlmesh[postgres]==0.140.0",
+            "sqlmesh[postgres]>=0.100,<1.0",
+            "SQLMesh[Postgres] ; python_version >= '3.12'",
+            "sqlmesh[web,postgres]  # pinned by me",
+        ],
+    )
+    def test_requirements_pinned_driver_no_warning(self, tmp_path, line):
+        """Version pins, markers, extra extras and comments still count as present."""
+        from engine.services.generation.sqlmesh_dialect import check_requirements_driver
+
+        (tmp_path / "requirements.txt").write_text(
+            f"datavault4sqlmesh>=0.1.0\n{line}\n", encoding="utf-8"
+        )
+        assert check_requirements_driver(tmp_path, "sqlmesh[postgres]") is None
+
+    @pytest.mark.parametrize(
+        "line",
+        ["sqlmesh==0.140.0", "sqlmesh[snowflake]==0.140.0", "# sqlmesh[postgres]", "-r base.txt"],
+    )
+    def test_requirements_other_or_commented_driver_warns(self, tmp_path, line):
+        from engine.services.generation.sqlmesh_dialect import (
+            REQUIREMENTS_DRIVER_MISSING,
+            check_requirements_driver,
+        )
+
+        (tmp_path / "requirements.txt").write_text(f"{line}\n", encoding="utf-8")
+        issue = check_requirements_driver(tmp_path, "sqlmesh[postgres]")
+        assert issue is not None and issue.code == REQUIREMENTS_DRIVER_MISSING
