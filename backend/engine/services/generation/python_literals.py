@@ -75,6 +75,8 @@ def format_source_models(sources: Iterable[_StageSource], stage_schema: str) -> 
         f"SourceModel(schema_name={stage_schema!r}, table_name={src.stage_name!r})"
         for src in sources
     ]
+    if not items:
+        return "[]"
     if len(items) == 1:
         return f"[{items[0]}]"
     inner = ",\n        ".join(items)

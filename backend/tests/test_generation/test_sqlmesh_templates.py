@@ -259,3 +259,19 @@ def test_crlf_template_files_render_lf_output(django_setup, project_export, tmp_
 
     assert [a.content for a in _models(from_crlf)] == [a.content for a in _models(from_bundled)]
     assert not any("\r" in a.content for a in _models(from_crlf))
+
+
+@pytest.mark.parametrize("count", [0, 1, 2])
+def test_format_source_models_is_valid_python(count):
+    """An empty source list must still format as a valid Python list."""
+    import ast
+    from types import SimpleNamespace
+
+    from engine.services.generation.python_literals import format_source_models
+
+    sources = [SimpleNamespace(stage_name=f"stg_{i}") for i in range(count)]
+    formatted = format_source_models(sources, "stage")
+
+    parsed = ast.parse(formatted, mode="eval").body
+    assert isinstance(parsed, ast.List)
+    assert len(parsed.elts) == count
