@@ -550,11 +550,15 @@ def test_validate_template_jinja_error_reported_before_python_check():
     [
         "x = [[ hashed_columns | py_hashed_columns ]]\n",
         "x = [[ (n + 1) | py ]]\n",
+        "x = [[ range(n) | list | py ]]\n",
+        "[% for i in range(n) %]x = [[ i ]]\n[% endfor %]",
+        "x = [[ 1 / 0 ]]\n",
     ],
 )
 def test_validate_template_python_check_does_not_raise_without_context(template):
     """Valid templates that can't render without context return a result
-    instead of raising UndefinedError."""
+    instead of raising, whatever the error type (UndefinedError, TypeError,
+    ZeroDivisionError, ...)."""
     from engine.services.generation import validate_template
 
     result = validate_template(template, check_python_syntax=True)

@@ -8,10 +8,14 @@ reuses this for inline syntax validation.
 
 from __future__ import annotations
 
-from jinja2 import ChainableUndefined, TemplateError, TemplateSyntaxError
+import logging
+
+from jinja2 import ChainableUndefined, TemplateSyntaxError
 from pydantic import BaseModel, ConfigDict
 
 from engine.services.generation.template_resolver import build_jinja_environment
+
+logger = logging.getLogger(__name__)
 
 
 class TemplateValidationError(BaseModel):
@@ -51,8 +55,9 @@ def validate_template(
     cleanly as ``name=""``; bare variable references without quotes will
     produce a Python SyntaxError, which is also useful feedback for the
     template author. If the template cannot be rendered without real context
-    (a render-time ``TemplateError``), the Python check is skipped and the
-    template is reported as valid.
+    (any render-time error, e.g. ``UndefinedError`` or a ``TypeError`` from
+    ``range(n)``), the Python check is skipped and the template is reported as
+    valid.
     """
     env = build_jinja_environment()
     try:
@@ -73,11 +78,17 @@ def validate_template(
     lenient_env.undefined = ChainableUndefined
     try:
         rendered = lenient_env.from_string(content).render()
-    except TemplateError:
-        # Some valid templates can't render without real context (e.g.
-        # ``[[ (n + 1) | py ]]`` or ``[[ hashed_columns | py_hashed_columns ]]``
-        # outside an ``if``). The Jinja syntax is already valid, so skip the
-        # Python check instead of failing.
+    except Exception:
+        # Without real context a valid template can raise any error type,
+        # not only Jinja's: ``[[ (n + 1) | py ]]`` raises UndefinedError,
+        # ``[% for i in range(n) %]`` a TypeError, and filters run arbitrary
+        # code. The Jinja syntax is already valid, so skip the Python check
+        # instead of failing; listing exception types would leave the next
+        # one uncaught.
+        logger.debug(
+            "Skipping Python syntax check: template can't render without context",
+            exc_info=True,
+        )
         return TemplateValidationResult(valid=True)
     try:
         compile(rendered, "<template>", "exec")
