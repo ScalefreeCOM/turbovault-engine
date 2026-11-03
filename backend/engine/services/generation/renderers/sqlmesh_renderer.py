@@ -108,7 +108,6 @@ def _normalise_source_id(value: str, dialect: str | None) -> str:
     return value.lower() if dialect in _LOWERCASE_DIALECTS else value
 
 
-
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -148,7 +147,9 @@ def render_sqlmesh(
     (no DB templates, no overrides).
     """
     if template_resolver is None:
-        template_resolver = TemplateResolver(use_db_templates=False, framework="sqlmesh")
+        template_resolver = TemplateResolver(
+            use_db_templates=False, framework="sqlmesh"
+        )
     artifacts: list[GeneratedArtifact] = []
     issues: list[Issue] = []
 
@@ -171,15 +172,21 @@ def render_sqlmesh(
     rendered_sat_names: set[str] = set()
 
     for hub in export.hubs:
-        artifact = _try_render_hub(hub, runtime_config, issues, template_resolver, prejoin_skips)
+        artifact = _try_render_hub(
+            hub, runtime_config, issues, template_resolver, prejoin_skips
+        )
         if artifact:
             artifacts.append(artifact)
             rendered_hub_names.add(hub.hub_name)
 
     for link in export.links:
         artifact = _try_render_link(
-            link, runtime_config, issues, template_resolver,
-            rendered_hub_names, prejoin_skips,
+            link,
+            runtime_config,
+            issues,
+            template_resolver,
+            rendered_hub_names,
+            prejoin_skips,
         )
         if artifact:
             artifacts.append(artifact)
@@ -187,24 +194,37 @@ def render_sqlmesh(
 
     for sat in export.satellites:
         artifact = _try_render_sat(
-            sat, runtime_config, issues, template_resolver,
-            rendered_hub_names, rendered_link_names, prejoin_skips,
+            sat,
+            runtime_config,
+            issues,
+            template_resolver,
+            rendered_hub_names,
+            rendered_link_names,
+            prejoin_skips,
         )
         if artifact:
             artifacts.append(artifact)
             rendered_sat_names.add(sat.satellite_name)
             if options.generate_satellite_v1_views and sat.satellite_type == "standard":
-                artifacts.append(_render_satellite_v1(sat, runtime_config, template_resolver))
+                artifacts.append(
+                    _render_satellite_v1(sat, runtime_config, template_resolver)
+                )
 
     # --- Stage models (filtered by what was actually rendered above) ---
     hub_key_mappings = _hub_key_mappings_by_stage(export.hubs, rendered_hub_names)
     for stage in export.stages:
         artifacts.append(
-            _render_stage(stage, runtime_config,
-                          rendered_hub_names, rendered_link_names, rendered_sat_names,
-                          template_resolver, issues,
-                          hub_key_mappings=hub_key_mappings.get(stage.stage_name, []),
-                          prejoin_gaps=prejoin_skips.for_stage(stage.stage_name))
+            _render_stage(
+                stage,
+                runtime_config,
+                rendered_hub_names,
+                rendered_link_names,
+                rendered_sat_names,
+                template_resolver,
+                issues,
+                hub_key_mappings=hub_key_mappings.get(stage.stage_name, []),
+                prejoin_gaps=prejoin_skips.for_stage(stage.stage_name),
+            )
         )
 
     # --- Unsupported top-level entities ---
@@ -253,7 +273,9 @@ def _try_render_hub(
     if hub.hub_type == "reference":
         issues.append(
             _unsupported_warning(
-                hub.hub_name, "hub", hub.group,
+                hub.hub_name,
+                "hub",
+                hub.group,
                 Code.SQLMESH_UNSUPPORTED_REFERENCE_HUB,
                 "Reference hubs are not yet supported in SQLMesh output.",
             )
@@ -271,9 +293,11 @@ def _try_render_hub(
         )
         return None
     if prejoin_skips and hub.hub_name in prejoin_skips.hubs:
-        issues.append(prejoin_dependent_warning(
-            "hub", hub.hub_name, hub.group, prejoin_skips.hubs[hub.hub_name]
-        ))
+        issues.append(
+            prejoin_dependent_warning(
+                "hub", hub.hub_name, hub.group, prejoin_skips.hubs[hub.hub_name]
+            )
+        )
         return None
     return _render_hub(hub, runtime_config, template_resolver)
 
@@ -296,7 +320,9 @@ def _try_render_link(
     if link.link_type == "non_historized":
         issues.append(
             _unsupported_warning(
-                link.link_name, "link", link.group,
+                link.link_name,
+                "link",
+                link.group,
                 Code.SQLMESH_UNSUPPORTED_NON_HISTORIZED_LINK,
                 "Non-historized links are not yet supported in SQLMesh output.",
             )
@@ -314,9 +340,11 @@ def _try_render_link(
         )
         return None
     if prejoin_skips and link.link_name in prejoin_skips.links:
-        issues.append(prejoin_dependent_warning(
-            "link", link.link_name, link.group, prejoin_skips.links[link.link_name]
-        ))
+        issues.append(
+            prejoin_dependent_warning(
+                "link", link.link_name, link.group, prejoin_skips.links[link.link_name]
+            )
+        )
         return None
     skipped_hubs = sorted(
         {ref.hub_name for ref in link.hub_references} - rendered_hub_names
@@ -361,17 +389,23 @@ def _try_render_sat(
         label = _SAT_TYPE_LABELS.get(sat.satellite_type, sat.satellite_type)
         issues.append(
             _unsupported_warning(
-                sat.satellite_name, "satellite", sat.group,
+                sat.satellite_name,
+                "satellite",
+                sat.group,
                 Code.SQLMESH_UNSUPPORTED_SATELLITE_TYPE,
                 f"Satellite type '{label}' is not yet supported in SQLMesh output.",
             )
         )
         return None
     if prejoin_skips and sat.satellite_name in prejoin_skips.satellites:
-        issues.append(prejoin_dependent_warning(
-            "satellite", sat.satellite_name, sat.group,
-            prejoin_skips.satellites[sat.satellite_name],
-        ))
+        issues.append(
+            prejoin_dependent_warning(
+                "satellite",
+                sat.satellite_name,
+                sat.group,
+                prejoin_skips.satellites[sat.satellite_name],
+            )
+        )
         return None
     if not _parent_rendered(sat, rendered_hub_names, rendered_link_names):
         issues.append(
@@ -384,7 +418,9 @@ def _try_render_sat(
                     f"{sat.parent_entity_type} '{sat.parent_entity}' is not rendered "
                     "in SQLMesh output."
                 ),
-                entity=EntityRef(type="satellite", name=sat.satellite_name, group=sat.group),
+                entity=EntityRef(
+                    type="satellite", name=sat.satellite_name, group=sat.group
+                ),
                 suggestion=(
                     f"See the warning for {sat.parent_entity_type} "
                     f"'{sat.parent_entity}' for why it was skipped."
@@ -396,7 +432,9 @@ def _try_render_sat(
 
 
 def _parent_rendered(
-    sat: SatelliteDefinition, rendered_hub_names: set[str], rendered_link_names: set[str]
+    sat: SatelliteDefinition,
+    rendered_hub_names: set[str],
+    rendered_link_names: set[str],
 ) -> bool:
     """Return True when the satellite's parent hub or link produced a model."""
     if sat.parent_entity_type == "hub":
@@ -414,9 +452,13 @@ def _parent_rendered(
 def _render_scaffold(runtime_config: EngineRuntimeConfig) -> list[GeneratedArtifact]:
     """Return the five project-level scaffold files."""
     return [
-        _artifact_once("sqlmesh_config", "config.yaml", _render_config_yaml(runtime_config)),
+        _artifact_once(
+            "sqlmesh_config", "config.yaml", _render_config_yaml(runtime_config)
+        ),
         # Write-once: users may edit the DV settings by hand.
-        _artifact_once("sqlmesh_config", "config.json", _render_config_json(runtime_config)),
+        _artifact_once(
+            "sqlmesh_config", "config.json", _render_config_json(runtime_config)
+        ),
         _artifact("sqlmesh_config", "models/__init__.py", _MODELS_INIT),
         # Write-once like config.yaml: users may pin versions or add packages.
         _artifact_once(
@@ -431,6 +473,7 @@ _MODELS_INIT = textwrap.dedent("""\
 
     load_dv_config()
 """)
+
 
 def _render_requirements(runtime_config: EngineRuntimeConfig) -> str:
     """Render requirements.txt: datavault4sqlmesh plus the dialect's DB driver.
@@ -624,9 +667,7 @@ def _render_stage(
     # by datavault4sqlmesh's infer_stage_columns(), so they no longer need to be
     # declared here.
     column_overrides = {
-        col.column_name: col.datatype
-        for col in stage.columns
-        if col.datatype
+        col.column_name: col.datatype for col in stage.columns if col.datatype
     }
 
     # derived_columns: renames and transformations the stage must apply.
@@ -640,7 +681,9 @@ def _render_stage(
         if dc.transformation:
             derived_columns[dc.target_column_name] = source_expr
         else:
-            derived_columns[dc.target_column_name] = _normalise_source_id(source_expr, dialect)
+            derived_columns[dc.target_column_name] = _normalise_source_id(
+                source_expr, dialect
+            )
     rename_conflicts = _add_hub_key_renames(
         derived_columns, hub_key_mappings or [], dialect, stage.stage_name
     )
@@ -1004,7 +1047,7 @@ def _derive_v1_name(sat_v0_name: str, v0_naming: str, v1_naming: str) -> str:
 
     base = sat_v0_name
     if v0_prefix and base.startswith(v0_prefix):
-        base = base[len(v0_prefix):]
+        base = base[len(v0_prefix) :]
     if v0_suffix and base.endswith(v0_suffix):
         base = base[: -len(v0_suffix)]
 

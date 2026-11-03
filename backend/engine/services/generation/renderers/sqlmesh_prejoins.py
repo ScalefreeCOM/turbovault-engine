@@ -73,7 +73,9 @@ def plan_prejoin_skips(export: ProjectExport) -> PrejoinSkips:
     skips them (so an entity skipped for another reason isn't reported twice).
     """
     stages = {
-        stage.stage_name: _stage_gaps(stage) for stage in export.stages if stage.prejoins
+        stage.stage_name: _stage_gaps(stage)
+        for stage in export.stages
+        if stage.prejoins
     }
     if not stages:
         return PrejoinSkips()
@@ -81,8 +83,11 @@ def plan_prejoin_skips(export: ProjectExport) -> PrejoinSkips:
     def gaps(stage_name: str) -> StagePrejoinGaps:
         return stages.get(stage_name, _NO_GAPS)
 
-    issues = [_stage_warning(stage, stages[stage.stage_name])
-              for stage in export.stages if stage.stage_name in stages]
+    issues = [
+        _stage_warning(stage, stages[stage.stage_name])
+        for stage in export.stages
+        if stage.stage_name in stages
+    ]
 
     skipped_hubs: dict[str, str] = {}
     for hub in export.hubs:

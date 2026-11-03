@@ -255,7 +255,9 @@ def _count_sqlmesh(
     if standard_hubs:
         counts["hub"] = len(standard_hubs)
 
-    standard_links = [lnk for lnk in project_export.links if lnk.link_type == "standard"]
+    standard_links = [
+        lnk for lnk in project_export.links if lnk.link_type == "standard"
+    ]
     if standard_links:
         counts["link"] = len(standard_links)
 

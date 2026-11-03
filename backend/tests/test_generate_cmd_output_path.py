@@ -9,7 +9,9 @@ from typing import Any
 import pytest
 
 
-def _project(config_output: dict[str, Any] | None, project_directory: str = "projects/demo"):
+def _project(
+    config_output: dict[str, Any] | None, project_directory: str = "projects/demo"
+):
     """Fake Project whose load_config returns a config with the given output block."""
     from engine.services.config_schema import TurboVaultConfig
 
@@ -33,7 +35,9 @@ def workspace_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _resolve(project, output_type: str = "sqlmesh", **flags: Path | None) -> Path | None:
+def _resolve(
+    project, output_type: str = "sqlmesh", **flags: Path | None
+) -> Path | None:
     from engine.cli.commands.generate_cmd import _resolve_output_path
 
     return _resolve_output_path(
@@ -49,7 +53,9 @@ def _resolve(project, output_type: str = "sqlmesh", **flags: Path | None) -> Pat
 
 def test_relative_sqlmesh_output_dir_resolves_from_project_folder(workspace_root):
     project = _project({"sqlmesh_output_dir": "./custom/sqlmesh"})
-    assert _resolve(project) == (workspace_root / "projects/demo/custom/sqlmesh").resolve()
+    assert (
+        _resolve(project) == (workspace_root / "projects/demo/custom/sqlmesh").resolve()
+    )
 
 
 def test_absolute_sqlmesh_output_dir_is_used_as_is(workspace_root, tmp_path):
@@ -75,4 +81,7 @@ def test_cli_flags_win_over_config(workspace_root, tmp_path, flag):
 
 def test_sqlmesh_output_dir_does_not_affect_dbt(workspace_root):
     project = _project({"sqlmesh_output_dir": "./custom/sqlmesh"})
-    assert _resolve(project, output_type="dbt") == workspace_root / "projects/demo/exports/dbt_project"
+    assert (
+        _resolve(project, output_type="dbt")
+        == workspace_root / "projects/demo/exports/dbt_project"
+    )

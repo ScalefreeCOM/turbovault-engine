@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import pytest
 
-
 pytestmark = pytest.mark.django_db
 
 
@@ -26,7 +25,9 @@ def test_sqlmesh_plan_counts_five_scaffold_files(django_setup, project_export):
     assert not [i for i in issues if i.severity == "error"]
 
 
-def test_sqlmesh_plan_counts_one_file_per_supported_entity(django_setup, project_export):
+def test_sqlmesh_plan_counts_one_file_per_supported_entity(
+    django_setup, project_export
+):
     from engine.services.generation.stages.plan import build_plan
     from engine.services.generation.types import GenerationOptions
 
@@ -44,20 +45,28 @@ def test_sqlmesh_plan_counts_one_file_per_supported_entity(django_setup, project
     if standard_hubs:
         assert plan.by_entity_type["hub"] == len(standard_hubs)
 
-    standard_links = [lnk for lnk in project_export.links if lnk.link_type == "standard"]
+    standard_links = [
+        lnk for lnk in project_export.links if lnk.link_type == "standard"
+    ]
     if standard_links:
         assert plan.by_entity_type["link"] == len(standard_links)
 
-    standard_sats = [s for s in project_export.satellites if s.satellite_type == "standard"]
+    standard_sats = [
+        s for s in project_export.satellites if s.satellite_type == "standard"
+    ]
     if standard_sats:
         assert plan.by_entity_type["satellite"] == len(standard_sats)
 
 
-def test_sqlmesh_plan_satellite_v1_doubles_satellite_count(django_setup, project_export):
+def test_sqlmesh_plan_satellite_v1_doubles_satellite_count(
+    django_setup, project_export
+):
     from engine.services.generation.stages.plan import build_plan
     from engine.services.generation.types import GenerationOptions
 
-    standard_sats = [s for s in project_export.satellites if s.satellite_type == "standard"]
+    standard_sats = [
+        s for s in project_export.satellites if s.satellite_type == "standard"
+    ]
     if not standard_sats:
         pytest.skip("No standard satellites in fixture")
 
@@ -72,7 +81,11 @@ def test_sqlmesh_plan_satellite_v1_doubles_satellite_count(django_setup, project
 
 
 def test_sqlmesh_plan_excludes_reference_hubs(django_setup):
-    from engine.services.export.models import HashkeyDefinition, HubDefinition, ProjectExport
+    from engine.services.export.models import (
+        HashkeyDefinition,
+        HubDefinition,
+        ProjectExport,
+    )
     from engine.services.generation.stages.plan import build_plan
     from engine.services.generation.types import GenerationOptions
 

@@ -10,7 +10,6 @@ import json
 
 import yaml
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -23,13 +22,17 @@ def _runtime_config(**kwargs):
 
 
 def _render_yaml(**kwargs):
-    from engine.services.generation.renderers.sqlmesh_renderer import _render_config_yaml
+    from engine.services.generation.renderers.sqlmesh_renderer import (
+        _render_config_yaml,
+    )
 
     return _render_config_yaml(_runtime_config(**kwargs))
 
 
 def _render_json(**kwargs):
-    from engine.services.generation.renderers.sqlmesh_renderer import _render_config_json
+    from engine.services.generation.renderers.sqlmesh_renderer import (
+        _render_config_json,
+    )
 
     return _render_config_json(_runtime_config(**kwargs))
 
@@ -59,9 +62,18 @@ class TestRenderConfigYaml:
 
         Guarantees no credentials, hosts or placeholders are ever generated.
         """
-        for dialect in ("duckdb", "postgres", "snowflake", "databricks", "trino", "bigquery"):
+        for dialect in (
+            "duckdb",
+            "postgres",
+            "snowflake",
+            "databricks",
+            "trino",
+            "bigquery",
+        ):
             parsed = yaml.safe_load(_render_yaml(sqlmesh_dialect=dialect))
-            assert parsed["gateways"]["local"]["connection"] == {"type": dialect}, dialect
+            assert parsed["gateways"]["local"]["connection"] == {
+                "type": dialect
+            }, dialect
 
     def test_fill_in_note_lists_connection_parameters_per_type(self):
         content = _render_yaml()
@@ -89,7 +101,9 @@ class TestRenderConfigYaml:
 
     def test_output_is_deterministic(self):
         rc = _runtime_config()
-        from engine.services.generation.renderers.sqlmesh_renderer import _render_config_yaml
+        from engine.services.generation.renderers.sqlmesh_renderer import (
+            _render_config_yaml,
+        )
 
         assert _render_config_yaml(rc) == _render_config_yaml(rc)
 
@@ -100,7 +114,10 @@ class TestConfigYamlWriteOnce:
     @staticmethod
     def _write(output_path, content: str):
         from engine.services.generation.stages.write import write_artifacts
-        from engine.services.generation.types import GeneratedArtifact, GenerationOptions
+        from engine.services.generation.types import (
+            GeneratedArtifact,
+            GenerationOptions,
+        )
 
         artifact = GeneratedArtifact(
             kind="sqlmesh_config", path="config.yaml", content=content, overwrite=False
@@ -141,7 +158,10 @@ class TestConfigYamlWriteOnce:
 
     def test_new_requirements_txt_gets_no_placeholder_warning(self, tmp_path):
         from engine.services.generation.stages.write import write_artifacts
-        from engine.services.generation.types import GeneratedArtifact, GenerationOptions
+        from engine.services.generation.types import (
+            GeneratedArtifact,
+            GenerationOptions,
+        )
 
         artifact = GeneratedArtifact(
             kind="sqlmesh_config",
@@ -199,7 +219,14 @@ class TestRenderConfigJson:
     def test_quote_identifiers_left_to_datavault4sqlmesh_default(self):
         # datavault4sqlmesh normalizes identifier case itself, so no dialect
         # needs quoting turned off.
-        for dialect in ("duckdb", "postgres", "snowflake", "databricks", "trino", "bigquery"):
+        for dialect in (
+            "duckdb",
+            "postgres",
+            "snowflake",
+            "databricks",
+            "trino",
+            "bigquery",
+        ):
             parsed = json.loads(_render_json(sqlmesh_dialect=dialect))
             assert "quote_identifiers" not in parsed, dialect
 
@@ -219,13 +246,17 @@ class TestRenderConfigJson:
         )
 
         rc = _runtime_config(sqlmesh_dialect="bigquery")
-        yaml_dialect = yaml.safe_load(_render_config_yaml(rc))["model_defaults"]["dialect"]
+        yaml_dialect = yaml.safe_load(_render_config_yaml(rc))["model_defaults"][
+            "dialect"
+        ]
         json_dialect = json.loads(_render_config_json(rc))["dialect"]
         assert yaml_dialect == json_dialect == "bigquery"
 
     def test_output_is_deterministic(self):
         rc = _runtime_config(sqlmesh_dv_config=(("hash", "MD5"), ("use_trim", False)))
-        from engine.services.generation.renderers.sqlmesh_renderer import _render_config_json
+        from engine.services.generation.renderers.sqlmesh_renderer import (
+            _render_config_json,
+        )
 
         assert _render_config_json(rc) == _render_config_json(rc)
 

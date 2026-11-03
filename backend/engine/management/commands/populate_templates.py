@@ -89,7 +89,9 @@ class Command(BaseCommand):
         content = template.path.read_text(encoding="utf-8")
         template_name = f"{entity_type} ({template.label})"
         content_field = (
-            "yaml_template_content" if template.template_type == "yaml" else "sql_template_content"
+            "yaml_template_content"
+            if template.template_type == "yaml"
+            else "sql_template_content"
         )
 
         # Scoped to the framework so a same-named template of another
@@ -127,5 +129,7 @@ class Command(BaseCommand):
             is_active=True,
             **{content_field: content},
         )
-        self.stdout.write(self.style.SUCCESS(f"Created: {template.framework} {template_name}"))
+        self.stdout.write(
+            self.style.SUCCESS(f"Created: {template.framework} {template_name}")
+        )
         return "created"

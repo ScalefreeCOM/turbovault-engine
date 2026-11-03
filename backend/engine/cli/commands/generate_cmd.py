@@ -402,7 +402,9 @@ def _prompt_dialect(runtime_config) -> tuple[str | None, str | None]:
         default = _MANUAL_DIALECT
     choices = [questionary.Choice(d, value=d) for d in SQLMESH_DIALECTS]
     choices.append(
-        questionary.Choice("other — enter dialect and requirement manually", value=_MANUAL_DIALECT)
+        questionary.Choice(
+            "other — enter dialect and requirement manually", value=_MANUAL_DIALECT
+        )
     )
     choices.append(
         questionary.Choice(
@@ -438,7 +440,11 @@ def _prompt_manual_dialect(runtime_config) -> tuple[str, str]:
     dialect = dialect.strip()
 
     stored = runtime_config.sqlmesh_requirement
-    suggested = stored if dialect == configured and stored is not None else f"sqlmesh[{dialect}]"
+    suggested = (
+        stored
+        if dialect == configured and stored is not None
+        else f"sqlmesh[{dialect}]"
+    )
     requirement = questionary.text(
         "requirements.txt line for the database driver (leave empty for none):",
         default=suggested,

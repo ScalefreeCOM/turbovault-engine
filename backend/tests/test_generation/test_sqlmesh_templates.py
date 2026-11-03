@@ -25,7 +25,10 @@ def _render(project_export, resolver=None, **runtime_kwargs):
     from engine.services.runtime_config import EngineRuntimeConfig
 
     artifacts, issues = render_sqlmesh(
-        project_export, EngineRuntimeConfig(**runtime_kwargs), GenerationOptions(), resolver
+        project_export,
+        EngineRuntimeConfig(**runtime_kwargs),
+        GenerationOptions(),
+        resolver,
     )
     return artifacts, issues
 
@@ -63,7 +66,9 @@ def test_bundled_template_passes_validation(entity_type):
     from engine.services.generation.template_validation import validate_template
 
     path = model_templates_dir("sqlmesh") / f"{entity_type}.py.j2"
-    result = validate_template(path.read_text(encoding="utf-8"), check_python_syntax=True)
+    result = validate_template(
+        path.read_text(encoding="utf-8"), check_python_syntax=True
+    )
     assert result.valid, result.error
 
 
@@ -96,7 +101,9 @@ def test_stage_template_writes_every_optional_argument(django_setup):
                 source_system="crm",
                 load_date="LOAD_DTS",
                 record_source="REC_SRC",
-                columns=[SourceColumnDef(column_name="amount", datatype="DECIMAL(18,2)")],
+                columns=[
+                    SourceColumnDef(column_name="amount", datatype="DECIMAL(18,2)")
+                ],
             )
         ],
     )
@@ -125,7 +132,9 @@ def test_stage_template_writes_every_optional_argument(django_setup):
     )
 
 
-def test_python_literals_survive_autoescaping_of_string_templates(django_setup, project_export):
+def test_python_literals_survive_autoescaping_of_string_templates(
+    django_setup, project_export
+):
     """DB templates / overrides are compiled from strings, which this Jinja
     setup autoescapes; the py filters must still write plain quotes."""
     from engine.services.generation.template_resolver import (
@@ -145,7 +154,9 @@ def test_python_literals_survive_autoescaping_of_string_templates(django_setup, 
     from_string, _ = _render(project_export, resolver)
     from_file, _ = _render(project_export)
 
-    hub = lambda arts: next(a.content for a in arts if a.entity_type == "hub")  # noqa: E731
+    hub = lambda arts: next(
+        a.content for a in arts if a.entity_type == "hub"
+    )  # noqa: E731
     assert hub(from_string) == hub(from_file)
     assert "&#39;" not in hub(from_string)
 
@@ -156,7 +167,9 @@ def test_python_literals_survive_autoescaping_of_string_templates(django_setup, 
 
 
 @pytest.mark.parametrize("entity_type", sorted(SQLMESH_ENTITY_TYPES))
-def test_sqlmesh_override_applies_to_each_entity_type(django_setup, project_export, entity_type):
+def test_sqlmesh_override_applies_to_each_entity_type(
+    django_setup, project_export, entity_type
+):
     from engine.services.generation.template_resolver import TemplateResolver
     from engine.services.generation.types import TemplateOverride
 
@@ -175,7 +188,9 @@ def test_sqlmesh_override_applies_to_each_entity_type(django_setup, project_expo
     assert overridden.content.endswith("\n")
     for other_entity, artifact_type in SQLMESH_ENTITY_TYPES.items():
         if other_entity != entity_type:
-            assert not by_type[artifact_type].content.startswith("# override"), other_entity
+            assert not by_type[artifact_type].content.startswith(
+                "# override"
+            ), other_entity
 
 
 def test_dbt_override_does_not_change_sqlmesh_output(django_setup, project_export):
@@ -186,12 +201,17 @@ def test_dbt_override_does_not_change_sqlmesh_output(django_setup, project_expor
         use_db_templates=False,
         framework="sqlmesh",
         templates_override={
-            "dbt": {entity: TemplateOverride(sql="-- dbt only") for entity in SQLMESH_ENTITY_TYPES}
+            "dbt": {
+                entity: TemplateOverride(sql="-- dbt only")
+                for entity in SQLMESH_ENTITY_TYPES
+            }
         },
     )
     with_dbt_override, _ = _render(project_export, resolver)
     plain, _ = _render(project_export)
-    assert [a.content for a in _models(with_dbt_override)] == [a.content for a in _models(plain)]
+    assert [a.content for a in _models(with_dbt_override)] == [
+        a.content for a in _models(plain)
+    ]
 
 
 @pytest.mark.django_db
@@ -219,7 +239,9 @@ def test_sqlmesh_db_template_is_used_for_sqlmesh_only(django_setup, project_expo
 
 
 def test_missing_template_raises_clear_error(django_setup, project_export, tmp_path):
-    from engine.services.generation.renderers.sqlmesh_renderer import SQLMeshTemplateError
+    from engine.services.generation.renderers.sqlmesh_renderer import (
+        SQLMeshTemplateError,
+    )
     from engine.services.generation.template_resolver import TemplateResolver
 
     empty_root = tmp_path / "templates"
@@ -232,7 +254,9 @@ def test_missing_template_raises_clear_error(django_setup, project_export, tmp_p
 
 
 def test_broken_override_raises_clear_error(django_setup, project_export):
-    from engine.services.generation.renderers.sqlmesh_renderer import SQLMeshTemplateError
+    from engine.services.generation.renderers.sqlmesh_renderer import (
+        SQLMeshTemplateError,
+    )
     from engine.services.generation.template_resolver import TemplateResolver
     from engine.services.generation.types import TemplateOverride
 
@@ -240,7 +264,9 @@ def test_broken_override_raises_clear_error(django_setup, project_export):
         use_db_templates=False,
         framework="sqlmesh",
         templates_override={
-            "sqlmesh": {"hub_standard": TemplateOverride(sql="[[ name | no_such_filter ]]")}
+            "sqlmesh": {
+                "hub_standard": TemplateOverride(sql="[[ name | no_such_filter ]]")
+            }
         },
     )
     with pytest.raises(SQLMeshTemplateError):
@@ -251,7 +277,10 @@ def test_crlf_template_files_render_lf_output(django_setup, project_export, tmp_
     """Windows checkouts store the templates with CRLF; output must not change."""
     import shutil
 
-    from engine.services.generation.template_resolver import TEMPLATES_DIR, TemplateResolver
+    from engine.services.generation.template_resolver import (
+        TEMPLATES_DIR,
+        TemplateResolver,
+    )
 
     root = tmp_path / "templates"
     shutil.copytree(TEMPLATES_DIR, root)
@@ -259,11 +288,15 @@ def test_crlf_template_files_render_lf_output(django_setup, project_export, tmp_
         lf = path.read_bytes().replace(b"\r\n", b"\n")
         path.write_bytes(lf.replace(b"\n", b"\r\n"))
 
-    crlf_resolver = TemplateResolver(templates_dir=root, use_db_templates=False, framework="sqlmesh")
+    crlf_resolver = TemplateResolver(
+        templates_dir=root, use_db_templates=False, framework="sqlmesh"
+    )
     from_crlf, _ = _render(project_export, crlf_resolver)
     from_bundled, _ = _render(project_export)
 
-    assert [a.content for a in _models(from_crlf)] == [a.content for a in _models(from_bundled)]
+    assert [a.content for a in _models(from_crlf)] == [
+        a.content for a in _models(from_bundled)
+    ]
     assert not any("\r" in a.content for a in _models(from_crlf))
 
 

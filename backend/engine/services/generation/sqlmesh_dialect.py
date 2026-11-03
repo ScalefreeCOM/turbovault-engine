@@ -89,7 +89,7 @@ def dialect_not_set_warning() -> Issue:
         ),
         suggestion=(
             "Set model_defaults.dialect and the gateway connection type in "
-            "config.yaml, add \"dialect\" to config.json, and add your database "
+            'config.yaml, add "dialect" to config.json, and add your database '
             "driver (e.g. sqlmesh[postgres]) to requirements.txt."
         ),
     )
@@ -117,7 +117,9 @@ def choose_requirement(
     return None
 
 
-def resolve_driver_requirement(dialect: str | None, requirement: str | None) -> str | None:
+def resolve_driver_requirement(
+    dialect: str | None, requirement: str | None
+) -> str | None:
     """
     Return the driver requirement line to write, or None for no line.
 

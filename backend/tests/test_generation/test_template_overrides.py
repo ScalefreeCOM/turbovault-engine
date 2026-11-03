@@ -20,7 +20,9 @@ def test_override_sql_only_yaml_falls_through_to_file(django_setup):
 
     resolver = TemplateResolver(
         use_db_templates=False,
-        templates_override={"dbt": {"hub_standard": TemplateOverride(sql="-- override sql")}},
+        templates_override={
+            "dbt": {"hub_standard": TemplateOverride(sql="-- override sql")}
+        },
     )
     sql_template, yaml_template = resolver.get_templates("hub_standard")
 
@@ -38,7 +40,9 @@ def test_override_yaml_only_sql_falls_through_to_file(django_setup):
 
     resolver = TemplateResolver(
         use_db_templates=False,
-        templates_override={"dbt": {"hub_standard": TemplateOverride(yaml="# override yaml")}},
+        templates_override={
+            "dbt": {"hub_standard": TemplateOverride(yaml="# override yaml")}
+        },
     )
     sql_template, yaml_template = resolver.get_templates("hub_standard")
 
@@ -87,7 +91,9 @@ def test_override_beats_db_template_per_part(django_setup):
 
     resolver = TemplateResolver(
         use_db_templates=True,
-        templates_override={"dbt": {"hub_standard": TemplateOverride(sql="-- override sql")}},
+        templates_override={
+            "dbt": {"hub_standard": TemplateOverride(sql="-- override sql")}
+        },
     )
     sql_template, yaml_template = resolver.get_templates("hub_standard")
 

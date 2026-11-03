@@ -74,18 +74,24 @@ class TestDialectNameAndRequirements:
             assert not is_valid_dialect_name(name), name
 
     def test_default_requirement_per_dialect(self):
-        from engine.services.generation.sqlmesh_dialect import default_driver_requirement
+        from engine.services.generation.sqlmesh_dialect import (
+            default_driver_requirement,
+        )
 
         assert default_driver_requirement("postgres") == "sqlmesh[postgres]"
         assert default_driver_requirement("duckdb") is None
         assert default_driver_requirement("mssql") is None
 
     def test_resolve_requirement_none_derives_and_empty_means_no_line(self):
-        from engine.services.generation.sqlmesh_dialect import resolve_driver_requirement
+        from engine.services.generation.sqlmesh_dialect import (
+            resolve_driver_requirement,
+        )
 
         assert resolve_driver_requirement("postgres", None) == "sqlmesh[postgres]"
         assert resolve_driver_requirement("postgres", "") is None
-        assert resolve_driver_requirement("mssql", " sqlmesh[mssql] ") == "sqlmesh[mssql]"
+        assert (
+            resolve_driver_requirement("mssql", " sqlmesh[mssql] ") == "sqlmesh[mssql]"
+        )
 
 
 class TestChooseRequirement:
@@ -112,7 +118,10 @@ class TestChooseRequirement:
 
 class TestNoDialectHelpers:
     def test_none_is_reserved_not_a_dialect_name(self):
-        from engine.services.generation.sqlmesh_dialect import NO_DIALECT, is_valid_dialect_name
+        from engine.services.generation.sqlmesh_dialect import (
+            NO_DIALECT,
+            is_valid_dialect_name,
+        )
 
         assert NO_DIALECT == "none"
         assert not is_valid_dialect_name("none")
@@ -124,7 +133,9 @@ class TestNoDialectHelpers:
         assert check_config_yaml_dialect(tmp_path, None) is None
 
     def test_no_default_requirement_without_dialect(self):
-        from engine.services.generation.sqlmesh_dialect import default_driver_requirement
+        from engine.services.generation.sqlmesh_dialect import (
+            default_driver_requirement,
+        )
 
         assert default_driver_requirement(None) is None
 
@@ -139,7 +150,9 @@ class TestKeptFileChecks:
         (tmp_path / "config.json").write_text(
             '{"dialect": "postgres", "hash": "MD5", "my_key": 1}', encoding="utf-8"
         )
-        issue = check_config_json_kept(tmp_path, '{"dialect": "snowflake", "hash": "MD5"}')
+        issue = check_config_json_kept(
+            tmp_path, '{"dialect": "snowflake", "hash": "MD5"}'
+        )
         assert issue is not None
         assert issue.code == CONFIG_JSON_KEPT_DIFFERS
         assert "dialect" in issue.message
@@ -192,7 +205,12 @@ class TestKeptFileChecks:
 
     @pytest.mark.parametrize(
         "line",
-        ["sqlmesh==0.140.0", "sqlmesh[snowflake]==0.140.0", "# sqlmesh[postgres]", "-r base.txt"],
+        [
+            "sqlmesh==0.140.0",
+            "sqlmesh[snowflake]==0.140.0",
+            "# sqlmesh[postgres]",
+            "-r base.txt",
+        ],
     )
     def test_requirements_other_or_commented_driver_warns(self, tmp_path, line):
         from engine.services.generation.sqlmesh_dialect import (

@@ -58,7 +58,9 @@ def _export(**overrides):
                     source_system="webshop",
                     stage_name=stage,
                     business_key_columns=[source],
-                    column_mappings=[HubColumnMapping(hub_column=bk, source_column=source)],
+                    column_mappings=[
+                        HubColumnMapping(hub_column=bk, source_column=source)
+                    ],
                 )
                 for stage, source in sources
             ],
@@ -81,22 +83,32 @@ def _export(**overrides):
         )
 
     order_s, order_s_hd = sat("order_s", "order_h", ["status"], ["status"])
-    kunde_s, kunde_s_hd = sat("order_kunde_s", "order_h", ["kunden_nr_clean"], ["kunden_nr_clean"])
+    kunde_s, kunde_s_hd = sat(
+        "order_kunde_s", "order_h", ["kunden_nr_clean"], ["kunden_nr_clean"]
+    )
 
     return ProjectExport(
         project_name="prejoins",
         hubs=[
             hub("order_h", "order_id", [(STAGE, "order_id")]),
-            hub("customer_h", "customer_nr", [(OTHER_STAGE, "customer_nr"), (STAGE, "kunden_nr")]),
+            hub(
+                "customer_h",
+                "customer_nr",
+                [(OTHER_STAGE, "customer_nr"), (STAGE, "kunden_nr")],
+            ),
         ],
         links=[
             LinkDefinition(
                 link_name="order_customer_l",
                 link_type="standard",
-                hashkey=HashkeyDefinition(hashkey_name="hk_order_customer_l", business_keys=[]),
+                hashkey=HashkeyDefinition(
+                    hashkey_name="hk_order_customer_l", business_keys=[]
+                ),
                 foreign_hashkeys=["hk_order_h", "hk_customer_h"],
                 source_tables=[
-                    LinkSourceInfo(source_table="order", source_system="webshop", stage_name=STAGE)
+                    LinkSourceInfo(
+                        source_table="order", source_system="webshop", stage_name=STAGE
+                    )
                 ],
             )
         ],
@@ -113,7 +125,8 @@ def _export(**overrides):
                         PrejoinDefinitionExport(
                             target_table="kunden",
                             join_conditions=PrejoinCondition(
-                                source_columns=["kunden_ref"], target_columns=["kunden_ref"]
+                                source_columns=["kunden_ref"],
+                                target_columns=["kunden_ref"],
                             ),
                             extraction_columns=[
                                 PrejoinExtractionColumn(
@@ -125,13 +138,22 @@ def _export(**overrides):
                     ],
                 ),
                 hashkeys=[
-                    StageHashkeyDef(target_entity="order_h", hashkey_name="hk_order_h",
-                                    business_key_columns=["order_id"]),
-                    StageHashkeyDef(target_entity="customer_h", hashkey_name="hk_customer_h",
-                                    business_key_columns=["KUNDEN_NR"]),  # case differs
-                    StageHashkeyDef(target_entity="order_customer_l", entity_type="link",
-                                    hashkey_name="hk_order_customer_l",
-                                    business_key_columns=["order_id", "kunden_nr"]),
+                    StageHashkeyDef(
+                        target_entity="order_h",
+                        hashkey_name="hk_order_h",
+                        business_key_columns=["order_id"],
+                    ),
+                    StageHashkeyDef(
+                        target_entity="customer_h",
+                        hashkey_name="hk_customer_h",
+                        business_key_columns=["KUNDEN_NR"],
+                    ),  # case differs
+                    StageHashkeyDef(
+                        target_entity="order_customer_l",
+                        entity_type="link",
+                        hashkey_name="hk_order_customer_l",
+                        business_key_columns=["order_id", "kunden_nr"],
+                    ),
                 ],
                 hashdiffs=[order_s_hd, kunde_s_hd],
                 derived_columns=[
@@ -154,8 +176,11 @@ def _export(**overrides):
                 source_schema="crm_raw",
                 source_system="crm",
                 hashkeys=[
-                    StageHashkeyDef(target_entity="customer_h", hashkey_name="hk_customer_h",
-                                    business_key_columns=["customer_nr"]),
+                    StageHashkeyDef(
+                        target_entity="customer_h",
+                        hashkey_name="hk_customer_h",
+                        business_key_columns=["customer_nr"],
+                    ),
                 ],
             ),
         ],
@@ -186,7 +211,10 @@ def test_stage_with_prejoins_gets_one_warning():
     assert warning.severity == "warning"
     assert warning.entity is not None and warning.entity.name == STAGE
     assert "kunden" in warning.message
-    assert "'hk_customer_h'" in warning.message and "'hk_order_customer_l'" in warning.message
+    assert (
+        "'hk_customer_h'" in warning.message
+        and "'hk_order_customer_l'" in warning.message
+    )
     assert "'order_kunde_s'" in warning.message
 
 
@@ -198,14 +226,18 @@ def test_entities_using_prejoined_columns_are_skipped_with_warnings():
     assert {"order_h", "order_s"} <= names
     assert not {"customer_h", "order_customer_l", "order_kunde_s"} & names
 
-    skipped = {i.entity.name for i in _codes(issues, Code.SQLMESH_PREJOIN_DEPENDENT_SKIPPED)}
+    skipped = {
+        i.entity.name for i in _codes(issues, Code.SQLMESH_PREJOIN_DEPENDENT_SKIPPED)
+    }
     assert skipped == {"customer_h", "order_customer_l", "order_kunde_s"}
     assert all(i.severity == "warning" for i in issues)
 
 
 def test_prejoin_stage_leaves_out_unavailable_hash_keys_diffs_and_derived_columns():
     artifacts, _ = _render(_export())
-    stage = next(a for a in artifacts if a.entity_type == "stage" and a.entity_name == STAGE)
+    stage = next(
+        a for a in artifacts if a.entity_type == "stage" and a.entity_name == STAGE
+    )
     assert "hk_order_h" in stage.content
     assert "hd_order_s" in stage.content
     assert "status_clean" in stage.content
@@ -228,7 +260,9 @@ def test_entity_skipped_for_another_reason_is_not_reported_twice():
 
     _, issues = _render(_export(customer_h_type="reference"))
     assert _codes(issues, Code.SQLMESH_UNSUPPORTED_REFERENCE_HUB)
-    skipped = {i.entity.name for i in _codes(issues, Code.SQLMESH_PREJOIN_DEPENDENT_SKIPPED)}
+    skipped = {
+        i.entity.name for i in _codes(issues, Code.SQLMESH_PREJOIN_DEPENDENT_SKIPPED)
+    }
     assert "customer_h" not in skipped
 
 
@@ -238,6 +272,10 @@ def test_without_prejoins_nothing_is_skipped():
     artifacts, issues = _render(_export(prejoins=[]))
     assert not _codes(issues, Code.SQLMESH_UNSUPPORTED_PREJOIN)
     assert not _codes(issues, Code.SQLMESH_PREJOIN_DEPENDENT_SKIPPED)
-    assert {"order_h", "customer_h", "order_customer_l", "order_s", "order_kunde_s"} <= (
-        _rendered_names(artifacts)
-    )
+    assert {
+        "order_h",
+        "customer_h",
+        "order_customer_l",
+        "order_s",
+        "order_kunde_s",
+    } <= (_rendered_names(artifacts))

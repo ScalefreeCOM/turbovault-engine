@@ -116,7 +116,9 @@ class Code:
 
     # SQLMesh render stage — unsupported entity types
     SQLMESH_UNSUPPORTED_REFERENCE_HUB = "render.sqlmesh.unsupported.reference_hub"
-    SQLMESH_UNSUPPORTED_NON_HISTORIZED_LINK = "render.sqlmesh.unsupported.non_historized_link"
+    SQLMESH_UNSUPPORTED_NON_HISTORIZED_LINK = (
+        "render.sqlmesh.unsupported.non_historized_link"
+    )
     SQLMESH_UNSUPPORTED_SATELLITE_TYPE = "render.sqlmesh.unsupported.satellite_type"
     SQLMESH_UNSUPPORTED_REFERENCE_TABLE = "render.sqlmesh.unsupported.reference_table"
     SQLMESH_UNSUPPORTED_PIT = "render.sqlmesh.unsupported.pit"

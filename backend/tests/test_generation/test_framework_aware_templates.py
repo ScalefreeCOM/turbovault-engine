@@ -75,9 +75,13 @@ def test_dbt_file_templates_resolved_from_dbt_subdirectory(django_setup):
 
     assert sql_template is not None
     # Path must come from the dbt sub-directory, not the old flat layout.
-    assert sql_template.filename and "/dbt/sql/" in sql_template.filename.replace("\\", "/")
+    assert sql_template.filename and "/dbt/sql/" in sql_template.filename.replace(
+        "\\", "/"
+    )
     assert yaml_template is not None
-    assert yaml_template.filename and "/dbt/yaml/" in yaml_template.filename.replace("\\", "/")
+    assert yaml_template.filename and "/dbt/yaml/" in yaml_template.filename.replace(
+        "\\", "/"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +95,9 @@ def test_dbt_override_applied_to_dbt_resolver(django_setup):
     resolver = TemplateResolver(
         use_db_templates=False,
         framework="dbt",
-        templates_override={"dbt": {"hub_standard": TemplateOverride(sql="-- dbt override")}},
+        templates_override={
+            "dbt": {"hub_standard": TemplateOverride(sql="-- dbt override")}
+        },
     )
     sql_template, _ = resolver.get_templates("hub_standard")
     assert sql_template is not None
@@ -119,7 +125,9 @@ def test_sqlmesh_override_not_visible_to_dbt_resolver(django_setup):
     """An override scoped to 'sqlmesh' must not appear in a dbt resolver."""
     from engine.services.generation import TemplateOverride, TemplateResolver
 
-    override_map = {"sqlmesh": {"hub_standard": TemplateOverride(sql="-- sqlmesh override")}}
+    override_map = {
+        "sqlmesh": {"hub_standard": TemplateOverride(sql="-- sqlmesh override")}
+    }
 
     dbt_resolver = TemplateResolver(
         use_db_templates=False,
@@ -247,7 +255,9 @@ def test_framework_templates_dir_helper():
     )
 
     assert framework_templates_dir("dbt") == TEMPLATES_DIR / "dbt"
-    assert framework_templates_dir("sqlmesh", Path("custom")) == Path("custom") / "sqlmesh"
+    assert (
+        framework_templates_dir("sqlmesh", Path("custom")) == Path("custom") / "sqlmesh"
+    )
 
 
 @pytest.mark.django_db
@@ -314,7 +324,9 @@ def test_populate_templates_seeds_sqlmesh_templates(django_setup):
 
 
 @pytest.mark.django_db
-def test_seeded_db_templates_render_like_the_bundled_files(django_setup, project_export):
+def test_seeded_db_templates_render_like_the_bundled_files(
+    django_setup, project_export
+):
     """After seeding, both frameworks resolve to DB copies of the bundled files,
     so the generated SQLMesh models are unchanged."""
     import io
@@ -350,9 +362,13 @@ def test_ensure_templates_populated_seeds_both_frameworks(django_setup, monkeypa
 
     dbt_hub = ModelTemplate.objects.get(framework="dbt", name="hub_standard (SQL)")
     assert dbt_hub.has_sql_template and dbt_hub.has_yaml_template  # YAML merged in
-    sqlmesh_hub = ModelTemplate.objects.get(framework="sqlmesh", name="hub_standard (Python)")
+    sqlmesh_hub = ModelTemplate.objects.get(
+        framework="sqlmesh", name="hub_standard (Python)"
+    )
     assert sqlmesh_hub.has_sql_template and not sqlmesh_hub.has_yaml_template
-    assert not ModelTemplate.objects.filter(framework="sqlmesh", name__endswith="(YAML)").exists()
+    assert not ModelTemplate.objects.filter(
+        framework="sqlmesh", name__endswith="(YAML)"
+    ).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -383,30 +399,51 @@ def test_resolution_precedence_per_framework(django_setup, framework):
     #    higher-priority one wins, inactive and other-framework rows are ignored.
     other = "dbt" if framework == "sqlmesh" else "sqlmesh"
     ModelTemplate.objects.create(
-        name="low", framework=framework, entity_type="hub_standard",
-        sql_template_content="-- db low", priority=1, is_active=True,
+        name="low",
+        framework=framework,
+        entity_type="hub_standard",
+        sql_template_content="-- db low",
+        priority=1,
+        is_active=True,
     )
     ModelTemplate.objects.create(
-        name="high", framework=framework, entity_type="hub_standard",
-        sql_template_content="-- db high", priority=5, is_active=True,
+        name="high",
+        framework=framework,
+        entity_type="hub_standard",
+        sql_template_content="-- db high",
+        priority=5,
+        is_active=True,
     )
     ModelTemplate.objects.create(
-        name="inactive", framework=framework, entity_type="hub_standard",
-        sql_template_content="-- db inactive", priority=9, is_active=False,
+        name="inactive",
+        framework=framework,
+        entity_type="hub_standard",
+        sql_template_content="-- db inactive",
+        priority=9,
+        is_active=False,
     )
     ModelTemplate.objects.create(
-        name="other framework", framework=other, entity_type="hub_standard",
-        sql_template_content="-- other framework", priority=99, is_active=True,
+        name="other framework",
+        framework=other,
+        entity_type="hub_standard",
+        sql_template_content="-- other framework",
+        priority=99,
+        is_active=True,
     )
     assert resolve(use_db_templates=True).render() == "-- db high"
     assert resolve(use_db_templates=False).filename == file_template.filename
 
     # 3. A per-run override for this framework beats the DB template.
     override = {framework: {"hub_standard": TemplateOverride(sql="-- override")}}
-    assert resolve(use_db_templates=True, templates_override=override).render() == "-- override"
+    assert (
+        resolve(use_db_templates=True, templates_override=override).render()
+        == "-- override"
+    )
 
     # 4. An override for the other framework changes nothing.
-    other_override = {other: {"hub_standard": TemplateOverride(sql="-- other override")}}
+    other_override = {
+        other: {"hub_standard": TemplateOverride(sql="-- other override")}
+    }
     assert (
         resolve(use_db_templates=True, templates_override=other_override).render()
         == "-- db high"
@@ -458,11 +495,11 @@ def test_validate_template_python_check_passes_for_valid_python_template():
 
     # A SQLMesh model template where string variables are properly quoted.
     template = (
-        'from datavault4sqlmesh import hub_model\n\n'
-        'hub_model(\n'
+        "from datavault4sqlmesh import hub_model\n\n"
+        "hub_model(\n"
         '    name="[[ name ]]",\n'
         '    hashkey="[[ hashkey ]]",\n'
-        ')\n'
+        ")\n"
     )
     result = validate_template(template, check_python_syntax=True)
     assert result.valid is True
@@ -474,11 +511,11 @@ def test_validate_template_python_check_catches_structural_python_error():
 
     # Missing comma after first argument — Python syntax error in static part.
     template = (
-        'from datavault4sqlmesh import hub_model\n\n'
-        'hub_model(\n'
+        "from datavault4sqlmesh import hub_model\n\n"
+        "hub_model(\n"
         '    name="[[ name ]]"\n'  # missing trailing comma
         '    hashkey="[[ hashkey ]]",\n'
-        ')\n'
+        ")\n"
     )
     result = validate_template(template, check_python_syntax=True)
     assert result.valid is False

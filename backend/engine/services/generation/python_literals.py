@@ -93,6 +93,8 @@ def py_hashed_columns_filter(hashed_columns: Mapping[str, Any]) -> Markup:
     return Markup(format_hashed_columns(hashed_columns))
 
 
-def py_source_models_filter(sources: Iterable[_StageSource], stage_schema: str) -> Markup:
+def py_source_models_filter(
+    sources: Iterable[_StageSource], stage_schema: str
+) -> Markup:
     """Jinja filter: ``format_source_models`` as safe markup."""
     return Markup(format_source_models(sources, stage_schema))

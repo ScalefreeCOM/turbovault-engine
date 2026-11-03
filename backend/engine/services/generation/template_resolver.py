@@ -262,8 +262,8 @@ class TemplateResolver:
         self.use_db_templates = use_db_templates
         self.framework = framework
         # Isolate to this framework's overrides only.
-        self._overrides: dict[str, TemplateOverride] = (
-            (templates_override or {}).get(framework, {})
+        self._overrides: dict[str, TemplateOverride] = (templates_override or {}).get(
+            framework, {}
         )
 
         # Jinja2 environment for file-based templates and in-memory overrides.

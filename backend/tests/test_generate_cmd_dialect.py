@@ -18,7 +18,9 @@ def no_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("engine.cli.commands.generate_cmd.questionary.text", _fail)
 
 
-def _resolve(monkeypatch, *, isatty: bool, configured: dict, dialect=None, requirement=None):
+def _resolve(
+    monkeypatch, *, isatty: bool, configured: dict, dialect=None, requirement=None
+):
     from engine.cli.commands.generate_cmd import _resolve_sqlmesh_runtime_config
     from engine.services.runtime_config import EngineRuntimeConfig
 
@@ -34,7 +36,10 @@ def test_no_tty_uses_configured_dialect(monkeypatch, no_prompt):
     config = _resolve(
         monkeypatch,
         isatty=False,
-        configured={"sqlmesh_dialect": "postgres", "sqlmesh_requirement": "sqlmesh[postgres]==0.1"},
+        configured={
+            "sqlmesh_dialect": "postgres",
+            "sqlmesh_requirement": "sqlmesh[postgres]==0.1",
+        },
     )
     assert config.sqlmesh_dialect == "postgres"
     assert config.sqlmesh_requirement == "sqlmesh[postgres]==0.1"
@@ -58,7 +63,10 @@ def test_no_tty_requirement_flag_still_applies(monkeypatch, no_prompt):
 
 def test_dialect_flag_wins_without_tty(monkeypatch, no_prompt):
     config = _resolve(
-        monkeypatch, isatty=False, configured={"sqlmesh_dialect": "postgres"}, dialect="snowflake"
+        monkeypatch,
+        isatty=False,
+        configured={"sqlmesh_dialect": "postgres"},
+        dialect="snowflake",
     )
     assert config.sqlmesh_dialect == "snowflake"
 
@@ -71,6 +79,8 @@ def test_tty_still_prompts(monkeypatch):
         return SimpleNamespace(ask=lambda: "duckdb")
 
     monkeypatch.setattr("engine.cli.commands.generate_cmd.questionary.select", _select)
-    config = _resolve(monkeypatch, isatty=True, configured={"sqlmesh_dialect": "postgres"})
+    config = _resolve(
+        monkeypatch, isatty=True, configured={"sqlmesh_dialect": "postgres"}
+    )
     assert prompted == ["postgres"]
     assert config.sqlmesh_dialect == "duckdb"
