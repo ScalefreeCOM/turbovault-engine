@@ -172,7 +172,10 @@ def render_sqlmesh(
             rendered_link_names.add(link.link_name)
 
     for sat in export.satellites:
-        artifact = _try_render_sat(sat, runtime_config, issues, template_resolver)
+        artifact = _try_render_sat(
+            sat, runtime_config, issues, template_resolver,
+            rendered_hub_names, rendered_link_names,
+        )
         if artifact:
             artifacts.append(artifact)
             rendered_sat_names.add(sat.satellite_name)
@@ -289,8 +292,16 @@ def _try_render_sat(
     runtime_config: EngineRuntimeConfig,
     issues: list[Issue],
     template_resolver: TemplateResolver,
+    rendered_hub_names: set[str],
+    rendered_link_names: set[str],
 ) -> GeneratedArtifact | None:
-    """Render a satellite artifact, or append a warning and return None if skipped."""
+    """Render a satellite artifact, or append a warning and return None if skipped.
+
+    A satellite is skipped when its type is unsupported, or when its parent hub
+    or link was not rendered (reference hub, non-historized link, no sources):
+    the parent's hash key is then filtered out of the stage, so the satellite
+    would read a column that doesn't exist.
+    """
     if sat.satellite_type in _UNSUPPORTED_SAT_TYPES:
         label = _SAT_TYPE_LABELS.get(sat.satellite_type, sat.satellite_type)
         issues.append(
@@ -301,7 +312,37 @@ def _try_render_sat(
             )
         )
         return None
+    if not _parent_rendered(sat, rendered_hub_names, rendered_link_names):
+        issues.append(
+            make_issue(
+                severity="warning",
+                code=Code.SQLMESH_SATELLITE_PARENT_SKIPPED,
+                stage="render",
+                message=(
+                    f"Satellite '{sat.satellite_name}' was skipped because its parent "
+                    f"{sat.parent_entity_type} '{sat.parent_entity}' is not rendered "
+                    "in SQLMesh output."
+                ),
+                entity=EntityRef(type="satellite", name=sat.satellite_name, group=sat.group),
+                suggestion=(
+                    f"See the warning for {sat.parent_entity_type} "
+                    f"'{sat.parent_entity}' for why it was skipped."
+                ),
+            )
+        )
+        return None
     return _render_satellite(sat, runtime_config, template_resolver)
+
+
+def _parent_rendered(
+    sat: SatelliteDefinition, rendered_hub_names: set[str], rendered_link_names: set[str]
+) -> bool:
+    """Return True when the satellite's parent hub or link produced a model."""
+    if sat.parent_entity_type == "hub":
+        return sat.parent_entity in rendered_hub_names
+    if sat.parent_entity_type == "link":
+        return sat.parent_entity in rendered_link_names
+    return sat.parent_entity in rendered_hub_names | rendered_link_names
 
 
 # ---------------------------------------------------------------------------

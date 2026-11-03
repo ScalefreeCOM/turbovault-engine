@@ -108,7 +108,7 @@ def _export_with_standard_hub(group: str | None = "sales"):
     )
 
 
-def _export_with_satellite(sat_type: str = "standard"):
+def _export_with_satellite(sat_type: str = "standard", with_parent_hub: bool = True):
     from engine.services.export.models import (
         ProjectExport,
         SatelliteColumnDef,
@@ -117,6 +117,8 @@ def _export_with_satellite(sat_type: str = "standard"):
 
     return ProjectExport(
         project_name="test",
+        # SQLMesh skips satellites whose parent hub isn't rendered.
+        hubs=_export_with_standard_hub().hubs if with_parent_hub else [],
         satellites=[
             SatelliteDefinition(
                 satellite_name="sat_customer_details",
@@ -351,6 +353,60 @@ class TestUnsupportedEntityWarnings:
         )
         assert any(i.code == Code.SQLMESH_UNSUPPORTED_SATELLITE_TYPE for i in issues)
         assert not any(a.entity_type == "satellite" for a in artifacts)
+
+    @staticmethod
+    def _assert_satellite_skipped_for_parent(export, parent_label):
+        from engine.services.generation.errors import Code
+        from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+
+        artifacts, issues = render_sqlmesh(export, _runtime_config(), _options())
+        assert not any(a.entity_type in ("satellite", "satellite_v1") for a in artifacts)
+        (warning,) = [i for i in issues if i.code == Code.SQLMESH_SATELLITE_PARENT_SKIPPED]
+        assert warning.severity == "warning"
+        assert warning.entity is not None and warning.entity.name == "sat_customer_details"
+        assert parent_label in warning.message
+
+    def test_satellite_of_reference_hub_is_skipped(self):
+        export = _export_with_satellite("standard")
+        export.hubs = [export.hubs[0].model_copy(update={"hub_type": "reference"})]
+        self._assert_satellite_skipped_for_parent(export, "hub 'hub_customer'")
+
+    def test_satellite_of_missing_parent_hub_is_skipped(self):
+        self._assert_satellite_skipped_for_parent(
+            _export_with_satellite("standard", with_parent_hub=False), "hub 'hub_customer'"
+        )
+
+    def test_satellite_of_unrendered_link_is_skipped(self):
+        """A hub of the same name doesn't count: the parent is a link."""
+        export = _export_with_satellite("standard")
+        export.satellites = [
+            export.satellites[0].model_copy(update={"parent_entity_type": "link"})
+        ]
+        self._assert_satellite_skipped_for_parent(export, "link 'hub_customer'")
+
+    def test_satellite_hashdiff_dropped_from_stage_when_parent_skipped(self):
+        from engine.services.export.models import StageDefinition, StageHashdiffDef
+        from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+
+        export = _export_with_satellite("standard", with_parent_hub=False)
+        export.stages = [
+            StageDefinition(
+                stage_name="stg__crm__customer",
+                source_table="customer",
+                source_schema="crm_raw",
+                source_system="crm",
+                hashdiffs=[
+                    StageHashdiffDef(
+                        satellite_name="sat_customer_details",
+                        hashdiff_name="hd_sat_customer_details",
+                        columns=["customer_name"],
+                    )
+                ],
+            )
+        ]
+        artifacts, _ = render_sqlmesh(export, _runtime_config(), _options())
+        stage = next(a for a in artifacts if a.entity_type == "stage")
+        assert "hd_sat_customer_details" not in stage.content
 
     def test_reference_table_emits_warning(self):
         from engine.services.export.models import ProjectExport, ReferenceTableDefinition

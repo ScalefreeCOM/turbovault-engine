@@ -125,6 +125,7 @@ class Code:
     SQLMESH_LINK_NO_SOURCES = "render.sqlmesh.link_no_sources"
     SQLMESH_DIALECT_NOT_SET = "render.sqlmesh.dialect_not_set"
     SQLMESH_HUB_KEY_RENAME_CONFLICT = "render.sqlmesh.hub_key_rename_conflict"
+    SQLMESH_SATELLITE_PARENT_SKIPPED = "render.sqlmesh.satellite_parent_skipped"
 
     # Internal
     INTERNAL_BUG = "internal.bug"
