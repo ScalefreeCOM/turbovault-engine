@@ -14,6 +14,7 @@ Exit codes:
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -118,7 +119,8 @@ def generate(
             help=(
                 "SQL dialect for SQLMesh output (duckdb | postgres | snowflake | "
                 "databricks | trino | bigquery, any other SQLMesh dialect, or "
-                "'none' to leave it out and fill it in yourself); interactive if omitted"
+                "'none' to leave it out and fill it in yourself). If omitted: prompts "
+                "in a terminal, otherwise uses output.sqlmesh.dialect"
             ),
         ),
     ] = None,
@@ -320,7 +322,8 @@ def _resolve_sqlmesh_runtime_config(
 
     Uses ``--dialect`` / ``--sqlmesh-requirement`` when given. Otherwise prompts
     with the supported dialects plus an "other" entry for typing a dialect and
-    its driver requirement manually.
+    its driver requirement manually. Without a TTY (CI, scripts) there is no
+    prompt: the configured ``output.sqlmesh.dialect`` is used as-is.
     """
     from dataclasses import replace
 
@@ -332,6 +335,12 @@ def _resolve_sqlmesh_runtime_config(
 
     if requested_dialect:
         dialect = _validate_dialect_flag(requested_dialect)
+        explicit_requirement = requested_requirement
+    elif not sys.stdin.isatty():
+        # CI / scripts: questionary can't prompt without a TTY (it raises
+        # OSError), so use output.sqlmesh.dialect as configured. None keeps
+        # meaning "no dialect".
+        dialect = configured
         explicit_requirement = requested_requirement
     else:
         dialect, explicit_requirement = _prompt_dialect(runtime_config)
