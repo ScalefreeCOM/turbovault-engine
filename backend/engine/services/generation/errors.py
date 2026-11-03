@@ -126,6 +126,7 @@ class Code:
     SQLMESH_DIALECT_NOT_SET = "render.sqlmesh.dialect_not_set"
     SQLMESH_HUB_KEY_RENAME_CONFLICT = "render.sqlmesh.hub_key_rename_conflict"
     SQLMESH_SATELLITE_PARENT_SKIPPED = "render.sqlmesh.satellite_parent_skipped"
+    SQLMESH_LINK_HUB_SKIPPED = "render.sqlmesh.link_hub_skipped"
     SQLMESH_UNSUPPORTED_PREJOIN = "render.sqlmesh.unsupported.prejoin"
     SQLMESH_PREJOIN_DEPENDENT_SKIPPED = "render.sqlmesh.prejoin_dependent_skipped"
 

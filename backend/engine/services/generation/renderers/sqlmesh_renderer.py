@@ -178,7 +178,8 @@ def render_sqlmesh(
 
     for link in export.links:
         artifact = _try_render_link(
-            link, runtime_config, issues, template_resolver, prejoin_skips
+            link, runtime_config, issues, template_resolver,
+            rendered_hub_names, prejoin_skips,
         )
         if artifact:
             artifacts.append(artifact)
@@ -282,9 +283,16 @@ def _try_render_link(
     runtime_config: EngineRuntimeConfig,
     issues: list[Issue],
     template_resolver: TemplateResolver,
+    rendered_hub_names: set[str],
     prejoin_skips: PrejoinSkips | None = None,
 ) -> GeneratedArtifact | None:
-    """Render a link artifact, or append a warning and return None if skipped."""
+    """Render a link artifact, or append a warning and return None if skipped.
+
+    A link is skipped when its type is unsupported, it has no sources, it
+    reads prejoined columns, or one of its hubs was not rendered: the stage
+    then drops that hub's hash key, so the link would read a column that
+    doesn't exist.
+    """
     if link.link_type == "non_historized":
         issues.append(
             _unsupported_warning(
@@ -309,6 +317,25 @@ def _try_render_link(
         issues.append(prejoin_dependent_warning(
             "link", link.link_name, link.group, prejoin_skips.links[link.link_name]
         ))
+        return None
+    skipped_hubs = sorted(
+        {ref.hub_name for ref in link.hub_references} - rendered_hub_names
+    )
+    if skipped_hubs:
+        hub_list = ", ".join(f"'{name}'" for name in skipped_hubs)
+        issues.append(
+            make_issue(
+                severity="warning",
+                code=Code.SQLMESH_LINK_HUB_SKIPPED,
+                stage="render",
+                message=(
+                    f"Link '{link.link_name}' was skipped because its hub(s) "
+                    f"{hub_list} are not rendered in SQLMesh output."
+                ),
+                entity=EntityRef(type="link", name=link.link_name, group=link.group),
+                suggestion=f"See the warning for hub(s) {hub_list} for why they were skipped.",
+            )
+        )
         return None
     return _render_link(link, runtime_config, template_resolver)
 

@@ -384,6 +384,86 @@ class TestUnsupportedEntityWarnings:
         ]
         self._assert_satellite_skipped_for_parent(export, "link 'hub_customer'")
 
+    @staticmethod
+    def _export_with_link(hub_type: str = "standard", with_hub: bool = True):
+        """Link to hub_customer, loaded from a stage that computes hk_customer."""
+        from engine.services.export.models import (
+            HashkeyDefinition,
+            LinkDefinition,
+            LinkHubReferenceDefinition,
+            LinkSourceInfo,
+        )
+
+        export = _export_with_stage()
+        hubs = _export_with_standard_hub().hubs
+        export.hubs = (
+            [hubs[0].model_copy(update={"source_tables": []})]
+            if hub_type == "no_sources"
+            else hubs
+        ) if with_hub else []
+        export.links = [
+            LinkDefinition(
+                link_name="lnk_customer_order",
+                link_type="standard",
+                hashkey=HashkeyDefinition(hashkey_name="hk_customer_order", business_keys=[]),
+                hub_references=[LinkHubReferenceDefinition(hub_name="hub_customer")],
+                foreign_hashkeys=["hk_customer"],
+                source_tables=[
+                    LinkSourceInfo(
+                        source_table="customer",
+                        source_system="crm",
+                        stage_name="stg__crm__customer",
+                    )
+                ],
+            )
+        ]
+        return export
+
+    def test_link_with_rendered_hubs_is_rendered(self):
+        from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+
+        artifacts, issues = render_sqlmesh(self._export_with_link(), _runtime_config(), _options())
+        assert any(a.entity_type == "link" for a in artifacts)
+        assert not any(i.entity and i.entity.type == "link" for i in issues)
+
+    @pytest.mark.parametrize("hub_case", ["no_sources", "missing"])
+    def test_link_of_unrendered_hub_is_skipped(self, hub_case):
+        """The stage drops the hub's hash key, so the link would read a missing column."""
+        from engine.services.generation.errors import Code
+        from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+
+        export = self._export_with_link(hub_case, with_hub=hub_case != "missing")
+        artifacts, issues = render_sqlmesh(export, _runtime_config(), _options())
+        assert not any(a.entity_type == "link" for a in artifacts)
+        (warning,) = [i for i in issues if i.code == Code.SQLMESH_LINK_HUB_SKIPPED]
+        assert warning.severity == "warning"
+        assert warning.entity is not None and warning.entity.name == "lnk_customer_order"
+        assert "'hub_customer'" in warning.message
+
+    def test_satellite_of_link_skipped_for_hub_is_skipped(self):
+        from engine.services.export.models import SatelliteColumnDef, SatelliteDefinition
+        from engine.services.generation.errors import Code
+        from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
+
+        export = self._export_with_link(with_hub=False)
+        export.satellites = [
+            SatelliteDefinition(
+                satellite_name="sat_customer_order",
+                satellite_type="standard",
+                parent_entity="lnk_customer_order",
+                parent_entity_type="link",
+                parent_hashkey="hk_customer_order",
+                source_table="customer",
+                source_system="crm",
+                stage_name="stg__crm__customer",
+                hashdiff_name="hd_sat_customer_order",
+                columns=[SatelliteColumnDef(source_column="customer_id")],
+            )
+        ]
+        artifacts, issues = render_sqlmesh(export, _runtime_config(), _options())
+        assert not any(a.entity_type in ("link", "satellite") for a in artifacts)
+        assert any(i.code == Code.SQLMESH_SATELLITE_PARENT_SKIPPED for i in issues)
+
     def test_satellite_hashdiff_dropped_from_stage_when_parent_skipped(self):
         from engine.services.export.models import StageDefinition, StageHashdiffDef
         from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
