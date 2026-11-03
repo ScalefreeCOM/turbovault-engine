@@ -1154,6 +1154,7 @@ class ModelTemplateAdmin(admin.ModelAdmin):
 
     list_display = [
         "name",
+        "framework",
         "entity_type",
         "category",
         "priority",
@@ -1162,7 +1163,7 @@ class ModelTemplateAdmin(admin.ModelAdmin):
         "has_yaml_template",
         "updated_at",
     ]
-    list_filter = ["entity_type", "category", "is_active"]
+    list_filter = ["framework", "entity_type", "category", "is_active"]
     search_fields = ["name", "description"]
     readonly_fields = ["template_id", "created_at", "updated_at"]
     autocomplete_fields = ["category"]
@@ -1174,6 +1175,7 @@ class ModelTemplateAdmin(admin.ModelAdmin):
                 "fields": [
                     "template_id",
                     "name",
+                    "framework",
                     "entity_type",
                     "category",
                     "description",
@@ -1181,17 +1183,23 @@ class ModelTemplateAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "SQL Template",
+            "Model Template",
             {
                 "fields": ["sql_template_content"],
-                "description": "Jinja2 template for the dbt SQL model",
+                "description": (
+                    "Jinja2 template for the model file: SQL for dbt, "
+                    "Python for SQLMesh"
+                ),
             },
         ),
         (
             "YAML Template",
             {
                 "fields": ["yaml_template_content"],
-                "description": "Jinja2 template for the dbt YAML schema",
+                "description": (
+                    "Jinja2 template for the dbt YAML schema (dbt only; "
+                    "not used for SQLMesh)"
+                ),
             },
         ),
         (
@@ -1204,9 +1212,9 @@ class ModelTemplateAdmin(admin.ModelAdmin):
         ),
     ]
 
-    @admin.display(boolean=True, description="SQL")
+    @admin.display(boolean=True, description="Model")
     def has_sql_template(self, obj: ModelTemplate) -> bool:
-        """Check if template has SQL content."""
+        """Check if template has model content (SQL for dbt, Python for SQLMesh)."""
         return obj.has_sql_template
 
     @admin.display(boolean=True, description="YAML")

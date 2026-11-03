@@ -134,11 +134,11 @@ Navigate to **Engine > Satellites**.
 All generation templates can be customized, for dbt and for SQLMesh:
 
 1. Navigate to **Engine > Model Templates**
-2. Find the template you want to customize, e.g. `hub_standard (SQL)` (dbt) or `hub_standard (Python)` (SQLMesh)
+2. Find the template you want to customize, e.g. `hub_standard (SQL)` (dbt) or `hub_standard (Python)` (SQLMesh). Use the **Framework** filter in the sidebar to list only one framework's templates.
 3. Click to edit
-4. Modify the Jinja2 template body
+4. Modify the Jinja2 template body in the **Model Template** section. The **YAML Template** section is only used for dbt.
 
-Each template has a **framework** (`dbt` or `sqlmesh`) and only applies to that framework's output. A dbt template never changes a SQLMesh project and vice versa. Within a framework, the active template with the **highest** `priority` value is selected. Without one, the bundled default file is used.
+Each template has a **framework** (`dbt` or `sqlmesh`), shown and editable on the template's page, and only applies to that framework's output. A dbt template never changes a SQLMesh project and vice versa. Within a framework, the active template with the **highest** `priority` value is selected. Without one, the bundled default file is used.
 
 | Framework | Bundled defaults | Model file |
 |---|---|---|

@@ -548,3 +548,26 @@ def test_model_template_framework_choices_are_dbt_and_sqlmesh(django_setup):
 
     choices = {value for value, _ in ModelTemplate.Framework.choices}
     assert choices == {"dbt", "sqlmesh"}
+
+
+# ---------------------------------------------------------------------------
+# Admin: framework is visible, filterable and editable
+# ---------------------------------------------------------------------------
+
+
+def test_model_template_admin_exposes_framework(django_setup):
+    from django.contrib import admin
+    from django.contrib.auth.models import User
+    from django.test import RequestFactory
+
+    from engine.models import ModelTemplate
+
+    model_admin = admin.site._registry[ModelTemplate]
+    assert "framework" in model_admin.list_display
+    assert "framework" in model_admin.list_filter
+
+    request = RequestFactory().get("/")
+    # Unsaved superuser: get_form checks permissions, which needs no DB for it.
+    request.user = User(is_superuser=True, is_active=True)
+    form_class = model_admin.get_form(request)
+    assert "framework" in form_class.base_fields
