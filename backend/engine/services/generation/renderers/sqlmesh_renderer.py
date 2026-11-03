@@ -47,6 +47,12 @@ from engine.services.export.models import (
     StageDefinition,
 )
 from engine.services.generation.errors import Code, make_issue
+from engine.services.generation.renderers.sqlmesh_prejoins import (
+    PrejoinSkips,
+    StagePrejoinGaps,
+    plan_prejoin_skips,
+    prejoin_dependent_warning,
+)
 from engine.services.generation.sqlmesh_dialect import (
     dialect_not_set_warning,
     resolve_driver_requirement,
@@ -152,6 +158,11 @@ def render_sqlmesh(
     # --- Scaffold files (always present) ---
     artifacts.extend(_render_scaffold(runtime_config))
 
+    # datavault4sqlmesh has no prejoin support: work out up front which hash
+    # keys and entities read prejoined columns, so they can be left out.
+    prejoin_skips = plan_prejoin_skips(export)
+    issues.extend(prejoin_skips.issues)
+
     # --- Hubs, links, satellites first ---
     # Collect the names of entities that were actually rendered so stages can
     # filter their hashed_columns to only include those with a consumer.
@@ -160,13 +171,15 @@ def render_sqlmesh(
     rendered_sat_names: set[str] = set()
 
     for hub in export.hubs:
-        artifact = _try_render_hub(hub, runtime_config, issues, template_resolver)
+        artifact = _try_render_hub(hub, runtime_config, issues, template_resolver, prejoin_skips)
         if artifact:
             artifacts.append(artifact)
             rendered_hub_names.add(hub.hub_name)
 
     for link in export.links:
-        artifact = _try_render_link(link, runtime_config, issues, template_resolver)
+        artifact = _try_render_link(
+            link, runtime_config, issues, template_resolver, prejoin_skips
+        )
         if artifact:
             artifacts.append(artifact)
             rendered_link_names.add(link.link_name)
@@ -174,7 +187,7 @@ def render_sqlmesh(
     for sat in export.satellites:
         artifact = _try_render_sat(
             sat, runtime_config, issues, template_resolver,
-            rendered_hub_names, rendered_link_names,
+            rendered_hub_names, rendered_link_names, prejoin_skips,
         )
         if artifact:
             artifacts.append(artifact)
@@ -189,7 +202,8 @@ def render_sqlmesh(
             _render_stage(stage, runtime_config,
                           rendered_hub_names, rendered_link_names, rendered_sat_names,
                           template_resolver, issues,
-                          hub_key_mappings=hub_key_mappings.get(stage.stage_name, []))
+                          hub_key_mappings=hub_key_mappings.get(stage.stage_name, []),
+                          prejoin_gaps=prejoin_skips.for_stage(stage.stage_name))
         )
 
     # --- Unsupported top-level entities ---
@@ -232,6 +246,7 @@ def _try_render_hub(
     runtime_config: EngineRuntimeConfig,
     issues: list[Issue],
     template_resolver: TemplateResolver,
+    prejoin_skips: PrejoinSkips | None = None,
 ) -> GeneratedArtifact | None:
     """Render a hub artifact, or append a warning and return None if skipped."""
     if hub.hub_type == "reference":
@@ -254,6 +269,11 @@ def _try_render_hub(
             )
         )
         return None
+    if prejoin_skips and hub.hub_name in prejoin_skips.hubs:
+        issues.append(prejoin_dependent_warning(
+            "hub", hub.hub_name, hub.group, prejoin_skips.hubs[hub.hub_name]
+        ))
+        return None
     return _render_hub(hub, runtime_config, template_resolver)
 
 
@@ -262,6 +282,7 @@ def _try_render_link(
     runtime_config: EngineRuntimeConfig,
     issues: list[Issue],
     template_resolver: TemplateResolver,
+    prejoin_skips: PrejoinSkips | None = None,
 ) -> GeneratedArtifact | None:
     """Render a link artifact, or append a warning and return None if skipped."""
     if link.link_type == "non_historized":
@@ -284,6 +305,11 @@ def _try_render_link(
             )
         )
         return None
+    if prejoin_skips and link.link_name in prejoin_skips.links:
+        issues.append(prejoin_dependent_warning(
+            "link", link.link_name, link.group, prejoin_skips.links[link.link_name]
+        ))
+        return None
     return _render_link(link, runtime_config, template_resolver)
 
 
@@ -294,13 +320,15 @@ def _try_render_sat(
     template_resolver: TemplateResolver,
     rendered_hub_names: set[str],
     rendered_link_names: set[str],
+    prejoin_skips: PrejoinSkips | None = None,
 ) -> GeneratedArtifact | None:
     """Render a satellite artifact, or append a warning and return None if skipped.
 
     A satellite is skipped when its type is unsupported, or when its parent hub
     or link was not rendered (reference hub, non-historized link, no sources):
     the parent's hash key is then filtered out of the stage, so the satellite
-    would read a column that doesn't exist.
+    would read a column that doesn't exist. Satellites that read prejoined
+    columns are skipped too.
     """
     if sat.satellite_type in _UNSUPPORTED_SAT_TYPES:
         label = _SAT_TYPE_LABELS.get(sat.satellite_type, sat.satellite_type)
@@ -311,6 +339,12 @@ def _try_render_sat(
                 f"Satellite type '{label}' is not yet supported in SQLMesh output.",
             )
         )
+        return None
+    if prejoin_skips and sat.satellite_name in prejoin_skips.satellites:
+        issues.append(prejoin_dependent_warning(
+            "satellite", sat.satellite_name, sat.group,
+            prejoin_skips.satellites[sat.satellite_name],
+        ))
         return None
     if not _parent_rendered(sat, rendered_hub_names, rendered_link_names):
         issues.append(
@@ -507,6 +541,7 @@ def _render_stage(
     template_resolver: TemplateResolver,
     issues: list[Issue] | None = None,
     hub_key_mappings: list[_HubKeyMapping] | None = None,
+    prejoin_gaps: StagePrejoinGaps | None = None,
 ) -> GeneratedArtifact:
     """Render a stage_model(...) Python file.
 
@@ -519,7 +554,12 @@ def _render_stage(
     loads; renamed business keys become derived columns (see
     ``_add_hub_key_renames``). Conflicting renames are appended to *issues*
     as errors.
+
+    *prejoin_gaps* lists what the stage can't provide because of prejoins
+    (unsupported in SQLMesh output): those hash keys, hash diffs and derived
+    columns are left out so the stage itself stays valid.
     """
+    gaps = prejoin_gaps or StagePrejoinGaps()
     dialect = runtime_config.sqlmesh_dialect
     model_name = f"{runtime_config.stage_schema}.{stage.stage_name}"
 
@@ -531,6 +571,8 @@ def _render_stage(
 
     hashed_columns: dict[str, Any] = {}
     for hk in stage.hashkeys:
+        if hk.hashkey_name in gaps.hashkeys:
+            continue
         if hk.entity_type == "hub" and hk.target_entity not in rendered_hub_names:
             continue
         if hk.entity_type == "link" and hk.target_entity not in rendered_link_names:
@@ -541,6 +583,8 @@ def _render_stage(
         ]
     for hd in stage.hashdiffs:
         if hd.satellite_name not in rendered_sat_names:
+            continue
+        if hd.satellite_name in gaps.hashdiff_satellites:
             continue
         hashed_columns[hd.hashdiff_name] = {
             "is_hashdiff": True,
@@ -563,6 +607,8 @@ def _render_stage(
     # dialects; SQL transformation expressions are passed through unchanged.
     derived_columns: dict[str, str] = {}
     for dc in stage.derived_columns:
+        if gaps.uses([dc.target_column_name]):
+            continue  # computed from a prejoined column
         source_expr = dc.transformation or dc.source_column_name
         if dc.transformation:
             derived_columns[dc.target_column_name] = source_expr
