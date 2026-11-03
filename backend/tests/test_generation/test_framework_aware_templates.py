@@ -508,6 +508,23 @@ def test_validate_template_jinja_error_reported_before_python_check():
     assert result.error.line is not None
 
 
+@pytest.mark.parametrize(
+    "template",
+    [
+        "x = [[ hashed_columns | py_hashed_columns ]]\n",
+        "x = [[ (n + 1) | py ]]\n",
+    ],
+)
+def test_validate_template_python_check_does_not_raise_without_context(template):
+    """Valid templates that can't render without context return a result
+    instead of raising UndefinedError."""
+    from engine.services.generation import validate_template
+
+    result = validate_template(template, check_python_syntax=True)
+    assert result.valid is True
+    assert result.error is None
+
+
 # ---------------------------------------------------------------------------
 # Migration default: existing ModelTemplate rows carry framework="dbt"
 # ---------------------------------------------------------------------------

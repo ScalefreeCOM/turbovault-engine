@@ -8,7 +8,7 @@ reuses this for inline syntax validation.
 
 from __future__ import annotations
 
-from jinja2 import ChainableUndefined, TemplateSyntaxError
+from jinja2 import ChainableUndefined, TemplateError, TemplateSyntaxError
 from pydantic import BaseModel, ConfigDict
 
 from engine.services.generation.template_resolver import build_jinja_environment
@@ -50,7 +50,9 @@ def validate_template(
     String-interpolated variables (e.g. ``name="[[ model_name ]]"``) render
     cleanly as ``name=""``; bare variable references without quotes will
     produce a Python SyntaxError, which is also useful feedback for the
-    template author.
+    template author. If the template cannot be rendered without real context
+    (a render-time ``TemplateError``), the Python check is skipped and the
+    template is reported as valid.
     """
     env = build_jinja_environment()
     try:
@@ -69,7 +71,14 @@ def validate_template(
     # Render with undefined variables → empty string, then check Python syntax.
     lenient_env = build_jinja_environment()
     lenient_env.undefined = ChainableUndefined
-    rendered = lenient_env.from_string(content).render()
+    try:
+        rendered = lenient_env.from_string(content).render()
+    except TemplateError:
+        # Some valid templates can't render without real context (e.g.
+        # ``[[ (n + 1) | py ]]`` or ``[[ hashed_columns | py_hashed_columns ]]``
+        # outside an ``if``). The Jinja syntax is already valid, so skip the
+        # Python check instead of failing.
+        return TemplateValidationResult(valid=True)
     try:
         compile(rendered, "<template>", "exec")
         return TemplateValidationResult(valid=True)
