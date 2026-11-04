@@ -5,6 +5,17 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.22.0...turbovault-engine-v0.23.0) (2026-11-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* GenerationOptions.templates_override is now keyed by framework, then entity type. Migrate {"hub_standard": TemplateOverride(...)} to {"dbt": {"hub_standard": TemplateOverride(...)}}; SQLMesh overrides go under "sqlmesh".
+
+### Features
+
+* SQLMesh output type with framework-aware templates ([#220](https://github.com/ScalefreeCOM/turbovault-engine/issues/220)) ([8f9c2ba](https://github.com/ScalefreeCOM/turbovault-engine/commit/8f9c2ba1e3a1916b0ce24e71c99decd180a0c395))
+
 ## [0.22.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.21.0...turbovault-engine-v0.22.0) (2026-11-02)
 
 
