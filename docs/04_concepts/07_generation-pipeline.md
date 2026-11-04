@@ -7,9 +7,10 @@ title: Generation Pipeline
 # Generation Pipeline
 
 The Generation Pipeline is the engine subsystem that turns the **stored
-metadata** of a project into one of three artifacts:
+metadata** of a project into one of four artifacts:
 
 - a complete **dbt project** (a tree of SQL models and YAML schemas),
+- a complete **SQLMesh project** (a tree of Python model files using datavault4sqlmesh factories),
 - a **JSON export** of the full Data Vault model, or
 - a **DBML diagram** for entity-relationship visualisation.
 
@@ -43,11 +44,11 @@ Each stage produces typed output for the next, records its duration in
 | **Build** | Reads the Django ORM into a target-agnostic `ProjectExport` Pydantic model (via the existing `ModelBuilder`). Failure here is fatal — nothing downstream can do anything without an export. |
 | **Validate** | Runs the model-level invariants from the [Validation Rules](03_validation-rules.md) catalog. Every violation becomes an `Issue` with `stage="validate"`, a stable `validate.*` code, and an `entity` reference. Skipped if `options.skip_validation=True`. |
 | **Plan** | Walks the `ProjectExport`, applies the [entity selection filter](#selective-generation), and produces a `GenerationPlan` — per-entity-type counts of artifacts the pipeline will emit. |
-| **Render** | Produces `GeneratedArtifact` objects **in memory**. dbt rendering wraps the existing `DbtProjectGenerator`; JSON/DBML rendering wraps the existing exporters. Render-time problems (template not found, Jinja error) become `render.*` issues. |
+| **Render** | Produces `GeneratedArtifact` objects **in memory**. dbt rendering wraps the existing `DbtProjectGenerator`; SQLMesh rendering calls `render_sqlmesh()`; JSON/DBML rendering wraps the existing exporters. Render-time problems become `render.*` issues. |
 | **Write** | Persists each rendered artifact to disk under the resolved `output_path`. Skipped in dry-run mode. Optional ZIP archive for dbt. |
 | **Report** | Persists a `GenerationRun` audit row and returns a structured `GenerationReport` to the caller. |
 
-The same pipeline runs for all three output types — only the plan,
+The same pipeline runs for all four output types — only the plan,
 renderer, and writer specialise per type.
 
 ---
@@ -57,6 +58,7 @@ renderer, and writer specialise per type.
 | `output_type` | Plan emits | Renderer | Writer behaviour |
 |---------------|------------|----------|------------------|
 | `dbt` | One SQL + one YAML file per entity, plus `dbt_project.yml`, `packages.yml`, `sources.yml`. Standard / multi-active satellites also get a `_v1` view when enabled. | `DbtProjectGenerator` (via a temp directory the writer then relocates). | Writes the tree under `output_path/`; optionally creates a sibling `.zip`. |
+| `sqlmesh` | One Python file per entity (stage, hub, link, satellite), plus `config.yaml`, `config.json`, `requirements.txt`, `README.md`, and `models/__init__.py`. Standard / multi-active satellites also get a `_v1` view when enabled. Unsupported entity types (PITs, reference tables, non-historized links, multi-active / effectivity / non-historized / reference satellites) are skipped with a `warning` issue rather than failing the run. **Prejoins** aren't supported yet either: hash keys, hash diffs and derived columns that read prejoined columns are left out of the stage, and the hubs, links and satellites that use them are skipped with a warning. | `render_sqlmesh()` — a pure function that builds artifacts in memory without touching the filesystem. | Writes the tree under `output_path/` (shares the dbt writer path). |
 | `json` | One artifact, regardless of project size. | `JSONExporter`. | Writes a single `.json` file at `output_path`. |
 | `dbml` | One artifact, regardless of project size. | `DBMLExporter`. | Writes a single `.dbml` file at `output_path`. |
 
@@ -186,10 +188,11 @@ conventional `exports/` folder under the project directory:
 | Output type | Default path |
 |-------------|--------------|
 | `dbt` | `<workspace>/projects/<project>/exports/dbt_project/` |
+| `sqlmesh` | `<workspace>/projects/<project>/exports/sqlmesh/` |
 | `json` | `<workspace>/projects/<project>/exports/<project_slug>.json` |
 | `dbml` | `<workspace>/projects/<project>/exports/<project_slug>.dbml` |
 
-Explicit `--output`, `--json-output`, or `--dbml-output` always wins.
+Explicit `--output`, `--sqlmesh-output`, `--json-output`, or `--dbml-output` always wins.
 The fallback `./output/<slug>` is only used when the project has no
 `project_directory` configured (e.g. ad-hoc or test projects).
 
@@ -383,7 +386,7 @@ Top-level fields:
 |-------|---------|
 | `generation_run_id` | UUID of the persisted `GenerationRun`. |
 | `project_id` | The target project. |
-| `output_type` | `dbt` \| `json` \| `dbml`. |
+| `output_type` | `dbt` \| `sqlmesh` \| `json` \| `dbml`. |
 | `status` | `success` \| `partial_success` \| `validation_failed` \| `failed`. |
 | `is_dry_run` | `true` if the write stage was skipped. |
 | `options` | The full `GenerationOptions` used. |
@@ -419,9 +422,9 @@ Each `GeneratedArtifact` carries:
 ```
 
 `kind` is one of `sql_model`, `yaml_schema`, `project_yml`,
-`packages_yml`, `sources_yml`, `dbt_profiles`, `zip`, `json_export`,
-or `dbml_export`. `content` is populated only when
-`options.return_content=True`.
+`packages_yml`, `sources_yml`, `dbt_profiles`, `sqlmesh_model`,
+`sqlmesh_config`, `zip`, `json_export`, or `dbml_export`. `content` is
+populated only when `options.return_content=True`.
 
 ### Issues
 
@@ -505,6 +508,7 @@ Each row carries:
 | `output_type` | `dbt` / `json` / `dbml`. |
 | `output_path` | Destination the caller requested (empty for dry-runs). |
 | `error_strategy` | The mode used. |
+| `output_type` | `dbt` / `sqlmesh` / `json` / `dbml`. |
 | `files_generated` | Total artifacts persisted. |
 | `error_count` / `warning_count` | Quick severity totals. |
 | `report` | Full serialized `GenerationReport` JSON for deep inspection. |
@@ -566,6 +570,37 @@ turbovault generate --project my_project --type dbt \
 ```bash
 turbovault generate --project my_project --type dbt \
     --only hub:hub_customer
+```
+
+### Generate a SQLMesh project (DuckDB, default settings)
+
+```bash
+turbovault generate --project my_project --type sqlmesh
+```
+
+Outputs `<workspace>/projects/my_project/exports/sqlmesh/`. Run with:
+
+```bash
+cd <workspace>/projects/my_project/exports/sqlmesh
+pip install -r requirements.txt
+sqlmesh plan
+```
+
+### Generate a SQLMesh project for Snowflake
+
+Configure the dialect in your project `config.yml`:
+
+```yaml
+output:
+  sqlmesh:
+    dialect: snowflake
+    gateway: prod
+```
+
+Then generate:
+
+```bash
+turbovault generate --project my_project --type sqlmesh
 ```
 
 ### CI gate: fail the build on any model-level issue

@@ -1,0 +1,223 @@
+"""Unit tests for the SQLMesh config.yaml dialect-mismatch check."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+
+def _write_config_yaml(root: Path, body: str) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "config.yaml").write_text(body, encoding="utf-8")
+
+
+class TestReadConfigYamlDialect:
+    def test_missing_file_returns_none(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import read_config_yaml_dialect
+
+        assert read_config_yaml_dialect(tmp_path / "config.yaml") is None
+
+    def test_reads_model_defaults_dialect(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import read_config_yaml_dialect
+
+        _write_config_yaml(tmp_path, "model_defaults:\n  dialect: trino\n")
+        assert read_config_yaml_dialect(tmp_path / "config.yaml") == "trino"
+
+    def test_invalid_yaml_returns_none(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import read_config_yaml_dialect
+
+        _write_config_yaml(tmp_path, "model_defaults: [unclosed\n")
+        assert read_config_yaml_dialect(tmp_path / "config.yaml") is None
+
+    def test_no_model_defaults_returns_none(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import read_config_yaml_dialect
+
+        _write_config_yaml(tmp_path, "gateways: {}\n")
+        assert read_config_yaml_dialect(tmp_path / "config.yaml") is None
+
+
+class TestCheckConfigYamlDialect:
+    def test_no_existing_file_no_issue(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import check_config_yaml_dialect
+
+        assert check_config_yaml_dialect(tmp_path, "snowflake") is None
+
+    def test_matching_dialect_no_issue(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import check_config_yaml_dialect
+
+        _write_config_yaml(tmp_path, "model_defaults:\n  dialect: snowflake\n")
+        assert check_config_yaml_dialect(tmp_path, "snowflake") is None
+
+    def test_mismatch_returns_warning(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import (
+            CONFIG_YAML_DIALECT_MISMATCH,
+            check_config_yaml_dialect,
+        )
+
+        _write_config_yaml(tmp_path, "model_defaults:\n  dialect: postgres\n")
+        issue = check_config_yaml_dialect(tmp_path, "snowflake")
+        assert issue is not None
+        assert issue.severity == "warning"
+        assert issue.code == CONFIG_YAML_DIALECT_MISMATCH
+        assert "postgres" in issue.message
+        assert "snowflake" in issue.message
+
+
+class TestDialectNameAndRequirements:
+    def test_valid_dialect_names(self):
+        from engine.services.generation.sqlmesh_dialect import is_valid_dialect_name
+
+        for name in ("postgres", "mssql", "redshift", "spark2"):
+            assert is_valid_dialect_name(name), name
+        for name in ("", "MSSQL", "ms sql", "sqlmesh[mssql]", "2db", "pg;drop"):
+            assert not is_valid_dialect_name(name), name
+
+    def test_default_requirement_per_dialect(self):
+        from engine.services.generation.sqlmesh_dialect import (
+            default_driver_requirement,
+        )
+
+        assert default_driver_requirement("postgres") == "sqlmesh[postgres]"
+        assert default_driver_requirement("duckdb") is None
+        assert default_driver_requirement("mssql") is None
+
+    def test_resolve_requirement_none_derives_and_empty_means_no_line(self):
+        from engine.services.generation.sqlmesh_dialect import (
+            resolve_driver_requirement,
+        )
+
+        assert resolve_driver_requirement("postgres", None) == "sqlmesh[postgres]"
+        assert resolve_driver_requirement("postgres", "") is None
+        assert (
+            resolve_driver_requirement("mssql", " sqlmesh[mssql] ") == "sqlmesh[mssql]"
+        )
+
+
+class TestChooseRequirement:
+    def _choose(self, **kwargs):
+        from engine.services.generation.sqlmesh_dialect import choose_requirement
+
+        defaults = {
+            "dialect": "mssql",
+            "configured_dialect": "mssql",
+            "configured_requirement": "sqlmesh[mssql]",
+            "explicit_requirement": None,
+        }
+        return choose_requirement(**{**defaults, **kwargs})
+
+    def test_explicit_requirement_wins(self):
+        assert self._choose(explicit_requirement="pyodbc") == "pyodbc"
+
+    def test_configured_requirement_kept_for_configured_dialect(self):
+        assert self._choose() == "sqlmesh[mssql]"
+
+    def test_configured_requirement_dropped_when_dialect_changes(self):
+        assert self._choose(dialect="postgres") is None
+
+
+class TestNoDialectHelpers:
+    def test_none_is_reserved_not_a_dialect_name(self):
+        from engine.services.generation.sqlmesh_dialect import (
+            NO_DIALECT,
+            is_valid_dialect_name,
+        )
+
+        assert NO_DIALECT == "none"
+        assert not is_valid_dialect_name("none")
+
+    def test_mismatch_check_skipped_without_dialect(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import check_config_yaml_dialect
+
+        _write_config_yaml(tmp_path, "model_defaults:\n  dialect: postgres\n")
+        assert check_config_yaml_dialect(tmp_path, None) is None
+
+    def test_no_default_requirement_without_dialect(self):
+        from engine.services.generation.sqlmesh_dialect import (
+            default_driver_requirement,
+        )
+
+        assert default_driver_requirement(None) is None
+
+
+class TestKeptFileChecks:
+    def test_config_json_differing_keys_are_named(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import (
+            CONFIG_JSON_KEPT_DIFFERS,
+            check_config_json_kept,
+        )
+
+        (tmp_path / "config.json").write_text(
+            '{"dialect": "postgres", "hash": "MD5", "my_key": 1}', encoding="utf-8"
+        )
+        issue = check_config_json_kept(
+            tmp_path, '{"dialect": "snowflake", "hash": "MD5"}'
+        )
+        assert issue is not None
+        assert issue.code == CONFIG_JSON_KEPT_DIFFERS
+        assert "dialect" in issue.message
+        assert "hash" not in issue.message
+
+    def test_config_json_user_added_keys_do_not_warn(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import check_config_json_kept
+
+        (tmp_path / "config.json").write_text(
+            '{"dialect": "postgres", "my_key": 1}', encoding="utf-8"
+        )
+        assert check_config_json_kept(tmp_path, '{"dialect": "postgres"}') is None
+
+    def test_config_json_missing_file_no_warning(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import check_config_json_kept
+
+        assert check_config_json_kept(tmp_path, '{"dialect": "postgres"}') is None
+
+    def test_requirements_missing_driver_warns(self, tmp_path):
+        from engine.services.generation.sqlmesh_dialect import (
+            REQUIREMENTS_DRIVER_MISSING,
+            check_requirements_driver,
+        )
+
+        (tmp_path / "requirements.txt").write_text(
+            "datavault4sqlmesh>=0.1.0\nsqlmesh[postgres]\n", encoding="utf-8"
+        )
+        issue = check_requirements_driver(tmp_path, "sqlmesh[snowflake]")
+        assert issue is not None and issue.code == REQUIREMENTS_DRIVER_MISSING
+        assert check_requirements_driver(tmp_path, "sqlmesh[postgres]") is None
+        assert check_requirements_driver(tmp_path, None) is None
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "sqlmesh[postgres]==0.140.0",
+            "sqlmesh[postgres]>=0.100,<1.0",
+            "SQLMesh[Postgres] ; python_version >= '3.12'",
+            "sqlmesh[web,postgres]  # pinned by me",
+        ],
+    )
+    def test_requirements_pinned_driver_no_warning(self, tmp_path, line):
+        """Version pins, markers, extra extras and comments still count as present."""
+        from engine.services.generation.sqlmesh_dialect import check_requirements_driver
+
+        (tmp_path / "requirements.txt").write_text(
+            f"datavault4sqlmesh>=0.1.0\n{line}\n", encoding="utf-8"
+        )
+        assert check_requirements_driver(tmp_path, "sqlmesh[postgres]") is None
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "sqlmesh==0.140.0",
+            "sqlmesh[snowflake]==0.140.0",
+            "# sqlmesh[postgres]",
+            "-r base.txt",
+        ],
+    )
+    def test_requirements_other_or_commented_driver_warns(self, tmp_path, line):
+        from engine.services.generation.sqlmesh_dialect import (
+            REQUIREMENTS_DRIVER_MISSING,
+            check_requirements_driver,
+        )
+
+        (tmp_path / "requirements.txt").write_text(f"{line}\n", encoding="utf-8")
+        issue = check_requirements_driver(tmp_path, "sqlmesh[postgres]")
+        assert issue is not None and issue.code == REQUIREMENTS_DRIVER_MISSING

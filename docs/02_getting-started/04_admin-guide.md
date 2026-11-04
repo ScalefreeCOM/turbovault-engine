@@ -131,14 +131,21 @@ Navigate to **Engine > Satellites**.
 
 ## Managing Templates
 
-All SQL and YAML generation templates can be customized:
+All generation templates can be customized, for dbt and for SQLMesh:
 
 1. Navigate to **Engine > Model Templates**
-2. Find the template you want to customize (e.g. `hub_sql`, `satellite_yaml`)
+2. Find the template you want to customize, e.g. `hub_standard (SQL)` (dbt) or `hub_standard (Python)` (SQLMesh). Use the **Framework** filter in the sidebar to list only one framework's templates.
 3. Click to edit
-4. Modify the Jinja2 template body
+4. Modify the Jinja2 template body in the **Model Template** section. The **YAML Template** section is only used for dbt.
 
-Higher-priority templates (lower `priority` value) are selected first. You can create multiple templates for the same entity type with different priorities and conditions.
+Each template has a **framework** (`dbt` or `sqlmesh`), shown and editable on the template's page, and only applies to that framework's output. A dbt template never changes a SQLMesh project and vice versa. Within a framework, the active template with the **highest** `priority` value is selected. Without one, the bundled default file is used.
+
+| Framework | Bundled defaults | Model file |
+|---|---|---|
+| dbt | `templates/dbt/sql/<entity>.sql.j2`, `templates/dbt/yaml/<entity>.yml.j2` | SQL + YAML |
+| SQLMesh | `templates/sqlmesh/models/<entity>.py.j2` (`stage`, `hub_standard`, `link_standard`, `satellite_standard`, `satellite_v1`) | Python calling datavault4sqlmesh |
+
+SQLMesh templates write Python, so values go through the `py` filters (`[[ name | py ]]`, `py_dict`, `py_hashed_columns`, `py_source_models(stage_schema)`), which render correct Python literals. Each bundled SQLMesh template starts with a comment listing the variables it receives. Templates use the engine's delimiters `[[ ]]`, `[% %]` and `[# #]`.
 
 **To reset templates to defaults:**
 

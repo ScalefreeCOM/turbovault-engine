@@ -226,7 +226,9 @@ def test_a_stale_database_template_still_wins_over_the_fixed_file(
         TemplateResolver,
     )
 
-    current = (TEMPLATES_DIR / "sql" / "stage.sql.j2").read_text(encoding="utf-8")
+    current = (TEMPLATES_DIR / "dbt" / "sql" / "stage.sql.j2").read_text(
+        encoding="utf-8"
+    )
     stale = current.replace(
         "[[ (prejoin.target_source_system or source_system) | lower",
         "[[ source_system | lower",

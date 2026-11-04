@@ -1,7 +1,7 @@
 """
-`turbovault generate` — run the new generation pipeline.
+`turbovault generate` — run the generation pipeline.
 
-Supports dbt / json / dbml output types, merge of strict/lenient
+Supports dbt / sqlmesh / json / dbml output types, strict/lenient
 validation with best-effort/fail-fast error handling, `--dry-run` for
 preview, and selective generation via `--include-type` / `--exclude-type`
 / `--include-group` / `--exclude-group` / `--only TYPE:NAME`.
@@ -14,11 +14,13 @@ Exit codes:
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import questionary
 import typer
+from rich.markup import escape
 from rich.table import Table
 
 from engine.cli.utils.console import (
@@ -35,7 +37,7 @@ if TYPE_CHECKING:
     from engine.services.generation import GenerationReport
 
 
-SUPPORTED_TYPES = ("dbt", "json", "dbml", "iris")
+SUPPORTED_TYPES = ("dbt", "json", "dbml", "iris", "sqlmesh")
 
 
 def generate(
@@ -103,6 +105,35 @@ def generate(
             help="Output directory for IRiS Excel files (only for type=iris)",
         ),
     ] = None,
+    sqlmesh_output: Annotated[
+        Path | None,
+        typer.Option(
+            "--sqlmesh-output",
+            help="Alias for --output when type=sqlmesh",
+        ),
+    ] = None,
+    dialect: Annotated[
+        str | None,
+        typer.Option(
+            "--dialect",
+            help=(
+                "SQL dialect for SQLMesh output (duckdb | postgres | snowflake | "
+                "databricks | trino | bigquery, any other SQLMesh dialect, or "
+                "'none' to leave it out and fill it in yourself). If omitted: prompts "
+                "in a terminal, otherwise uses output.sqlmesh.dialect"
+            ),
+        ),
+    ] = None,
+    sqlmesh_requirement: Annotated[
+        str | None,
+        typer.Option(
+            "--sqlmesh-requirement",
+            help=(
+                "Database driver line for the SQLMesh requirements.txt "
+                "(e.g. 'sqlmesh[mssql]'); '' for none. Defaults from the dialect"
+            ),
+        ),
+    ] = None,
     include_type: Annotated[
         list[str] | None,
         typer.Option(
@@ -133,7 +164,7 @@ def generate(
         ),
     ] = None,
 ) -> None:
-    """Generate a dbt project, JSON export, or DBML diagram."""
+    """Generate a dbt or SQLMesh project, JSON export, or DBML diagram."""
     from engine.cli.utils.debug import debug_print
     from engine.services.app_config_loader import (
         WorkspaceNotFoundError,
@@ -171,6 +202,7 @@ def generate(
         output=output,
         json_output=json_output,
         dbml_output=dbml_output,
+        sqlmesh_output=sqlmesh_output,
         project=project,
         dry_run=dry_run,
     )
@@ -192,6 +224,13 @@ def generate(
         ),
     )
 
+    runtime_config = None
+    if output_type == "sqlmesh":
+        runtime_config = _resolve_sqlmesh_runtime_config(
+            project, dialect, sqlmesh_requirement
+        )
+        _announce_sqlmesh_settings(runtime_config)
+
     _announce(
         project=project,
         output_type=output_type,
@@ -203,6 +242,7 @@ def generate(
         project=project,
         output_type=output_type,
         output_path=output_path,
+        runtime_config=runtime_config,
         options=options,
     )
 
@@ -257,6 +297,7 @@ def _resolve_output_type(requested: str | None) -> str:
         "Select export type:",
         choices=[
             questionary.Choice("dbt — Generate dbt project", value="dbt"),
+            questionary.Choice("sqlmesh — Generate SQLMesh project", value="sqlmesh"),
             questionary.Choice("json — Export model as JSON", value="json"),
             questionary.Choice("dbml — Export model as DBML diagram", value="dbml"),
             questionary.Choice(
@@ -270,22 +311,188 @@ def _resolve_output_type(requested: str | None) -> str:
     return chosen
 
 
+_MANUAL_DIALECT = "__manual__"
+_SKIP_DIALECT = "__skip__"
+
+
+def _resolve_sqlmesh_runtime_config(
+    project, requested_dialect: str | None, requested_requirement: str | None
+):
+    """Return the project's runtime config with the chosen SQLMesh dialect/driver.
+
+    Uses ``--dialect`` / ``--sqlmesh-requirement`` when given. Otherwise prompts
+    with the supported dialects plus an "other" entry for typing a dialect and
+    its driver requirement manually. Without a TTY (CI, scripts) there is no
+    prompt: the configured ``output.sqlmesh.dialect`` is used as-is.
+    """
+    from dataclasses import replace
+
+    from engine.services.generation.sqlmesh_dialect import choose_requirement
+    from engine.services.runtime_config import resolve_runtime_config
+
+    runtime_config = resolve_runtime_config(project)
+    configured = runtime_config.sqlmesh_dialect
+
+    if requested_dialect:
+        dialect = _validate_dialect_flag(requested_dialect)
+        explicit_requirement = requested_requirement
+    elif not sys.stdin.isatty():
+        # CI / scripts: questionary can't prompt without a TTY (it raises
+        # OSError), so use output.sqlmesh.dialect as configured. None keeps
+        # meaning "no dialect".
+        dialect = configured
+        explicit_requirement = requested_requirement
+    else:
+        dialect, explicit_requirement = _prompt_dialect(runtime_config)
+        if requested_requirement is not None:
+            explicit_requirement = requested_requirement
+
+    requirement = choose_requirement(
+        dialect=dialect,
+        configured_dialect=configured,
+        configured_requirement=runtime_config.sqlmesh_requirement,
+        explicit_requirement=explicit_requirement,
+    )
+    return replace(
+        runtime_config, sqlmesh_dialect=dialect, sqlmesh_requirement=requirement
+    )
+
+
+def _validate_dialect_flag(requested: str) -> str | None:
+    """Accept any well-formed dialect name (or ``none``); warn on untested ones.
+
+    Returns None for ``--dialect none``: no dialect is written.
+    """
+    from engine.services.generation.sqlmesh_dialect import (
+        NO_DIALECT,
+        SQLMESH_DIALECTS,
+        is_valid_dialect_name,
+    )
+
+    if requested == NO_DIALECT:
+        return None
+    if not is_valid_dialect_name(requested):
+        print_error(
+            f"Invalid --dialect '{requested}'. Use a SQLMesh dialect name such as "
+            f"{', '.join(SQLMESH_DIALECTS)}, e.g. mssql, or 'none' to leave it out."
+        )
+        raise typer.Exit(2)
+    if requested not in SQLMESH_DIALECTS:
+        print_warning(
+            f"Dialect '{requested}' is not one TurboVault has tested; the generated "
+            "project may need manual fixes."
+        )
+    return requested
+
+
+def _prompt_dialect(runtime_config) -> tuple[str | None, str | None]:
+    """Ask for the dialect; for "other", also ask for the driver requirement.
+
+    Returns ``(dialect, explicit_requirement)``. The dialect is None when the
+    user skips it; the requirement is None unless it was entered manually.
+    """
+    from engine.services.generation.sqlmesh_dialect import SQLMESH_DIALECTS
+
+    configured = runtime_config.sqlmesh_dialect
+    if configured is None:
+        default = _SKIP_DIALECT
+    elif configured in SQLMESH_DIALECTS:
+        default = configured
+    else:
+        default = _MANUAL_DIALECT
+    choices = [questionary.Choice(d, value=d) for d in SQLMESH_DIALECTS]
+    choices.append(
+        questionary.Choice(
+            "other — enter dialect and requirement manually", value=_MANUAL_DIALECT
+        )
+    )
+    choices.append(
+        questionary.Choice(
+            "none — skip, I'll fill in the dialect myself (project not runnable until then)",
+            value=_SKIP_DIALECT,
+        )
+    )
+    chosen = questionary.select(
+        "Select SQL dialect for SQLMesh:", choices=choices, default=default
+    ).ask()
+    if not chosen:
+        raise typer.Exit(0)
+    if chosen == _SKIP_DIALECT:
+        return None, None
+    if chosen != _MANUAL_DIALECT:
+        return chosen, None
+    return _prompt_manual_dialect(runtime_config)
+
+
+def _prompt_manual_dialect(runtime_config) -> tuple[str, str]:
+    """Ask for a free-form dialect name and its requirements.txt driver line."""
+    from engine.services.generation.sqlmesh_dialect import is_valid_dialect_name
+
+    configured = runtime_config.sqlmesh_dialect
+    dialect = questionary.text(
+        "SQLMesh dialect name (e.g. mssql, redshift):",
+        default=configured or "",
+        validate=lambda v: is_valid_dialect_name(v.strip())
+        or "Use lowercase letters, digits and underscores (e.g. mssql).",
+    ).ask()
+    if dialect is None:
+        raise typer.Exit(0)
+    dialect = dialect.strip()
+
+    stored = runtime_config.sqlmesh_requirement
+    suggested = (
+        stored
+        if dialect == configured and stored is not None
+        else f"sqlmesh[{dialect}]"
+    )
+    requirement = questionary.text(
+        "requirements.txt line for the database driver (leave empty for none):",
+        default=suggested,
+    ).ask()
+    if requirement is None:
+        raise typer.Exit(0)
+    return dialect, requirement.strip()
+
+
+def _announce_sqlmesh_settings(runtime_config) -> None:
+    from engine.services.generation.sqlmesh_dialect import (
+        SQLMESH_DIALECTS,
+        resolve_driver_requirement,
+    )
+
+    dialect = runtime_config.sqlmesh_dialect
+    driver = resolve_driver_requirement(dialect, runtime_config.sqlmesh_requirement)
+    print_info(f"SQLMesh dialect: {dialect or '(not set — fill it in yourself)'}")
+    # escape(): Rich would otherwise read "[postgres]" in "sqlmesh[postgres]" as markup.
+    print_info(f"SQLMesh driver requirement: {escape(driver) if driver else '(none)'}")
+    if dialect and driver is None and dialect not in SQLMESH_DIALECTS:
+        print_warning(
+            escape(
+                f"No driver requirement for dialect '{dialect}': requirements.txt "
+                f"won't install a database driver. Pass e.g. "
+                f"--sqlmesh-requirement 'sqlmesh[{dialect}]' if SQLMesh needs one."
+            )
+        )
+
+
 def _resolve_output_path(
     *,
     output_type: str,
     output: Path | None,
     json_output: Path | None,
     dbml_output: Path | None,
+    sqlmesh_output: Path | None,
     project,
     dry_run: bool,
 ) -> Path | None:
     """Pick the target path for the artifact.
 
     Priority order:
-      1. Type-specific override flags (`--json-output`, `--dbml-output`).
+      1. Type-specific override flags (`--json-output`, `--dbml-output`, `--sqlmesh-output`).
       2. Generic `--output` / `-o`.
-      3. Workspace convention: `<project_dir>/exports/{dbt_project | <name>.json | <name>.dbml}`.
-      4. Fallback `./output/<slug>` when the project has no `project_directory`
+      3. `output.sqlmesh_output_dir` from the project's config.yml (SQLMesh only).
+      4. Workspace convention: `<project_dir>/exports/{dbt_project | sqlmesh | <name>.json | …}`.
+      5. Fallback `./output/<slug>` when the project has no `project_directory`
          set (ad-hoc / test projects).
     """
     if dry_run:
@@ -295,8 +502,15 @@ def _resolve_output_path(
         return json_output
     if output_type == "dbml" and dbml_output:
         return dbml_output
+    if output_type == "sqlmesh" and sqlmesh_output:
+        return sqlmesh_output
     if output:
         return output
+
+    if output_type == "sqlmesh":
+        configured_dir = _configured_sqlmesh_output_dir(project)
+        if configured_dir is not None:
+            return configured_dir
 
     slug = project.name.lower().replace(" ", "_")
     exports_dir = _project_exports_dir(project)
@@ -304,15 +518,51 @@ def _resolve_output_path(
         # No project_directory configured — fall back to cwd-relative output.
         if output_type == "dbt":
             return Path(f"./output/{slug}")
+        if output_type == "sqlmesh":
+            return Path(f"./output/{slug}_sqlmesh")
         if output_type == "json":
             return Path(f"./output/{slug}.json")
         return Path(f"./output/{slug}.dbml")
 
     if output_type == "dbt":
         return exports_dir / "dbt_project"
+    if output_type == "sqlmesh":
+        return exports_dir / "sqlmesh"
     if output_type == "json":
         return exports_dir / f"{slug}.json"
     return exports_dir / f"{slug}.dbml"
+
+
+def _configured_sqlmesh_output_dir(project) -> Path | None:
+    """Return `output.sqlmesh_output_dir` from config.yml, resolved, or None.
+
+    `~` is expanded and relative paths are resolved from the project folder,
+    as documented in 03_project-schema.md. Returns None when the project has
+    no `project_directory`, no config.yml, or the field is unset. An invalid
+    config.yml exits with status 2.
+    """
+    project_directory = getattr(project, "project_directory", None)
+    if not project_directory:
+        return None
+
+    from engine.services.app_config_loader import resolve_project_path
+    from engine.services.config_loader import ConfigValidationError
+
+    try:
+        config = project.load_config()
+    except FileNotFoundError:
+        return None
+    except ConfigValidationError as exc:
+        print_error(str(exc))
+        raise typer.Exit(2) from exc
+
+    configured = config.output.sqlmesh_output_dir
+    if configured is None:
+        return None
+    configured = configured.expanduser()
+    if configured.is_absolute():
+        return configured
+    return (resolve_project_path(project_directory) / configured).resolve()
 
 
 def _project_exports_dir(project) -> Path | None:
@@ -478,7 +728,11 @@ def _render_issues_table(report) -> None:
             "info": "[cyan]INFO[/cyan]",
         }[issue.severity]
         entity = f"{issue.entity.type}:{issue.entity.name}" if issue.entity else "—"
-        table.add_row(sev_style, issue.stage, issue.code, entity, issue.message)
+        # escape(): messages are plain text; "[...]" (e.g. sqlmesh[postgres] or
+        # entity names) must not be read as Rich markup.
+        table.add_row(
+            sev_style, issue.stage, issue.code, escape(entity), escape(issue.message)
+        )
     console.print(table)
 
 

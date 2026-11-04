@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # Aliases & enums
 # ---------------------------------------------------------------------------
 
-OutputType = Literal["dbt", "json", "dbml"]
+OutputType = Literal["dbt", "json", "dbml", "sqlmesh"]
 ErrorStrategy = Literal["fail_fast", "best_effort"]
 GenerationStatus = Literal["success", "partial_success", "validation_failed", "failed"]
 PipelineStage = Literal["build", "validate", "plan", "render", "write", "report"]
@@ -37,6 +37,8 @@ ArtifactKind = Literal[
     "zip",
     "json_export",
     "dbml_export",
+    "sqlmesh_model",
+    "sqlmesh_config",
 ]
 
 
@@ -136,9 +138,11 @@ class EntitySelection(BaseModel):
 class TemplateOverride(BaseModel):
     """In-memory template content supplied for a single generation run.
 
-    Keyed by entity_type in GenerationOptions.templates_override. Either
-    field may be None to inherit from the DB / bundled file default; a
-    non-None value takes precedence. SQL and YAML resolve independently.
+    Keyed by framework, then entity_type, in GenerationOptions.templates_override
+    (e.g. ``{"sqlmesh": {"hub_standard": TemplateOverride(...)}}``); an
+    override for one framework never applies to another. Either field may be
+    None to inherit from the DB / bundled file default; a non-None value takes
+    precedence. SQL and YAML resolve independently.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -161,7 +165,7 @@ class GenerationOptions(BaseModel):
     use_db_templates: bool = True
     entity_selection: EntitySelection | None = None
     return_content: bool = False
-    templates_override: dict[str, TemplateOverride] | None = None
+    templates_override: dict[str, dict[str, TemplateOverride]] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +195,7 @@ class GeneratedArtifact(BaseModel):
     size_bytes: int = 0
     checksum: str | None = None
     content: str | None = None
+    overwrite: bool = True
 
 
 # ---------------------------------------------------------------------------

@@ -114,5 +114,23 @@ class Code:
     WRITE_PATH_COLLISION = "write.path_collision"
     WRITE_ZIP_FAILED = "write.zip_failed"
 
+    # SQLMesh render stage — unsupported entity types
+    SQLMESH_UNSUPPORTED_REFERENCE_HUB = "render.sqlmesh.unsupported.reference_hub"
+    SQLMESH_UNSUPPORTED_NON_HISTORIZED_LINK = (
+        "render.sqlmesh.unsupported.non_historized_link"
+    )
+    SQLMESH_UNSUPPORTED_SATELLITE_TYPE = "render.sqlmesh.unsupported.satellite_type"
+    SQLMESH_UNSUPPORTED_REFERENCE_TABLE = "render.sqlmesh.unsupported.reference_table"
+    SQLMESH_UNSUPPORTED_PIT = "render.sqlmesh.unsupported.pit"
+    SQLMESH_UNSUPPORTED_SNAPSHOT_CONTROL = "render.sqlmesh.unsupported.snapshot_control"
+    SQLMESH_HUB_NO_SOURCES = "render.sqlmesh.hub_no_sources"
+    SQLMESH_LINK_NO_SOURCES = "render.sqlmesh.link_no_sources"
+    SQLMESH_DIALECT_NOT_SET = "render.sqlmesh.dialect_not_set"
+    SQLMESH_HUB_KEY_RENAME_CONFLICT = "render.sqlmesh.hub_key_rename_conflict"
+    SQLMESH_SATELLITE_PARENT_SKIPPED = "render.sqlmesh.satellite_parent_skipped"
+    SQLMESH_LINK_HUB_SKIPPED = "render.sqlmesh.link_hub_skipped"
+    SQLMESH_UNSUPPORTED_PREJOIN = "render.sqlmesh.unsupported.prejoin"
+    SQLMESH_PREJOIN_DEPENDENT_SKIPPED = "render.sqlmesh.prejoin_dependent_skipped"
+
     # Internal
     INTERNAL_BUG = "internal.bug"

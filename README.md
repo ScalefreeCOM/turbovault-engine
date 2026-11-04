@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**Transform source metadata into production-ready Data Vault dbt projects**
+**Transform source metadata into production-ready Data Vault dbt and SQLMesh projects**
 
 [![CI](https://github.com/ScalefreeCOM/turbovault-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/ScalefreeCOM/turbovault-engine/actions/workflows/ci.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/ScalefreeCOM/turbovault-engine)](https://github.com/ScalefreeCOM/turbovault-engine/releases/latest)
@@ -20,7 +20,7 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
 
 - **Ingests** source metadata from Excel files, database catalogs, or previously exported JSON files
 - **Maps** metadata into a consistent Data Vault domain model (Hubs, Links, Satellites)
-- **Generates** complete, production-ready dbt projects with datavault4dbt macros
+- **Generates** complete, production-ready **dbt or SQLMesh** projects with datavault4dbt / datavault4sqlmesh macros
 - **Validates** your model before generation with comprehensive error checking
 
 **Perfect for:** Data Engineers looking to rapidly prototype, standardize, or automate their Data Vault implementations.
@@ -37,6 +37,13 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
 - **Organized structure** - Clean folder hierarchy (staging, raw_vault, business_vault)
 - **Template customization** - Customize any template via Django Admin
 - **Validation** - Pre-generation checks to catch errors early
+
+### 🔄 SQLMesh Project Generation
+- **Python model files** - One `.py` file per entity using datavault4sqlmesh factories (`hub_model`, `link_model`, `satellite_model`, `stage_model`)
+- **Multi-dialect support** - Configure the SQL dialect (`duckdb`, `postgres`, `snowflake`, `databricks`, `trino`, `bigquery`) in your project config
+- **DV config file** - Generates `config.json` for datavault4sqlmesh aliasing and hash settings
+- **Ready-to-run** - Outputs `requirements.txt`, `config.yaml`, and `models/__init__.py` so `sqlmesh plan` works out of the box
+- **Selective coverage** - Standard hubs, links, and satellites (v0 + v1) are fully supported; unsupported types (PITs, reference tables, non-historized links, etc.) are skipped with a warning rather than failing the run
 
 ### 📦 Data Vault Modeling
 - **Hubs** - Standard and reference hubs with business keys
@@ -174,7 +181,7 @@ turbovault generate --project my_project --no-v1-satellites
 | `turbovault workspace status` | Show workspace health (DB, projects, migrations) |
 | `turbovault project init` | Create a new project in the workspace |
 | `turbovault project list` | List all projects in the workspace |
-| `turbovault generate` | Generate dbt project or export model to JSON / DBML / IRiS |
+| `turbovault generate` | Generate dbt or SQLMesh project, or export model to JSON / DBML / IRiS |
 | `turbovault serve` | Start Django admin server for model management |
 | `turbovault reset` | Reset the database |
 | `turbovault --help` | Show all available commands |
@@ -212,6 +219,9 @@ turbovault generate -p sales_datavault --zip --no-v1-satellites
 
 # Export Data Vault model to JSON
 turbovault generate --type json --project sales_datavault
+
+# Generate SQLMesh project
+turbovault generate --type sqlmesh --project sales_datavault
 
 # Start admin on custom port
 turbovault serve --port 9000
@@ -467,6 +477,30 @@ turbovault project init --name my_project --source ./exports/iris
 turbovault import --project my_project --source ./exports/iris
 ```
 
+### SQLMesh Project
+
+```bash
+# Generate SQLMesh project (default output: exports/sqlmesh/)
+turbovault generate --type sqlmesh --project my_project
+
+# Custom output directory
+turbovault generate --type sqlmesh --project my_project --output ./my_sqlmesh_project
+
+# With ZIP archive
+turbovault generate --type sqlmesh --project my_project --zip
+
+# Skip satellite v1 views
+turbovault generate --type sqlmesh --project my_project --no-v1-satellites
+```
+
+After generation:
+
+```bash
+cd <output_dir>
+pip install -r requirements.txt
+sqlmesh plan
+```
+
 ### dbt Project
 
 ```bash
@@ -547,6 +581,7 @@ Built with:
 - [Pydantic](https://docs.pydantic.dev/) - Data validation
 - [Jinja2](https://jinja.palletsprojects.com/) - Template engine
 - [datavault4dbt](https://github.com/ScalefreeCOM/datavault4dbt) - dbt macros
+- [datavault4sqlmesh](https://github.com/ScalefreeCOM/datavault4sqlmesh) - SQLMesh macros
 
 ---
 

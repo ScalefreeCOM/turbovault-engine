@@ -1,22 +1,29 @@
 """
-Template resolver for dbt project generation.
+Template resolver for dbt and SQLMesh project generation.
 
-Resolves Jinja2 templates from:
-1. Database (ModelTemplate model) - for customization via Django Admin
-2. File-based defaults - bundled with the package
-
-Database templates take precedence over file-based templates.
+Resolves Jinja2 templates per framework, in this order:
+1. Per-generation in-memory overrides (``GenerationOptions.templates_override``)
+2. Database (ModelTemplate model) - for customization via Django Admin / Studio
+3. File-based defaults bundled with the package under ``templates/<framework>/``
 """
 
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import yaml
 from jinja2 import Environment, FileSystemLoader, Template, select_autoescape
 from markupsafe import Markup
+
+from engine.services.generation.python_literals import (
+    py_dict_filter,
+    py_hashed_columns_filter,
+    py_literal,
+    py_source_models_filter,
+)
 
 if TYPE_CHECKING:
     from jinja2 import BaseLoader
@@ -25,8 +32,101 @@ if TYPE_CHECKING:
     from engine.services.generation.types import TemplateOverride
 
 
-# Path to default file-based templates
+# Path to default file-based templates. Each framework has its own subdirectory
+# (templates/dbt/, templates/sqlmesh/).
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+# Where each framework keeps its model templates, as (subdirectory, suffix):
+# dbt models are SQL (templates/dbt/sql/<entity>.sql.j2), SQLMesh models are
+# Python files (templates/sqlmesh/models/<entity>.py.j2). Only dbt has YAML
+# templates (templates/dbt/yaml/<entity>.yml.j2).
+_MODEL_TEMPLATE_LAYOUT: dict[str, tuple[str, str]] = {
+    "dbt": ("sql", ".sql.j2"),
+    "sqlmesh": ("models", ".py.j2"),
+}
+
+
+def framework_templates_dir(framework: str, templates_dir: Path | None = None) -> Path:
+    """
+    Return the file-based default template directory for *framework*.
+
+    ``templates_dir`` overrides the bundled ``TEMPLATES_DIR`` root.
+    """
+    return (templates_dir or TEMPLATES_DIR) / framework
+
+
+def model_template_suffix(framework: str) -> str:
+    """Return the file suffix of *framework*'s model templates (e.g. ``.py.j2``)."""
+    return _MODEL_TEMPLATE_LAYOUT.get(framework, _MODEL_TEMPLATE_LAYOUT["dbt"])[1]
+
+
+def model_templates_dir(framework: str, templates_dir: Path | None = None) -> Path:
+    """Return the directory holding *framework*'s bundled model templates."""
+    subdir = _MODEL_TEMPLATE_LAYOUT.get(framework, _MODEL_TEMPLATE_LAYOUT["dbt"])[0]
+    return framework_templates_dir(framework, templates_dir) / subdir
+
+
+def bundled_model_templates(
+    framework: str, templates_dir: Path | None = None
+) -> list[tuple[str, Path]]:
+    """
+    Return ``(entity_type, path)`` for each bundled model template of *framework*.
+
+    Sorted by entity type; empty when the framework has none.
+    """
+    directory = model_templates_dir(framework, templates_dir)
+    suffix = model_template_suffix(framework)
+    if not directory.is_dir():
+        return []
+    return sorted(
+        (path.name.removesuffix(suffix), path) for path in directory.glob(f"*{suffix}")
+    )
+
+
+# Project-level YAML templates (not per entity), never seeded as ModelTemplates.
+_PROJECT_LEVEL_YAML = frozenset({"dbt_project", "packages", "sources"})
+
+# Label for a framework's model template in seeded ModelTemplate names,
+# e.g. "hub_standard (SQL)" for dbt, "hub_standard (Python)" for SQLMesh.
+_MODEL_TEMPLATE_LABEL: dict[str, str] = {"dbt": "SQL", "sqlmesh": "Python"}
+
+
+@dataclass(frozen=True)
+class BundledTemplate:
+    """One bundled per-entity template file, as seeded into ModelTemplate."""
+
+    framework: str
+    entity_type: str
+    # "sql" = the model template (stored in sql_template_content), "yaml" = dbt YAML.
+    template_type: str
+    path: Path
+
+    @property
+    def label(self) -> str:
+        """Kind shown in the seeded template name: SQL, Python or YAML."""
+        if self.template_type == "yaml":
+            return "YAML"
+        return _MODEL_TEMPLATE_LABEL.get(self.framework, "SQL")
+
+
+def bundled_templates(
+    framework: str, templates_dir: Path | None = None
+) -> list[BundledTemplate]:
+    """
+    Return *framework*'s bundled per-entity templates: model templates first,
+    then YAML templates. Project-level files (dbt_project.yml, …) are excluded.
+    """
+    templates = [
+        BundledTemplate(framework, entity_type, "sql", path)
+        for entity_type, path in bundled_model_templates(framework, templates_dir)
+    ]
+    yaml_dir = framework_templates_dir(framework, templates_dir) / "yaml"
+    if yaml_dir.is_dir():
+        for path in sorted(yaml_dir.glob("*.yml.j2")):
+            entity_type = path.name.removesuffix(".yml.j2")
+            if entity_type not in _PROJECT_LEVEL_YAML:
+                templates.append(BundledTemplate(framework, entity_type, "yaml", path))
+    return templates
 
 
 # Characters YAML treats as line breaks that JSON leaves unescaped.
@@ -90,7 +190,9 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     - [# #] for comments (instead of {# #})
 
     Adds the ``yaml_quote``, ``yaml_scalar`` and ``yaml_single_quote`` filters
-    for writing user text into YAML.
+    for writing user text into YAML, and the ``py``, ``py_dict``,
+    ``py_hashed_columns`` and ``py_source_models`` filters for writing Python
+    literals into SQLMesh model files.
     """
     environment = Environment(
         loader=loader,
@@ -108,16 +210,25 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     environment.filters["yaml_quote"] = yaml_quote
     environment.filters["yaml_scalar"] = yaml_scalar
     environment.filters["yaml_single_quote"] = yaml_single_quote
+    environment.filters["py"] = py_literal
+    environment.filters["py_dict"] = py_dict_filter
+    environment.filters["py_hashed_columns"] = py_hashed_columns_filter
+    environment.filters["py_source_models"] = py_source_models_filter
     return environment
 
 
 class TemplateResolver:
     """
-    Resolves Jinja2 templates for dbt model generation.
+    Resolves Jinja2 templates for one framework's model generation.
 
-    Templates are resolved with the following priority:
-    1. Active database template with highest priority
-    2. File-based default template
+    Templates are resolved with the following priority, each step limited to
+    the resolver's framework:
+    1. In-memory override for the entity type
+    2. Active database template with highest priority
+    3. File-based default template
+
+    The "SQL" template of an entity is its model file: SQL for dbt, a Python
+    model file for SQLMesh.
 
     Usage:
         resolver = TemplateResolver()
@@ -129,7 +240,8 @@ class TemplateResolver:
         self,
         templates_dir: Path | None = None,
         use_db_templates: bool = True,
-        templates_override: dict[str, TemplateOverride] | None = None,
+        templates_override: dict[str, dict[str, TemplateOverride]] | None = None,
+        framework: str = "dbt",
     ) -> None:
         """
         Initialize the template resolver.
@@ -138,20 +250,32 @@ class TemplateResolver:
             templates_dir: Override path to file-based templates directory.
             use_db_templates: Whether to check database for custom templates.
             templates_override: In-memory per-generation template content,
-                keyed by entity_type. Takes precedence over DB and file
-                templates for the resolver's lifetime.
+                keyed by ``{framework: {entity_type: TemplateOverride}}``.
+                Only the overrides for this resolver's framework are applied;
+                overrides for other frameworks are ignored entirely.
+            framework: Generation framework ("dbt" or "sqlmesh"). DB-backed
+                templates and in-memory overrides are filtered to this
+                framework so overrides for one framework never apply to
+                another.
         """
         self.templates_dir = templates_dir or TEMPLATES_DIR
         self.use_db_templates = use_db_templates
-        self._overrides = templates_override or {}
+        self.framework = framework
+        # Isolate to this framework's overrides only.
+        self._overrides: dict[str, TemplateOverride] = (templates_override or {}).get(
+            framework, {}
+        )
 
-        # Jinja2 environment for file-based templates and in-memory overrides
+        # Jinja2 environment for file-based templates and in-memory overrides.
+        # File-based defaults live under templates/<framework>/: the model
+        # templates' directory (sql/ or models/), yaml/, and project-level files.
+        framework_dir = framework_templates_dir(framework, self.templates_dir)
         self._env = build_jinja_environment(
             loader=FileSystemLoader(
                 [
-                    str(self.templates_dir / "sql"),
-                    str(self.templates_dir / "yaml"),
-                    str(self.templates_dir),
+                    str(model_templates_dir(framework, self.templates_dir)),
+                    str(framework_dir / "yaml"),
+                    str(framework_dir),
                 ]
             )
         )
@@ -263,7 +387,11 @@ class TemplateResolver:
         from engine.models.templates import ModelTemplate
 
         return (
-            ModelTemplate.objects.filter(entity_type=entity_type, is_active=True)
+            ModelTemplate.objects.filter(
+                framework=self.framework,
+                entity_type=entity_type,
+                is_active=True,
+            )
             .order_by("-priority")
             .first()
         )
@@ -281,10 +409,12 @@ class TemplateResolver:
         Returns:
             Template or None if not found.
         """
-        # Map template_type to file extension
-        # Use .yml for YAML files (shorter, more common in dbt)
-        ext = "yml" if template_type == "yaml" else template_type
-        filename = f"{entity_type}.{ext}.j2"
+        # The model template's suffix depends on the framework (.sql.j2 for
+        # dbt, .py.j2 for SQLMesh); YAML templates are always .yml.j2.
+        if template_type == "yaml":
+            filename = f"{entity_type}.yml.j2"
+        else:
+            filename = f"{entity_type}{model_template_suffix(self.framework)}"
 
         try:
             return self._env.get_template(filename)

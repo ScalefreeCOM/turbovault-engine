@@ -436,6 +436,60 @@ class ProjectConfiguration(BaseModel):
         return v
 
 
+class SQLMeshConfig(BaseModel):
+    """SQLMesh project and datavault4sqlmesh configuration."""
+
+    # SQLMesh project settings (rendered into config.yaml)
+    dialect: str | None = Field(
+        "duckdb",
+        description=(
+            "SQL dialect for SQLMesh and datavault4sqlmesh; null to leave it out "
+            "and fill in config.yaml / config.json manually"
+        ),
+    )
+    gateway: str = Field("local", description="Default SQLMesh gateway name")
+    start: str = Field(
+        "2020-01-01", description="Model default start date (YYYY-MM-DD)"
+    )
+    requirement: str | None = Field(
+        None,
+        description=(
+            "Database driver line for requirements.txt (e.g. 'sqlmesh[mssql]'); "
+            "derived from the dialect when unset, '' for none"
+        ),
+    )
+
+    # datavault4sqlmesh DV config keys (rendered into config.json)
+    ldts_alias: str | None = Field(None, description="Load date timestamp column alias")
+    rsrc_alias: str | None = Field(None, description="Record source column alias")
+    ledts_alias: str | None = Field(
+        None, description="Load end date timestamp column alias"
+    )
+    hash: str | None = Field(None, description="Hash algorithm override")
+    end_of_all_times: str | None = Field(
+        None, description="End-of-all-times sentinel value"
+    )
+    beginning_of_all_times: str | None = Field(
+        None, description="Beginning-of-all-times sentinel value"
+    )
+    hashkey_input_case_sensitive: bool | None = Field(
+        None, description="Hash key input case sensitivity"
+    )
+    hashdiff_input_case_sensitive: bool | None = Field(
+        None, description="Hash diff input case sensitivity"
+    )
+    use_trim: bool | None = Field(
+        None, description="Whether to trim inputs before hashing"
+    )
+    quote_identifiers: bool | None = Field(
+        None, description="Whether to quote SQL identifiers"
+    )
+    ghost_record_rsrc: str | None = Field(None, description="Ghost record source value")
+    ghost_record_error_rsrc: str | None = Field(
+        None, description="Ghost record error source value"
+    )
+
+
 class OutputConfiguration(BaseModel):
     """dbt project output configuration."""
 
@@ -458,6 +512,10 @@ class OutputConfiguration(BaseModel):
         None,
         description="Custom directory for IRiS exports (default: exports/iris/)",
     )
+    sqlmesh_output_dir: Path | None = Field(
+        None,
+        description="Custom directory for SQLMesh project (default: exports/sqlmesh/)",
+    )
 
     dbt_project_name: str | None = Field(
         None, description="Name of the dbt project (defaults to project.name)"
@@ -478,6 +536,11 @@ class OutputConfiguration(BaseModel):
     generate_dbml: bool = Field(
         False,
         description="Whether to generate DBML file alongside dbt project (for future use)",
+    )
+
+    sqlmesh: SQLMeshConfig = Field(
+        default_factory=SQLMeshConfig,
+        description="SQLMesh project and datavault4sqlmesh configuration",
     )
 
 

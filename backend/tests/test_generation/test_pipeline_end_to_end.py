@@ -348,3 +348,144 @@ def test_single_entity_preview_returns_content_without_writing(
             a.content is not None and a.content.strip()
         ), "Content should be populated"
         assert a.path is None, "Dry-run must not record filesystem paths"
+
+
+def test_sqlmesh_end_to_end_writes_files_and_persists_run(
+    django_setup, project_export, engine_project, tmp_path, monkeypatch
+):
+    from engine.models import GenerationRun
+    from engine.services.generation import generate
+
+    _patch_build_stage(monkeypatch, project_export)
+
+    out = tmp_path / "sqlmesh_out"
+    report = generate(
+        project=engine_project,
+        output_type="sqlmesh",
+        output_path=out,
+    )
+
+    assert report.status in ("success", "partial_success")
+    assert report.is_dry_run is False
+    # Scaffold files (config.yaml, config.json, etc.) must be on disk.
+    assert (out / "config.yaml").exists()
+    assert (out / "config.json").exists()
+    assert (out / "models" / "__init__.py").exists()
+    # Per-stage timings captured for all pipeline stages.
+    for stage in ("build", "validate", "plan", "render", "write"):
+        assert stage in report.timings_ms
+    # Audit row persisted with the correct output type.
+    run = GenerationRun.objects.get(generation_run_id=report.generation_run_id)
+    assert run.status == report.status
+    assert run.output_type == "sqlmesh"
+    assert run.files_generated == report.files_generated
+
+
+def test_sqlmesh_dv_config_flows_into_generated_config_json(
+    django_setup, project_export, engine_project, tmp_path, monkeypatch
+):
+    """End-to-end handoff: runtime_config.sqlmesh_dv_config must reach config.json.
+
+    Guards the EngineRuntimeConfig → sqlmesh_renderer mapping, which the
+    direct _render_config_json unit tests miss.
+    """
+    import json
+
+    from engine.services.generation import generate
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    _patch_build_stage(monkeypatch, project_export)
+
+    out = tmp_path / "sqlmesh_out"
+    report = generate(
+        project=engine_project,
+        output_type="sqlmesh",
+        output_path=out,
+        runtime_config=EngineRuntimeConfig(
+            project_name="pipeline_e2e",
+            sqlmesh_dialect="snowflake",
+            sqlmesh_dv_config=(("hash", "SHA1"), ("use_trim", True)),
+        ),
+    )
+
+    assert report.status in ("success", "partial_success")
+    config_json_path = out / "config.json"
+    assert config_json_path.exists()
+
+    parsed = json.loads(config_json_path.read_text(encoding="utf-8"))
+    assert parsed["dialect"] == "snowflake"
+    assert parsed["hash"] == "SHA1"
+    assert parsed["use_trim"] is True
+
+
+def test_sqlmesh_dialect_written_to_both_configs_and_mismatch_warned(
+    django_setup, project_export, engine_project, tmp_path, monkeypatch
+):
+    """The chosen dialect lands in config.yaml, config.json and requirements.txt.
+
+    A later run with another dialect keeps all three write-once files and
+    warns once per file that no longer matches.
+    """
+    import json
+
+    import yaml
+
+    from engine.services.generation import generate
+    from engine.services.generation.sqlmesh_dialect import (
+        CONFIG_JSON_KEPT_DIFFERS,
+        CONFIG_YAML_DIALECT_MISMATCH,
+        REQUIREMENTS_DRIVER_MISSING,
+    )
+
+    kept_codes = {
+        CONFIG_YAML_DIALECT_MISMATCH,
+        CONFIG_JSON_KEPT_DIFFERS,
+        REQUIREMENTS_DRIVER_MISSING,
+    }
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    _patch_build_stage(monkeypatch, project_export)
+    out = tmp_path / "sqlmesh_out"
+
+    def _run(dialect: str):
+        return generate(
+            project=engine_project,
+            output_type="sqlmesh",
+            output_path=out,
+            runtime_config=EngineRuntimeConfig(
+                project_name="pipeline_e2e", sqlmesh_dialect=dialect
+            ),
+        )
+
+    first = _run("postgres")
+    config_yaml = yaml.safe_load((out / "config.yaml").read_text(encoding="utf-8"))
+    config_json = json.loads((out / "config.json").read_text(encoding="utf-8"))
+    requirements = (out / "requirements.txt").read_text(encoding="utf-8").splitlines()
+    assert config_yaml["model_defaults"]["dialect"] == "postgres"
+    assert config_json["dialect"] == "postgres"
+    assert "sqlmesh[postgres]" in requirements
+    assert not any(i.code in kept_codes for i in first.issues)
+
+    # The user edits the kept files; a re-run must not touch them.
+    (out / "requirements.txt").write_text(
+        "datavault4sqlmesh==0.1.1\nsqlmesh[postgres]\n", encoding="utf-8"
+    )
+    second = _run("snowflake")
+    config_yaml = yaml.safe_load((out / "config.yaml").read_text(encoding="utf-8"))
+    config_json = json.loads((out / "config.json").read_text(encoding="utf-8"))
+    requirements = (out / "requirements.txt").read_text(encoding="utf-8").splitlines()
+    assert config_yaml["model_defaults"]["dialect"] == "postgres"
+    assert config_json["dialect"] == "postgres"
+    assert requirements == ["datavault4sqlmesh==0.1.1", "sqlmesh[postgres]"]
+    warned = [i for i in second.issues if i.code in kept_codes]
+    assert sorted(i.code for i in warned) == sorted(kept_codes)
+    assert all(i.severity == "warning" for i in warned)
+    assert second.status in ("success", "partial_success")
+
+    # Same settings again: nothing to warn about for kept files.
+    (out / "config.yaml").unlink()
+    (out / "config.json").unlink()
+    (out / "requirements.txt").unlink()
+    _run("snowflake")
+    third = _run("snowflake")
+    assert not any(i.code in kept_codes for i in third.issues)

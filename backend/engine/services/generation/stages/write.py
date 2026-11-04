@@ -67,8 +67,8 @@ def write_artifacts(
             ],
         )
 
-    if output_type == "dbt":
-        return _write_dbt(artifacts, output_path, options)
+    if output_type in ("dbt", "sqlmesh"):
+        return _write_project(artifacts, output_path, options)
     return _write_single_file(artifacts, output_path, output_type, options)
 
 
@@ -97,11 +97,11 @@ def _finalize_dry_run(
 
 
 # ---------------------------------------------------------------------------
-# dbt
+# Multi-file project outputs (dbt and sqlmesh share this writer)
 # ---------------------------------------------------------------------------
 
 
-def _write_dbt(
+def _write_project(
     artifacts: list[GeneratedArtifact],
     output_path: Path,
     options: GenerationOptions,
@@ -116,6 +116,13 @@ def _write_dbt(
             written.append(a)
             continue
         full = output_path / a.path
+
+        # Write-once artifacts are skipped silently when the file already exists
+        # so the user's edits (e.g. filled-in credentials) are never overwritten.
+        if not a.overwrite and full.exists():
+            written.append(a.model_copy(update={"path": str(full), "content": None}))
+            continue
+
         if full in seen_paths:
             issues.append(
                 make_issue(
@@ -154,6 +161,20 @@ def _write_dbt(
                 }
             )
         )
+        # Only config.yaml carries placeholder connection values; other
+        # write-once files (e.g. requirements.txt) are complete as generated.
+        if not a.overwrite and a.path == "config.yaml":
+            issues.append(
+                make_issue(
+                    severity="warning",
+                    code="write.sqlmesh.config_yaml_created",
+                    stage="write",
+                    message=(
+                        f"{a.path} was created with placeholder values — "
+                        "fill in your connection details before running sqlmesh plan."
+                    ),
+                )
+            )
 
     if options.create_zip:
         zip_artifact, zip_issues = _create_zip(output_path)

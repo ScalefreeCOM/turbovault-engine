@@ -292,10 +292,11 @@ dbt project generation and export configuration. All fields are optional — whe
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `dbt_project_dir` | string | No | `exports/dbt_project/` | Override directory where the dbt project is generated |
+| `sqlmesh_output_dir` | string | No | `exports/sqlmesh/` | Override directory where the SQLMesh project is generated |
 | `json_output_dir` | string | No | `exports/json/` | Override directory for JSON exports |
 | `dbml_output_dir` | string | No | `exports/dbml/` | Override directory for DBML exports |
 | `iris_output_dir` | string | No | `exports/iris/` | Override directory for IRiS exports |
-| `create_zip` | boolean | No | `false` | Whether to create a ZIP archive of the generated dbt project |
+| `create_zip` | boolean | No | `false` | Whether to create a ZIP archive of the generated dbt or SQLMesh project |
 | `export_sources` | boolean | No | `true` | Include source system definitions in export |
 
 **Example:**
@@ -315,9 +316,67 @@ output:
 ```yaml
 output:
   dbt_project_dir: "/shared/dbt/customer_mdm"
+  sqlmesh_output_dir: "/shared/sqlmesh/customer_mdm"
   json_output_dir: "./exports/json"
   dbml_output_dir: "./exports/dbml"
   iris_output_dir: "./exports/iris"
+```
+
+#### `output.sqlmesh` — SQLMesh Generator Settings (Optional)
+
+Fine-grained settings for SQLMesh project generation. All fields are optional; defaults produce a working DuckDB-based project.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `dialect` | string | No | `duckdb` | Target SQL dialect (`duckdb`, `postgres`, `snowflake`, `databricks`, `trino`, `bigquery`). Written into `config.json` for datavault4sqlmesh, and into `config.yaml` as `model_defaults.dialect` and the gateway's connection `type`. Set `null` to leave the dialect out and fill it in yourself (the project isn't runnable until then) |
+| `gateway` | string | No | `local` | SQLMesh gateway name written into `config.yaml` |
+| `start` | string | No | `2020-01-01` | Default model start date written into `config.yaml` (ISO 8601) |
+| `requirement` | string | No | `null` | Database driver line written into `requirements.txt`, e.g. `sqlmesh[mssql]`. When unset it is derived from `dialect` (`sqlmesh[postgres]`, `sqlmesh[snowflake]`, …; none for DuckDB or dialects TurboVault doesn't list). Set `""` for no driver line. Only applies while `dialect` is unchanged |
+| `ldts_alias` | string | No | `null` | Alias for the load date timestamp column |
+| `rsrc_alias` | string | No | `null` | Alias for the record source column |
+| `ledts_alias` | string | No | `null` | Alias for the load end date timestamp column |
+| `hash` | string | No | `null` | Hash algorithm override (e.g. `MD5`, `SHA256`) |
+| `end_of_all_times` | string | No | `null` | End-of-all-times sentinel value |
+| `beginning_of_all_times` | string | No | `null` | Beginning-of-all-times sentinel value |
+| `hashkey_input_case_sensitive` | boolean | No | `null` | Whether hashkey inputs are case-sensitive |
+| `hashdiff_input_case_sensitive` | boolean | No | `null` | Whether hashdiff inputs are case-sensitive |
+| `use_trim` | boolean | No | `null` | Whether to trim string columns before hashing |
+| `quote_identifiers` | boolean | No | `null` | Whether to quote SQL identifiers (datavault4sqlmesh default: `true`). Usually leave unset; see the note below |
+| `ghost_record_rsrc` | string | No | `null` | Record source value for ghost records |
+| `ghost_record_error_rsrc` | string | No | `null` | Record source value for ghost error records |
+
+Only non-null values are written into `config.json`. Fields set to `null` are omitted, and datavault4sqlmesh uses its own defaults.
+
+**Existing projects:** these settings only reach `config.yaml`, `config.json` and `requirements.txt` when the files are first created. Re-generating never overwrites them, so your manual edits are kept. If you change a setting here later, generation warns about each kept file that no longer matches. For `config.json` it names the differing keys. Update the files by hand, or delete them and re-generate.
+
+**Identifier case:** SQLMesh normalizes model and column names to the dialect's default case: lower case on PostgreSQL, DuckDB, Trino, Databricks and BigQuery, and upper case on Snowflake. So on PostgreSQL a hub named `rdv.CUSTOMER_H` becomes the table `rdv.customer_h`, with a column `hk_customer_h`. datavault4sqlmesh writes the generated names in the same case, so quoting can stay on. Source schema, table and column references in stage models keep their exact case, so mixed-case source tables still work. This requires a datavault4sqlmesh version that includes this normalization. With an older version, PostgreSQL stage models fail with `column "hk_..." does not exist`, and setting `quote_identifiers: false` works around it. That workaround also unquotes source references, which breaks mixed-case source tables.
+
+**Minimal SQLMesh example (DuckDB, all defaults):**
+```yaml
+output:
+  sqlmesh_output_dir: "./exports/sqlmesh"
+  # output.sqlmesh block can be omitted entirely for DuckDB defaults
+```
+
+**PostgreSQL example:**
+```yaml
+output:
+  sqlmesh:
+    dialect: postgres
+    gateway: prod
+    start: "2023-01-01"
+```
+
+**Snowflake with custom hash and aliasing:**
+```yaml
+output:
+  sqlmesh:
+    dialect: snowflake
+    hash: SHA256
+    ldts_alias: load_dts
+    rsrc_alias: rec_src
+    hashkey_input_case_sensitive: false
+    use_trim: true
 ```
 
 **Path Resolution:**
@@ -326,8 +385,8 @@ output:
 - Relative paths are resolved from the project folder location
 
 **Priority order** (highest → lowest):
-1. CLI flag (`--output`, `--json-output`, `--dbml-output`, `--iris-output`)
-2. Config value in `config.yml` (`output.dbt_project_dir`, etc.)
+1. CLI flag (`--output`, `--sqlmesh-output`, `--json-output`, `--dbml-output`, `--iris-output`)
+2. Config value in `config.yml` (`output.dbt_project_dir`, `output.sqlmesh_output_dir`, etc.)
 3. Convention default (`exports/<type>/` inside the project folder)
 
 ---
