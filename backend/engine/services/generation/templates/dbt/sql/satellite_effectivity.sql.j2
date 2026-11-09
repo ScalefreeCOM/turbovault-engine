@@ -10,6 +10,8 @@
 {%- set yaml_metadata -%}
 source_model: [[ stage_name ]]
 tracked_hashkey: [[ parent_hashkey ]]
+[# Required since datavault4dbt 2.0 (optional in 1.x). false = multi-batch logic, correct whether the stage holds one load or several. #]
+source_is_single_batch: false
 {%- endset -%}
 
 {{ datavault4dbt.eff_sat_v0(yaml_metadata=yaml_metadata) }}
