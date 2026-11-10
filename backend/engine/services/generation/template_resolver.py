@@ -26,6 +26,8 @@ from engine.services.generation.python_literals import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from jinja2 import BaseLoader
 
     from engine.models.templates import ModelTemplate
@@ -181,6 +183,20 @@ def yaml_single_quote(value: object) -> Markup:
     return Markup("'" + text.replace("'", "''") + "'")
 
 
+def quoted_list(values: Iterable[object] | None) -> Markup:
+    """``values`` as a list of single-quoted strings, e.g. ``['a', 'b']``.
+
+    Valid in a dbt ``config()`` call and as a YAML flow sequence. Used for
+    stored model tags, which are validated to hold no quotes, backslashes or
+    whitespace; escaping is kept anyway so a value can never end the string.
+    """
+    quoted = (
+        "'" + str(item).replace("\\", "\\\\").replace("'", "\\'") + "'"
+        for item in values or ()
+    )
+    return Markup("[" + ", ".join(quoted) + "]")
+
+
 def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     """Build the Jinja2 environment shared by template rendering and validation.
 
@@ -190,7 +206,7 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     - [# #] for comments (instead of {# #})
 
     Adds the ``yaml_quote``, ``yaml_scalar`` and ``yaml_single_quote`` filters
-    for writing user text into YAML, and the ``py``, ``py_dict``,
+    for writing user text into YAML, ``quoted_list`` for tag lists, and the ``py``, ``py_dict``,
     ``py_hashed_columns`` and ``py_source_models`` filters for writing Python
     literals into SQLMesh model files.
     """
@@ -210,6 +226,7 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     environment.filters["yaml_quote"] = yaml_quote
     environment.filters["yaml_scalar"] = yaml_scalar
     environment.filters["yaml_single_quote"] = yaml_single_quote
+    environment.filters["quoted_list"] = quoted_list
     environment.filters["py"] = py_literal
     environment.filters["py_dict"] = py_dict_filter
     environment.filters["py_hashed_columns"] = py_hashed_columns_filter

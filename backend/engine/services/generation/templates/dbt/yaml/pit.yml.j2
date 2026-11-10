@@ -5,7 +5,7 @@ models:
   - name: [[ pit_name ]]
     description: "Point-In-Time table for [[ tracked_entity_name ]]"
     config:
-      tags: ['pit', 'business_vault']
+      tags: [% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['pit', 'business_vault'][% endif +%]
     columns:
       - name: [[ tracked_hashkey ]]
         description: "Tracked entity hash key"

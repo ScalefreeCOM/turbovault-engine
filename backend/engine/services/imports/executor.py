@@ -569,6 +569,28 @@ class _Executor:
         # If we have any PITs in the domain and snap is not skipped, ensure one exists.
         if not self.skip_snapshots and self.domain.pits:
             self._ensure_default_snapshot_control()
+        if not self.skip_snapshots:
+            self._apply_snapshot_control_attributes()
+
+    def _apply_snapshot_control_attributes(self) -> None:
+        """Store the output attributes the source gives its snapshot controls.
+
+        Snapshot controls have no plan op of their own (the import creates
+        them on demand for PITs), so the attributes go to the project's
+        control table with the same base name, when there is one.
+        """
+        tables = list(SnapshotControlTable.objects.filter(project=self.project))
+        for control_d in self.domain.snapshot_controls.values():
+            if control_d.output_attributes is None:
+                continue
+            base_name = _snapshot_base_name(control_d.name)
+            for table in tables:
+                if (
+                    _snapshot_base_name(table.name) == base_name
+                    and table.output_attributes != control_d.output_attributes
+                ):
+                    table.output_attributes = control_d.output_attributes
+                    table.save(update_fields=["output_attributes", "updated_at"])
 
     def _run_op(self, index: int, op: Any, apply: Callable[[Any], None]) -> None:
         """Apply one op in its own savepoint, recording what it did.
@@ -695,6 +717,7 @@ class _Executor:
                 load_date_value=table_d.load_date_value,
                 static_part_of_record_source=table_d.static_part_of_record_source,
                 description=table_d.description,
+                output_attributes=table_d.output_attributes,
             ),
             existing=self._tables_by_key.get(table_key, LOOKUP),
         )
@@ -1024,7 +1047,9 @@ class _Executor:
                 "create_record_tracking_satellite": d.create_record_tracking_satellite,
                 "create_effectivity_satellite": d.create_effectivity_satellite,
                 "group": group,
-                **_only_supplied(description=d.description),
+                **_only_supplied(
+                    description=d.description, output_attributes=d.output_attributes
+                ),
             },
             existing=self._hubs_by_name.get(d.physical_name, LOOKUP),
         )
@@ -1202,7 +1227,9 @@ class _Executor:
                 ),
                 "create_record_tracking_satellite": d.create_record_tracking_satellite,
                 "group": group,
-                **_only_supplied(description=d.description),
+                **_only_supplied(
+                    description=d.description, output_attributes=d.output_attributes
+                ),
             },
             existing=self._links_by_name.get(d.physical_name, LOOKUP),
         )
@@ -1477,7 +1504,9 @@ class _Executor:
                 "parent_link": parent_link,
                 "source_table": source_table,
                 "group": group,
-                **_only_supplied(description=d.description),
+                **_only_supplied(
+                    description=d.description, output_attributes=d.output_attributes
+                ),
             },
             existing=self._satellites_by_name.get(d.physical_name, LOOKUP),
         )
@@ -1552,7 +1581,9 @@ class _Executor:
                 "reference_hub": hub,
                 "historization_type": d.historization_type,
                 "group": group,
-                **_only_supplied(description=d.description),
+                **_only_supplied(
+                    description=d.description, output_attributes=d.output_attributes
+                ),
             },
         )
 
@@ -1686,6 +1717,7 @@ class _Executor:
                 "pit_type": d.pit_type,
                 "custom_record_source": d.custom_record_source,
                 "group": group,
+                **_only_supplied(output_attributes=d.output_attributes),
             },
         )
 

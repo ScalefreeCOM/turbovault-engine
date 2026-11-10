@@ -8,8 +8,118 @@ that can be serialized to various output formats (JSON, dbt, DBML, etc.).
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
+
+from engine.models.output_attributes import (
+    OUTPUT_KINDS_BY_ENTITY,
+    output_attribute_errors,
+)
+
+# =============================================================================
+# Output Attributes
+# =============================================================================
+
+
+class ModelOutputAttributes(BaseModel):
+    """File path, name and config of one generated model.
+
+    Set for models imported from an existing project, so generation writes
+    them where and as they were. Every attribute is optional; generation
+    derives what is missing as for any other model.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+        serialize_by_alias=True,
+        # `model_name` is a field here, not pydantic API.
+        protected_namespaces=(),
+    )
+
+    model_name: str | None = Field(
+        default=None, description="Model name; also the file name without .sql"
+    )
+    alias: str | None = Field(default=None, description="Relation name (dbt alias)")
+    file_path: str | None = Field(
+        default=None,
+        description=(
+            "Path of the model's .sql file relative to models/, with forward "
+            "slashes (e.g. 'raw_vault/hubs/hub_customer.sql'). The .yml is "
+            "written next to it"
+        ),
+    )
+    materialized: str | None = Field(default=None, description="Materialization")
+    tags: list[str] | None = Field(
+        default=None,
+        description="Tags; replace the tags generation would set when given",
+    )
+    schema_name: str | None = Field(
+        default=None, alias="schema", description="Schema (dbt custom schema)"
+    )
+    database: str | None = Field(default=None, description="Database")
+
+    @model_validator(mode="after")
+    def _check_values(self) -> ModelOutputAttributes:
+        errors = output_attribute_errors(self.as_stored())
+        if errors:
+            raise ValueError("; ".join(errors))
+        return self
+
+    @model_serializer(mode="wrap")
+    def _drop_unset(self, handler: SerializerFunctionWrapHandler) -> dict:
+        # Unset attributes mean "derive it"; leaving them out keeps exports short.
+        return {
+            name: value for name, value in handler(self).items() if value is not None
+        }
+
+    def as_stored(self) -> dict[str, object]:
+        """The attributes as stored in an entity's ``output_attributes``."""
+        return self.model_dump(exclude_none=True, by_alias=True)
+
+
+def _output_kinds_of(entity: str) -> AfterValidator:
+    """Reject output kinds the entity does not generate."""
+    allowed = OUTPUT_KINDS_BY_ENTITY[entity]
+
+    def check(value: dict[str, ModelOutputAttributes]) -> dict:
+        unknown = [kind for kind in value if kind not in allowed]
+        if unknown:
+            raise ValueError(
+                f"unknown output kind(s) {', '.join(unknown)}; "
+                f"expected one of: {', '.join(allowed)}"
+            )
+        return value
+
+    return AfterValidator(check)
+
+
+# `output_attributes` of each entity definition, keyed by output kind.
+_ByKind = dict[str, ModelOutputAttributes]
+StageOutputAttributes = Annotated[_ByKind, _output_kinds_of("SourceTable")]
+HubOutputAttributes = Annotated[_ByKind, _output_kinds_of("Hub")]
+LinkOutputAttributes = Annotated[_ByKind, _output_kinds_of("Link")]
+SatelliteOutputAttributes = Annotated[_ByKind, _output_kinds_of("Satellite")]
+PITOutputAttributes = Annotated[_ByKind, _output_kinds_of("PIT")]
+ReferenceTableOutputAttributes = Annotated[_ByKind, _output_kinds_of("ReferenceTable")]
+SnapshotControlOutputAttributes = Annotated[
+    _ByKind, _output_kinds_of("SnapshotControlTable")
+]
+
+_OUTPUT_ATTRIBUTES_DESCRIPTION = (
+    "File path, name and config of the generated model(s), keyed by output "
+    "kind. Empty: generation derives them"
+)
+
 
 # =============================================================================
 # Source Layer Models
@@ -183,6 +293,9 @@ class HubDefinition(BaseModel):
     column_descriptions: dict[str, ColumnDescriptionDef] = Field(
         default_factory=dict,
         description="Descriptions by hub column name, for columns that have one",
+    )
+    output_attributes: HubOutputAttributes = Field(
+        default_factory=dict, description=_OUTPUT_ATTRIBUTES_DESCRIPTION
     )
 
 
@@ -364,6 +477,9 @@ class LinkDefinition(BaseModel):
         default_factory=dict,
         description="Descriptions by link column name, for columns that have one",
     )
+    output_attributes: LinkOutputAttributes = Field(
+        default_factory=dict, description=_OUTPUT_ATTRIBUTES_DESCRIPTION
+    )
 
 
 # =============================================================================
@@ -502,6 +618,9 @@ class StageDefinition(BaseModel):
     columns: list[SourceColumnDef] = Field(
         default_factory=list, description="Source columns available in this stage"
     )
+    output_attributes: StageOutputAttributes = Field(
+        default_factory=dict, description=_OUTPUT_ATTRIBUTES_DESCRIPTION
+    )
 
 
 # =============================================================================
@@ -570,6 +689,9 @@ class SatelliteDefinition(BaseModel):
         default_factory=list, description="Satellite columns"
     )
     description: str | None = None
+    output_attributes: SatelliteOutputAttributes = Field(
+        default_factory=dict, description=_OUTPUT_ATTRIBUTES_DESCRIPTION
+    )
 
 
 # =============================================================================
@@ -617,6 +739,9 @@ class ReferenceTableDefinition(BaseModel):
         default_factory=list, description="Reference satellite assignments"
     )
     description: str | None = None
+    output_attributes: ReferenceTableOutputAttributes = Field(
+        default_factory=dict, description=_OUTPUT_ATTRIBUTES_DESCRIPTION
+    )
 
 
 class PITDefinition(BaseModel):
@@ -644,6 +769,9 @@ class PITDefinition(BaseModel):
     include_business_objects_before_appearance: bool = Field(
         default=False,
         description="Whether to include business keys before first appearance",
+    )
+    output_attributes: PITOutputAttributes = Field(
+        default_factory=dict, description=_OUTPUT_ATTRIBUTES_DESCRIPTION
     )
 
 
@@ -685,6 +813,9 @@ class SnapshotControlDefinition(BaseModel):
     daily_time: str = Field(description="Daily snapshot execution time (HH:MM:SS)")
     logic_patterns: list[SnapshotLogicPattern] = Field(
         default_factory=list, description="List of snapshot logic patterns"
+    )
+    output_attributes: SnapshotControlOutputAttributes = Field(
+        default_factory=dict, description=_OUTPUT_ATTRIBUTES_DESCRIPTION
     )
 
     @property

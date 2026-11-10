@@ -1,19 +1,25 @@
 [# Snapshot Control V1 Template #]
 [# Generates the snapshot control logic with retention patterns #]
 
-[# Compute v0_name from name (remove any suffix and add _v0) #]
-[% set base_name = name.replace('_v0', '').replace('_v1', '') %]
-[% set control_v0_name = base_name ~ '_v0' -%]
-
+[# v0_name: model name of the snapshot control v0 model this one reads #]
 {{ config(
 [% if materialization %]
     materialized='[[ materialization ]]',
 [% endif %]
-    tags=['snapshot_control', 'control']
+[% if model_alias %]
+    alias='[[ model_alias ]]',
+[% endif %]
+[% if model_schema %]
+    schema='[[ model_schema ]]',
+[% endif %]
+[% if model_database %]
+    database='[[ model_database ]]',
+[% endif %]
+    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['snapshot_control', 'control'][% endif +%]
 ) }}
 
 {%- set yaml_metadata -%}
-control_snap_v0: [[ control_v0_name ]]
+control_snap_v0: [[ v0_name ]]
 log_logic:
 [% for pattern in logic_patterns %]
     [[ pattern.component ]]:

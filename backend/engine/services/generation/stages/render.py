@@ -124,6 +124,7 @@ def _build_dbt_config(
         project_name=(project_name or "turbovault_project").lower().replace(" ", "_"),
         profile_name=runtime_config.profile_name,
         generate_satellite_v1_views=options.generate_satellite_v1_views,
+        use_original_paths=options.use_original_paths,
         satellite_v0_naming=runtime_config.satellite_v0_naming,
         satellite_v1_naming=runtime_config.satellite_v1_naming,
         record_tracking_satellite_naming=runtime_config.record_tracking_satellite_naming,
@@ -205,6 +206,7 @@ _LEGACY_ERROR_CODE_MAP: dict[str, str] = {
     "PRF_001": Code.RENDER_INVALID_PROFILES,
     "PRF_002": Code.RENDER_LITERAL_SECRET_IN_PROFILE,
     "MAT_001": Code.RENDER_INVALID_MATERIALIZATION,
+    "PTH_001": Code.WRITE_PATH_COLLISION,
 }
 
 

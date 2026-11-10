@@ -11,6 +11,8 @@ from collections import defaultdict
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
 from engine.services.export.models import (
     ColumnDescriptionDef,
     DerivedColumnDef,
@@ -23,6 +25,7 @@ from engine.services.export.models import (
     LinkHubReferenceDefinition,
     LinkSourceHashkeyMapping,
     LinkSourceInfo,
+    ModelOutputAttributes,
     MultiActiveConfig,
     PITDefinition,
     PrejoinCondition,
@@ -52,6 +55,8 @@ from engine.services.sql_columns import referenced_columns
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+    from django.db.models import Model
 
     from engine.models import Project, SourceTable, StagingColumn
 
@@ -96,6 +101,24 @@ def _prejoin_origin(staging_column: StagingColumn) -> tuple[str | None, str | No
         return None, None
     target = prejoin_column.prejoin.prejoin_target_table
     return target.physical_table_name, target.source_system.name
+
+
+def _output_attributes(entity: Model, label: str) -> dict[str, ModelOutputAttributes]:
+    """The entity's stored output attributes, checked, keyed by output kind.
+
+    Raises ValueError naming the entity when a stored value is invalid (e.g.
+    written to the database without going through validation).
+    """
+    stored = entity.output_attributes or {}
+    try:
+        return {
+            kind: ModelOutputAttributes.model_validate(attributes)
+            for kind, attributes in stored.items()
+        }
+    except ValidationError as exc:
+        raise ValueError(
+            f"Invalid output attributes on {label} '{entity}': {exc}"
+        ) from exc
 
 
 class ModelBuilder:
@@ -330,6 +353,7 @@ class ModelBuilder:
                     create_effectivity_satellite=hub.create_effectivity_satellite,
                     description=hub.description or None,
                     column_descriptions=column_descriptions,
+                    output_attributes=_output_attributes(hub, "hub"),
                 )
             )
 
@@ -499,6 +523,7 @@ class ModelBuilder:
                     multi_active_config=multi_active_config,
                     derived_columns=derived_columns,
                     columns=columns,
+                    output_attributes=_output_attributes(table, "source table"),
                 )
             )
 
@@ -1189,6 +1214,7 @@ class ModelBuilder:
                     hashdiff_name=hashdiff_name,
                     columns=columns,
                     description=sat.description or None,
+                    output_attributes=_output_attributes(sat, "satellite"),
                 )
             )
 
@@ -1406,6 +1432,7 @@ class ModelBuilder:
                     create_record_tracking_satellite=link.create_record_tracking_satellite,
                     description=link.description or None,
                     column_descriptions=column_descriptions,
+                    output_attributes=_output_attributes(link, "link"),
                 )
             )
 
@@ -1448,6 +1475,7 @@ class ModelBuilder:
                     end_date=control.snapshot_end_date.isoformat(),
                     daily_time=control.daily_snapshot_time.isoformat(),
                     logic_patterns=logic_patterns,
+                    output_attributes=_output_attributes(control, "snapshot control"),
                 )
             )
 
@@ -1543,6 +1571,7 @@ class ModelBuilder:
                     snapshot_logic_column=snapshot_logic_column,
                     satellites=satellite_assignments,
                     description=ref_table.description or None,
+                    output_attributes=_output_attributes(ref_table, "reference table"),
                 )
             )
 
@@ -1613,6 +1642,7 @@ class ModelBuilder:
                     pit_type=pit.pit_type,
                     use_snapshot_optimization=pit.use_snapshot_optimization,
                     include_business_objects_before_appearance=pit.include_business_objects_before_appearance,
+                    output_attributes=_output_attributes(pit, "PIT"),
                 )
             )
 

@@ -4,7 +4,16 @@
 [% if materialization %]
     materialized='[[ materialization ]]',
 [% endif %]
-    tags=['snapshot_control', 'control']
+[% if model_alias %]
+    alias='[[ model_alias ]]',
+[% endif %]
+[% if model_schema %]
+    schema='[[ model_schema ]]',
+[% endif %]
+[% if model_database %]
+    database='[[ model_database ]]',
+[% endif %]
+    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['snapshot_control', 'control'][% endif +%]
 ) }}
 
 {%- set yaml_metadata -%}

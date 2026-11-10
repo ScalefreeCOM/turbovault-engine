@@ -141,6 +141,11 @@ class GenerationConfig:
     record_tracking_satellite_naming: str = "[[ satellite_name ]]_ts"
     effectivity_satellite_naming: str = "[[ satellite_name ]]_es"
 
+    # Write models with their stored output attributes (file path, model name,
+    # config), e.g. those of the project they were imported from. Off: every
+    # model gets Turbovault's standard folders and naming patterns.
+    use_original_paths: bool = True
+
     # Schemas
     stage_schema: str = "stage"
     rdv_schema: str = "rdv"

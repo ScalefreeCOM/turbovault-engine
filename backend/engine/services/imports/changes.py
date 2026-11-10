@@ -93,6 +93,9 @@ def display(value: Any) -> Any:
     """A JSON-native form of a field value for the report."""
     if value is None or isinstance(value, bool | int | float | str):
         return value
+    if isinstance(value, dict | list):
+        # JSON fields (output attributes) are already JSON-native.
+        return value
     if isinstance(value, models.Model):
         attr = _LABEL_ATTRS.get(type(value).__name__)
         return getattr(value, attr) if attr else str(value.pk)

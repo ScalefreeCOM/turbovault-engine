@@ -9,10 +9,20 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from pydantic import ValidationError
 
-from engine.services.export.models import ProjectExport
+from engine.services.export.models import (
+    HubDefinition,
+    LinkDefinition,
+    PITDefinition,
+    ProjectExport,
+    ReferenceTableDefinition,
+    SatelliteDefinition,
+    SnapshotControlDefinition,
+    StageDefinition,
+)
 from engine.services.imports.domain import (
     DPIT,
     DDerivedColumn,
@@ -112,6 +122,30 @@ def parse_json(path: Path) -> DomainModel:
 # ---------------------------------------------------------------------------
 
 
+def _output_attributes(
+    definition: (
+        HubDefinition
+        | LinkDefinition
+        | SatelliteDefinition
+        | StageDefinition
+        | PITDefinition
+        | ReferenceTableDefinition
+        | SnapshotControlDefinition
+    ),
+) -> dict[str, dict[str, Any]] | None:
+    """The definition's output attributes as stored, or None when it has none.
+
+    Exports from before output attributes existed don't carry the field; None
+    then keeps what the project has.
+    """
+    if "output_attributes" not in definition.model_fields_set:
+        return None
+    return {
+        kind: attributes.as_stored()
+        for kind, attributes in definition.output_attributes.items()
+    }
+
+
 def _project_export_to_domain(export: ProjectExport) -> DomainModel:
     model = DomainModel()
 
@@ -193,6 +227,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             create_effectivity_satellite=hub_def.create_effectivity_satellite,
             group_name=hub_def.group,
             description=hub_def.description,
+            output_attributes=_output_attributes(hub_def),
         )
         for i, col_name in enumerate(hub_def.business_key_columns):
             hub.columns.append(
@@ -260,6 +295,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             create_record_tracking_satellite=link_def.create_record_tracking_satellite,
             group_name=link_def.group,
             description=link_def.description,
+            output_attributes=_output_attributes(link_def),
         )
         for i, ref in enumerate(link_def.hub_references):
             link.hub_references.append(
@@ -425,6 +461,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             source_table_identifier=f"{sat_def.source_system}|{sat_def.source_table}",
             group_name=sat_def.group,
             description=sat_def.description,
+            output_attributes=_output_attributes(sat_def),
         )
         for i, col_def in enumerate(sat_def.columns):
             sat.columns.append(
@@ -448,6 +485,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             start_date=ctrl.start_date,
             end_date=ctrl.end_date,
             daily_time=ctrl.daily_time,
+            output_attributes=_output_attributes(ctrl),
         )
         for pattern in ctrl.logic_patterns:
             sc.logic_rules.append(
@@ -471,6 +509,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             snapshot_logic_column=rt_def.snapshot_logic_column,
             group_name=rt_def.group,
             description=rt_def.description,
+            output_attributes=_output_attributes(rt_def),
             satellite_assignments=[
                 DRefSatAssignment(
                     satellite_name=s.satellite_name,
@@ -500,7 +539,18 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             dimension_key_column_name=pit_def.dimension_key_column,
             pit_type=pit_def.pit_type,
             group_name=pit_def.group,
+            output_attributes=_output_attributes(pit_def),
         )
+
+    # A stage's output attributes belong to its source table.
+    for stage in export.stages:
+        attributes = _output_attributes(stage)
+        if attributes is None:
+            continue
+        system = model.source_systems.get(stage.source_system)
+        table = system.tables.get(stage.source_table) if system else None
+        if table is not None:
+            table.output_attributes = attributes
 
     # Prejoins are embedded in stage definitions in JSON exports.
     for stage in export.stages:

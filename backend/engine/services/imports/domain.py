@@ -19,7 +19,7 @@ Why a separate layer (rather than feeding raw IR straight to the planner)?
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 # ---------------------------------------------------------------------------
 # Source metadata
@@ -66,6 +66,8 @@ class DSourceTable:
     # Keyed by lowercased name. None when the format carries no derived
     # columns, so the table's existing ones are left alone.
     derived_columns: dict[str, DDerivedColumn] | None = None
+    # Output kind -> attributes; None: the format carries none, keep the stored ones.
+    output_attributes: dict[str, dict[str, Any]] | None = None
 
 
 @dataclass(slots=True)
@@ -120,6 +122,8 @@ class DHub:
     group_name: str | None = None
     description: str | None = None
     columns: list[DHubColumn] = field(default_factory=list)
+    # Output kind -> attributes; None: the format carries none, keep the stored ones.
+    output_attributes: dict[str, dict[str, Any]] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +194,8 @@ class DLink:
     hub_references: list[DLinkHubReference] = field(default_factory=list)
     columns: list[DLinkColumn] = field(default_factory=list)
     hub_source_mappings: list[DLinkHubSourceMapping] = field(default_factory=list)
+    # Output kind -> attributes; None: the format carries none, keep the stored ones.
+    output_attributes: dict[str, dict[str, Any]] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +228,8 @@ class DSatellite:
     group_name: str | None = None
     description: str | None = None
     columns: list[DSatelliteColumn] = field(default_factory=list)
+    # Output kind -> attributes; None: the format carries none, keep the stored ones.
+    output_attributes: dict[str, dict[str, Any]] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +253,8 @@ class DSnapshotControl:
     end_date: str | None = None
     daily_time: str | None = None  # ISO time
     logic_rules: list[DSnapshotControlLogic] = field(default_factory=list)
+    # Output kind -> attributes; None: the format carries none, keep the stored ones.
+    output_attributes: dict[str, dict[str, Any]] | None = None
 
 
 @dataclass(slots=True)
@@ -264,6 +274,8 @@ class DReferenceTable:
     group_name: str | None = None
     description: str | None = None
     satellite_assignments: list[DRefSatAssignment] = field(default_factory=list)
+    # Output kind -> attributes; None: the format carries none, keep the stored ones.
+    output_attributes: dict[str, dict[str, Any]] | None = None
 
 
 @dataclass(slots=True)
@@ -278,6 +290,8 @@ class DPIT:
     pit_type: str | None = None
     custom_record_source: str | None = None
     group_name: str | None = None
+    # Output kind -> attributes; None: the format carries none, keep the stored ones.
+    output_attributes: dict[str, dict[str, Any]] | None = None
 
 
 # ---------------------------------------------------------------------------

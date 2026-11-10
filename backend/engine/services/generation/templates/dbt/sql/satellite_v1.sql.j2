@@ -5,14 +5,23 @@
 [% if materialization %]
     materialized='[[ materialization ]]',
 [% endif %]
-    tags=['satellite', 'v1', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+[% if model_alias %]
+    alias='[[ model_alias ]]',
+[% endif %]
+[% if model_schema %]
+    schema='[[ model_schema ]]',
+[% endif %]
+[% if model_database %]
+    database='[[ model_database ]]',
+[% endif %]
+    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['satellite', 'v1', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
 ) }}
 
 [# Determine which macro to use based on satellite_type #]
 [% if satellite_type == 'reference' %]
 [# Reference Satellite V1 #]
 {%- set yaml_metadata -%}
-ref_sat_v0: [[ satellite_name ]]_v0
+ref_sat_v0: [[ v0_name ]]
 ref_keys:
 [% for bk in parent_business_keys %]
     - [[ bk ]]
@@ -26,7 +35,7 @@ add_is_current_flag: true
 [% elif satellite_type == 'multi_active' %]
 [# Multi-Active Satellite V1 #]
 {%- set yaml_metadata -%}
-sat_v0: [[ satellite_name ]]_v0
+sat_v0: [[ v0_name ]]
 hashkey: [[ parent_hashkey ]]
 hashdiff: [[ hashdiff_name ]]
 ma_attribute:
@@ -41,7 +50,7 @@ add_is_current_flag: true
 [% else %]
 [# Standard / Effectivity Satellite V1 #]
 {%- set yaml_metadata -%}
-sat_v0: [[ satellite_name ]]_v0
+sat_v0: [[ v0_name ]]
 hashkey: [[ parent_hashkey ]]
 hashdiff: [[ hashdiff_name ]]
 add_is_current_flag: true

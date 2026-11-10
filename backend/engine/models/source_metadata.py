@@ -13,6 +13,7 @@ import uuid
 
 from django.db import models
 
+from engine.models.output_attributes import output_attributes_field
 from engine.models.project import Project
 
 
@@ -169,6 +170,8 @@ class SourceTable(models.Model):
         null=True,
         help_text="Optional description of the source table, written to the generated dbt docs",
     )
+
+    output_attributes = output_attributes_field("SourceTable")
 
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the source table was created"
