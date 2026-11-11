@@ -51,10 +51,16 @@ def render(
     output_type: OutputType,
     runtime_config: EngineRuntimeConfig,
     options: GenerationOptions,
+    reference_export: ProjectExport | None = None,
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
-    """Produce artifacts (in memory) and any render-stage issues."""
+    """Produce artifacts (in memory) and any render-stage issues.
+
+    `project_export` holds the entities to render; `reference_export` is the
+    unfiltered export the dbt renderer resolves cross-model references
+    against (defaults to `project_export`).
+    """
     if output_type == "dbt":
-        return _render_dbt(project_export, runtime_config, options)
+        return _render_dbt(project_export, runtime_config, options, reference_export)
     if output_type == "json":
         return _render_json(project_export, options)
     if output_type == "dbml":
@@ -84,6 +90,7 @@ def _render_dbt(
     project_export: ProjectExport,
     runtime_config: EngineRuntimeConfig,
     options: GenerationOptions,
+    reference_export: ProjectExport | None = None,
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
     config = _build_dbt_config(runtime_config, options)
     template_resolver = TemplateResolver(
@@ -103,7 +110,7 @@ def _render_dbt(
             config=config,
             template_resolver=template_resolver,
         )
-        legacy_report = generator.generate(project_export)
+        legacy_report = generator.generate(project_export, reference_export)
 
         artifacts = _collect_dbt_artifacts(temp_root, legacy_report)
         issues = _translate_dbt_issues(legacy_report)

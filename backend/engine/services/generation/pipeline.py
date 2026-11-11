@@ -163,6 +163,7 @@ def run_pipeline(
             output_type=output_type,
             runtime_config=runtime_config,
             options=options,
+            reference_export=project_export,
         )
         artifacts = rendered
         issues.extend(render_issues)

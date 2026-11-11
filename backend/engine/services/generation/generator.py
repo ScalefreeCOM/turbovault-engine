@@ -123,12 +123,21 @@ class DbtProjectGenerator:
         # Initialize report
         self.report = GenerationReport(project_path=self.output_path)
 
-    def generate(self, project_export: ProjectExport) -> GenerationReport:
+    def generate(
+        self,
+        project_export: ProjectExport,
+        reference_export: ProjectExport | None = None,
+    ) -> GenerationReport:
         """
         Generate complete dbt project from export data.
 
         Args:
-            project_export: The project export containing all entity definitions.
+            project_export: The project export containing the entities to
+                generate (possibly narrowed by an entity selection).
+            reference_export: The full, unfiltered export. References to
+                models (a PIT's satellites, a reference table's hub, ...) are
+                resolved against it, so they keep the stored names of models
+                the selection left out. Defaults to ``project_export``.
 
         Returns:
             GenerationReport with results, counts, and any errors/warnings.
@@ -205,8 +214,13 @@ class DbtProjectGenerator:
 
         # Resolve every model's name and file before writing anything: a
         # collision found mid-run would leave one model overwriting another.
-        self.outputs = resolve_model_outputs(project_export, self.config)
-        collisions = self.outputs.collisions()
+        # Collisions are checked across the models this run writes; names are
+        # resolved across the whole project, as a selected model may reference
+        # one the selection left out.
+        collisions = resolve_model_outputs(project_export, self.config).collisions()
+        self.outputs = resolve_model_outputs(
+            reference_export or project_export, self.config
+        )
         if collisions:
             for message in collisions:
                 self.report.add_error(
