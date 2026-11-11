@@ -577,20 +577,57 @@ class _Executor:
 
         Snapshot controls have no plan op of their own (the import creates
         them on demand for PITs), so the attributes go to the project's
-        control table with the same base name, when there is one.
+        control table with the same base name, when there is one. Having no
+        plan entry, a change is reported as an info issue, and attributes
+        without a matching table as a warning rather than dropped silently.
         """
         tables = list(SnapshotControlTable.objects.filter(project=self.project))
         for control_d in self.domain.snapshot_controls.values():
             if control_d.output_attributes is None:
                 continue
             base_name = _snapshot_base_name(control_d.name)
-            for table in tables:
-                if (
-                    _snapshot_base_name(table.name) == base_name
-                    and table.output_attributes != control_d.output_attributes
-                ):
-                    table.output_attributes = control_d.output_attributes
-                    table.save(update_fields=["output_attributes", "updated_at"])
+            matching = [t for t in tables if _snapshot_base_name(t.name) == base_name]
+            if not matching:
+                if control_d.output_attributes:
+                    self.issues.append(
+                        make_issue(
+                            severity="warning",
+                            code=Code.EXECUTE_SNAPSHOT_CONTROL_NOT_FOUND,
+                            stage="execute",
+                            entity=EntityRef(
+                                type="snapshot_control", name=control_d.name
+                            ),
+                            message=(
+                                f"Output attributes of snapshot control "
+                                f"'{control_d.name}' were not stored: the project "
+                                "has no snapshot control with that name."
+                            ),
+                            suggestion=(
+                                "Import a PIT that uses it, or rename the "
+                                "project's snapshot control to match."
+                            ),
+                        )
+                    )
+                continue
+            for table in matching:
+                if table.output_attributes == control_d.output_attributes:
+                    continue
+                before = table.output_attributes
+                table.output_attributes = control_d.output_attributes
+                table.save(update_fields=["output_attributes", "updated_at"])
+                self.issues.append(
+                    make_issue(
+                        severity="info",
+                        code=Code.EXECUTE_SNAPSHOT_CONTROL_ATTRIBUTES_UPDATED,
+                        stage="execute",
+                        entity=EntityRef(type="snapshot_control", name=table.name),
+                        message=(
+                            f"Output attributes of snapshot control "
+                            f"'{table.name}' changed from {before or {}} to "
+                            f"{control_d.output_attributes or {}}."
+                        ),
+                    )
+                )
 
     def _run_op(self, index: int, op: Any, apply: Callable[[Any], None]) -> None:
         """Apply one op in its own savepoint, recording what it did.

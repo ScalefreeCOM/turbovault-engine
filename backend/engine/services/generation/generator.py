@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from engine.services.config_schema import MODEL_MATERIALIZATION_DEFAULTS
@@ -317,18 +317,6 @@ class DbtProjectGenerator:
         )
         return None if value == layer_value else value
 
-    def _layer_root(self, layer: str) -> PurePosixPath:
-        """The folder dbt_project.yml configures for `layer`."""
-        folders = self.folder_config
-        return PurePosixPath(
-            {
-                "staging": folders.staging_path,
-                "raw_vault": folders.raw_vault_path,
-                "business_vault": folders.business_vault_path,
-                "control": folders.control_path,
-            }[layer]
-        )
-
     def _model_config(self, output: ModelOutput) -> dict[str, Any]:
         """Template variables for the model's name and its config() block.
 
@@ -341,7 +329,7 @@ class DbtProjectGenerator:
             output.kind
         )
         schema = output.schema
-        if not output.directory.is_relative_to(self._layer_root(layer)):
+        if not output.directory.is_relative_to(self.folder_config.layer_dir(layer)):
             materialization = materialization or getattr(
                 self.config, f"{layer}_materialization"
             )
@@ -390,42 +378,73 @@ class DbtProjectGenerator:
         References to satellite v0/v1 models are passed to the templates as
         their own variables (`v0_name`, `v1_name`, `satellite_v0_names`), as
         the templates also need the satellite's base name.
+
+        Only the definitions holding such references are copied, shallowly,
+        with the resolved names: the caller's export stays untouched without
+        deep-copying every column, mapping and description.
         """
-        export = project_export.model_copy(deep=True)
         outputs = self.outputs
 
         def stage(name: str) -> str:
             return outputs.name("stage", name, name)
 
-        for hub in export.hubs:
-            for source in hub.source_tables:
-                source.stage_name = stage(source.stage_name)
-        for link in export.links:
-            for source in link.source_tables:
-                source.stage_name = stage(source.stage_name)
-        for satellite in export.satellites:
-            satellite.stage_name = stage(satellite.stage_name)
+        def with_stages(entity: Any) -> Any:
+            return entity.model_copy(
+                update={
+                    "source_tables": [
+                        source.model_copy(
+                            update={"stage_name": stage(source.stage_name)}
+                        )
+                        for source in entity.source_tables
+                    ]
+                }
+            )
 
         control_v1_names = {
             control.v1_name: outputs.name(
                 "snapshot_control_v1", control.name, control.v1_name
             )
-            for control in export.snapshot_controls
+            for control in project_export.snapshot_controls
         }
-        for pit in export.pits:
-            pit.tracked_entity_name = outputs.name(
-                pit.tracked_entity_type,
-                pit.tracked_entity_name,
-                pit.tracked_entity_name,
-            )
-            pit.snapshot_control_name = control_v1_names.get(
-                pit.snapshot_control_name, pit.snapshot_control_name
-            )
-        for ref_table in export.reference_tables:
-            ref_table.reference_hub_name = outputs.name(
-                "hub", ref_table.reference_hub_name, ref_table.reference_hub_name
-            )
-        return export
+        return project_export.model_copy(
+            update={
+                "hubs": [with_stages(hub) for hub in project_export.hubs],
+                "links": [with_stages(link) for link in project_export.links],
+                "satellites": [
+                    satellite.model_copy(
+                        update={"stage_name": stage(satellite.stage_name)}
+                    )
+                    for satellite in project_export.satellites
+                ],
+                "pits": [
+                    pit.model_copy(
+                        update={
+                            "tracked_entity_name": outputs.name(
+                                pit.tracked_entity_type,
+                                pit.tracked_entity_name,
+                                pit.tracked_entity_name,
+                            ),
+                            "snapshot_control_name": control_v1_names.get(
+                                pit.snapshot_control_name, pit.snapshot_control_name
+                            ),
+                        }
+                    )
+                    for pit in project_export.pits
+                ],
+                "reference_tables": [
+                    ref_table.model_copy(
+                        update={
+                            "reference_hub_name": outputs.name(
+                                "hub",
+                                ref_table.reference_hub_name,
+                                ref_table.reference_hub_name,
+                            )
+                        }
+                    )
+                    for ref_table in project_export.reference_tables
+                ],
+            }
+        )
 
     def _satellite_v0_name(self, satellite_name: str) -> str:
         """Model name of a satellite's v0 model, as referenced by others."""
@@ -537,12 +556,11 @@ class DbtProjectGenerator:
         template = self.template_resolver.get_project_template("sources.yml")
 
         for source in sources:
-            source_name = self.folder_config._sanitize_name(source.name)
+            source_name = self.folder_config.sanitize_name(source.name)
             if template:
                 content = template.render(source=source)
-                path = (
-                    self.folder_config.get_source_path(self.output_path)
-                    / f"source__{source_name}.yml"
+                path = self.output_path.joinpath(
+                    *self.folder_config.source_file(source.name).parts
                 )
                 write_yaml_file(path, content)
                 self.report.add_file(path, "source", f"source__{source_name}", "yaml")

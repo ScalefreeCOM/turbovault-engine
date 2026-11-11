@@ -125,6 +125,11 @@ Templates can be customized via Django Admin:
 
 The generator checks database templates first, then falls back to file-based defaults.
 
+Custom templates must take model names, references and per-model config from
+the template variables (`model_name`, `model_alias`, `v0_name`,
+`satellite_v0_names`, ...) instead of building names themselves; see "Model
+names, references and config (dbt)" in `docs/02_getting-started/04_admin-guide.md`.
+
 ## Using the Generated Project
 
 After generation:

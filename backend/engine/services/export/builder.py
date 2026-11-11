@@ -13,6 +13,10 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
+from engine.models.output_attributes import (
+    OUTPUT_KINDS_BY_ENTITY,
+    output_attributes_errors,
+)
 from engine.services.export.models import (
     ColumnDescriptionDef,
     DerivedColumnDef,
@@ -110,6 +114,15 @@ def _output_attributes(entity: Model, label: str) -> dict[str, ModelOutputAttrib
     written to the database without going through validation).
     """
     stored = entity.output_attributes or {}
+    # Checked here, kinds included, so a bad value names its entity instead of
+    # failing later in the export schema's validators.
+    errors = output_attributes_errors(
+        stored, OUTPUT_KINDS_BY_ENTITY[type(entity).__name__]
+    )
+    if errors:
+        raise ValueError(
+            f"Invalid output attributes on {label} '{entity}': {'; '.join(errors)}"
+        )
     try:
         return {
             kind: ModelOutputAttributes.model_validate(attributes)

@@ -76,6 +76,8 @@ the planned diff. They never block.
 |------|-------|------------|
 | `execute.constraint_violation` | A database constraint blocked the write. | Resolve the conflict and re-run. |
 | `execute.unexpected_error` | An unexpected error occurred during write. | Re-run; contact support if it persists. |
+| `execute.snapshot_control_attributes_updated` | *Info.* The import changed a snapshot control's output attributes. Snapshot controls have no plan entry, so the change is reported here. | — |
+| `execute.snapshot_control_not_found` | *Warning.* The source gives output attributes for a snapshot control the project doesn't have (it is only created for PITs), so they were not stored. | Import a PIT that uses it, or rename the project's snapshot control to match. |
 
 ## Internal
 

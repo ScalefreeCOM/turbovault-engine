@@ -315,6 +315,8 @@ messages and link to fix-it docs.
 | Plan | `plan.rejected` | The caller's `on_plan` callback stopped the import before anything was written. |
 | Execute | `execute.constraint_violation` | A database constraint blocked a write. |
 | Execute | `execute.unexpected_error` | An unexpected runtime error during execute. |
+| Execute | `execute.snapshot_control_attributes_updated` | *Info.* A snapshot control's output attributes changed (snapshot controls have no plan entry). |
+| Execute | `execute.snapshot_control_not_found` | *Warning.* Output attributes for a snapshot control the project doesn't have were not stored. |
 | Internal | `internal.bug` | An unreachable code path was hit. Please file a bug. |
 
 The CLI's Issues table renders every issue with its location and a

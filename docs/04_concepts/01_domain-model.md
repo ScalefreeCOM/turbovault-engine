@@ -267,8 +267,9 @@ Generation honors them unless it runs with `--standard-paths`
 reference tables, the snapshot control of PITs) uses its actual name. A model
 placed outside its layer's folder gets that layer's schema and materialization
 in its own `config()`, since `dbt_project.yml` configures layers by folder.
-Two models with the same name or file fail generation with
-`write.path_collision` before anything is written.
+Two models with the same name or file, or a model file that would overwrite a
+generated sources file (`01_sources/source__<system>.yml`), fail generation
+with `write.path_collision` before anything is written.
 
 The attributes don't depend on dbt, so the SQLMesh output can use them later;
 it ignores them for now.

@@ -147,6 +147,44 @@ Each template has a **framework** (`dbt` or `sqlmesh`), shown and editable on th
 
 SQLMesh templates write Python, so values go through the `py` filters (`[[ name | py ]]`, `py_dict`, `py_hashed_columns`, `py_source_models(stage_schema)`), which render correct Python literals. Each bundled SQLMesh template starts with a comment listing the variables it receives. Templates use the engine's delimiters `[[ ]]`, `[% %]` and `[# #]`.
 
+### Model names, references and config (dbt)
+
+Models can have their own name, file path and config, from the naming patterns
+or from stored [output attributes](../04_concepts/01_domain-model.md#output-attributes).
+A custom dbt template must use the variables below rather than build names
+itself (e.g. `[[ satellite_name ]]_v0`), or its output refers to models that
+don't exist.
+
+Every dbt model template (SQL and YAML) receives:
+
+| Variable | Content |
+|---|---|
+| `model_name` | The model's name, which is also its file name. |
+| `materialization` | Materialization for `config()`; empty when `dbt_project.yml` sets it. |
+| `model_alias` | Relation name for `config(alias=...)`, or empty. |
+| `model_schema` | Schema for `config(schema=...)`, or empty. Set to the layer's schema when the model sits outside its layer's folder. |
+| `model_database` | Database for `config(database=...)`, or empty. |
+| `model_tags` | Stored tags, replacing the default ones in `config()` and the YAML, or `none`. |
+
+References to other models, by template:
+
+| Template | Variable | Refers to |
+|---|---|---|
+| `satellite_v1` | `v0_name`, `v1_name` | The satellite's v0 model, and the v1 view itself. |
+| `pit` | `satellite_v0_names` | The v0 models of the PIT's satellites (`satellites` holds base names). |
+| `reference_table` | `satellites[].v1_name` | The v1 view of each assigned satellite. |
+| `snapshot_control_v0` / `_v1` | `v0_name`, `v1_name` | The two snapshot control models. |
+
+Stage names (`source_tables[].stage_name`, `stage_name`), a PIT's
+`tracked_entity_name` and `snapshot_control_name`, and a reference table's
+`reference_hub_name` already hold the resolved model names.
+
+Templates stored in the database before these variables existed are updated
+automatically by the `0020_refresh_bundled_templates` migration, unless they
+were edited. An edited template has to be updated by hand: compare it with the
+bundled file, or reset it with `populate_templates --overwrite` (below), which
+discards the edits.
+
 **To reset templates to defaults:**
 
 ```bash

@@ -205,6 +205,69 @@ def test_changed_attributes_are_reported_and_applied(tmp_path):
     )
 
 
+def test_export_names_the_entity_with_an_unknown_output_kind():
+    """A kind written past validation (e.g. via `.update()`) fails with the
+    entity named, not with a bare schema error."""
+    project = _build("bad-kind")
+    Hub.objects.filter(project=project).update(
+        output_attributes={"satellite_v2": {"model_name": "x"}}
+    )
+    with pytest.raises(ValueError) as excinfo:
+        ModelBuilder(project).build()
+    message = str(excinfo.value)
+    assert "Invalid output attributes on hub '" in message
+    assert "unknown output kind 'satellite_v2'" in message
+
+
+def _issue_codes(report) -> list[str]:
+    return [issue.code for issue in report.issues]
+
+
+def test_changed_snapshot_control_attributes_are_reported(tmp_path):
+    """Snapshot controls have no plan entry: the change is an info issue."""
+    project = _build("snap-change")
+    path = _export(project, tmp_path / "export.json")
+    data = json.loads(path.read_text())
+    data["snapshot_controls"][0]["output_attributes"] = {
+        "snapshot_control_v1": {"model_name": "snapshots_daily"}
+    }
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    report = _import(project, path)
+    updated = [
+        issue
+        for issue in report.issues
+        if issue.code == "execute.snapshot_control_attributes_updated"
+    ]
+    assert len(updated) == 1 and updated[0].severity == "info"
+    assert "snapshots_daily" in updated[0].message
+    assert SnapshotControlTable.objects.get(project=project).output_attributes == {
+        "snapshot_control_v1": {"model_name": "snapshots_daily"}
+    }
+
+    again = _import(project, path, dry_run=True)
+    assert "execute.snapshot_control_attributes_updated" not in _issue_codes(again)
+
+
+def test_snapshot_control_attributes_without_a_table_warn(tmp_path):
+    """Without a PIT the import creates no snapshot control, so the
+    attributes can't be stored; that must not go unnoticed."""
+    path = _export(_build("snap-src"), tmp_path / "export.json")
+    data = json.loads(path.read_text())
+    data["pits"] = []
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    dst = Project.objects.create(name="snap-dst")
+    report = _import(dst, path)
+    warnings = [
+        issue
+        for issue in report.issues
+        if issue.code == "execute.snapshot_control_not_found"
+    ]
+    assert len(warnings) == 1 and warnings[0].severity == "warning"
+    assert not SnapshotControlTable.objects.filter(project=dst).exists()
+
+
 def test_older_exports_keep_the_projects_attributes(tmp_path):
     """An export from before #442 has no `output_attributes` keys."""
     project = _build("older")

@@ -8,7 +8,7 @@ utilities for creating folders and resolving paths.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 
@@ -31,60 +31,44 @@ class FolderConfig:
     # Business vault subdirectories
     pits_subdir: str = "pits"
 
-    def get_source_path(self, output_root: Path) -> Path:
-        """Get the source directory path."""
-        return output_root / self.source_path
+    def source_file(self, source_system: str) -> PurePosixPath:
+        """Path of a source system's sources YAML, relative to the project root."""
+        return (
+            PurePosixPath(self.source_path)
+            / f"source__{self.sanitize_name(source_system)}.yml"
+        )
 
-    def get_staging_path(self, source_system: str, output_root: Path) -> Path:
+    def staging_dir(self, source_system: str) -> PurePosixPath:
+        """Folder of a source system's stage models, relative to the project root."""
+        return PurePosixPath(self.staging_path) / self.sanitize_name(source_system)
+
+    def raw_vault_dir(self, group: str | None) -> PurePosixPath:
+        """Folder of raw vault models, in a subfolder per group if given."""
+        base = PurePosixPath(self.raw_vault_path)
+        return base / self.sanitize_name(group) if group else base
+
+    def pits_dir(self, group: str | None) -> PurePosixPath:
+        """Folder of PIT models, in a subfolder per group if given."""
+        base = PurePosixPath(self.business_vault_path) / self.pits_subdir
+        return base / self.sanitize_name(group) if group else base
+
+    def control_dir(self) -> PurePosixPath:
+        """Folder of the snapshot control models."""
+        return PurePosixPath(self.control_path)
+
+    def layer_dir(self, layer: str) -> PurePosixPath:
+        """The folder of a layer, as configured in dbt_project.yml.
+
+        Raises KeyError for an unknown layer.
         """
-        Get the path for staging models of a source system.
-
-        Args:
-            source_system: Source system name (sanitized for filesystem)
-            output_root: Root directory of the dbt project
-
-        Returns:
-            Path to the staging subdirectory for this source system.
-        """
-        system_name = self._sanitize_name(source_system)
-        return output_root / self.staging_path / system_name
-
-    def get_staging_base_path(self, output_root: Path) -> Path:
-        """Get the base staging directory path."""
-        return output_root / self.staging_path
-
-    def get_raw_vault_path(self, group: str | None, output_root: Path) -> Path:
-        """
-        Get the path for raw vault models.
-
-        Args:
-            group: Optional group name. If None, entities go in base folder.
-            output_root: Root directory of the dbt project
-
-        Returns:
-            Path to the raw vault directory (with group subdirectory if applicable).
-        """
-        base = output_root / self.raw_vault_path
-        if group:
-            return base / self._sanitize_name(group)
-        return base
-
-    def get_business_vault_pits_path(
-        self, group: str | None, output_root: Path
-    ) -> Path:
-        """Get the path for PIT models. With optional group name for subfolder."""
-        base = output_root / self.business_vault_path / self.pits_subdir
-        if group:
-            return base / self._sanitize_name(group)
-        return base
-
-    def get_raw_vault_reference_tables_path(self, output_root: Path) -> Path:
-        """Get the path for reference table models."""
-        return output_root / self.raw_vault_path
-
-    def get_control_path(self, output_root: Path) -> Path:
-        """Get the path for control models (snapshot control)."""
-        return output_root / self.control_path
+        return PurePosixPath(
+            {
+                "staging": self.staging_path,
+                "raw_vault": self.raw_vault_path,
+                "business_vault": self.business_vault_path,
+                "control": self.control_path,
+            }[layer]
+        )
 
     def create_project_structure(self, output_root: Path) -> None:
         """
@@ -114,7 +98,7 @@ class FolderConfig:
         """Ensure a directory path exists, creating it if necessary."""
         path.mkdir(parents=True, exist_ok=True)
 
-    def _sanitize_name(self, name: str) -> str:
+    def sanitize_name(self, name: str) -> str:
         """
         Sanitize a name for use in filesystem paths.
 
@@ -185,20 +169,3 @@ class GenerationConfig:
     # Optional profiles.yml, rendered from a caller-supplied mapping
     generate_profiles_yml: bool = False
     profiles: dict[str, Any] = field(default_factory=dict)
-
-
-def get_model_filename(
-    entity_name: str, suffix: str = "", extension: str = "sql"
-) -> str:
-    """
-    Generate a model filename from entity name.
-
-    Args:
-        entity_name: Name of the entity (hub, link, satellite, etc.)
-        suffix: Optional suffix (e.g., '_v0', '_v1')
-        extension: File extension (default 'sql')
-
-    Returns:
-        Filename string.
-    """
-    return f"{entity_name}{suffix}.{extension}"
