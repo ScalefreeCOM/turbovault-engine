@@ -5,7 +5,7 @@ models:
   - name: [[ hub_name ]]
     description: [[ (description or ("Reference hub for " ~ hub_name)) | yaml_quote ]]
     config:
-      tags: ['hub', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+      tags: [% if model_tags %][[ model_tags ]][% else %]['hub', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
     columns:
 [% for bk in business_key_columns %]
       - name: [[ bk ]]

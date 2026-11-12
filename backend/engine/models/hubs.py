@@ -87,6 +87,16 @@ class Hub(models.Model):
         help_text="Optional description of the hub, written to the generated dbt docs",
     )
 
+    generation_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Output attributes of the models generated from this hub, keyed "
+            "by framework and output kind (dbt.hub, dbt.record_tracking_satellite, dbt.effectivity_satellite). Generation derives "
+            "whatever is not set"
+        ),
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the hub was created"
     )

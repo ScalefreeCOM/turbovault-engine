@@ -19,7 +19,7 @@ Why a separate layer (rather than feeding raw IR straight to the planner)?
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 # ---------------------------------------------------------------------------
 # Source metadata
@@ -66,6 +66,8 @@ class DSourceTable:
     # Keyed by lowercased name. None when the format carries no derived
     # columns, so the table's existing ones are left alone.
     derived_columns: dict[str, DDerivedColumn] | None = None
+    # Stored output attributes (see output_attributes); None keeps what it has.
+    generation_config: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -119,6 +121,8 @@ class DHub:
     create_effectivity_satellite: bool = False
     group_name: str | None = None
     description: str | None = None
+    # Stored output attributes (see output_attributes); None keeps what it has.
+    generation_config: dict[str, Any] | None = None
     columns: list[DHubColumn] = field(default_factory=list)
 
 
@@ -187,6 +191,8 @@ class DLink:
     create_record_tracking_satellite: bool = False
     group_name: str | None = None
     description: str | None = None
+    # Stored output attributes (see output_attributes); None keeps what it has.
+    generation_config: dict[str, Any] | None = None
     hub_references: list[DLinkHubReference] = field(default_factory=list)
     columns: list[DLinkColumn] = field(default_factory=list)
     hub_source_mappings: list[DLinkHubSourceMapping] = field(default_factory=list)
@@ -221,6 +227,8 @@ class DSatellite:
     source_table_identifier: str = ""
     group_name: str | None = None
     description: str | None = None
+    # Stored output attributes (see output_attributes); None keeps what it has.
+    generation_config: dict[str, Any] | None = None
     columns: list[DSatelliteColumn] = field(default_factory=list)
 
 
@@ -263,6 +271,8 @@ class DReferenceTable:
     snapshot_logic_column: str | None = None
     group_name: str | None = None
     description: str | None = None
+    # Stored output attributes (see output_attributes); None keeps what it has.
+    generation_config: dict[str, Any] | None = None
     satellite_assignments: list[DRefSatAssignment] = field(default_factory=list)
 
 
@@ -278,6 +288,8 @@ class DPIT:
     pit_type: str | None = None
     custom_record_source: str | None = None
     group_name: str | None = None
+    # Stored output attributes (see output_attributes); None keeps what it has.
+    generation_config: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------

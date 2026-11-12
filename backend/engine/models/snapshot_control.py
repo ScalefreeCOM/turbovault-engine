@@ -80,6 +80,16 @@ class SnapshotControlTable(models.Model):
         default=time(8, 0, 0), help_text="Daily snapshot time (default: 08:00:00)"
     )
 
+    generation_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Output attributes of the models generated from this snapshot control, keyed "
+            "by framework and output kind (dbt.snapshot_control_v0, dbt.snapshot_control_v1). Generation derives "
+            "whatever is not set"
+        ),
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True,
         help_text="Timestamp when the snapshot control table was created",

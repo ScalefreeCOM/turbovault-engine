@@ -55,6 +55,7 @@ deep-link errors; the CLI groups them in summary tables.
 | `render.invalid_global_vars` | The caller-supplied `global_vars` mapping could not be serialized into the `vars:` block. Nothing is generated, so an earlier run's output is left untouched rather than half-replaced. | Fix the reported key — `global_vars` must be a mapping with string keys and YAML-serializable values. |
 | `render.invalid_profiles` | `generate_profiles_yml` is on but `profiles` is not a mapping or holds a value that cannot be written as YAML. The engine does not check the dbt profile shape (targets, outputs, adapter fields) — that is the caller's concern. Nothing is generated. | Pass `profiles` as a mapping of YAML-serializable values. |
 | `render.invalid_materialization` | A layer materialization (`control_`, `staging_`, `raw_vault_`, `business_vault_materialization`) or a `model_materializations` entry is not a dbt materialization name, or names an unknown model kind. Nothing is generated. | Use a name such as `table`, `view`, `incremental`, `ephemeral`, or a custom materialization's name. |
+| `render.invalid_output_attributes` | An entity's `generation_config.dbt` is malformed: an unknown output kind or attribute, a name that is not a valid identifier, a `file_path` that is not a relative `.sql` path inside `models/` or whose file name differs from `model_name`, or a `custom_config_json` key that has its own attribute. Nothing is generated. | Fix the reported attribute, or generate with `use_original_paths` off to ignore all stored attributes. |
 | `render.literal_secret_in_profile` | A secret key in `profiles` — one ending in `password`, `passphrase`, `secret`, `token`, `private_key`, `access_key` or `api_key`, or `pass` / `keyfile_json` — holds a literal value, or an `env_var` reference with a non-empty default (dbt uses the default whenever the variable is unset). Nothing is generated; the value is never echoed. | Reference the secret via `{{ env_var('...') }}` (optionally `\| as_native`), without a default or with an empty one. An inline `keyfile_json` mapping is allowed when its own secret fields are references. |
 
 ## Write stage
@@ -62,7 +63,7 @@ deep-link errors; the CLI groups them in summary tables.
 | Code | Cause | Suggestion |
 |------|-------|------------|
 | `write.io_error` | A file could not be written (permission, disk full). | Resolve the filesystem issue and re-run. |
-| `write.path_collision` | Two artifacts tried to write to the same path. | Rename one of the colliding entities or report a bug. |
+| `write.path_collision` | Two artifacts tried to write to the same path, or two dbt models resolve to the same file path or model name (compared case-insensitively, after applying stored output attributes and naming patterns). Model collisions are found before anything is written. | Rename one of the colliding entities or change its `generation_config` attributes. |
 | `write.zip_failed` | The optional ZIP archive could not be created. | Re-run without `--zip`; the dbt tree on disk is still valid. |
 
 ## Internal

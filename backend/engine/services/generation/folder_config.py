@@ -141,6 +141,10 @@ class GenerationConfig:
     record_tracking_satellite_naming: str = "[[ satellite_name ]]_ts"
     effectivity_satellite_naming: str = "[[ satellite_name ]]_es"
 
+    # Honor the model names, file paths and configs stored in the entities'
+    # generation_config (e.g. from an import); off gives the standard layout.
+    use_original_paths: bool = True
+
     # Schemas
     stage_schema: str = "stage"
     rdv_schema: str = "rdv"

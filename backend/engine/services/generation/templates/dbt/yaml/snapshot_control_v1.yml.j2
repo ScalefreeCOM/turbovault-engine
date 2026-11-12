@@ -2,10 +2,10 @@
 version: 2
 
 models:
-  - name: [[ name ]]_v1
+  - name: [[ model_name ]]
     description: "Snapshot control logic (retention patterns)"
     config:
-      tags: ['snapshot_control', 'control']
+      tags: [% if model_tags %][[ model_tags ]][% else %]['snapshot_control', 'control'][% endif +%]
     columns:
       - name: sdts
         description: "Snapshot date timestamp"

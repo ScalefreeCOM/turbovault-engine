@@ -452,6 +452,7 @@ turbovault generate --project sales_datavault --dry-run
 | `--dry-run` | | Run build/validate/plan/render; skip write | `false` |
 | `--zip` | `-z` | Create ZIP archive after dbt or SQLMesh generation | `false` |
 | `--no-v1-satellites` | | Skip generating satellite `_v1` views (dbt and sqlmesh) | `false` |
+| `--standard-paths` | | dbt: ignore stored model names, file paths and configs (`generation_config`) and use the standard layout | `false` |
 | `--json-output PATH` | | Alias for `--output` when `--type json` | — |
 | `--dbml-output PATH` | | Alias for `--output` when `--type dbml` | — |
 | `--iris-output PATH` | | Output directory for the IRiS Excel files when `--type iris` | — |

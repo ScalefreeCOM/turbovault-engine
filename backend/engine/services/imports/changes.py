@@ -100,6 +100,9 @@ def display(value: Any) -> Any:
         return value.isoformat()
     if isinstance(value, Decimal | UUID):
         return str(value)
+    if isinstance(value, dict | list):
+        # JSON fields (e.g. generation_config) are already JSON-native.
+        return value
     return str(value)
 
 

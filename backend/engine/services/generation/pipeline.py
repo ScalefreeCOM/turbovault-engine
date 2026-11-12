@@ -44,6 +44,9 @@ _PROJECT_INPUT_ERROR_CODES = frozenset(
         Code.RENDER_INVALID_PROFILES,
         Code.RENDER_LITERAL_SECRET_IN_PROFILE,
         Code.RENDER_INVALID_MATERIALIZATION,
+        # Model outputs are resolved before any file is rendered.
+        Code.RENDER_INVALID_OUTPUT_ATTRIBUTES,
+        Code.WRITE_PATH_COLLISION,
     }
 )
 

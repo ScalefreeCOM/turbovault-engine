@@ -100,6 +100,16 @@ class Satellite(models.Model):
         help_text="Optional description of the satellite, written to the generated dbt docs",
     )
 
+    generation_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Output attributes of the models generated from this satellite, keyed "
+            "by framework and output kind (dbt.satellite_v0, dbt.satellite_v1). Generation derives "
+            "whatever is not set"
+        ),
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the satellite was created"
     )

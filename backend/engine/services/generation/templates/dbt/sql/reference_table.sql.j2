@@ -4,14 +4,17 @@
 [% if materialization %]
     materialized='[[ materialization ]]',
 [% endif %]
-    tags=['reference_table', 'raw_vault']
+[% for key, value in (model_config or {}).items() %]
+    [[ key ]]=[[ value ]],
+[% endfor %]
+    tags=[% if model_tags %][[ model_tags ]][% else %]['reference_table', 'raw_vault'][% endif +%]
 ) }}
 
 {%- set yaml_metadata -%}
 ref_hub: [[ reference_hub_name ]]
 ref_satellites:
 [% for sat in satellites %]
-    [[ sat.satellite_name ]]_v1:
+    [[ satellite_models[sat.satellite_name] ]]:
     [% if sat.include_columns %]
       include:
         [% for col in sat.include_columns %]

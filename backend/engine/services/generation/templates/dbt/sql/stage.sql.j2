@@ -5,7 +5,10 @@
 [% if materialization %]
     materialized='[[ materialization ]]',
 [% endif %]
-    tags=['staging', '[[ source_system | lower | replace(" ", "_") ]]']
+[% for key, value in (model_config or {}).items() %]
+    [[ key ]]=[[ value ]],
+[% endfor %]
+    tags=[% if model_tags %][[ model_tags ]][% else %]['staging', '[[ source_system | lower | replace(" ", "_") ]]'][% endif +%]
 ) }}
 
 {%- set yaml_metadata -%}

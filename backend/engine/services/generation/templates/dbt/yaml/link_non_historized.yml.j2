@@ -5,7 +5,7 @@ models:
   - name: [[ link_name ]]
     description: [[ (description or ("Non-Historized link for " ~ link_name)) | yaml_quote ]]
     config:
-      tags: ['link', 'non_historized', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+      tags: [% if model_tags %][[ model_tags ]][% else %]['link', 'non_historized', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
     columns:
       - name: [[ hashkey.hashkey_name ]]
         description: "Link hash key"

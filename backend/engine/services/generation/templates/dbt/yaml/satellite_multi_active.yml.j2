@@ -5,7 +5,7 @@ models:
   - name: [[ satellite_name ]]
     description: [[ (description or ("Multi-active satellite for " ~ parent_entity)) | yaml_quote ]]
     config:
-      tags: ['satellite', 'multi_active', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+      tags: [% if model_tags %][[ model_tags ]][% else %]['satellite', 'multi_active', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
     columns:
       - name: [[ parent_hashkey ]]
         description: "Parent entity hash key"

@@ -170,6 +170,16 @@ class SourceTable(models.Model):
         help_text="Optional description of the source table, written to the generated dbt docs",
     )
 
+    generation_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Output attributes of the models generated from this source table, keyed "
+            "by framework and output kind (dbt.stage). Generation derives "
+            "whatever is not set"
+        ),
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the source table was created"
     )

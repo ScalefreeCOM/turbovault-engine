@@ -98,6 +98,16 @@ class ReferenceTable(models.Model):
         help_text="Optional description of the reference table, written to the generated dbt docs",
     )
 
+    generation_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Output attributes of the models generated from this reference table, keyed "
+            "by framework and output kind (dbt.reference_table). Generation derives "
+            "whatever is not set"
+        ),
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the reference table was created"
     )

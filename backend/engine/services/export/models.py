@@ -8,8 +8,15 @@ that can be serialized to various output formats (JSON, dbt, DBML, etc.).
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
+
+_GENERATION_CONFIG_DESCRIPTION = (
+    "Stored output attributes of the generated models, by framework and output "
+    'kind, e.g. {"dbt": {"hub": {"model_name": ..., "file_path": ...}}}. '
+    "See engine.services.generation.output_attributes"
+)
 
 # =============================================================================
 # Source Layer Models
@@ -57,6 +64,10 @@ class SourceTableDef(BaseModel):
     derived_columns: list[SourceDerivedColumnDef] = Field(
         default_factory=list,
         description="Columns the stage computes from this table's columns",
+    )
+    generation_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
 
@@ -183,6 +194,10 @@ class HubDefinition(BaseModel):
     column_descriptions: dict[str, ColumnDescriptionDef] = Field(
         default_factory=dict,
         description="Descriptions by hub column name, for columns that have one",
+    )
+    generation_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
 
@@ -364,6 +379,10 @@ class LinkDefinition(BaseModel):
         default_factory=dict,
         description="Descriptions by link column name, for columns that have one",
     )
+    generation_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description=_GENERATION_CONFIG_DESCRIPTION,
+    )
 
 
 # =============================================================================
@@ -502,6 +521,10 @@ class StageDefinition(BaseModel):
     columns: list[SourceColumnDef] = Field(
         default_factory=list, description="Source columns available in this stage"
     )
+    generation_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description=_GENERATION_CONFIG_DESCRIPTION,
+    )
 
 
 # =============================================================================
@@ -570,6 +593,10 @@ class SatelliteDefinition(BaseModel):
         default_factory=list, description="Satellite columns"
     )
     description: str | None = None
+    generation_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description=_GENERATION_CONFIG_DESCRIPTION,
+    )
 
 
 # =============================================================================
@@ -617,6 +644,10 @@ class ReferenceTableDefinition(BaseModel):
         default_factory=list, description="Reference satellite assignments"
     )
     description: str | None = None
+    generation_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description=_GENERATION_CONFIG_DESCRIPTION,
+    )
 
 
 class PITDefinition(BaseModel):
@@ -644,6 +675,10 @@ class PITDefinition(BaseModel):
     include_business_objects_before_appearance: bool = Field(
         default=False,
         description="Whether to include business keys before first appearance",
+    )
+    generation_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
 
@@ -685,6 +720,10 @@ class SnapshotControlDefinition(BaseModel):
     daily_time: str = Field(description="Daily snapshot execution time (HH:MM:SS)")
     logic_patterns: list[SnapshotLogicPattern] = Field(
         default_factory=list, description="List of snapshot logic patterns"
+    )
+    generation_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
     @property

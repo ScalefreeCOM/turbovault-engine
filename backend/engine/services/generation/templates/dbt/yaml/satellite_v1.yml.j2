@@ -2,10 +2,10 @@
 version: 2
 
 models:
-  - name: [[ satellite_name ]]_v1
+  - name: [[ model_name ]]
     description: [[ (description or ((satellite_type | title) ~ " satellite v1 (with load_end_date) for " ~ parent_entity)) | yaml_quote ]]
     config:
-      tags: ['satellite', 'v1', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+      tags: [% if model_tags %][[ model_tags ]][% else %]['satellite', 'v1', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
     columns:
 [% if parent_hashkey %]
       - name: [[ parent_hashkey ]]

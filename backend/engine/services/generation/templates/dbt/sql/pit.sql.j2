@@ -4,7 +4,10 @@
 [% if materialization %]
     materialized='[[ materialization ]]',
 [% endif %]
-    tags=['pit', 'business_vault'],
+[% for key, value in (model_config or {}).items() %]
+    [[ key ]]=[[ value ]],
+[% endfor %]
+    tags=[% if model_tags %][[ model_tags ]][% else %]['pit', 'business_vault'][% endif %],
     post_hook="{{ datavault4dbt.clean_up_pit('[[ snapshot_control_name ]]') }}"
 ) }}
 
@@ -15,8 +18,8 @@ pit_type: '[[ pit_type ]]'
 tracked_entity: [[ tracked_entity_name ]]
 hashkey: [[ tracked_hashkey ]]
 sat_names:
-[% for sat in satellites %]
-    - [[ sat ]]_v0
+[% for sat in satellite_models %]
+    - [[ sat ]]
 [% endfor %]
 snapshot_relation: [[ snapshot_control_name ]]
 snapshot_trigger_column: [[ snapshot_logic_column ]]

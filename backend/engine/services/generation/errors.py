@@ -108,6 +108,7 @@ class Code:
     RENDER_INVALID_PROFILES = "render.invalid_profiles"
     RENDER_LITERAL_SECRET_IN_PROFILE = "render.literal_secret_in_profile"
     RENDER_INVALID_MATERIALIZATION = "render.invalid_materialization"
+    RENDER_INVALID_OUTPUT_ATTRIBUTES = "render.invalid_output_attributes"
 
     # Write stage
     WRITE_IO_ERROR = "write.io_error"

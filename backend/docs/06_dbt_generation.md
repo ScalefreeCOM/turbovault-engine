@@ -25,6 +25,7 @@ turbovault generate --project "My Project" --zip
 | `--zip` | `-z` | Create ZIP archive after generation | `false` |
 | `--skip-validation` | | Skip pre-generation validation | `false` |
 | `--no-v1-satellites` | | Skip generating satellite _v1 views | `false` |
+| `--standard-paths` | | Ignore stored model attributes (`generation_config`) and use the standard layout | `false` |
 
 ## Generated Project Structure
 
@@ -104,6 +105,68 @@ To skip v1 generation:
 ```bash
 turbovault generate --project "My Project" --no-v1-satellites
 ```
+
+## Stored Model Attributes (`generation_config`)
+
+Projects imported from an existing dbt repository (or a JSON export) can keep
+their original model names, file paths and configs. Each entity that produces
+models has a `generation_config` field holding, per framework and output kind,
+the attributes of one generated model:
+
+```json
+{
+  "dbt": {
+    "hub": {
+      "model_name": "customer_h",
+      "file_path": "raw_vault/hubs/customer_h.sql",
+      "alias": "customer_hub",
+      "materialized": "incremental",
+      "tags": ["hub", "core"],
+      "schema": "rdv",
+      "database": "dwh",
+      "custom_config_json": {"unique_key": "hk_customer_h"}
+    }
+  }
+}
+```
+
+| Entity | Output kinds |
+|--------|--------------|
+| Source table | `stage` |
+| Hub | `hub`, `record_tracking_satellite`, `effectivity_satellite` |
+| Link | `link`, `record_tracking_satellite` |
+| Satellite | `satellite_v0`, `satellite_v1` |
+| PIT | `pit` |
+| Reference table | `reference_table` |
+| Snapshot control | `snapshot_control_v0`, `snapshot_control_v1` |
+
+All attributes are optional; whatever is not set is derived as before.
+
+- `file_path` is the `.sql` file relative to `models/`; the YAML file is written
+  next to it. Its file name must match `model_name` (if both are set), and it
+  must stay inside `models/` (no absolute paths, no `..`).
+- Every reference to a model uses its resolved name: stages in `source_models`,
+  the v0 satellite in its v1 view and in PITs, the v1 satellite in reference
+  tables, the tracked hub/link of a PIT, the snapshot control models.
+- `materialized`, `alias`, `schema`, `database`, `tags` and the
+  `custom_config_json` settings go into the model's `config()`; `tags` replace
+  the default tags in both the SQL and the YAML.
+- A model whose `file_path` lies outside its layer folder (e.g. `03_raw_vault`)
+  no longer inherits the layer's `+schema` / `+materialized` from
+  `dbt_project.yml`, so these are written into its `config()` unless set.
+- Two models with the same file path or model name (case-insensitive) stop
+  generation with `write.path_collision`; malformed attributes stop it with
+  `render.invalid_output_attributes`. Nothing is written in either case.
+- `--standard-paths` (`GenerationOptions.use_original_paths=False`) ignores all
+  stored attributes and generates TurboVault's standard structure.
+
+The attributes are part of the JSON export and are restored by the JSON import.
+
+**Existing installations:** the bundled templates gained the `model_config` /
+`model_tags` hooks and no longer hard-code `_v0` / `_v1` suffixes. Templates
+already seeded into the database keep their old content until re-seeded with
+`python manage.py populate_templates --overwrite` (this replaces customized
+templates of the same name).
 
 ## Custom Templates
 

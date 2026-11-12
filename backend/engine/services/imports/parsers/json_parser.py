@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from engine.services.export.models import ProjectExport
 from engine.services.imports.domain import (
@@ -112,6 +113,14 @@ def parse_json(path: Path) -> DomainModel:
 # ---------------------------------------------------------------------------
 
 
+def _generation_config(definition: BaseModel) -> dict[str, Any] | None:
+    """An entity's stored output attributes, or None when the export predates
+    them (so a re-import keeps what the project has)."""
+    if "generation_config" not in definition.model_fields_set:
+        return None
+    return dict(definition.generation_config)
+
+
 def _project_export_to_domain(export: ProjectExport) -> DomainModel:
     model = DomainModel()
 
@@ -159,6 +168,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                 ),
                 load_date_value=written_value(table_def.load_date),
                 description=table_def.description,
+                generation_config=_generation_config(table_def),
             )
             for col in table_def.columns:
                 table.columns[col.column_name.lower()] = DSourceColumn(
@@ -193,6 +203,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             create_effectivity_satellite=hub_def.create_effectivity_satellite,
             group_name=hub_def.group,
             description=hub_def.description,
+            generation_config=_generation_config(hub_def),
         )
         for i, col_name in enumerate(hub_def.business_key_columns):
             hub.columns.append(
@@ -260,6 +271,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             create_record_tracking_satellite=link_def.create_record_tracking_satellite,
             group_name=link_def.group,
             description=link_def.description,
+            generation_config=_generation_config(link_def),
         )
         for i, ref in enumerate(link_def.hub_references):
             link.hub_references.append(
@@ -425,6 +437,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             source_table_identifier=f"{sat_def.source_system}|{sat_def.source_table}",
             group_name=sat_def.group,
             description=sat_def.description,
+            generation_config=_generation_config(sat_def),
         )
         for i, col_def in enumerate(sat_def.columns):
             sat.columns.append(
@@ -471,6 +484,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             snapshot_logic_column=rt_def.snapshot_logic_column,
             group_name=rt_def.group,
             description=rt_def.description,
+            generation_config=_generation_config(rt_def),
             satellite_assignments=[
                 DRefSatAssignment(
                     satellite_name=s.satellite_name,
@@ -500,6 +514,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             dimension_key_column_name=pit_def.dimension_key_column,
             pit_type=pit_def.pit_type,
             group_name=pit_def.group,
+            generation_config=_generation_config(pit_def),
         )
 
     # Prejoins are embedded in stage definitions in JSON exports.

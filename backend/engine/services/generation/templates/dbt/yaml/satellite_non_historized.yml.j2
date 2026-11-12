@@ -5,7 +5,7 @@ models:
   - name: [[ satellite_name ]]
     description: [[ (description or ("Non-historized satellite for " ~ parent_entity)) | yaml_quote ]]
     config:
-      tags: ['satellite', 'non_historized', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+      tags: [% if model_tags %][[ model_tags ]][% else %]['satellite', 'non_historized', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
     columns:
       - name: [[ parent_hashkey ]]
         description: "Parent entity hash key"

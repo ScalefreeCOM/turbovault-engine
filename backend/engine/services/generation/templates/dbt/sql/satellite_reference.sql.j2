@@ -4,7 +4,10 @@
 [% if materialization %]
     materialized='[[ materialization ]]',
 [% endif %]
-    tags=['satellite', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+[% for key, value in (model_config or {}).items() %]
+    [[ key ]]=[[ value ]],
+[% endfor %]
+    tags=[% if model_tags %][[ model_tags ]][% else %]['satellite', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
 ) }}
 
 {%- set yaml_metadata -%}

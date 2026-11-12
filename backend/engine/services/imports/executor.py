@@ -695,6 +695,7 @@ class _Executor:
                 load_date_value=table_d.load_date_value,
                 static_part_of_record_source=table_d.static_part_of_record_source,
                 description=table_d.description,
+                generation_config=table_d.generation_config,
             ),
             existing=self._tables_by_key.get(table_key, LOOKUP),
         )
@@ -1024,7 +1025,9 @@ class _Executor:
                 "create_record_tracking_satellite": d.create_record_tracking_satellite,
                 "create_effectivity_satellite": d.create_effectivity_satellite,
                 "group": group,
-                **_only_supplied(description=d.description),
+                **_only_supplied(
+                    description=d.description, generation_config=d.generation_config
+                ),
             },
             existing=self._hubs_by_name.get(d.physical_name, LOOKUP),
         )
@@ -1202,7 +1205,9 @@ class _Executor:
                 ),
                 "create_record_tracking_satellite": d.create_record_tracking_satellite,
                 "group": group,
-                **_only_supplied(description=d.description),
+                **_only_supplied(
+                    description=d.description, generation_config=d.generation_config
+                ),
             },
             existing=self._links_by_name.get(d.physical_name, LOOKUP),
         )
@@ -1477,7 +1482,9 @@ class _Executor:
                 "parent_link": parent_link,
                 "source_table": source_table,
                 "group": group,
-                **_only_supplied(description=d.description),
+                **_only_supplied(
+                    description=d.description, generation_config=d.generation_config
+                ),
             },
             existing=self._satellites_by_name.get(d.physical_name, LOOKUP),
         )
@@ -1552,7 +1559,9 @@ class _Executor:
                 "reference_hub": hub,
                 "historization_type": d.historization_type,
                 "group": group,
-                **_only_supplied(description=d.description),
+                **_only_supplied(
+                    description=d.description, generation_config=d.generation_config
+                ),
             },
         )
 
@@ -1686,6 +1695,7 @@ class _Executor:
                 "pit_type": d.pit_type,
                 "custom_record_source": d.custom_record_source,
                 "group": group,
+                **_only_supplied(generation_config=d.generation_config),
             },
         )
 

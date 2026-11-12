@@ -161,6 +161,8 @@ class GenerationOptions(BaseModel):
     skip_validation: bool = False
     create_zip: bool = False
     generate_satellite_v1_views: bool = True
+    # Use the model names, file paths and configs stored per entity (dbt only).
+    use_original_paths: bool = True
     # Preserve the legacy resolver contract: active DB templates precede files.
     use_db_templates: bool = True
     entity_selection: EntitySelection | None = None

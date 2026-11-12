@@ -4,7 +4,10 @@
 [% if materialization %]
     materialized='[[ materialization ]]',
 [% endif %]
-    tags=['snapshot_control', 'control']
+[% for key, value in (model_config or {}).items() %]
+    [[ key ]]=[[ value ]],
+[% endfor %]
+    tags=[% if model_tags %][[ model_tags ]][% else %]['snapshot_control', 'control'][% endif +%]
 ) }}
 
 {%- set yaml_metadata -%}

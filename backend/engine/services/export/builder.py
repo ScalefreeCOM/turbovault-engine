@@ -227,6 +227,7 @@ class ModelBuilder:
                         description=table.description or None,
                         columns=columns,
                         derived_columns=derived_columns,
+                        generation_config=table.generation_config or {},
                     )
                 )
 
@@ -330,6 +331,7 @@ class ModelBuilder:
                     create_effectivity_satellite=hub.create_effectivity_satellite,
                     description=hub.description or None,
                     column_descriptions=column_descriptions,
+                    generation_config=hub.generation_config or {},
                 )
             )
 
@@ -499,6 +501,7 @@ class ModelBuilder:
                     multi_active_config=multi_active_config,
                     derived_columns=derived_columns,
                     columns=columns,
+                    generation_config=table.generation_config or {},
                 )
             )
 
@@ -1189,6 +1192,7 @@ class ModelBuilder:
                     hashdiff_name=hashdiff_name,
                     columns=columns,
                     description=sat.description or None,
+                    generation_config=sat.generation_config or {},
                 )
             )
 
@@ -1406,6 +1410,7 @@ class ModelBuilder:
                     create_record_tracking_satellite=link.create_record_tracking_satellite,
                     description=link.description or None,
                     column_descriptions=column_descriptions,
+                    generation_config=link.generation_config or {},
                 )
             )
 
@@ -1448,6 +1453,7 @@ class ModelBuilder:
                     end_date=control.snapshot_end_date.isoformat(),
                     daily_time=control.daily_snapshot_time.isoformat(),
                     logic_patterns=logic_patterns,
+                    generation_config=control.generation_config or {},
                 )
             )
 
@@ -1543,6 +1549,7 @@ class ModelBuilder:
                     snapshot_logic_column=snapshot_logic_column,
                     satellites=satellite_assignments,
                     description=ref_table.description or None,
+                    generation_config=ref_table.generation_config or {},
                 )
             )
 
@@ -1613,6 +1620,7 @@ class ModelBuilder:
                     pit_type=pit.pit_type,
                     use_snapshot_optimization=pit.use_snapshot_optimization,
                     include_business_objects_before_appearance=pit.include_business_objects_before_appearance,
+                    generation_config=pit.generation_config or {},
                 )
             )
 

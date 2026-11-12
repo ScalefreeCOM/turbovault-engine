@@ -109,6 +109,16 @@ class PIT(models.Model):
         help_text="Optional dimension key column name in the PIT",
     )
 
+    generation_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Output attributes of the models generated from this PIT, keyed "
+            "by framework and output kind (dbt.pit). Generation derives "
+            "whatever is not set"
+        ),
+    )
+
     pit_type = models.CharField(
         max_length=100,
         blank=True,
