@@ -5,6 +5,19 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.23.0...turbovault-engine-v0.24.0) (2026-11-12)
+
+
+### Features
+
+* pre-stages, dbt models that prepare a table's data for its stage ([#232](https://github.com/ScalefreeCOM/turbovault-engine/issues/232)) ([597b8eb](https://github.com/ScalefreeCOM/turbovault-engine/commit/597b8eb6281908a797c91ebc951defd103a902ba))
+
+
+### Bug Fixes
+
+* **dbt:** set source_is_single_batch in effectivity satellites ([#229](https://github.com/ScalefreeCOM/turbovault-engine/issues/229)) ([a47746c](https://github.com/ScalefreeCOM/turbovault-engine/commit/a47746c8789cb8206717998f77b6bf79bc469f92))
+* **packaging:** include engine.services.generation.renderers in wheel ([#231](https://github.com/ScalefreeCOM/turbovault-engine/issues/231)) ([6aed386](https://github.com/ScalefreeCOM/turbovault-engine/commit/6aed3868faf44978c3966fd268af2bf2aad06114))
+
 ## [0.23.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.22.0...turbovault-engine-v0.23.0) (2026-11-04)
 
 
