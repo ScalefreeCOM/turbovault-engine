@@ -733,7 +733,10 @@ class SnapshotControlDefinition(BaseModel):
     """
 
     name: str = Field(
-        description="Base name of the snapshot control (e.g., 'control_snap')"
+        description=(
+            "Name of the snapshot control (e.g., 'control_snap'). May carry a "
+            "_v0/_v1 suffix, e.g. 'control_snap_v0', which model names drop"
+        )
     )
     start_date: str = Field(description="Overall snapshot start date (YYYY-MM-DD)")
     end_date: str = Field(description="Overall snapshot end date (YYYY-MM-DD)")
@@ -743,6 +746,11 @@ class SnapshotControlDefinition(BaseModel):
     )
 
     @property
+    def base_name(self) -> str:
+        """The name without a _v0/_v1 suffix: 'control_snap_v0' -> 'control_snap'."""
+        return self.name.removesuffix("_v0").removesuffix("_v1")
+
+    @property
     def v0_name(self) -> str:
         """
         Model name for the snapshot control table (_v0 suffix).
@@ -750,8 +758,7 @@ class SnapshotControlDefinition(BaseModel):
         Used for the base snapshot control model that contains
         start_date, end_date, and daily_time configuration.
         """
-        base_name = self.name.removesuffix("_v0").removesuffix("_v1")
-        return f"{base_name}_v0"
+        return f"{self.base_name}_v0"
 
     @property
     def v1_name(self) -> str:
@@ -761,8 +768,7 @@ class SnapshotControlDefinition(BaseModel):
         Used for the model that implements the logic patterns
         (daily, weekly, monthly, etc. snapshot windows).
         """
-        base_name = self.name.removesuffix("_v0").removesuffix("_v1")
-        return f"{base_name}_v1"
+        return f"{self.base_name}_v1"
 
 
 # ============================================================================

@@ -1087,11 +1087,20 @@ class DbtProjectGenerator:
         for snap_ctrl in snapshot_controls:
             try:
                 output_dir = self.folder_config.get_control_path(self.output_path)
+                # Templates append _v0/_v1 to `name`, so they get the base name:
+                # a control stored as 'control_snap_v0' must not name its models
+                # 'control_snap_v0_v0'. The model names are passed as they are.
+                context = {
+                    **snap_ctrl.model_dump(),
+                    "name": snap_ctrl.base_name,
+                    "v0_name": snap_ctrl.v0_name,
+                    "v1_name": snap_ctrl.v1_name,
+                }
 
                 # Generate v0 model (control table)
                 if v0_sql_template:
                     content = v0_sql_template.render(
-                        **snap_ctrl.model_dump(),
+                        **context,
                         materialization=self._specific_materialization(
                             "snapshot_control_v0"
                         ),
@@ -1104,7 +1113,7 @@ class DbtProjectGenerator:
                     )
 
                     if v0_yaml_template:
-                        content = v0_yaml_template.render(**snap_ctrl.model_dump())
+                        content = v0_yaml_template.render(**context)
                         filename = get_model_filename(
                             snap_ctrl.v0_name, extension="yml"
                         )
@@ -1117,7 +1126,7 @@ class DbtProjectGenerator:
                 # Generate v1 model (control logic)
                 if v1_sql_template:
                     content = v1_sql_template.render(
-                        **snap_ctrl.model_dump(),
+                        **context,
                         materialization=self._specific_materialization(
                             "snapshot_control_v1"
                         ),
@@ -1130,7 +1139,7 @@ class DbtProjectGenerator:
                     )
 
                     if v1_yaml_template:
-                        content = v1_yaml_template.render(**snap_ctrl.model_dump())
+                        content = v1_yaml_template.render(**context)
                         filename = get_model_filename(
                             snap_ctrl.v1_name, extension="yml"
                         )
