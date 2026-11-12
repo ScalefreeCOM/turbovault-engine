@@ -164,3 +164,48 @@ def test_older_exports_leave_generation_config_alone(tmp_path):
 
     assert _configs(project)["hub"] == HUB_CONFIG
     assert _configs(project)["stage"] == STAGE_CONFIG
+
+
+def test_json_round_trip_keeps_snapshot_control_and_pit_generation_config(tmp_path):
+    from engine.models import PIT, SnapshotControlLogic, SnapshotControlTable
+
+    project = _build("attrs-snap-src")
+    control_config = {
+        "dbt": {
+            "snapshot_control_v0": {"model_name": "snap_base"},
+            "snapshot_control_v1": {"model_name": "snap_logic"},
+        }
+    }
+    pit_config = {"dbt": {"pit": {"file_path": "marts/customer_pit.sql"}}}
+    control = SnapshotControlTable.objects.create(
+        project=project, name="control_snap", generation_config=control_config
+    )
+    logic = SnapshotControlLogic.objects.create(
+        snapshot_control_table=control,
+        snapshot_control_logic_column_name="is_active",
+        snapshot_component=SnapshotControlLogic.SnapshotComponent.DAILY,
+        snapshot_forever=True,
+    )
+    pit = PIT.objects.create(
+        project=project,
+        pit_physical_name="customer_pit",
+        tracked_entity_type="hub",
+        tracked_hub=Hub.objects.get(project=project),
+        snapshot_control_table=control,
+        snapshot_control_logic=logic,
+        generation_config=pit_config,
+    )
+    pit.satellites.add(Satellite.objects.get(project=project))
+    path = _export(project, tmp_path / "export.json")
+    target = Project.objects.create(name="attrs-snap-dst")
+
+    report = import_metadata(
+        project=target, source=JsonSource(path=path), options=ImportOptions()
+    )
+
+    assert report.status == "success", report.issues
+    assert PIT.objects.get(project=target).generation_config == pit_config
+    assert (
+        SnapshotControlTable.objects.get(project=target).generation_config
+        == control_config
+    )

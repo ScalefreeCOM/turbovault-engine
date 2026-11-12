@@ -9,7 +9,6 @@ hard-code the ``_v0`` / ``_v1`` suffixes.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import jinja2
@@ -342,11 +341,173 @@ def test_pipeline_reports_collisions_as_write_path_collision(full_export):
         project_export=full_export,
         output_type="dbt",
         runtime_config=EngineRuntimeConfig(),
-        options=GenerationOptions(),
+        # Bundled templates only: the collision check looks templates up.
+        options=GenerationOptions(use_db_templates=False),
     )
 
     assert not artifacts
     assert [i.code for i in issues if i.severity == "error"] == ["write.path_collision"]
-    assert re.search(
-        r"lnk_customer_order\.sql as hub 'hub_customer'", issues[0].message
+    assert issues[0].message == (
+        "The link 'lnk_customer_order' has the same file path "
+        "models/03_raw_vault/sales/lnk_customer_order.sql as the hub 'hub_customer'"
     )
+
+
+def test_selected_models_refer_to_stored_names_of_models_left_out(
+    full_export, tmp_path
+):
+    from engine.services.generation import DbtProjectGenerator, GenerationConfig
+    from engine.services.generation.template_resolver import TemplateResolver
+
+    full_export.hubs[0].generation_config = {
+        "dbt": {"hub": {"model_name": "customer_h"}}
+    }
+    full_export.satellites[0].generation_config = {
+        "dbt": {"satellite_v0": {"model_name": "customer_details_s"}}
+    }
+    # Only the PIT is selected; the hub and satellite it refers to are not.
+    selected = full_export.model_copy(
+        update={"hubs": [], "links": [], "satellites": [], "reference_tables": []}
+    )
+
+    report = DbtProjectGenerator(
+        output_path=tmp_path / "project",
+        config=GenerationConfig(),
+        template_resolver=TemplateResolver(use_db_templates=False, framework="dbt"),
+    ).generate(selected, full_export)
+
+    assert not report.errors
+    pit_sql = _models(report)["04_business_vault/pits/customer_bp.sql"].read_text()
+    assert _metadata(pit_sql)["tracked_entity"] == "customer_h"
+    assert _metadata(pit_sql)["sat_names"] == ["customer_details_s"]
+    assert "03_raw_vault/sales/hub_customer.sql" not in _models(report)
+
+
+def test_stored_post_hook_replaces_the_pit_default(full_export, tmp_path):
+    hook = "{{ datavault4dbt.clean_up_pit('snap_logic') }}"
+    full_export.pits[0].generation_config = {
+        "dbt": {"pit": {"custom_config_json": {"post_hook": hook}}}
+    }
+
+    report = _generate(full_export, tmp_path)
+
+    assert not report.errors
+    pit_sql = _models(report)["04_business_vault/pits/customer_bp.sql"].read_text()
+    _assert_jinja_parses(pit_sql)
+    # The hook itself contains ") }}", so check the whole file.
+    assert pit_sql.count("post_hook=") == 1
+    assert f"post_hook={hook!r}," in pit_sql
+
+
+def test_pit_keeps_its_default_post_hook(full_export, tmp_path):
+    report = _generate(full_export, tmp_path)
+
+    pit_sql = _models(report)["04_business_vault/pits/customer_bp.sql"].read_text()
+    _assert_jinja_parses(pit_sql)
+    assert (
+        "post_hook=\"{{ datavault4dbt.clean_up_pit('control_snap_v1') }}\",\n"
+        "    tags=['pit', 'business_vault']\n) }}"
+    ) in pit_sql
+
+
+def test_a_malformed_config_is_reported_once_under_its_entity(full_export, tmp_path):
+    hub = full_export.hubs[0]
+    hub.create_record_tracking_satellite = True  # Also read for the hub's _ts.
+    hub.generation_config = {"dbt": {"hubs": {}}}
+
+    report = _generate(full_export, tmp_path)
+
+    assert [(e.code, e.entity_type, e.entity_name) for e in report.errors] == [
+        ("ATTR_001", "hub", "hub_customer")
+    ]
+
+
+def test_an_output_kind_the_entity_does_not_produce_is_rejected(full_export, tmp_path):
+    # Meant for "hub"; a hub produces no satellite_v0.
+    full_export.hubs[0].generation_config = {
+        "dbt": {"satellite_v0": {"model_name": "customer_h"}}
+    }
+
+    report = _generate(full_export, tmp_path)
+
+    assert [e.code for e in report.errors] == ["ATTR_001"]
+    assert "a hub does not produce: satellite_v0" in report.errors[0].message
+
+
+def test_models_without_a_template_do_not_collide(full_export, tmp_path):
+    from engine.services.generation import DbtProjectGenerator, GenerationConfig
+    from engine.services.generation.template_resolver import TemplateResolver
+
+    class NoEffectivityTemplate(TemplateResolver):
+        def get_templates(self, entity_type):
+            if entity_type == "satellite_effectivity":
+                return None, None
+            return super().get_templates(entity_type)
+
+    # Would collide with the effectivity satellite, which is not generated.
+    full_export.hubs[0].generation_config = {
+        "dbt": {"hub": {"model_name": "hub_customer_es"}}
+    }
+
+    report = DbtProjectGenerator(
+        output_path=tmp_path / "project",
+        config=GenerationConfig(),
+        template_resolver=NoEffectivityTemplate(
+            use_db_templates=False, framework="dbt"
+        ),
+    ).generate(full_export)
+
+    assert not report.errors
+    assert "03_raw_vault/sales/hub_customer_es.sql" in _models(report)
+
+
+def test_a_template_that_ignores_stored_attributes_is_warned_about(
+    full_export, tmp_path
+):
+    from engine.services.generation import DbtProjectGenerator, GenerationConfig
+    from engine.services.generation.template_resolver import TemplateResolver
+    from engine.services.generation.types import TemplateOverride
+
+    # As seeded before #442: no hooks, the v0 name hard-coded.
+    old_v1 = (
+        "{{ config(tags=['satellite', 'v1']) }}\n"
+        "{%- set yaml_metadata -%}\n"
+        "sat_v0: [[ satellite_name ]]_v0\n"
+        "{%- endset -%}\n"
+    )
+    full_export.satellites[0].generation_config = {
+        "dbt": {
+            "satellite_v0": {"model_name": "customer_details_s"},
+            "satellite_v1": {"alias": "customer_details"},
+        }
+    }
+
+    report = DbtProjectGenerator(
+        output_path=tmp_path / "project",
+        config=GenerationConfig(),
+        template_resolver=TemplateResolver(
+            use_db_templates=False,
+            framework="dbt",
+            templates_override={"dbt": {"satellite_v1": TemplateOverride(sql=old_v1)}},
+        ),
+    ).generate(full_export)
+
+    warnings = [w for w in report.warnings if w.code == "TPL_003"]
+    assert [w.entity_name for w in warnings] == ["sat_customer_details_v1"]
+    assert "config alias" in warnings[0].message
+    assert "reference to customer_details_s" in warnings[0].message
+
+
+def test_bundled_templates_raise_no_template_warnings(full_export, tmp_path):
+    full_export.hubs[0].generation_config = {
+        "dbt": {"hub": {"alias": "customer", "tags": ["hub"]}}
+    }
+    full_export.satellites[0].generation_config = {
+        "dbt": {"satellite_v0": {"model_name": "customer_details_s"}}
+    }
+
+    report = _generate(
+        full_export, tmp_path, satellite_v1_naming="[[ satellite_name ]]_cur"
+    )
+
+    assert not [w for w in report.warnings if w.code == "TPL_003"]

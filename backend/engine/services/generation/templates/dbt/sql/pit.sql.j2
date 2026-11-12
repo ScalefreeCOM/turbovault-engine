@@ -7,8 +7,10 @@
 [% for key, value in (model_config or {}).items() %]
     [[ key ]]=[[ value ]],
 [% endfor %]
-    tags=[% if model_tags %][[ model_tags ]][% else %]['pit', 'business_vault'][% endif %],
-    post_hook="{{ datavault4dbt.clean_up_pit('[[ snapshot_control_name ]]') }}"
+[% if 'post_hook' not in (model_config or {}) %]
+    post_hook="{{ datavault4dbt.clean_up_pit('[[ snapshot_control_name ]]') }}",
+[% endif %]
+    tags=[% if model_tags %][[ model_tags ]][% else %]['pit', 'business_vault'][% endif +%]
 ) }}
 
 {%- set yaml_metadata -%}

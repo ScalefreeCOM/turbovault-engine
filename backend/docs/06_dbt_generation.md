@@ -154,6 +154,8 @@ All attributes are optional; whatever is not set is derived as before.
 - A model whose `file_path` lies outside its layer folder (e.g. `03_raw_vault`)
   no longer inherits the layer's `+schema` / `+materialized` from
   `dbt_project.yml`, so these are written into its `config()` unless set.
+- Each entity accepts only the output kinds it produces (see the table above);
+  any other key is rejected.
 - Two models with the same file path or model name (case-insensitive) stop
   generation with `write.path_collision`; malformed attributes stop it with
   `render.invalid_output_attributes`. Nothing is written in either case.
@@ -163,10 +165,20 @@ All attributes are optional; whatever is not set is derived as before.
 The attributes are part of the JSON export and are restored by the JSON import.
 
 **Existing installations:** the bundled templates gained the `model_config` /
-`model_tags` hooks and no longer hard-code `_v0` / `_v1` suffixes. Templates
-already seeded into the database keep their old content until re-seeded with
-`python manage.py populate_templates --overwrite` (this replaces customized
-templates of the same name).
+`model_tags` hooks and no longer hard-code `_v0` / `_v1` suffixes. Migration
+`0020_dbt_templates_output_attributes` applies the same edits to the dbt
+templates already stored in the database. Each edit only applies where the
+exact original text is still present, so customized parts are left alone.
+If a template still ignores a stored attribute or a resolved model reference
+(e.g. a customized one), generation warns with
+`render.template_ignores_output_attributes` and names the template.
+
+**Collisions now stop generation:** the check also covers models without stored
+attributes. A project in which two models already resolved to the same name or
+file (e.g. the record-tracking satellites of `customer_h` and `customer_l`, both
+`customer_ts`) used to have one silently overwrite the other; it now fails with
+`write.path_collision` until one of them is renamed (e.g. via its
+`generation_config` `model_name`).
 
 ## Custom Templates
 

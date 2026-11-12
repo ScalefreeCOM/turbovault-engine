@@ -51,10 +51,15 @@ def render(
     output_type: OutputType,
     runtime_config: EngineRuntimeConfig,
     options: GenerationOptions,
+    full_export: ProjectExport | None = None,
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
-    """Produce artifacts (in memory) and any render-stage issues."""
+    """Produce artifacts (in memory) and any render-stage issues.
+
+    `full_export` is the unfiltered project when an entity selection
+    narrowed `project_export`; dbt resolves model names from it.
+    """
     if output_type == "dbt":
-        return _render_dbt(project_export, runtime_config, options)
+        return _render_dbt(project_export, runtime_config, options, full_export)
     if output_type == "json":
         return _render_json(project_export, options)
     if output_type == "dbml":
@@ -84,6 +89,7 @@ def _render_dbt(
     project_export: ProjectExport,
     runtime_config: EngineRuntimeConfig,
     options: GenerationOptions,
+    full_export: ProjectExport | None = None,
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
     config = _build_dbt_config(runtime_config, options)
     template_resolver = TemplateResolver(
@@ -103,7 +109,7 @@ def _render_dbt(
             config=config,
             template_resolver=template_resolver,
         )
-        legacy_report = generator.generate(project_export)
+        legacy_report = generator.generate(project_export, full_export)
 
         artifacts = _collect_dbt_artifacts(temp_root, legacy_report)
         issues = _translate_dbt_issues(legacy_report)
@@ -211,6 +217,12 @@ _LEGACY_ERROR_CODE_MAP: dict[str, str] = {
 }
 
 
+_LEGACY_WARNING_CODE_MAP: dict[str, str] = {
+    "YML_001": Code.RENDER_TEMPLATE_NOT_FOUND,
+    "TPL_003": Code.RENDER_TEMPLATE_IGNORES_OUTPUT_ATTRIBUTES,
+}
+
+
 def _translate_dbt_issues(legacy_report) -> list[Issue]:
     """Convert legacy GenerationError/Warning into structured render issues."""
     issues: list[Issue] = []
@@ -227,17 +239,14 @@ def _translate_dbt_issues(legacy_report) -> list[Issue]:
             )
         )
     for warn in legacy_report.warnings:
-        # YML_001 ("SQL but no YAML") is the only legacy warning code worth
-        # surfacing; everything else maps to render.entity_skipped (info).
-        is_yaml_missing = warn.code == "YML_001"
+        # YML_001 ("SQL but no YAML") and TPL_003 (a template ignores stored
+        # output attributes) are surfaced as warnings; everything else maps to
+        # render.entity_skipped (info).
+        code = _LEGACY_WARNING_CODE_MAP.get(warn.code)
         issues.append(
             make_issue(
-                severity="warning" if is_yaml_missing else "info",
-                code=(
-                    Code.RENDER_TEMPLATE_NOT_FOUND
-                    if is_yaml_missing
-                    else Code.RENDER_ENTITY_SKIPPED
-                ),
+                severity="warning" if code else "info",
+                code=code or Code.RENDER_ENTITY_SKIPPED,
                 stage="render",
                 message=warn.message,
                 entity=_entity_ref_or_none(warn.entity_type, warn.entity_name),

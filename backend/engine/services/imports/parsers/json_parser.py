@@ -461,6 +461,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             start_date=ctrl.start_date,
             end_date=ctrl.end_date,
             daily_time=ctrl.daily_time,
+            generation_config=_generation_config(ctrl),
         )
         for pattern in ctrl.logic_patterns:
             sc.logic_rules.append(

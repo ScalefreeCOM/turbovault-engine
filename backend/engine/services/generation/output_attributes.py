@@ -25,22 +25,18 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-# Output kinds of the dbt models an entity can produce.
-DBT_OUTPUT_KINDS = frozenset(
-    {
-        "stage",
-        "hub",
-        "link",
-        "satellite_v0",
-        "satellite_v1",
-        "record_tracking_satellite",
-        "effectivity_satellite",
-        "pit",
-        "reference_table",
-        "snapshot_control_v0",
-        "snapshot_control_v1",
-    }
-)
+# Output kinds of the dbt models each entity type can produce. The stage is
+# generated from the source table.
+DBT_OUTPUT_KINDS_BY_ENTITY: dict[str, frozenset[str]] = {
+    "source_table": frozenset({"stage"}),
+    "hub": frozenset({"hub", "record_tracking_satellite", "effectivity_satellite"}),
+    "link": frozenset({"link", "record_tracking_satellite"}),
+    "satellite": frozenset({"satellite_v0", "satellite_v1"}),
+    "pit": frozenset({"pit"}),
+    "reference_table": frozenset({"reference_table"}),
+    "snapshot_control": frozenset({"snapshot_control_v0", "snapshot_control_v1"}),
+}
+DBT_OUTPUT_KINDS = frozenset().union(*DBT_OUTPUT_KINDS_BY_ENTITY.values())
 
 # Config keys with their own attribute; custom_config_json must not repeat them.
 _DEDICATED_CONFIG_KEYS = frozenset(
@@ -150,20 +146,23 @@ class DbtModelAttributes(BaseModel):
 
 
 def dbt_model_attributes(
-    generation_config: Mapping[str, Any] | None, output_kind: str
+    generation_config: Mapping[str, Any] | None, output_kind: str, entity_type: str
 ) -> DbtModelAttributes:
     """Read the dbt attributes of one output kind from a generation_config.
 
-    Returns empty attributes when none are set. Raises OutputAttributesError
-    when the config is malformed or names an unknown output kind.
+    `entity_type` is a key of DBT_OUTPUT_KINDS_BY_ENTITY: the config may only
+    name the output kinds that entity produces. Returns empty attributes when
+    none are set. Raises OutputAttributesError when the config is malformed.
     """
     dbt_section = (generation_config or {}).get("dbt") or {}
     if not isinstance(dbt_section, Mapping):
         raise OutputAttributesError("generation_config.dbt must be an object")
-    unknown = sorted(set(dbt_section) - DBT_OUTPUT_KINDS)
+    unknown = sorted(set(dbt_section) - DBT_OUTPUT_KINDS_BY_ENTITY[entity_type])
     if unknown:
+        allowed = ", ".join(sorted(DBT_OUTPUT_KINDS_BY_ENTITY[entity_type]))
         raise OutputAttributesError(
-            f"generation_config.dbt has unknown output kinds: {', '.join(unknown)}"
+            f"generation_config.dbt has output kinds a {entity_type.replace('_', ' ')}"
+            f" does not produce: {', '.join(unknown)} (allowed: {allowed})"
         )
     try:
         attributes = DbtModelAttributes.model_validate(

@@ -160,6 +160,7 @@ def run_pipeline(
         t0 = time.perf_counter()
         rendered, render_issues = render(
             project_export=filtered_export,
+            full_export=project_export,
             output_type=output_type,
             runtime_config=runtime_config,
             options=options,

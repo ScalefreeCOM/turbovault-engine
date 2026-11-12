@@ -109,6 +109,9 @@ class Code:
     RENDER_LITERAL_SECRET_IN_PROFILE = "render.literal_secret_in_profile"
     RENDER_INVALID_MATERIALIZATION = "render.invalid_materialization"
     RENDER_INVALID_OUTPUT_ATTRIBUTES = "render.invalid_output_attributes"
+    RENDER_TEMPLATE_IGNORES_OUTPUT_ATTRIBUTES = (
+        "render.template_ignores_output_attributes"
+    )
 
     # Write stage
     WRITE_IO_ERROR = "write.io_error"

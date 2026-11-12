@@ -536,18 +536,43 @@ class _Executor:
             ),
             None,
         )
-        if table is not None:
-            return table
+        if table is None:
+            from datetime import date, time
 
-        from datetime import date, time
+            today = date.today()
+            table = SnapshotControlTable.objects.create(
+                project=self.project,
+                name=name,
+                snapshot_start_date=date(today.year - 5, 1, 1),
+                snapshot_end_date=date(today.year + 5, 12, 31),
+                daily_snapshot_time=time(8, 0, 0),
+            )
+        self._apply_snapshot_generation_config(table)
+        return table
 
-        today = date.today()
-        return SnapshotControlTable.objects.create(
-            project=self.project,
-            name=name,
-            snapshot_start_date=date(today.year - 5, 1, 1),
-            snapshot_end_date=date(today.year + 5, 12, 31),
-            daily_snapshot_time=time(8, 0, 0),
+    def _apply_snapshot_generation_config(self, table: SnapshotControlTable) -> None:
+        """Store the source's output attributes for this control, if it has any.
+
+        Controls are found or created through the PITs that use them, so their
+        stored attributes are applied here, matched by base name.
+        """
+        target_base = _snapshot_base_name(table.name)
+        source = next(
+            (
+                control
+                for control in self.domain.snapshot_controls.values()
+                if _snapshot_base_name(control.name) == target_base
+            ),
+            None,
+        )
+        if source is None or source.generation_config is None:
+            return
+        self._upsert(
+            SnapshotControlTable,
+            lookup={"pk": table.pk},
+            values={"generation_config": source.generation_config},
+            existing=table,
+            path=("snapshot_control", table.name),
         )
 
     # ------------------------------------------------------------------ run

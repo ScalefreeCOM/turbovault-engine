@@ -253,6 +253,8 @@ class DSnapshotControl:
     end_date: str | None = None
     daily_time: str | None = None  # ISO time
     logic_rules: list[DSnapshotControlLogic] = field(default_factory=list)
+    # Stored output attributes (see output_attributes); None keeps what it has.
+    generation_config: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
