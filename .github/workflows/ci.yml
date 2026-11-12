@@ -109,6 +109,14 @@ jobs:
         pip install twine
         twine check dist/*
 
+    - name: Smoke test installed wheel
+      run: |
+        python -m venv /tmp/wheel-venv
+        /tmp/wheel-venv/bin/pip install dist/*.whl
+        cd /tmp
+        DJANGO_SETTINGS_MODULE=turbovault.settings /tmp/wheel-venv/bin/python -c "import django; django.setup(); import engine.services.generation"
+        /tmp/wheel-venv/bin/turbovault --help
+
     - name: Upload build artifacts
       uses: actions/upload-artifact@v7
       with:
