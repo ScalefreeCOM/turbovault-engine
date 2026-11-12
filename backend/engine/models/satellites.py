@@ -14,7 +14,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from engine.models.hubs import Hub
-from engine.models.output_attributes import output_attributes_field
+from engine.models.output_attributes import generation_config_field
 from engine.models.project import Project
 
 
@@ -101,7 +101,7 @@ class Satellite(models.Model):
         help_text="Optional description of the satellite, written to the generated dbt docs",
     )
 
-    output_attributes = output_attributes_field("Satellite")
+    generation_config = generation_config_field("Satellite")
 
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the satellite was created"

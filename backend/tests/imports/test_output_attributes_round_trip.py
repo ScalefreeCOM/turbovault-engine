@@ -33,23 +33,38 @@ from engine.services.staging_service import get_or_create_staging_column
 
 pytestmark = pytest.mark.django_db
 
-STAGE_ATTRIBUTES = {"stage": {"file_path": "staging/stg_customers.sql"}}
+STAGE_ATTRIBUTES = {"dbt": {"stage": {"file_path": "staging/stg_customers.sql"}}}
 HUB_ATTRIBUTES = {
-    "hub": {
-        "file_path": "raw_vault/customer_h.sql",
-        "alias": "customer_hub",
-        "schema": "raw",
-        "materialized": "incremental",
-        "tags": ["raw", "daily"],
-    },
-    "record_tracking_satellite": {"model_name": "customer_tracking"},
+    "dbt": {
+        "hub": {
+            "file_path": "raw_vault/customer_h.sql",
+            "alias": "customer_hub",
+            "schema": "raw",
+            "materialized": "incremental",
+            "tags": ["raw", "daily"],
+            "custom_config_json": {
+                "unique_key": "hk_customer_h",
+                "persist_docs": {"relation": True},
+            },
+        },
+        "record_tracking_satellite": {"model_name": "customer_tracking"},
+    }
 }
 SATELLITE_ATTRIBUTES = {
-    "satellite_v0": {"file_path": "raw_vault/customer_s.sql"},
-    "satellite_v1": {"model_name": "customer_s_current", "alias": "customer"},
+    "dbt": {
+        "satellite_v0": {"file_path": "raw_vault/customer_s.sql"},
+        "satellite_v1": {"model_name": "customer_s_current", "alias": "customer"},
+    }
 }
-PIT_ATTRIBUTES = {"pit": {"file_path": "marts/customer_pit.sql"}}
-CONTROL_ATTRIBUTES = {"snapshot_control_v1": {"model_name": "snapshot_dates"}}
+PIT_ATTRIBUTES = {
+    "dbt": {
+        "pit": {
+            "file_path": "marts/customer_pit.sql",
+            "custom_config_json": {"post_hook": "{{ my_pit_cleanup() }}"},
+        }
+    }
+}
+CONTROL_ATTRIBUTES = {"dbt": {"snapshot_control_v1": {"model_name": "snapshot_dates"}}}
 
 
 def _build(name: str, *, with_attributes: bool = True) -> Project:
@@ -119,7 +134,7 @@ def _build(name: str, *, with_attributes: bool = True) -> Project:
             (pit, PIT_ATTRIBUTES),
             (control, CONTROL_ATTRIBUTES),
         ):
-            obj.output_attributes = attributes
+            obj.generation_config = attributes
             obj.full_clean(validate_unique=False, validate_constraints=False)
             obj.save()
     return project
@@ -143,11 +158,11 @@ def _import(project: Project, path: Path, **options):
 
 def _stored(project: Project) -> dict[str, dict]:
     return {
-        "stage": SourceTable.objects.get(project=project).output_attributes,
-        "hub": Hub.objects.get(project=project).output_attributes,
-        "satellite": Satellite.objects.get(project=project).output_attributes,
-        "pit": PIT.objects.get(project=project).output_attributes,
-        "control": SnapshotControlTable.objects.get(project=project).output_attributes,
+        "stage": SourceTable.objects.get(project=project).generation_config,
+        "hub": Hub.objects.get(project=project).generation_config,
+        "satellite": Satellite.objects.get(project=project).generation_config,
+        "pit": PIT.objects.get(project=project).generation_config,
+        "control": SnapshotControlTable.objects.get(project=project).generation_config,
     }
 
 
@@ -162,14 +177,14 @@ EXPECTED = {
 
 def test_json_export_carries_the_attributes(tmp_path):
     data = json.loads(_export(_build("export"), tmp_path / "e.json").read_text())
-    assert data["stages"][0]["output_attributes"] == STAGE_ATTRIBUTES
-    assert data["hubs"][0]["output_attributes"] == HUB_ATTRIBUTES
-    assert data["satellites"][0]["output_attributes"] == SATELLITE_ATTRIBUTES
-    assert data["pits"][0]["output_attributes"] == PIT_ATTRIBUTES
-    assert data["snapshot_controls"][0]["output_attributes"] == CONTROL_ATTRIBUTES
+    assert data["stages"][0]["generation_config"] == STAGE_ATTRIBUTES
+    assert data["hubs"][0]["generation_config"] == HUB_ATTRIBUTES
+    assert data["satellites"][0]["generation_config"] == SATELLITE_ATTRIBUTES
+    assert data["pits"][0]["generation_config"] == PIT_ATTRIBUTES
+    assert data["snapshot_controls"][0]["generation_config"] == CONTROL_ATTRIBUTES
     # Unset attributes are left out, not written as null.
     assert data["links"] == [] and "alias" not in json.dumps(
-        data["stages"][0]["output_attributes"]
+        data["stages"][0]["generation_config"]
     )
 
 
@@ -192,17 +207,17 @@ def test_changed_attributes_are_reported_and_applied(tmp_path):
     project = _build("change")
     path = _export(project, tmp_path / "export.json")
     data = json.loads(path.read_text())
-    data["hubs"][0]["output_attributes"]["hub"]["alias"] = "hub_customer"
+    data["hubs"][0]["generation_config"]["dbt"]["hub"]["alias"] = "hub_customer"
     path.write_text(json.dumps(data), encoding="utf-8")
 
     report = _import(project, path)
     hub_entry = next(e for e in report.plan.entities if e.ref.type == "hub")
-    change = next(c for c in hub_entry.changes if c.field == "output_attributes")
-    assert change.before["hub"]["alias"] == "customer_hub"
-    assert change.after["hub"]["alias"] == "hub_customer"
-    assert Hub.objects.get(project=project).output_attributes["hub"]["alias"] == (
-        "hub_customer"
-    )
+    change = next(c for c in hub_entry.changes if c.field == "generation_config")
+    assert change.before["dbt"]["hub"]["alias"] == "customer_hub"
+    assert change.after["dbt"]["hub"]["alias"] == "hub_customer"
+    assert Hub.objects.get(project=project).generation_config["dbt"]["hub"][
+        "alias"
+    ] == ("hub_customer")
 
 
 def test_export_names_the_entity_with_an_unknown_output_kind():
@@ -210,13 +225,13 @@ def test_export_names_the_entity_with_an_unknown_output_kind():
     entity named, not with a bare schema error."""
     project = _build("bad-kind")
     Hub.objects.filter(project=project).update(
-        output_attributes={"satellite_v2": {"model_name": "x"}}
+        generation_config={"dbt": {"satellite_v2": {"model_name": "x"}}}
     )
     with pytest.raises(ValueError) as excinfo:
         ModelBuilder(project).build()
     message = str(excinfo.value)
-    assert "Invalid output attributes on hub '" in message
-    assert "unknown output kind 'satellite_v2'" in message
+    assert "Invalid generation_config on hub '" in message
+    assert "dbt: unknown output kind 'satellite_v2'" in message
 
 
 def _issue_codes(report) -> list[str]:
@@ -228,8 +243,8 @@ def test_changed_snapshot_control_attributes_are_reported(tmp_path):
     project = _build("snap-change")
     path = _export(project, tmp_path / "export.json")
     data = json.loads(path.read_text())
-    data["snapshot_controls"][0]["output_attributes"] = {
-        "snapshot_control_v1": {"model_name": "snapshots_daily"}
+    data["snapshot_controls"][0]["generation_config"] = {
+        "dbt": {"snapshot_control_v1": {"model_name": "snapshots_daily"}}
     }
     path.write_text(json.dumps(data), encoding="utf-8")
 
@@ -241,8 +256,8 @@ def test_changed_snapshot_control_attributes_are_reported(tmp_path):
     ]
     assert len(updated) == 1 and updated[0].severity == "info"
     assert "snapshots_daily" in updated[0].message
-    assert SnapshotControlTable.objects.get(project=project).output_attributes == {
-        "snapshot_control_v1": {"model_name": "snapshots_daily"}
+    assert SnapshotControlTable.objects.get(project=project).generation_config == {
+        "dbt": {"snapshot_control_v1": {"model_name": "snapshots_daily"}}
     }
 
     again = _import(project, path, dry_run=True)
@@ -269,13 +284,13 @@ def test_snapshot_control_attributes_without_a_table_warn(tmp_path):
 
 
 def test_older_exports_keep_the_projects_attributes(tmp_path):
-    """An export from before #442 has no `output_attributes` keys."""
+    """An export from before #442 has no `generation_config` keys."""
     project = _build("older")
     path = _export(_build("plain", with_attributes=False), tmp_path / "e.json")
     data = json.loads(path.read_text())
     for section in ("stages", "hubs", "satellites", "pits", "snapshot_controls"):
         for definition in data[section]:
-            del definition["output_attributes"]
+            del definition["generation_config"]
     path.write_text(json.dumps(data), encoding="utf-8")
 
     _import(project, path)
@@ -285,7 +300,7 @@ def test_older_exports_keep_the_projects_attributes(tmp_path):
 def test_invalid_attributes_in_json_are_rejected(tmp_path):
     path = _export(_build("bad"), tmp_path / "export.json")
     data = json.loads(path.read_text())
-    data["hubs"][0]["output_attributes"]["hub"]["file_path"] = "../../escape.sql"
+    data["hubs"][0]["generation_config"]["dbt"]["hub"]["file_path"] = "../../escape.sql"
     path.write_text(json.dumps(data), encoding="utf-8")
 
     report = import_metadata(
@@ -328,8 +343,13 @@ def test_imported_project_regenerates_with_the_original_layout(tmp_path):
     assert "alias='customer_hub'" in hub_sql
     assert "schema='raw'" in hub_sql
     assert "tags=['raw', 'daily']" in hub_sql
+    assert "unique_key='hk_customer_h'," in hub_sql
+    assert "persist_docs={'relation': True}," in hub_sql
     assert "- name: stg_customers" in hub_sql
     pit_sql = (out / "models/marts/customer_pit.sql").read_text()
+    # The stored post_hook replaces the default clean-up hook.
+    assert "post_hook='{{ my_pit_cleanup() }}'," in pit_sql
+    assert "clean_up_pit" not in pit_sql
     assert "- customer_s\n" in pit_sql
     assert "snapshot_relation: snapshot_dates" in pit_sql
     assert "tracked_entity: customer_h" in pit_sql

@@ -197,6 +197,18 @@ def quoted_list(values: Iterable[object] | None) -> Markup:
     return Markup("[" + ", ".join(quoted) + "]")
 
 
+def config_literal(value: object) -> Markup:
+    """A JSON value as a literal in a dbt ``config()`` call.
+
+    Used for ``custom_config_json`` values. dbt's Jinja reads Python literal
+    syntax: quoted strings with backslash escapes, numbers, ``True`` /
+    ``False`` / ``None``, lists and dicts, so ``repr`` of a JSON value is a
+    valid literal that parses back to the same value. Marked safe so HTML
+    autoescaping (on for templates loaded from strings) leaves it alone.
+    """
+    return Markup(repr(value))
+
+
 def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     """Build the Jinja2 environment shared by template rendering and validation.
 
@@ -206,7 +218,8 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     - [# #] for comments (instead of {# #})
 
     Adds the ``yaml_quote``, ``yaml_scalar`` and ``yaml_single_quote`` filters
-    for writing user text into YAML, ``quoted_list`` for tag lists, and the ``py``, ``py_dict``,
+    for writing user text into YAML, ``quoted_list`` for tag lists,
+    ``config_literal`` for custom ``config()`` values, and the ``py``, ``py_dict``,
     ``py_hashed_columns`` and ``py_source_models`` filters for writing Python
     literals into SQLMesh model files.
     """
@@ -227,6 +240,7 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     environment.filters["yaml_scalar"] = yaml_scalar
     environment.filters["yaml_single_quote"] = yaml_single_quote
     environment.filters["quoted_list"] = quoted_list
+    environment.filters["config_literal"] = config_literal
     environment.filters["py"] = py_literal
     environment.filters["py_dict"] = py_dict_filter
     environment.filters["py_hashed_columns"] = py_hashed_columns_filter

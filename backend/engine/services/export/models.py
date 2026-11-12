@@ -8,7 +8,7 @@ that can be serialized to various output formats (JSON, dbt, DBML, etc.).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import (
     AfterValidator,
@@ -67,6 +67,14 @@ class ModelOutputAttributes(BaseModel):
         default=None, alias="schema", description="Schema (dbt custom schema)"
     )
     database: str | None = Field(default=None, description="Database")
+    custom_config_json: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            'Further config() settings by key, e.g. {"unique_key": "hk"}. '
+            "Keys with their own attribute (materialized, alias, schema, "
+            "database, tags) are not allowed"
+        ),
+    )
 
     @model_validator(mode="after")
     def _check_values(self) -> ModelOutputAttributes:
@@ -83,19 +91,45 @@ class ModelOutputAttributes(BaseModel):
         }
 
     def as_stored(self) -> dict[str, object]:
-        """The attributes as stored in an entity's ``output_attributes``."""
+        """The attributes as stored in an entity's ``generation_config``."""
         return self.model_dump(exclude_none=True, by_alias=True)
+
+
+class GenerationConfigDef(BaseModel):
+    """An entity's ``generation_config``: output attributes by framework.
+
+    Only ``dbt`` is defined so far, keyed by output kind (e.g. ``hub``,
+    ``satellite_v1``).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    dbt: dict[str, ModelOutputAttributes] = Field(
+        default_factory=dict,
+        description="Attributes of the generated dbt models, by output kind",
+    )
+
+    @model_serializer(mode="wrap")
+    def _drop_empty(self, handler: SerializerFunctionWrapHandler) -> dict:
+        # A framework without attributes is left out, like unset attributes.
+        return {name: value for name, value in handler(self).items() if value}
+
+    def as_stored(self) -> dict[str, object]:
+        """The value as stored in an entity's ``generation_config`` field."""
+        if not self.dbt:
+            return {}
+        return {"dbt": {kind: attrs.as_stored() for kind, attrs in self.dbt.items()}}
 
 
 def _output_kinds_of(entity: str) -> AfterValidator:
     """Reject output kinds the entity does not generate."""
     allowed = OUTPUT_KINDS_BY_ENTITY[entity]
 
-    def check(value: dict[str, ModelOutputAttributes]) -> dict:
-        unknown = [kind for kind in value if kind not in allowed]
+    def check(value: GenerationConfigDef) -> GenerationConfigDef:
+        unknown = [kind for kind in value.dbt if kind not in allowed]
         if unknown:
             raise ValueError(
-                f"unknown output kind(s) {', '.join(unknown)}; "
+                f"unknown dbt output kind(s) {', '.join(unknown)}; "
                 f"expected one of: {', '.join(allowed)}"
             )
         return value
@@ -103,21 +137,25 @@ def _output_kinds_of(entity: str) -> AfterValidator:
     return AfterValidator(check)
 
 
-# `output_attributes` of each entity definition, keyed by output kind.
-_ByKind = dict[str, ModelOutputAttributes]
-StageOutputAttributes = Annotated[_ByKind, _output_kinds_of("SourceTable")]
-HubOutputAttributes = Annotated[_ByKind, _output_kinds_of("Hub")]
-LinkOutputAttributes = Annotated[_ByKind, _output_kinds_of("Link")]
-SatelliteOutputAttributes = Annotated[_ByKind, _output_kinds_of("Satellite")]
-PITOutputAttributes = Annotated[_ByKind, _output_kinds_of("PIT")]
-ReferenceTableOutputAttributes = Annotated[_ByKind, _output_kinds_of("ReferenceTable")]
-SnapshotControlOutputAttributes = Annotated[
-    _ByKind, _output_kinds_of("SnapshotControlTable")
+# `generation_config` of each entity definition.
+StageGenerationConfig = Annotated[GenerationConfigDef, _output_kinds_of("SourceTable")]
+HubGenerationConfig = Annotated[GenerationConfigDef, _output_kinds_of("Hub")]
+LinkGenerationConfig = Annotated[GenerationConfigDef, _output_kinds_of("Link")]
+SatelliteGenerationConfig = Annotated[
+    GenerationConfigDef, _output_kinds_of("Satellite")
+]
+PITGenerationConfig = Annotated[GenerationConfigDef, _output_kinds_of("PIT")]
+ReferenceTableGenerationConfig = Annotated[
+    GenerationConfigDef, _output_kinds_of("ReferenceTable")
+]
+SnapshotControlGenerationConfig = Annotated[
+    GenerationConfigDef, _output_kinds_of("SnapshotControlTable")
 ]
 
-_OUTPUT_ATTRIBUTES_DESCRIPTION = (
-    "File path, name and config of the generated model(s), keyed by output "
-    "kind. Empty: generation derives them"
+_GENERATION_CONFIG_DESCRIPTION = (
+    "File path, name and config of the generated model(s), keyed by framework "
+    'and output kind, e.g. {"dbt": {"hub": {"model_name": ...}}}. '
+    "Empty: generation derives them"
 )
 
 
@@ -294,8 +332,9 @@ class HubDefinition(BaseModel):
         default_factory=dict,
         description="Descriptions by hub column name, for columns that have one",
     )
-    output_attributes: HubOutputAttributes = Field(
-        default_factory=dict, description=_OUTPUT_ATTRIBUTES_DESCRIPTION
+    generation_config: HubGenerationConfig = Field(
+        default_factory=GenerationConfigDef,
+        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
 
@@ -477,8 +516,9 @@ class LinkDefinition(BaseModel):
         default_factory=dict,
         description="Descriptions by link column name, for columns that have one",
     )
-    output_attributes: LinkOutputAttributes = Field(
-        default_factory=dict, description=_OUTPUT_ATTRIBUTES_DESCRIPTION
+    generation_config: LinkGenerationConfig = Field(
+        default_factory=GenerationConfigDef,
+        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
 
@@ -618,8 +658,9 @@ class StageDefinition(BaseModel):
     columns: list[SourceColumnDef] = Field(
         default_factory=list, description="Source columns available in this stage"
     )
-    output_attributes: StageOutputAttributes = Field(
-        default_factory=dict, description=_OUTPUT_ATTRIBUTES_DESCRIPTION
+    generation_config: StageGenerationConfig = Field(
+        default_factory=GenerationConfigDef,
+        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
 
@@ -689,8 +730,9 @@ class SatelliteDefinition(BaseModel):
         default_factory=list, description="Satellite columns"
     )
     description: str | None = None
-    output_attributes: SatelliteOutputAttributes = Field(
-        default_factory=dict, description=_OUTPUT_ATTRIBUTES_DESCRIPTION
+    generation_config: SatelliteGenerationConfig = Field(
+        default_factory=GenerationConfigDef,
+        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
 
@@ -739,8 +781,9 @@ class ReferenceTableDefinition(BaseModel):
         default_factory=list, description="Reference satellite assignments"
     )
     description: str | None = None
-    output_attributes: ReferenceTableOutputAttributes = Field(
-        default_factory=dict, description=_OUTPUT_ATTRIBUTES_DESCRIPTION
+    generation_config: ReferenceTableGenerationConfig = Field(
+        default_factory=GenerationConfigDef,
+        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
 
@@ -770,8 +813,9 @@ class PITDefinition(BaseModel):
         default=False,
         description="Whether to include business keys before first appearance",
     )
-    output_attributes: PITOutputAttributes = Field(
-        default_factory=dict, description=_OUTPUT_ATTRIBUTES_DESCRIPTION
+    generation_config: PITGenerationConfig = Field(
+        default_factory=GenerationConfigDef,
+        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
 
@@ -814,8 +858,9 @@ class SnapshotControlDefinition(BaseModel):
     logic_patterns: list[SnapshotLogicPattern] = Field(
         default_factory=list, description="List of snapshot logic patterns"
     )
-    output_attributes: SnapshotControlOutputAttributes = Field(
-        default_factory=dict, description=_OUTPUT_ATTRIBUTES_DESCRIPTION
+    generation_config: SnapshotControlGenerationConfig = Field(
+        default_factory=GenerationConfigDef,
+        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
     @property

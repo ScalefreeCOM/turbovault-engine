@@ -13,8 +13,14 @@
 [% if model_database %]
     database='[[ model_database ]]',
 [% endif %]
+[% for key, value in (model_custom_config | default({})).items() %]
+    [[ key ]]=[[ value | config_literal ]],
+[% endfor %]
     tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['pit', 'business_vault'][% endif %],
+[# A post_hook in custom_config_json replaces the default clean-up hook #]
+[% if 'post_hook' not in model_custom_config | default({}) %]
     post_hook="{{ datavault4dbt.clean_up_pit('[[ snapshot_control_name ]]') }}"
+[% endif %]
 ) }}
 
 {%- set yaml_metadata -%}

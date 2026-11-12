@@ -95,11 +95,11 @@ tables, and importing it leaves the project's derived columns alone.
 
 [Output attributes](01_domain-model.md#output-attributes) — the stored file
 path, model name and config of each generated model — round-trip as the
-`output_attributes` of stages, hubs, links, satellites, PITs, reference tables
+`generation_config` (`{"dbt": {<output kind>: {...}}}`) of stages, hubs, links, satellites, PITs, reference tables
 and snapshot controls. A stage's attributes belong to its source table. Unset
 attributes are left out of the export. The import validates them like any
 other input (e.g. a `file_path` outside `models/` is rejected), reports changed
-ones as `output_attributes` changes, and an export from before they existed
+ones as `generation_config` changes, and an export from before they existed
 leaves the project's attributes alone.
 
 Snapshot controls embedded in the JSON export are restored as-is. The automatic creation of default snapshot controls (which happens for new empty projects) is skipped when the source type is `json`.

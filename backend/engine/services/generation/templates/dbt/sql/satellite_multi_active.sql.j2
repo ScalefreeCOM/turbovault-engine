@@ -13,6 +13,9 @@
 [% if model_database %]
     database='[[ model_database ]]',
 [% endif %]
+[% for key, value in (model_custom_config | default({})).items() %]
+    [[ key ]]=[[ value | config_literal ]],
+[% endfor %]
     tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['satellite', 'multi_active', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
 ) }}
 

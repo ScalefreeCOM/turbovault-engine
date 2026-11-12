@@ -4,10 +4,12 @@ Where each generated dbt model goes, what it is called and how it is configured.
 Before anything is rendered, `resolve_model_outputs` decides for every model
 the generator will emit:
 
-- its model name and folder: the stored output attributes (see
-  `engine.models.output_attributes`) when `use_original_paths` is on, else the
-  configured naming patterns and Turbovault's layer folders;
-- its per-model config: alias, schema, database, materialization and tags.
+- its model name and folder: the output attributes stored in the entity's
+  ``generation_config["dbt"]`` (see `engine.models.output_attributes`) when
+  `use_original_paths` is on, else the configured naming patterns and
+  Turbovault's layer folders;
+- its per-model config: alias, schema, database, materialization, tags and
+  any further `custom_config_json` settings.
 
 Every reference between models (stages in `source_models`, `sat_v0` in v1
 views and PITs, `sat_v1` in reference tables, the snapshot control in PITs)
@@ -20,7 +22,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -78,6 +80,9 @@ class ModelOutput:
     database: str | None = None
     materialized: str | None = None
     tags: tuple[str, ...] | None = None
+    # Further config() settings (custom_config_json), as (key, value) pairs in
+    # stored order. Values are JSON values.
+    custom_config: tuple[tuple[str, Any], ...] = ()
 
     @property
     def sql_path(self) -> PurePosixPath:
@@ -197,7 +202,7 @@ def resolve_model_outputs(
             entity_name=stage.stage_name,
             default_name=stage.stage_name,
             default_directory=folders.staging_dir(stage.source_system),
-            attributes=stage.output_attributes.get("stage"),
+            attributes=stage.generation_config.dbt.get("stage"),
         )
 
     for hub in project_export.hubs:
@@ -208,7 +213,7 @@ def resolve_model_outputs(
             entity_name=hub.hub_name,
             default_name=hub.hub_name,
             default_directory=directory,
-            attributes=hub.output_attributes.get("hub"),
+            attributes=hub.generation_config.dbt.get("hub"),
         )
         if hub.create_record_tracking_satellite and hub.hashkey:
             resolver.add(
@@ -220,7 +225,7 @@ def resolve_model_outputs(
                     entity_base_name(hub.hub_name),
                 ),
                 default_directory=directory,
-                attributes=hub.output_attributes.get("record_tracking_satellite"),
+                attributes=hub.generation_config.dbt.get("record_tracking_satellite"),
             )
         if hub.create_effectivity_satellite and hub.hashkey and hub.source_tables:
             resolver.add(
@@ -232,7 +237,7 @@ def resolve_model_outputs(
                     entity_base_name(hub.hub_name),
                 ),
                 default_directory=directory,
-                attributes=hub.output_attributes.get("effectivity_satellite"),
+                attributes=hub.generation_config.dbt.get("effectivity_satellite"),
             )
 
     for link in project_export.links:
@@ -243,7 +248,7 @@ def resolve_model_outputs(
             entity_name=link.link_name,
             default_name=link.link_name,
             default_directory=directory,
-            attributes=link.output_attributes.get("link"),
+            attributes=link.generation_config.dbt.get("link"),
         )
         if link.create_record_tracking_satellite and link.hashkey:
             resolver.add(
@@ -255,7 +260,7 @@ def resolve_model_outputs(
                     entity_base_name(link.link_name),
                 ),
                 default_directory=directory,
-                attributes=link.output_attributes.get("record_tracking_satellite"),
+                attributes=link.generation_config.dbt.get("record_tracking_satellite"),
             )
 
     for satellite in project_export.satellites:
@@ -268,7 +273,7 @@ def resolve_model_outputs(
                 config.satellite_v0_naming, satellite.satellite_name
             ),
             default_directory=directory,
-            attributes=satellite.output_attributes.get("satellite_v0"),
+            attributes=satellite.generation_config.dbt.get("satellite_v0"),
         )
         if (
             config.generate_satellite_v1_views
@@ -282,7 +287,7 @@ def resolve_model_outputs(
                     config.satellite_v1_naming, satellite.satellite_name
                 ),
                 default_directory=directory,
-                attributes=satellite.output_attributes.get("satellite_v1"),
+                attributes=satellite.generation_config.dbt.get("satellite_v1"),
             )
 
     for pit in project_export.pits:
@@ -292,7 +297,7 @@ def resolve_model_outputs(
             entity_name=pit.pit_name,
             default_name=pit.pit_name,
             default_directory=folders.pits_dir(pit.group),
-            attributes=pit.output_attributes.get("pit"),
+            attributes=pit.generation_config.dbt.get("pit"),
         )
 
     for ref_table in project_export.reference_tables:
@@ -302,7 +307,7 @@ def resolve_model_outputs(
             entity_name=ref_table.table_name,
             default_name=ref_table.table_name,
             default_directory=folders.raw_vault_dir(ref_table.group),
-            attributes=ref_table.output_attributes.get("reference_table"),
+            attributes=ref_table.generation_config.dbt.get("reference_table"),
         )
 
     for control in project_export.snapshot_controls:
@@ -316,7 +321,7 @@ def resolve_model_outputs(
                 entity_name=control.name,
                 default_name=default_name,
                 default_directory=folders.control_dir(),
-                attributes=control.output_attributes.get(kind),
+                attributes=control.generation_config.dbt.get(kind),
             )
 
     for source in project_export.sources:
@@ -388,4 +393,5 @@ class _Resolver:
             database=attributes.database,
             materialized=attributes.materialized,
             tags=tuple(attributes.tags) if attributes.tags is not None else None,
+            custom_config=tuple((attributes.custom_config_json or {}).items()),
         )

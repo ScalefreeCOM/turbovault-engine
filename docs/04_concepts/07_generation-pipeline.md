@@ -206,7 +206,8 @@ configured naming pattern (`satellite_v0_naming`, `satellite_v1_naming`, …).
 A model with stored [output attributes](01_domain-model.md#output-attributes),
 e.g. one imported from an existing dbt project, is written to its stored
 `file_path` under its stored `model_name`, with its `alias`, `schema`,
-`database`, `materialized` and `tags` in `config()`. Everything not stored is
+`database`, `materialized`, `tags` and any further `custom_config_json`
+settings in `config()`. Everything not stored is
 derived as above. Before rendering, generation resolves the name and file of
 every model, so:
 

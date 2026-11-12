@@ -151,13 +151,11 @@ def run(django_setup, engine_project, tmp_path, monkeypatch):
     return _run
 
 
-def _attributes(**by_kind: dict) -> dict:
-    from engine.services.export.models import ModelOutputAttributes
+def _attributes(**by_kind: dict):
+    """A `generation_config` holding the given dbt attributes by output kind."""
+    from engine.services.export.models import GenerationConfigDef
 
-    return {
-        kind: ModelOutputAttributes.model_validate(values)
-        for kind, values in by_kind.items()
-    }
+    return GenerationConfigDef.model_validate({"dbt": by_kind})
 
 
 def _models(out: Path) -> dict[str, Path]:
@@ -305,10 +303,10 @@ class TestNamingPatterns:
 
 def _with_original_layout(export):
     """Give the export an imported project's layout and names."""
-    export.stages[0].output_attributes = _attributes(
+    export.stages[0].generation_config = _attributes(
         stage={"file_path": "staging/crm/stg_customers.sql", "materialized": "view"}
     )
-    export.hubs[0].output_attributes = _attributes(
+    export.hubs[0].generation_config = _attributes(
         hub={
             "file_path": "raw_vault/hubs/customer_h.sql",
             "alias": "customer_hub",
@@ -319,7 +317,7 @@ def _with_original_layout(export):
     satellite = next(
         s for s in export.satellites if s.satellite_name == "sat_customer_details"
     )
-    satellite.output_attributes = _attributes(
+    satellite.generation_config = _attributes(
         satellite_v0={"file_path": "raw_vault/sats/customer_details.sql"},
         satellite_v1={
             "model_name": "customer_details_current",
@@ -328,10 +326,10 @@ def _with_original_layout(export):
             "database": "analytics",
         },
     )
-    export.snapshot_controls[0].output_attributes = _attributes(
+    export.snapshot_controls[0].generation_config = _attributes(
         snapshot_control_v1={"model_name": "snapshots_daily"}
     )
-    export.pits[0].output_attributes = _attributes(
+    export.pits[0].generation_config = _attributes(
         pit={"file_path": "marts/pit_customer.sql"}
     )
     return export
@@ -411,6 +409,80 @@ class TestStoredAttributes:
         eff_config = _config_call(_sql(out, "customer_eff"))
         assert "schema=" not in eff_config and "materialized=" not in eff_config
 
+    def test_custom_config_is_written_into_config(self, run, full_export):
+        """custom_config_json values become config() arguments that dbt's
+        Jinja reads back as the same values."""
+        import jinja2
+
+        custom = {
+            "unique_key": "hk_customer_h",
+            "on_schema_change": 'it\'s "quoted" \\ {{ x }}',
+            "full_refresh": False,
+            "batch_size": 1000,
+            "grants": {"select": ["reporter", "bi"]},
+            "meta": None,
+        }
+        export = _with_original_layout(full_export)
+        export.hubs[0].generation_config = _attributes(
+            hub={
+                "file_path": "raw_vault/hubs/customer_h.sql",
+                "custom_config_json": custom,
+            }
+        )
+        report, out = run(export)
+        assert report.status == "success", report.issues
+
+        config_call = _config_call(_sql(out, "customer_h"))
+        captured: dict = {}
+
+        def config(**kwargs: object) -> str:
+            captured.update(kwargs)
+            return ""
+
+        jinja2.Environment().from_string(config_call).render(config=config)
+        assert {key: captured[key] for key in custom} == custom
+        # The layer schema of the out-of-folder model is still set.
+        assert captured["schema"] == "rdv"
+
+    def test_pit_keeps_its_clean_up_hook_without_a_stored_post_hook(
+        self, run, full_export
+    ):
+        export = _with_original_layout(full_export)
+        export.pits[0].generation_config = _attributes(
+            pit={
+                "file_path": "marts/pit_customer.sql",
+                "custom_config_json": {"on_schema_change": "fail"},
+            }
+        )
+        _, out = run(export)
+        pit_config = _config_call(_sql(out, "pit_customer"))
+        assert "on_schema_change='fail'," in pit_config
+        assert pit_config.count("post_hook=") == 1
+        assert "clean_up_pit('snapshots_daily')" in pit_config
+
+    def test_pit_post_hook_replaces_the_clean_up_hook(self, run, full_export):
+        export = _with_original_layout(full_export)
+        export.pits[0].generation_config = _attributes(
+            pit={
+                "file_path": "marts/pit_customer.sql",
+                "custom_config_json": {"post_hook": ["{{ my_cleanup() }}"]},
+            }
+        )
+        _, out = run(export)
+        # The whole file: the hook itself contains "}}", which ends _config_call early.
+        pit_sql = _sql(out, "pit_customer")
+        assert pit_sql.count("post_hook=") == 1
+        assert "post_hook=['{{ my_cleanup() }}']," in pit_sql
+        assert "clean_up_pit" not in pit_sql
+
+    def test_standard_paths_option_ignores_custom_config(self, run, full_export):
+        export = _with_original_layout(full_export)
+        export.hubs[0].generation_config = _attributes(
+            hub={"custom_config_json": {"unique_key": "hk_customer_h"}}
+        )
+        _, out = run(export, use_original_paths=False)
+        assert "unique_key" not in _config_call(_sql(out, "hub_customer"))
+
     def test_generation_leaves_the_export_untouched(self, run, full_export):
         """References are resolved on copies, not on the caller's export."""
         export = _with_original_layout(full_export)
@@ -466,7 +538,7 @@ class TestCollisions:
         ],
     )
     def test_collision_writes_nothing(self, run, full_export, attributes):
-        full_export.hubs[0].output_attributes = _attributes(**attributes)
+        full_export.hubs[0].generation_config = _attributes(**attributes)
         report, out = run(full_export)
         errors = [i for i in report.issues if i.severity == "error"]
         assert [i.code for i in errors] == ["write.path_collision"]
@@ -477,7 +549,7 @@ class TestCollisions:
 
     def test_collision_with_a_naming_pattern(self, run, full_export):
         """Stored names are checked against derived ones too."""
-        full_export.hubs[0].output_attributes = _attributes(
+        full_export.hubs[0].generation_config = _attributes(
             hub={"model_name": "sat_customer_details_v1"}
         )
         report, _ = run(full_export)
@@ -486,7 +558,7 @@ class TestCollisions:
         ]
 
     def test_same_name_in_another_folder_still_collides(self, run, full_export):
-        full_export.hubs[0].output_attributes = _attributes(
+        full_export.hubs[0].generation_config = _attributes(
             hub={"file_path": "elsewhere/lnk_customer_order.sql"}
         )
         report, _ = run(full_export)
@@ -514,7 +586,7 @@ class TestCollisions:
             stage.model_copy(
                 update={
                     "source_table": "CUSTOMER",
-                    "output_attributes": _attributes(stage={"model_name": "stg_other"}),
+                    "generation_config": _attributes(stage={"model_name": "stg_other"}),
                 }
             )
         )
@@ -525,7 +597,7 @@ class TestCollisions:
 
     def test_model_yml_must_not_overwrite_a_sources_file(self, run, full_export):
         source_name = full_export.sources[0].name.lower()
-        full_export.hubs[0].output_attributes = _attributes(
+        full_export.hubs[0].generation_config = _attributes(
             hub={"file_path": f"01_sources/source__{source_name}.sql"}
         )
         report, out = run(full_export)
@@ -535,7 +607,7 @@ class TestCollisions:
         assert not (out / "models").exists()
 
     def test_no_collision_check_with_standard_paths(self, run, full_export):
-        full_export.hubs[0].output_attributes = _attributes(
+        full_export.hubs[0].generation_config = _attributes(
             hub={"model_name": "lnk_customer_order"}
         )
         report, _ = run(full_export, use_original_paths=False)
@@ -589,6 +661,14 @@ class TestAttributeValidation:
             ({"materialized": "table\n"}, "'materialized'"),
             ({"tags": ["ok", "it's"]}, "'tags'"),
             ({"tags": "daily"}, "valid list"),
+            (
+                {"custom_config_json": {"materialized": "table"}},
+                "use the 'materialized' attribute",
+            ),
+            ({"custom_config_json": {"tags": ["a"]}}, "cannot set 'tags'"),
+            ({"custom_config_json": {"unique-key": "x"}}, "'custom_config_json' key"),
+            ({"custom_config_json": {"1st": "x"}}, "'custom_config_json' key"),
+            ({"custom_config_json": "unique_key=x"}, "valid dictionary"),
         ],
     )
     def test_invalid_values_rejected(self, django_setup, values, fragment):
@@ -618,16 +698,16 @@ class TestAttributeValidation:
         from engine.services.export.models import HubDefinition
         from pydantic import ValidationError
 
-        with pytest.raises(ValidationError, match="unknown output kind"):
+        with pytest.raises(ValidationError, match="unknown dbt output kind"):
             HubDefinition(
                 hub_name="h",
                 hub_type="standard",
-                output_attributes={"satellite_v0": {"model_name": "x"}},
+                generation_config={"dbt": {"satellite_v0": {"model_name": "x"}}},
             )
 
     def test_export_leaves_out_unset_attributes(self, django_setup):
         attributes = _attributes(hub={"model_name": "customer_h", "schema": "rdv"})
-        assert attributes["hub"].model_dump(mode="json") == {
+        assert attributes.dbt["hub"].model_dump(mode="json") == {
             "model_name": "customer_h",
             "schema": "rdv",
         }
@@ -640,9 +720,57 @@ class TestAttributeValidation:
             project=engine_project,
             hub_physical_name="hub_customer",
             hub_hashkey_name="hk_customer",
-            output_attributes={"hub": {"file_path": "../../etc/passwd.sql"}},
+            generation_config={"dbt": {"hub": {"file_path": "../../etc/passwd.sql"}}},
         )
-        with pytest.raises(ValidationError, match="output_attributes"):
+        with pytest.raises(ValidationError, match="generation_config"):
             hub.full_clean()
-        hub.output_attributes = {"hub": {"file_path": "raw/hub_customer.sql"}}
+        hub.generation_config = {"dbt": {"hub": {"file_path": "raw/hub_customer.sql"}}}
+        hub.full_clean()
+
+    def test_attributes_live_under_a_framework_key(self, engine_project):
+        """Attributes keyed directly by output kind, or under a framework that
+        isn't defined yet, are rejected rather than silently ignored."""
+        from django.core.exceptions import ValidationError
+        from engine.models import Hub
+
+        hub = Hub(
+            project=engine_project,
+            hub_physical_name="hub_customer",
+            hub_hashkey_name="hk_customer",
+            generation_config={"hub": {"model_name": "customer_h"}},
+        )
+        with pytest.raises(ValidationError, match="unknown framework 'hub'"):
+            hub.full_clean()
+        hub.generation_config = {"sqlmesh": {"hub": {"model_name": "customer_h"}}}
+        with pytest.raises(ValidationError, match="unknown framework 'sqlmesh'"):
+            hub.full_clean()
+
+    def test_export_schema_rejects_unknown_frameworks(self, django_setup):
+        from engine.services.export.models import HubDefinition
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="sqlmesh"):
+            HubDefinition(
+                hub_name="h",
+                hub_type="standard",
+                generation_config={"sqlmesh": {"hub": {"model_name": "x"}}},
+            )
+
+    def test_django_field_validates_custom_config(self, engine_project):
+        from django.core.exceptions import ValidationError
+        from engine.models import Hub
+
+        hub = Hub(
+            project=engine_project,
+            hub_physical_name="hub_customer",
+            hub_hashkey_name="hk_customer",
+            generation_config={
+                "dbt": {"hub": {"custom_config_json": {"alias": "customer"}}}
+            },
+        )
+        with pytest.raises(ValidationError, match="use the 'alias' attribute"):
+            hub.full_clean()
+        hub.generation_config = {
+            "dbt": {"hub": {"custom_config_json": {"unique_key": "hk_customer"}}}
+        }
         hub.full_clean()

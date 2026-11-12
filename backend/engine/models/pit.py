@@ -14,7 +14,7 @@ from django.db import models
 
 from engine.models.hubs import Hub
 from engine.models.links import Link
-from engine.models.output_attributes import output_attributes_field
+from engine.models.output_attributes import generation_config_field
 from engine.models.project import Project
 from engine.models.satellites import Satellite
 from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
@@ -133,7 +133,7 @@ class PIT(models.Model):
         help_text="Whether to include business keys before their first appearance",
     )
 
-    output_attributes = output_attributes_field("PIT")
+    generation_config = generation_config_field("PIT")
 
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the PIT was created"

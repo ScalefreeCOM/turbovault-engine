@@ -6,11 +6,16 @@ path, model name and config the generated model should have — e.g. the ones
 of the dbt project it was imported from. Generation derives everything it
 does not find here, as it always has.
 
-The attributes live in an ``output_attributes`` JSON field on each entity,
-keyed by output kind::
+The attributes live in a ``generation_config`` JSON field on each entity,
+keyed by framework and then by output kind::
 
-    {"satellite_v0": {"model_name": "sat_customer", "file_path": "raw/sat_customer.sql"},
-     "satellite_v1": {"alias": "customer_details", "tags": ["daily"]}}
+    {"dbt": {"satellite_v0": {"model_name": "sat_customer",
+                              "file_path": "raw/sat_customer.sql"},
+             "satellite_v1": {"alias": "customer_details", "tags": ["daily"],
+                              "custom_config_json": {"persist_docs": {"relation": true}}}}}
+
+Only ``dbt`` is defined today; another framework (e.g. SQLMesh) gets its own
+key next to it rather than sharing the dbt attributes.
 
 This module only holds the format rules, shared by the Django field
 validator, the export/import schema and generation. It must not import
@@ -26,6 +31,9 @@ from typing import Any
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.deconstruct import deconstructible
+
+# Frameworks a generation_config may hold attributes for.
+GENERATION_CONFIG_FRAMEWORKS: tuple[str, ...] = ("dbt",)
 
 # Output kinds each entity generates, by the entity's model name.
 OUTPUT_KINDS_BY_ENTITY: dict[str, tuple[str, ...]] = {
@@ -46,6 +54,13 @@ OUTPUT_ATTRIBUTE_FIELDS: tuple[str, ...] = (
     "tags",
     "schema",
     "database",
+    "custom_config_json",
+)
+
+# config() keys that have their own attribute; custom_config_json may not set
+# them, so each setting has exactly one place.
+DEDICATED_CONFIG_KEYS: frozenset[str] = frozenset(
+    {"materialized", "alias", "schema", "database", "tags"}
 )
 
 # dbt names a model after its file, so a model name is also a file stem.
@@ -55,6 +70,8 @@ _RELATION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
 # Databases may also be e.g. BigQuery project ids (`my-project-123`).
 _DATABASE_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_$-]*")
 _MATERIALIZATION = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# config() keys are written as keyword arguments of a dbt config() call.
+_CONFIG_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # Tags are written into single-quoted SQL and YAML strings, so no quotes,
 # backslashes or whitespace.
 _TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:/-]*")
@@ -68,7 +85,8 @@ def output_attribute_errors(attributes: Mapping[str, Any]) -> list[str]:
     ``file_path`` is relative to the dbt project's ``models/`` folder, uses
     forward slashes, ends in ``.sql`` and cannot leave ``models/``. When both
     ``file_path`` and ``model_name`` are set, the file must be named after the
-    model, as dbt requires.
+    model, as dbt requires. ``custom_config_json`` holds further ``config()``
+    settings, but none that has its own attribute.
     """
     if not isinstance(attributes, Mapping):
         return ["must be a mapping of attribute name to value"]
@@ -101,9 +119,31 @@ def output_attribute_errors(attributes: Mapping[str, Any]) -> list[str]:
                 "'tags' must be a list of tags made of letters, digits and _ . : / -"
             )
 
+    custom_config = attributes.get("custom_config_json")
+    if custom_config is not None:
+        errors.extend(_custom_config_errors(custom_config))
+
     file_path = attributes.get("file_path")
     if file_path is not None:
         errors.extend(_file_path_errors(file_path, attributes.get("model_name")))
+    return errors
+
+
+def _custom_config_errors(custom_config: Any) -> list[str]:
+    """Checks for ``custom_config_json``: further ``config()`` settings."""
+    if not isinstance(custom_config, Mapping):
+        return ["'custom_config_json' must be a mapping of config key to value"]
+    errors = []
+    for key in custom_config:
+        if not isinstance(key, str) or not _CONFIG_KEY.fullmatch(key):
+            errors.append(
+                f"'custom_config_json' key {key!r} must be a letter or _ "
+                "followed by letters, digits or _"
+            )
+        elif key in DEDICATED_CONFIG_KEYS:
+            errors.append(
+                f"'custom_config_json' cannot set '{key}': use the '{key}' attribute"
+            )
     return errors
 
 
@@ -138,56 +178,79 @@ def _file_path_errors(file_path: Any, model_name: Any) -> list[str]:
     return []
 
 
-def output_attributes_errors(value: Any, allowed_kinds: tuple[str, ...]) -> list[str]:
-    """Return what is wrong with a whole ``output_attributes`` value."""
-    if value in (None, {}):
-        return []
+def output_kind_errors(
+    value: Any, allowed_kinds: tuple[str, ...], framework: str = "dbt"
+) -> list[str]:
+    """Return what is wrong with one framework's attributes, keyed by output kind.
+
+    Messages name the attribute's place, e.g. ``dbt.hub: 'alias' must be ...``.
+    """
     if not isinstance(value, Mapping):
-        return ["output attributes must be a mapping of output kind to attributes"]
+        return [f"'{framework}' must be a mapping of output kind to attributes"]
     errors: list[str] = []
     for kind, attributes in value.items():
         if kind not in allowed_kinds:
             errors.append(
-                f"unknown output kind '{kind}' (expected one of: "
+                f"{framework}: unknown output kind '{kind}' (expected one of: "
                 f"{', '.join(allowed_kinds)})"
             )
             continue
         errors.extend(
-            f"{kind}: {error}" for error in output_attribute_errors(attributes)
+            f"{framework}.{kind}: {error}"
+            for error in output_attribute_errors(attributes)
         )
     return errors
 
 
+def generation_config_errors(value: Any, allowed_kinds: tuple[str, ...]) -> list[str]:
+    """Return what is wrong with a whole ``generation_config`` value."""
+    if value in (None, {}):
+        return []
+    if not isinstance(value, Mapping):
+        return ["generation_config must be a mapping of framework to attributes"]
+    errors: list[str] = []
+    for framework, by_kind in value.items():
+        if framework not in GENERATION_CONFIG_FRAMEWORKS:
+            errors.append(
+                f"unknown framework '{framework}' (expected one of: "
+                f"{', '.join(GENERATION_CONFIG_FRAMEWORKS)})"
+            )
+            continue
+        errors.extend(output_kind_errors(by_kind, allowed_kinds, framework))
+    return errors
+
+
 @deconstructible
-class OutputAttributesValidator:
-    """Django field validator for an entity's ``output_attributes``."""
+class GenerationConfigValidator:
+    """Django field validator for an entity's ``generation_config``."""
 
     def __init__(self, allowed_kinds: tuple[str, ...]) -> None:
         self.allowed_kinds = tuple(allowed_kinds)
 
     def __call__(self, value: Any) -> None:
-        errors = output_attributes_errors(value, self.allowed_kinds)
+        errors = generation_config_errors(value, self.allowed_kinds)
         if errors:
             raise ValidationError(errors)
 
     def __eq__(self, other: object) -> bool:
         return (
-            isinstance(other, OutputAttributesValidator)
+            isinstance(other, GenerationConfigValidator)
             and self.allowed_kinds == other.allowed_kinds
         )
 
 
-def output_attributes_field(entity: str) -> models.JSONField:
-    """The ``output_attributes`` JSON field for the given entity model."""
+def generation_config_field(entity: str) -> models.JSONField:
+    """The ``generation_config`` JSON field for the given entity model."""
     kinds = OUTPUT_KINDS_BY_ENTITY[entity]
     return models.JSONField(
         default=dict,
         blank=True,
-        validators=[OutputAttributesValidator(kinds)],
+        validators=[GenerationConfigValidator(kinds)],
         help_text=(
-            "Output attributes of the generated model(s), keyed by output kind "
-            f"({', '.join(kinds)}): model_name, alias, file_path (relative to "
-            "models/), materialized, tags, schema, database. Generation derives "
-            "whatever is not set."
+            "Output attributes of the generated model(s), keyed by framework "
+            f"(dbt) and output kind ({', '.join(kinds)}): model_name, alias, "
+            "file_path (relative to models/), materialized, tags, schema, "
+            "database, custom_config_json. Generation derives whatever is not "
+            "set."
         ),
     )

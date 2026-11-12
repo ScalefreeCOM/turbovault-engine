@@ -583,12 +583,12 @@ class _Executor:
         """
         tables = list(SnapshotControlTable.objects.filter(project=self.project))
         for control_d in self.domain.snapshot_controls.values():
-            if control_d.output_attributes is None:
+            if control_d.generation_config is None:
                 continue
             base_name = _snapshot_base_name(control_d.name)
             matching = [t for t in tables if _snapshot_base_name(t.name) == base_name]
             if not matching:
-                if control_d.output_attributes:
+                if control_d.generation_config:
                     self.issues.append(
                         make_issue(
                             severity="warning",
@@ -610,11 +610,11 @@ class _Executor:
                     )
                 continue
             for table in matching:
-                if table.output_attributes == control_d.output_attributes:
+                if table.generation_config == control_d.generation_config:
                     continue
-                before = table.output_attributes
-                table.output_attributes = control_d.output_attributes
-                table.save(update_fields=["output_attributes", "updated_at"])
+                before = table.generation_config
+                table.generation_config = control_d.generation_config
+                table.save(update_fields=["generation_config", "updated_at"])
                 self.issues.append(
                     make_issue(
                         severity="info",
@@ -624,7 +624,7 @@ class _Executor:
                         message=(
                             f"Output attributes of snapshot control "
                             f"'{table.name}' changed from {before or {}} to "
-                            f"{control_d.output_attributes or {}}."
+                            f"{control_d.generation_config or {}}."
                         ),
                     )
                 )
@@ -754,7 +754,7 @@ class _Executor:
                 load_date_value=table_d.load_date_value,
                 static_part_of_record_source=table_d.static_part_of_record_source,
                 description=table_d.description,
-                output_attributes=table_d.output_attributes,
+                generation_config=table_d.generation_config,
             ),
             existing=self._tables_by_key.get(table_key, LOOKUP),
         )
@@ -1085,7 +1085,7 @@ class _Executor:
                 "create_effectivity_satellite": d.create_effectivity_satellite,
                 "group": group,
                 **_only_supplied(
-                    description=d.description, output_attributes=d.output_attributes
+                    description=d.description, generation_config=d.generation_config
                 ),
             },
             existing=self._hubs_by_name.get(d.physical_name, LOOKUP),
@@ -1265,7 +1265,7 @@ class _Executor:
                 "create_record_tracking_satellite": d.create_record_tracking_satellite,
                 "group": group,
                 **_only_supplied(
-                    description=d.description, output_attributes=d.output_attributes
+                    description=d.description, generation_config=d.generation_config
                 ),
             },
             existing=self._links_by_name.get(d.physical_name, LOOKUP),
@@ -1542,7 +1542,7 @@ class _Executor:
                 "source_table": source_table,
                 "group": group,
                 **_only_supplied(
-                    description=d.description, output_attributes=d.output_attributes
+                    description=d.description, generation_config=d.generation_config
                 ),
             },
             existing=self._satellites_by_name.get(d.physical_name, LOOKUP),
@@ -1619,7 +1619,7 @@ class _Executor:
                 "historization_type": d.historization_type,
                 "group": group,
                 **_only_supplied(
-                    description=d.description, output_attributes=d.output_attributes
+                    description=d.description, generation_config=d.generation_config
                 ),
             },
         )
@@ -1754,7 +1754,7 @@ class _Executor:
                 "pit_type": d.pit_type,
                 "custom_record_source": d.custom_record_source,
                 "group": group,
-                **_only_supplied(output_attributes=d.output_attributes),
+                **_only_supplied(generation_config=d.generation_config),
             },
         )
 

@@ -341,6 +341,8 @@ class DbtProjectGenerator:
             "model_schema": schema,
             "model_database": output.database,
             "model_tags": list(output.tags) if output.tags is not None else None,
+            # Further config() settings from custom_config_json, in stored order.
+            "model_custom_config": dict(output.custom_config),
         }
 
     def _output(self, kind: str, key: str) -> ModelOutput:

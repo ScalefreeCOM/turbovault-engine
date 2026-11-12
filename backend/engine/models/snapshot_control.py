@@ -15,7 +15,7 @@ from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from engine.models.output_attributes import output_attributes_field
+from engine.models.output_attributes import generation_config_field
 from engine.models.project import Project
 
 
@@ -81,7 +81,7 @@ class SnapshotControlTable(models.Model):
         default=time(8, 0, 0), help_text="Daily snapshot time (default: 08:00:00)"
     )
 
-    output_attributes = output_attributes_field("SnapshotControlTable")
+    generation_config = generation_config_field("SnapshotControlTable")
 
     created_at = models.DateTimeField(
         auto_now_add=True,

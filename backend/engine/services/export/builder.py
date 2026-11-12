@@ -15,11 +15,12 @@ from pydantic import ValidationError
 
 from engine.models.output_attributes import (
     OUTPUT_KINDS_BY_ENTITY,
-    output_attributes_errors,
+    generation_config_errors,
 )
 from engine.services.export.models import (
     ColumnDescriptionDef,
     DerivedColumnDef,
+    GenerationConfigDef,
     HashkeyDefinition,
     HubColumnMapping,
     HubDefinition,
@@ -29,7 +30,6 @@ from engine.services.export.models import (
     LinkHubReferenceDefinition,
     LinkSourceHashkeyMapping,
     LinkSourceInfo,
-    ModelOutputAttributes,
     MultiActiveConfig,
     PITDefinition,
     PrejoinCondition,
@@ -107,30 +107,27 @@ def _prejoin_origin(staging_column: StagingColumn) -> tuple[str | None, str | No
     return target.physical_table_name, target.source_system.name
 
 
-def _output_attributes(entity: Model, label: str) -> dict[str, ModelOutputAttributes]:
-    """The entity's stored output attributes, checked, keyed by output kind.
+def _generation_config(entity: Model, label: str) -> GenerationConfigDef:
+    """The entity's stored ``generation_config``, checked.
 
     Raises ValueError naming the entity when a stored value is invalid (e.g.
     written to the database without going through validation).
     """
-    stored = entity.output_attributes or {}
+    stored = entity.generation_config or {}
     # Checked here, kinds included, so a bad value names its entity instead of
     # failing later in the export schema's validators.
-    errors = output_attributes_errors(
+    errors = generation_config_errors(
         stored, OUTPUT_KINDS_BY_ENTITY[type(entity).__name__]
     )
     if errors:
         raise ValueError(
-            f"Invalid output attributes on {label} '{entity}': {'; '.join(errors)}"
+            f"Invalid generation_config on {label} '{entity}': {'; '.join(errors)}"
         )
     try:
-        return {
-            kind: ModelOutputAttributes.model_validate(attributes)
-            for kind, attributes in stored.items()
-        }
+        return GenerationConfigDef.model_validate(stored)
     except ValidationError as exc:
         raise ValueError(
-            f"Invalid output attributes on {label} '{entity}': {exc}"
+            f"Invalid generation_config on {label} '{entity}': {exc}"
         ) from exc
 
 
@@ -366,7 +363,7 @@ class ModelBuilder:
                     create_effectivity_satellite=hub.create_effectivity_satellite,
                     description=hub.description or None,
                     column_descriptions=column_descriptions,
-                    output_attributes=_output_attributes(hub, "hub"),
+                    generation_config=_generation_config(hub, "hub"),
                 )
             )
 
@@ -536,7 +533,7 @@ class ModelBuilder:
                     multi_active_config=multi_active_config,
                     derived_columns=derived_columns,
                     columns=columns,
-                    output_attributes=_output_attributes(table, "source table"),
+                    generation_config=_generation_config(table, "source table"),
                 )
             )
 
@@ -1227,7 +1224,7 @@ class ModelBuilder:
                     hashdiff_name=hashdiff_name,
                     columns=columns,
                     description=sat.description or None,
-                    output_attributes=_output_attributes(sat, "satellite"),
+                    generation_config=_generation_config(sat, "satellite"),
                 )
             )
 
@@ -1445,7 +1442,7 @@ class ModelBuilder:
                     create_record_tracking_satellite=link.create_record_tracking_satellite,
                     description=link.description or None,
                     column_descriptions=column_descriptions,
-                    output_attributes=_output_attributes(link, "link"),
+                    generation_config=_generation_config(link, "link"),
                 )
             )
 
@@ -1488,7 +1485,7 @@ class ModelBuilder:
                     end_date=control.snapshot_end_date.isoformat(),
                     daily_time=control.daily_snapshot_time.isoformat(),
                     logic_patterns=logic_patterns,
-                    output_attributes=_output_attributes(control, "snapshot control"),
+                    generation_config=_generation_config(control, "snapshot control"),
                 )
             )
 
@@ -1584,7 +1581,7 @@ class ModelBuilder:
                     snapshot_logic_column=snapshot_logic_column,
                     satellites=satellite_assignments,
                     description=ref_table.description or None,
-                    output_attributes=_output_attributes(ref_table, "reference table"),
+                    generation_config=_generation_config(ref_table, "reference table"),
                 )
             )
 
@@ -1655,7 +1652,7 @@ class ModelBuilder:
                     pit_type=pit.pit_type,
                     use_snapshot_optimization=pit.use_snapshot_optimization,
                     include_business_objects_before_appearance=pit.include_business_objects_before_appearance,
-                    output_attributes=_output_attributes(pit, "PIT"),
+                    generation_config=_generation_config(pit, "PIT"),
                 )
             )
 
