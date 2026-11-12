@@ -198,6 +198,8 @@ class TurboVaultToolset(MCPToolset):
             values = resolve_table_values(tbl, runtime_config=runtime_config)
             return {
                 "physical_name": tbl.physical_table_name,
+                # "prestage": a dbt model preparing data for the stage.
+                "table_type": tbl.table_type,
                 "record_source": values.record_source.value,
                 "load_date": values.load_date.value,
                 "columns": [

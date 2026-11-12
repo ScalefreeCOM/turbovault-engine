@@ -12,6 +12,8 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from markupsafe import Markup
+
 from engine.services.config_schema import MODEL_MATERIALIZATION_DEFAULTS
 
 from .file_writer import write_sql_file, write_yaml_file
@@ -26,6 +28,7 @@ if TYPE_CHECKING:
         HubDefinition,
         LinkDefinition,
         PITDefinition,
+        PrestageDefinition,
         ProjectExport,
         ReferenceTableDefinition,
         SatelliteDefinition,
@@ -209,12 +212,17 @@ class DbtProjectGenerator:
             self._create_folder_structure()
 
             # 2. Generate project-level files
-            self._generate_project_files(vars_block, profiles_content)
+            self._generate_project_files(
+                vars_block,
+                profiles_content,
+                has_prestage_models=any(p.sql for p in project_export.prestages),
+            )
 
             # 3. Generate sources.yml
             self._generate_sources(project_export.sources)
 
-            # 4. Generate stage models
+            # 4. Generate pre-stage models, then the stage models reading them
+            self._generate_prestages(project_export.prestages)
             self._generate_stages(project_export.stages)
 
             # 5. Generate hub models
@@ -304,15 +312,28 @@ class DbtProjectGenerator:
                     # Log an error if the directory could not be removed
                     logger.error(f"Error removing directory {dirpath}: {e}")
 
+    def _prestaging_materialization(self) -> str:
+        """Materialization of the pre-stage layer: the staging layer's.
+
+        The stage reads a pre-stage's columns from the database, where an
+        ephemeral model doesn't exist, so an ephemeral staging layer gives views.
+        """
+        materialization = self.config.staging_materialization
+        return "view" if materialization == "ephemeral" else materialization
+
     def _generate_project_files(
-        self, vars_block: str = "", profiles_content: str | None = None
+        self,
+        vars_block: str = "",
+        profiles_content: str | None = None,
+        has_prestage_models: bool = False,
     ) -> None:
         """Generate dbt_project.yml, packages.yml and the optional profiles.yml.
 
         `vars_block` is the already-rendered `vars:` section and
         `profiles_content` the already-rendered profiles.yml, or None when not
         requested (see `generate()`, which resolves both up front so an invalid
-        value fails before any file is written).
+        value fails before any file is written). The pre-stage layer is only
+        configured when `has_prestage_models`, so dbt finds no unused path.
         """
         # Generate dbt_project.yml
         template = self.template_resolver.get_project_template("dbt_project.yml")
@@ -329,6 +350,9 @@ class DbtProjectGenerator:
                 raw_vault_materialization=self.config.raw_vault_materialization,
                 business_vault_materialization=(
                     self.config.business_vault_materialization
+                ),
+                prestaging_materialization=(
+                    self._prestaging_materialization() if has_prestage_models else None
                 ),
                 vars_block=vars_block,
             )
@@ -376,6 +400,11 @@ class DbtProjectGenerator:
         template = self.template_resolver.get_project_template("sources.yml")
 
         for source in sources:
+            # Pre-stages are dbt models, not sources: their stages ref() them.
+            physical_tables = [t for t in source.tables if t.table_type != "prestage"]
+            if source.tables and not physical_tables:
+                continue
+            source = source.model_copy(update={"tables": physical_tables})
             source_name = self.folder_config._sanitize_name(source.name)
             if template:
                 content = template.render(source=source)
@@ -396,6 +425,84 @@ class DbtProjectGenerator:
                     code="TPL_001",
                 )
 
+    def _generate_prestages(self, prestages: list[PrestageDefinition]) -> None:
+        """Generate the pre-stage models: their SQL as it is, and a YAML file.
+
+        A pre-stage without SQL is maintained outside TurboVault: nothing is
+        written for it, and its stage reads the model all the same.
+        """
+        prestages = [prestage for prestage in prestages if prestage.sql]
+        if not prestages:
+            logger.debug("No pre-stage models to generate")
+            return
+
+        sql_template, yaml_template = self.template_resolver.get_templates("prestage")
+
+        for prestage in prestages:
+            try:
+                output_dir = self.folder_config.get_prestaging_path(
+                    prestage.source_system, self.output_path
+                )
+                context = prestage.model_dump()
+                # The SQL goes in as it is: templates loaded from strings (the
+                # workspace's copies) autoescape, which would mangle its quotes.
+                context["prestage_sql"] = Markup(prestage.sql)
+
+                if sql_template:
+                    content = sql_template.render(**context)
+                    filename = get_model_filename(prestage.model_name, extension="sql")
+                    path = output_dir / filename
+                    write_sql_file(path, content)
+                    self.report.add_file(path, "prestage", prestage.model_name, "sql")
+
+                if yaml_template:
+                    content = yaml_template.render(**context)
+                    filename = get_model_filename(prestage.model_name, extension="yml")
+                    path = output_dir / filename
+                    write_yaml_file(path, content)
+                    self.report.add_file(path, "prestage", prestage.model_name, "yaml")
+
+                self.report.prestages_generated += 1
+
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate pre-stage {prestage.model_name}: {e}"
+                )
+                self.report.add_error(
+                    entity_type="prestage",
+                    entity_name=prestage.model_name,
+                    message=str(e),
+                    code="PST_001",
+                )
+
+    def _check_prestage_support(self, stage: StageDefinition, content: str) -> None:
+        """Warn when the stage template doesn't know pre-stages.
+
+        A workspace's copies of the templates take precedence over the bundled
+        ones. A copy made before pre-stages existed reads every table as a dbt
+        source, which a pre-stage isn't: dbt would fail to find the source.
+        """
+        unsupported = []
+        if stage.prestage_model and stage.prestage_model not in content:
+            unsupported.append(f"read the pre-stage model '{stage.prestage_model}'")
+        if any(
+            prejoin.target_model and prejoin.target_model not in content
+            for prejoin in stage.prejoins
+        ):
+            unsupported.append("prejoin a pre-stage model")
+        if unsupported:
+            self.report.add_warning(
+                entity_type="stage",
+                entity_name=stage.stage_name,
+                message=(
+                    f"The stage template doesn't {' or '.join(unsupported)}: it "
+                    "predates pre-stages. Update the stage template: "
+                    "`python manage.py populate_templates --overwrite` refreshes the "
+                    "workspace's copies (and replaces their customizations)."
+                ),
+                code="TPL_003",
+            )
+
     def _generate_stages(self, stages: list[StageDefinition]) -> None:
         """Generate stage SQL and YAML models."""
         if not stages:
@@ -414,6 +521,7 @@ class DbtProjectGenerator:
                 # Generate SQL file
                 if sql_template:
                     content = sql_template.render(**stage.model_dump())
+                    self._check_prestage_support(stage, content)
                     filename = get_model_filename(stage.stage_name, extension="sql")
                     path = output_dir / filename
                     write_sql_file(path, content)

@@ -177,6 +177,12 @@ def _count_dbt(
         1 if generate_profiles_yml else 0
     )
 
+    # Pre-stages: one sql + one yml per pre-stage with SQL. One maintained
+    # outside TurboVault gets no files.
+    prestage_models = sum(1 for p in project_export.prestages if p.sql)
+    if prestage_models:
+        counts["prestage"] = prestage_models * 2
+
     # Stages: one sql + one yml per stage.
     if project_export.stages:
         counts["stage"] = len(project_export.stages) * 2
@@ -248,8 +254,11 @@ def _count_sqlmesh(
 
     counts["project"] = 5  # scaffold files
 
-    if project_export.stages:
-        counts["stage"] = len(project_export.stages)
+    # Stages that read a pre-stage are skipped: SQLMesh output has no
+    # pre-stages yet.
+    stages = [s for s in project_export.stages if not s.prestage_model]
+    if stages:
+        counts["stage"] = len(stages)
 
     standard_hubs = [h for h in project_export.hubs if h.hub_type == "standard"]
     if standard_hubs:
@@ -287,6 +296,7 @@ def _count_single_artifact(project_export: ProjectExport) -> dict[str, int]:
         "pit": len(project_export.pits),
         "reference_table": len(project_export.reference_tables),
         "snapshot_control": len(project_export.snapshot_controls),
+        "prestage": len(project_export.prestages),
         "stage": len(project_export.stages),
         "source": len(project_export.sources),
     }

@@ -239,8 +239,20 @@ class _PlanBuilder:
                 )
 
         if self.strategy == "replace_all":
+            # A system holding pre-stages stays when the source can't list
+            # them (see `_keeps_prestages`).
+            holding_prestages: set[Any] = (
+                set(
+                    SourceTable.objects.filter(
+                        source_system__project=self.project,
+                        table_type=SourceTable.TableType.PRESTAGE,
+                    ).values_list("source_system_id", flat=True)
+                )
+                if self._keeps_prestages()
+                else set()
+            )
             for ss in existing_by_key.values():
-                if ss.pk not in used_pks:
+                if ss.pk not in used_pks and ss.pk not in holding_prestages:
                     self._record(
                         DeleteOp(
                             entity_type="source_system",
@@ -248,6 +260,14 @@ class _PlanBuilder:
                             existing_pk=ss.pk,
                         )
                     )
+
+    def _keeps_prestages(self) -> bool:
+        """Whether `replace_all` keeps the pre-stages the source leaves out.
+
+        It does when the source can't describe pre-stages at all (Excel,
+        SQLite, IRiS, a database's catalog): their absence there says nothing.
+        """
+        return not self.domain.describes_prestages
 
     def _plan_source_tables(self) -> None:
         seen: set[int] = set()
@@ -318,15 +338,17 @@ class _PlanBuilder:
                 )
 
         if self.strategy == "replace_all":
+            keeps_prestages = self._keeps_prestages()
             for t in existing_tables:
-                if t.pk not in used_pks:
-                    self._record(
-                        DeleteOp(
-                            entity_type="source_table",
-                            name=t.physical_table_name,
-                            existing_pk=t.pk,
-                        )
+                if t.pk in used_pks or (keeps_prestages and t.is_prestage):
+                    continue
+                self._record(
+                    DeleteOp(
+                        entity_type="source_table",
+                        name=t.physical_table_name,
+                        existing_pk=t.pk,
                     )
+                )
 
     # -------------------------------------------------------------- prejoins
     def _plan_prejoins(self) -> None:

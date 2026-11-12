@@ -64,11 +64,21 @@ turbovault generate --project my_project --skip-validation
 
 ---
 
+### Pre-stage Rules
+
+| Code | Entity | Rule | How to Fix |
+|------|--------|------|------------|
+| `PST_001` | Pre-stage | Must not be materialized as `ephemeral`: its stage reads the pre-stage's columns from the database (error, `validate.prestage.ephemeral`) | Remove `materialized='ephemeral'` from the pre-stage's `config()`, or set `view` / `table` |
+| `PST_002` | Pre-stage | Every `source()` it reads must be a source the project defines (warning, `validate.prestage.unknown_source`). Not checked when the project doesn't generate its sources (`export_sources` off) | Fix the source or table name; dbt matches both exactly, and the message suggests the right spelling when only the case differs |
+
+---
+
 ### Generation Output Rules
 
 | Code | Entity | Rule | How to Fix |
 |------|--------|------|------------|
 | `YML_001` | Model | SQL model was generated but YAML schema is missing | Check that the corresponding YAML template exists in Django Admin → Model Templates |
+| `TPL_003` | Stage | The stage template doesn't read a pre-stage model or prejoin one: it predates pre-stages (warning, `render.template_outdated`) | Update the stage template; `python manage.py populate_templates --overwrite` refreshes the workspace's copies (and replaces their customizations) |
 
 ---
 

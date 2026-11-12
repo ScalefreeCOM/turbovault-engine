@@ -41,7 +41,7 @@ The admin is organized into the following sections:
 | **Engine > Projects** | Top-level project containers |
 | **Engine > Groups** | Logical groupings for organizing entities into subfolders |
 | **Engine > Source Systems** | Database/schema definitions of upstream sources |
-| **Engine > Source Tables** | Physical source tables with DV config (record source, load date) |
+| **Engine > Source Tables** | Source tables with DV config (record source, load date): physical tables, and pre-stages with their dbt SQL |
 | **Engine > Source Columns** | Columns belonging to source tables |
 | **Engine > Hubs** | Data Vault hub definitions (standard and reference) |
 | **Engine > Hub Columns** | Business keys and reference keys within hubs |
@@ -73,6 +73,27 @@ When building a Data Vault model manually in the admin (rather than importing fr
 9. PITs (optional)
 10. Snapshot Control Tables + Logic (optional)
 ```
+
+---
+
+## Working with Pre-stages
+
+When a table's data can't be loaded as it is (JSON to parse, a table to pivot),
+add a [pre-stage](../04_concepts/01_domain-model.md#35-pre-stages): a source
+table with **Table type** `Pre-stage`, in the source system whose data it
+prepares.
+
+- **Pre-stage SQL** — the complete dbt model, written to
+  `models/01_prestaging/<system>/pstg__<system>__<table>.sql` as it is. Read
+  inputs with `{{ source('<system>', '<TABLE>') }}`, using the names in the
+  generated `sources.yml`. Leave it empty to maintain the model yourself.
+- **Source columns** — add the columns the model returns, with their data
+  types. Hubs, links and satellites map them like any table's columns.
+- **Load date / record source** — as for any table; the load date usually is a
+  column the model passes through.
+
+The pre-stage's stage reads the model with `ref()`. A table that only
+pre-stages read gets no stage of its own.
 
 ---
 
