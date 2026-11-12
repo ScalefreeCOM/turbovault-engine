@@ -451,6 +451,13 @@ class IrisExporter:
                         "after IRiS sanitisation, skipped"
                     )
                     continue
+                if table.table_type == "prestage" and table.prestage_sql:
+                    # Kept as a table so the mappings that read it still
+                    # resolve; IRiS has nowhere to put the model's SQL.
+                    result.add_warning(
+                        f"Pre-stage {table.table_name!r} is exported as a source "
+                        "table: IRiS has no pre-stages, so its SQL is left out."
+                    )
                 for column in table.columns:
                     col_name = _sanitize_iris_name(
                         column.column_name, _IRIS_COLUMN_NAME_MAX

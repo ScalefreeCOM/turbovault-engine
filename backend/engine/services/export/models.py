@@ -8,6 +8,7 @@ that can be serialized to various output formats (JSON, dbt, DBML, etc.).
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -47,6 +48,20 @@ class SourceTableDef(BaseModel):
     """Definition of a source table with its columns and metadata."""
 
     table_name: str
+    table_type: Literal["physical", "prestage"] = Field(
+        default="physical",
+        description=(
+            "physical: a table of the source system, read with source(). "
+            "prestage: a dbt model (pre-stage) the stage reads with ref()"
+        ),
+    )
+    prestage_sql: str | None = Field(
+        default=None,
+        description=(
+            "A pre-stage's dbt model, written to the project as it is. None for "
+            "a physical table, or a pre-stage maintained outside TurboVault"
+        ),
+    )
     alias: str | None = None
     # As the table sets them; None inherits from the system and the project.
     record_source: str | None = None
@@ -224,6 +239,13 @@ class PrejoinDefinitionExport(BaseModel):
             "to the stage's own source system in that case."
         ),
     )
+    target_model: str | None = Field(
+        default=None,
+        description=(
+            "The pre-stage model of the target table, when that is a pre-stage: "
+            "the stage then prejoins the model (ref_model) instead of a source"
+        ),
+    )
     join_conditions: PrejoinCondition = Field(
         description="Join conditions between source and target"
     )
@@ -371,6 +393,32 @@ class LinkDefinition(BaseModel):
 # =============================================================================
 
 
+class PrestageDefinition(BaseModel):
+    """A pre-stage: a dbt model that prepares a table's data for its stage.
+
+    Built from a source table of type ``prestage``. Generation writes its SQL
+    as it is, with a YAML file documenting its columns; the stage reads the
+    model with ``ref()``.
+    """
+
+    model_name: str = Field(
+        description="Name of the dbt model, e.g. pstg__crm__customer_address"
+    )
+    table_name: str = Field(description="Name of the pre-stage's source table")
+    source_system: str = Field(description="Source system the pre-stage belongs to")
+    sql: str | None = Field(
+        default=None,
+        description=(
+            "The model's SQL. None: the model is maintained outside TurboVault "
+            "and only referenced"
+        ),
+    )
+    description: str | None = None
+    columns: list[SourceColumnDef] = Field(
+        default_factory=list, description="Columns the model provides"
+    )
+
+
 class StageHashkeyDef(BaseModel):
     """
     Hashkey definition within a stage model.
@@ -465,6 +513,13 @@ class StageDefinition(BaseModel):
     source_table: str
     source_schema: str
     source_system: str
+    prestage_model: str | None = Field(
+        default=None,
+        description=(
+            "The pre-stage model the stage reads with ref(), when its source "
+            "table is a pre-stage. None: it reads the table as a dbt source"
+        ),
+    )
     record_source: str | None = None
     load_date: str | None = None
     description: str | None = Field(
@@ -678,7 +733,10 @@ class SnapshotControlDefinition(BaseModel):
     """
 
     name: str = Field(
-        description="Base name of the snapshot control (e.g., 'control_snap')"
+        description=(
+            "Name of the snapshot control (e.g., 'control_snap'). May carry a "
+            "_v0/_v1 suffix, e.g. 'control_snap_v0', which model names drop"
+        )
     )
     start_date: str = Field(description="Overall snapshot start date (YYYY-MM-DD)")
     end_date: str = Field(description="Overall snapshot end date (YYYY-MM-DD)")
@@ -688,6 +746,11 @@ class SnapshotControlDefinition(BaseModel):
     )
 
     @property
+    def base_name(self) -> str:
+        """The name without a _v0/_v1 suffix: 'control_snap_v0' -> 'control_snap'."""
+        return self.name.removesuffix("_v0").removesuffix("_v1")
+
+    @property
     def v0_name(self) -> str:
         """
         Model name for the snapshot control table (_v0 suffix).
@@ -695,8 +758,7 @@ class SnapshotControlDefinition(BaseModel):
         Used for the base snapshot control model that contains
         start_date, end_date, and daily_time configuration.
         """
-        base_name = self.name.removesuffix("_v0").removesuffix("_v1")
-        return f"{base_name}_v0"
+        return f"{self.base_name}_v0"
 
     @property
     def v1_name(self) -> str:
@@ -706,8 +768,7 @@ class SnapshotControlDefinition(BaseModel):
         Used for the model that implements the logic patterns
         (daily, weekly, monthly, etc. snapshot windows).
         """
-        base_name = self.name.removesuffix("_v0").removesuffix("_v1")
-        return f"{base_name}_v1"
+        return f"{self.base_name}_v1"
 
 
 # ============================================================================
@@ -742,6 +803,9 @@ class ProjectExport(BaseModel):
     )
     hubs: list[HubDefinition] = Field(
         default_factory=list, description="Hub definitions"
+    )
+    prestages: list[PrestageDefinition] = Field(
+        default_factory=list, description="Pre-stage model definitions"
     )
     stages: list[StageDefinition] = Field(
         default_factory=list, description="Stage model definitions"

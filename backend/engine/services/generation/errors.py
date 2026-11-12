@@ -70,6 +70,10 @@ class Code:
     VALIDATE_STAGE_NO_SOURCE_TABLE = "validate.stage.no_source_table"
     VALIDATE_STAGE_NO_KEYS = "validate.stage.no_keys"
 
+    # Validate stage — pre-stages
+    VALIDATE_PRESTAGE_EPHEMERAL = "validate.prestage.ephemeral"
+    VALIDATE_PRESTAGE_UNKNOWN_SOURCE = "validate.prestage.unknown_source"
+
     # Validate stage — hubs
     VALIDATE_HUB_MISSING_HASHKEY = "validate.hub.missing_hashkey"
     VALIDATE_HUB_NO_BUSINESS_KEYS = "validate.hub.no_business_keys"
@@ -102,6 +106,7 @@ class Code:
 
     # Render stage
     RENDER_TEMPLATE_NOT_FOUND = "render.template_not_found"
+    RENDER_TEMPLATE_OUTDATED = "render.template_outdated"
     RENDER_TEMPLATE_RENDER_FAILED = "render.template_render_failed"
     RENDER_ENTITY_SKIPPED = "render.entity_skipped"
     RENDER_INVALID_GLOBAL_VARS = "render.invalid_global_vars"
@@ -131,6 +136,8 @@ class Code:
     SQLMESH_LINK_HUB_SKIPPED = "render.sqlmesh.link_hub_skipped"
     SQLMESH_UNSUPPORTED_PREJOIN = "render.sqlmesh.unsupported.prejoin"
     SQLMESH_PREJOIN_DEPENDENT_SKIPPED = "render.sqlmesh.prejoin_dependent_skipped"
+    SQLMESH_UNSUPPORTED_PRESTAGE = "render.sqlmesh.unsupported.prestage"
+    SQLMESH_PRESTAGE_DEPENDENT_SKIPPED = "render.sqlmesh.prestage_dependent_skipped"
 
     # Internal
     INTERNAL_BUG = "internal.bug"

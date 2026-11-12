@@ -24,6 +24,7 @@ class FolderConfig:
     # Base paths for each layer
     control_path: str = "models/00_control"
     source_path: str = "models/01_sources"
+    prestaging_path: str = "models/01_prestaging"
     staging_path: str = "models/02_staging"
     raw_vault_path: str = "models/03_raw_vault"
     business_vault_path: str = "models/04_business_vault"
@@ -34,6 +35,10 @@ class FolderConfig:
     def get_source_path(self, output_root: Path) -> Path:
         """Get the source directory path."""
         return output_root / self.source_path
+
+    def get_prestaging_path(self, source_system: str, output_root: Path) -> Path:
+        """Get the path for the pre-stage models of a source system."""
+        return output_root / self.prestaging_path / self._sanitize_name(source_system)
 
     def get_staging_path(self, source_system: str, output_root: Path) -> Path:
         """
