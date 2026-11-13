@@ -137,6 +137,8 @@ def _build_dbt_config(
         # coercing it here (e.g. `dict(...)`) would turn a reportable bad value
         # into an unhandled TypeError before the renderer ever sees it.
         global_vars=runtime_config.global_vars,
+        dbt_project_models=dict(runtime_config.dbt_project_models or {}),
+        dbt_project_settings=dict(runtime_config.dbt_project_settings or {}),
         control_schema=runtime_config.control_schema,
         control_materialization=runtime_config.control_materialization,
         staging_materialization=runtime_config.staging_materialization,

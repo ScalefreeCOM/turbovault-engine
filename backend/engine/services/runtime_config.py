@@ -69,12 +69,21 @@ class EngineRuntimeConfig:
 
     # Passthrough for datavault4dbt global variables. Rendered verbatim into the
     # `vars:` block of dbt_project.yml. The engine does not curate or validate
-    # the key list — that is owned by the caller (e.g. Studio).
+    # the key list — that is owned by the caller (e.g. Studio). The CLI reads
+    # them from config.yml's `dbt_project.vars` (an imported dbt project's).
     #
     # `hash=False` keeps this frozen dataclass hashable: a dict field would
     # otherwise make every `hash(config)` raise TypeError. It stays part of
     # `__eq__`, so equal configs still hash equal.
     global_vars: dict[str, Any] = field(default_factory=dict, hash=False)
+
+    # An imported dbt project's dbt_project.yml (spec D20, D25), rendered into
+    # the generated one: the project's models: block (folder-level settings,
+    # without the project-name level) and its other top-level settings
+    # (seeds:, snapshots:, on-run-start, dispatch, paths, other packages'
+    # models: entries, ...). Empty: TurboVault's own dbt_project.yml.
+    dbt_project_models: dict[str, Any] = field(default_factory=dict, hash=False)
+    dbt_project_settings: dict[str, Any] = field(default_factory=dict, hash=False)
 
     # dbt profile referenced by `profile:` in dbt_project.yml.
     profile_name: str = "default"
@@ -101,8 +110,8 @@ class EngineRuntimeConfig:
     # rendered verbatim; the engine does not curate adapter fields (Studio
     # does). Secrets must be `{{ env_var('...') }}` references — literal values
     # for known secret keys are rejected (see generation.profiles_yml).
-    # Like `global_vars`, set only by embedded callers: config.yml has no
-    # equivalent, so `from_turbovault_config` leaves both at their defaults.
+    # Set only by embedded callers: config.yml has no equivalent, so
+    # `from_turbovault_config` leaves both at their defaults.
     generate_profiles_yml: bool = False
     profiles: dict[str, Any] = field(default_factory=dict, hash=False)
 
@@ -198,6 +207,13 @@ class EngineRuntimeConfig:
             ),
             model_materializations=dict(config.configuration.model_materializations),
             dbt_project_name=config.output.dbt_project_name or config.project.name,
+            global_vars=dict(config.dbt_project.vars) if config.dbt_project else {},
+            dbt_project_models=(
+                dict(config.dbt_project.models) if config.dbt_project else {}
+            ),
+            dbt_project_settings=(
+                dict(config.dbt_project.settings) if config.dbt_project else {}
+            ),
             create_zip=config.output.create_zip,
             export_sources=config.output.export_sources,
             generate_tests=config.output.generate_tests,

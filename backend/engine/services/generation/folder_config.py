@@ -172,6 +172,11 @@ class GenerationConfig:
     # datavault4dbt global variables rendered into the dbt_project.yml vars: block
     global_vars: dict[str, Any] = field(default_factory=dict)
 
+    # An imported dbt project's dbt_project.yml (spec D20, D25): the project's
+    # models: block (folder-level settings) and its other top-level settings
+    dbt_project_models: dict[str, Any] = field(default_factory=dict)
+    dbt_project_settings: dict[str, Any] = field(default_factory=dict)
+
     # Per-layer settings of the dbt_project.yml models: block
     control_schema: str = "control"
     control_materialization: str = "table"

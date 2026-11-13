@@ -158,9 +158,16 @@ def write_project_config(config_path: Path, config) -> None:
             "delivery_method"
         ] = config.configuration.delivery_method
 
-    # The dbt project the CLI imports from
+    # The dbt project the CLI imports from, and its dbt_project.yml settings
     if config.dbt_project:
-        config_dict["dbt_project"] = {"path": str(config.dbt_project.path)}
+        dbt_project: dict = {}
+        if config.dbt_project.path is not None:
+            dbt_project["path"] = str(config.dbt_project.path)
+        for key in ("vars", "models", "settings"):
+            if value := getattr(config.dbt_project, key):
+                dbt_project[key] = value
+        if dbt_project:
+            config_dict["dbt_project"] = dbt_project
 
     # Add source if present
     if config.source:

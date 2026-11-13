@@ -403,15 +403,34 @@ The dbt project this TurboVault project belongs to: `turbovault import` reads
 its artifacts when no `--source` is given (see the
 [CLI reference](../02_getting-started/01_cli-reference.md#turbovault-import)).
 
+It also keeps the `dbt_project.yml` settings of an imported dbt project, which
+generation writes back into the generated `dbt_project.yml`.
+
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `path` | path | Yes | The dbt project folder, absolute or relative to the directory the CLI runs in. The import finds `target/manifest.json` (or `manifest.json`), `target/catalog.json`, `dbt_project.yml` and the package files in it |
+| `path` | path | No | The dbt project folder, absolute or relative to the directory the CLI runs in. The import finds `target/manifest.json` (or `manifest.json`), `target/catalog.json`, `dbt_project.yml` and the package files in it |
+| `vars` | mapping | No | The dbt project's variables (datavault4dbt's and others), written to the `vars:` block |
+| `models` | mapping | No | The project's `models:` block (folder-level `+materialized`, `+schema`, `+tags`, hooks, ...) without the project-name level. Generation merges it with TurboVault's layer folders, whose settings win for those folders |
+| `settings` | mapping | No | Other `dbt_project.yml` settings, written as they are: `version`, paths, `clean-targets`, `seeds:`, `snapshots:`, `on-run-start`, `dispatch`, other packages' `models:` entries, ... TurboVault's model paths are added to the imported `model-paths` |
+
+The project's name and profile go to `output.dbt_project_name` and
+`configuration.profile_name`.
 
 **Example:**
 
 ```yaml
 dbt_project:
   path: ../analytics_dbt
+  vars:
+    datavault4dbt.hash: SHA2
+  models:
+    raw_vault:
+      +schema: rdv
+      +materialized: incremental
+  settings:
+    seeds:
+      analytics:
+        +schema: seeds
 ```
 
 ---

@@ -490,7 +490,7 @@ def _configured_dbt_project(project_name: str) -> Path | None:
         config = project.load_config()
     except Exception:  # no config.yml, or an invalid one: no default
         return None
-    if config.dbt_project is None:
+    if config.dbt_project is None or config.dbt_project.path is None:
         return None
     return Path(config.dbt_project.path).expanduser()
 

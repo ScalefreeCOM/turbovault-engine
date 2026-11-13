@@ -26,6 +26,7 @@ section is completed when the Engine change lands).
 | 13 | [JSON export and import of the new settings; snapshot controls](#13-json-export-and-import-of-the-new-settings-snapshot-controls) | In progress | Show the new `snapshot_control` plan entities; keep `model_outputs` when Studio builds or edits exports |
 | 14 | [Links select their dependent child keys](#14-links-select-their-dependent-child-keys) | In progress | Template editor: new variable `dependent_child_keys`; tell users their links gain columns |
 | 15 | [Snapshot control logic as datavault4dbt reads it](#15-snapshot-control-logic-as-datavault4dbt-reads-it) | In progress | Offer the components datavault4dbt computes; show `SNAP_002`; template editor variables |
+| 16 | [An imported dbt_project.yml comes back](#16-an-imported-dbt_projectyml-comes-back) | In progress | Store two new project settings and pass them to generation; reconcile with the manual dbt_project.yml |
 
 Background for items 4–11: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
 
@@ -706,3 +707,35 @@ control without a daily rule produced an invalid model.
 - **Studio:** in the logic editor, offer (or mark as generated) only `daily`, beginning of week, beginning of
   month and beginning of year, at most once per column; explain that rules sharing a column name form one logic
   column, and that PITs pick a column by its name (`snapshot_trigger_column`). Show `SNAP_002` warnings.
+
+---
+
+## 16. An imported dbt_project.yml comes back
+
+**Status:** In progress (dbt import branch). Spec D20, D25. The import side (reporting the settings) lands with
+spec Phase 4b-2b.
+
+A project imported from a dbt project keeps that project's `dbt_project.yml`, and generation writes it back, so
+the generated file matches the original in content (comments and formatting aside).
+
+- **Runtime config (`EngineRuntimeConfig`), new fields:**
+  - `dbt_project_models: dict` — the project's `models:` block without the project-name level (folder-level
+    `+materialized`, `+schema`, `+tags`, hooks, nested folders).
+  - `dbt_project_settings: dict` — every other top-level setting: `version`, the paths, `clean-targets`,
+    `require-dbt-version`, `seeds:`, `snapshots:`, `on-run-start`/`on-run-end`, `dispatch`, `quoting`, other
+    packages' `models:` entries (under `models`), ...
+  - The imported project's `name`, `profile` and `vars` go to the existing `dbt_project_name`, `profile_name`
+    and `global_vars`.
+- **Generation:** `version`, paths and `clean-targets` replace the defaults; TurboVault's model paths are added to
+  the imported `model-paths`; the `models:` block is the imported one with TurboVault's layer folders merged in
+  (their `+schema`/`+materialized` win for those folders); other settings follow as they are. Without these
+  fields, `dbt_project.yml` is unchanged.
+- **Template:** `dbt_project.yml.j2` gained the variables `project_version`, `analysis_paths`, `test_paths`,
+  `seed_paths`, `macro_paths`, `snapshot_paths`, `clean_targets`, `models_block` and `extra_block` (all
+  optional; Studio's prefill rendering with the old variables still works). A workspace copy that doesn't write
+  the imported settings gets `TPL_003`.
+- **CLI:** `config.yml` keeps them under `dbt_project:` (`vars`, `models`, `settings`); `dbt_project.path` is now
+  optional.
+- **Studio:** store the two new settings with the project and pass them in the runtime config. Studio's manual
+  `dbt_project.yml` overrides the generated file anyway; when a project has imported settings, consider
+  prefilling the manual file from a generation with them, or showing them read-only.

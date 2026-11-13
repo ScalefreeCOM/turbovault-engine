@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -585,24 +585,46 @@ class OutputConfiguration(BaseModel):
 
 
 class DbtProjectConfig(BaseModel):
-    """The dbt project this TurboVault project belongs to (spec D11, D18).
+    """The dbt project this TurboVault project belongs to (spec D11, D18, D25).
 
     The CLI imports from it (its ``target/manifest.json``, catalog,
-    ``dbt_project.yml`` and package files) when no source is given.
+    ``dbt_project.yml`` and package files) when no source is given. An
+    import from a dbt project keeps its ``dbt_project.yml`` settings here,
+    and generation writes them into the generated ``dbt_project.yml``.
     """
 
-    path: Path = Field(
-        ...,
+    path: Path | None = Field(
+        None,
         description=(
             "Folder of the dbt project, absolute or relative to the directory "
             "the CLI runs in"
         ),
     )
+    vars: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Variables of the dbt project (datavault4dbt's and others)",
+    )
+    models: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "The project's models: block of dbt_project.yml (folder-level "
+            "settings), without the project-name level"
+        ),
+    )
+    settings: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Other dbt_project.yml settings, written as they are (seeds:, "
+            "snapshots:, on-run-start, dispatch, paths, other packages' models:)"
+        ),
+    )
 
     @field_validator("path", mode="before")
     @classmethod
-    def sanitize_path(cls, v: object) -> str:
+    def sanitize_path(cls, v: object) -> str | None:
         """Strip quotes and whitespace from the path."""
+        if v is None:
+            return None
         return _sanitize_path_string(v)
 
 

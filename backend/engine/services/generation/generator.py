@@ -18,6 +18,7 @@ from engine.models.model_output import folder_error, normalize_folder
 from engine.services.config_schema import MODEL_MATERIALIZATION_DEFAULTS
 from engine.services.export.model_outputs import entity_base_name, satellite_pattern
 
+from . import project_yml
 from .file_writer import write_sql_file, write_yaml_file
 from .folder_config import GenerationConfig, get_model_filename
 from .model_config import LayerDefaults, ModelConfig
@@ -538,6 +539,38 @@ class DbtProjectGenerator:
                 code="TPL_003",
             )
 
+    def _check_project_template(
+        self,
+        content: str,
+        imported_models: dict[str, Any],
+        settings: dict[str, Any],
+    ) -> None:
+        """Warn when the dbt_project.yml template drops imported settings.
+
+        A workspace's copy from before they existed writes its fixed blocks.
+        """
+        missing = [
+            key
+            for key in [
+                *imported_models,
+                *(k for k in settings if k not in project_yml.TEMPLATE_KEYS),
+            ]
+            if not re.search(rf"^\s*{re.escape(str(key))}:", content, re.MULTILINE)
+        ]
+        if missing:
+            self.report.add_warning(
+                entity_type="project",
+                entity_name="dbt_project.yml",
+                message=(
+                    "The dbt_project.yml template doesn't write the imported "
+                    "dbt project's settings ("
+                    + ", ".join(str(key) for key in missing[:5])
+                    + (", ..." if len(missing) > 5 else "")
+                    + f"). Update the template: {_OUTDATED_TEMPLATE_HINT}"
+                ),
+                code="TPL_003",
+            )
+
     def _check_log_logic(self, model_name: str, sql: str | None) -> None:
         """Warn when a template copy writes TurboVault's components as log_logic.
 
@@ -586,6 +619,9 @@ class DbtProjectGenerator:
         # Generate dbt_project.yml
         template = self.template_resolver.get_project_template("dbt_project.yml")
         if template:
+            prestaging = self._prestaging_materialization() if has_prestages else None
+            settings = self.config.dbt_project_settings
+            imported_models = self.config.dbt_project_models
             content = template.render(
                 project_name=self.config.project_name,
                 profile_name=self.config.profile_name,
@@ -599,12 +635,34 @@ class DbtProjectGenerator:
                 business_vault_materialization=(
                     self.config.business_vault_materialization
                 ),
-                prestaging_materialization=(
-                    self._prestaging_materialization() if has_prestages else None
-                ),
-                model_paths=model_paths or ["models"],
+                prestaging_materialization=prestaging,
+                model_paths=project_yml.model_paths(model_paths or ["models"], settings),
                 vars_block=vars_block,
+                # An imported dbt project's settings (spec D25)
+                **project_yml.header_values(settings),
+                models_block=project_yml.models_block(
+                    self.config.project_name,
+                    project_yml.layer_settings(
+                        control_schema=self.config.control_schema,
+                        control_materialization=self.config.control_materialization,
+                        stage_schema=self.config.stage_schema,
+                        staging_materialization=self.config.staging_materialization,
+                        rdv_schema=self.config.rdv_schema,
+                        raw_vault_materialization=(
+                            self.config.raw_vault_materialization
+                        ),
+                        bdv_schema=self.config.bdv_schema,
+                        business_vault_materialization=(
+                            self.config.business_vault_materialization
+                        ),
+                        prestaging_materialization=prestaging,
+                    ),
+                    imported_models,
+                    settings,
+                ),
+                extra_block=project_yml.extra_block(settings),
             )
+            self._check_project_template(content, imported_models, settings)
             path = self.output_path / "dbt_project.yml"
             write_yaml_file(path, content)
             self.report.add_file(path, "project", "dbt_project", "yaml")
