@@ -299,7 +299,7 @@ def import_shop(project, path: Path, **options):
     return import_metadata(
         project=project,
         source=DbtSource(path=path),
-        options=ImportOptions(skip_snapshots=True, **options),
+        options=ImportOptions(**{"skip_snapshots": True, **options}),
     )
 
 
@@ -895,3 +895,311 @@ def test_what_depends_on_a_left_out_stage_is_left_out_quietly(tmp_path):
     assert cascades == {"model.shop.broken_h", "model.shop.broken_s_v0"}
     assert domain.skipped[("hub", "broken_h")].reason == "depends_on_skipped"
     assert domain.skipped[("satellite", "broken_s")].reason == "depends_on_skipped"
+
+
+# ---------------------------------------------------------------------------
+# Snapshot controls, PITs, reference tables
+# ---------------------------------------------------------------------------
+
+CONTROL_V0 = model(
+    "control_snap_v0",
+    dv(
+        "control_snap_v0",
+        """
+        start_date: '2021-01-01'
+        daily_snapshot_time: 07:30:00
+        end_date: 2030-12-31
+        """,
+    ),
+    folder="models/control",
+)
+CONTROL_V1 = model(
+    "control_snap_v1",
+    dv(
+        "control_snap_v1",
+        """
+        control_snap_v0: control_snap_v0
+        log_logic:
+            daily:
+                duration: 3
+                unit: MONTH
+            yearly:
+                forever: true
+        """,
+    ),
+    folder="models/control",
+)
+CUSTOMER_PIT = model(
+    "customer_pit",
+    dv(
+        "pit",
+        """
+        tracked_entity: customer_h
+        hashkey: hk_customer_h
+        sat_names:
+            - customer_s_v1
+        snapshot_relation: control_snap_v1
+        snapshot_trigger_column: is_active
+        dimension_key: hk_customer_d
+        custom_rsrc: 'TurboVault'
+        snapshot_optimization: true
+        """,
+    ),
+    folder="models/business_vault",
+)
+
+
+def test_snapshot_controls_keep_their_dates_and_logic(tmp_path):
+    from engine.services.imports.domain import CLEAR
+
+    domain, _ = map_manifest(shop(tmp_path, CONTROL_V0, CONTROL_V1))
+
+    control = domain.snapshot_controls["control_snap"]
+    # YAML reads an unquoted 07:30:00 as seconds: the import reads it back
+    assert (control.start_date, control.end_date, control.daily_time) == (
+        "2021-01-01",
+        "2030-12-31",
+        "07:30:00",
+    )
+    assert control.sdts_alias is CLEAR
+    assert [
+        (r.column_name, r.component, r.duration, r.unit, r.forever)
+        for r in control.logic_rules
+    ] == [
+        ("is_active", "daily", 3, "MONTH", False),
+        ("is_active", "beginning_of_year", None, None, True),
+    ]
+    assert control.outputs == {}
+
+
+def test_a_list_of_logic_columns_names_each(tmp_path):
+    named_v0 = model("snapshots", CONTROL_V0[1]["raw_code"], folder="models/control")
+    logic = model(
+        "snapshot_logic",
+        dv(
+            "control_snap_v1",
+            """
+            control_snap_v0: snapshots
+            log_logic:
+                - is_recent:
+                    daily:
+                        duration: 1
+                        unit: MONTH
+                - is_monthly:
+                    monthly:
+                        forever: true
+            """,
+        ),
+        folder="models/control",
+    )
+    domain, _ = map_manifest(shop(tmp_path, named_v0, logic))
+
+    control = domain.snapshot_controls["snapshots"]
+    assert [(r.column_name, r.component) for r in control.logic_rules] == [
+        ("is_recent", "daily"),
+        ("is_monthly", "beginning_of_month"),
+    ]
+    assert control.outputs["snapshot_control_v0"].model_name == "snapshots"
+    assert control.outputs["snapshot_control_v1"].model_name == "snapshot_logic"
+
+
+def test_a_pit_reads_its_hub_satellites_and_snapshot_control(tmp_path):
+    domain, issues = map_manifest(shop(tmp_path, CONTROL_V0, CONTROL_V1, CUSTOMER_PIT))
+
+    pit = domain.pits["customer_pit"]
+    assert (pit.tracked_entity_name, pit.tracked_entity_type) == ("customer_h", "hub")
+    assert pit.satellite_names == ["customer_s"]
+    assert (pit.snapshot_control_name, pit.snapshot_logic_column) == (
+        "control_snap",
+        "is_active",
+    )
+    assert pit.dimension_key_column_name == "hk_customer_d"
+    assert pit.custom_record_source == "TurboVault"
+    assert pit.use_snapshot_optimization is True
+    assert not [i for i in issues if i.severity == "error"]
+
+
+def test_a_pit_trigger_column_the_control_lacks_is_noted(tmp_path):
+    pit = model(
+        "customer_pit",
+        CUSTOMER_PIT[1]["raw_code"].replace(
+            "snapshot_trigger_column: is_active", "snapshot_trigger_column: is_daily"
+        ),
+        folder="models/business_vault",
+    )
+    _, issues = map_manifest(shop(tmp_path, CONTROL_V0, CONTROL_V1, pit))
+
+    (note,) = [
+        i
+        for i in issues
+        if i.location and i.location.parameter == "snapshot_trigger_column"
+    ]
+    assert note.severity == "warning"
+    assert "is_daily" in note.message
+
+
+def test_a_pit_without_its_satellite_is_left_out(tmp_path):
+    pit = model(
+        "customer_pit",
+        CUSTOMER_PIT[1]["raw_code"].replace("customer_s_v1", "missing_s_v1"),
+        folder="models/business_vault",
+    )
+    domain, issues = map_manifest(shop(tmp_path, CONTROL_V0, CONTROL_V1, pit))
+
+    assert "customer_pit" not in domain.pits
+    assert domain.skipped[("pit", "customer_pit")].reason == "missing_reference"
+    assert "dbt.reference_unresolved" in codes(issues)
+
+
+def test_a_reference_table_reads_its_hub_and_satellites(tmp_path):
+    country = source("crm", "country", ["CODE", "NAME", "REGION"])
+    stage = model(
+        "stg__crm__country",
+        dv(
+            "stage",
+            """
+            source_model:
+                crm: country
+            ldts: LOAD_TS
+            rsrc: '!crm'
+            hashed_columns:
+                hd_country_rs:
+                    is_hashdiff: true
+                    columns: [NAME, REGION]
+            """,
+        ),
+    )
+    ref_hub = model(
+        "country_rh",
+        dv(
+            "ref_hub",
+            """
+            ref_keys: [CODE]
+            source_models: stg__crm__country
+            """,
+        ),
+    )
+    ref_sat = model(
+        "country_rs_v0",
+        dv(
+            "ref_sat_v0",
+            """
+            source_model: stg__crm__country
+            parent_ref_keys: [CODE]
+            src_hashdiff: hd_country_rs
+            src_payload: [NAME, REGION]
+            """,
+        ),
+    )
+    ref_sat_v1 = model(
+        "country_rs_v1",
+        dv(
+            "ref_sat_v1",
+            """
+            ref_sat_v0: country_rs_v0
+            ref_keys: [CODE]
+            hashdiff: hd_country_rs
+            """,
+        ),
+    )
+    table = model(
+        "country_r",
+        dv(
+            "ref_table",
+            """
+            ref_hub: country_rh
+            ref_satellites:
+                country_rs_v1:
+                    exclude: [REGION]
+            historized: snapshot
+            snapshot_relation: control_snap_v1
+            snapshot_trigger_column: is_active
+            """,
+        ),
+    )
+    path = write_manifest(
+        tmp_path,
+        [stage, ref_hub, ref_sat, ref_sat_v1, table, CONTROL_V0, CONTROL_V1],
+        [country],
+    )
+
+    domain, issues = map_manifest(path)
+
+    ref = domain.reference_tables["country_r"]
+    assert (ref.reference_hub_name, ref.historization_type) == (
+        "country_rh",
+        "snapshot_based",
+    )
+    assert (ref.snapshot_control_name, ref.snapshot_logic_column) == (
+        "control_snap",
+        "is_active",
+    )
+    (assignment,) = ref.satellite_assignments
+    assert (assignment.satellite_name, assignment.exclude_columns) == (
+        "country_rs",
+        ["REGION"],
+    )
+    assert not [i for i in issues if i.severity == "error"]
+
+
+def test_snapshot_controls_and_pits_import_together(tmp_path, project):
+    from engine.models import PIT, SnapshotControlTable
+
+    path = shop(tmp_path, CONTROL_V0, CONTROL_V1, CUSTOMER_PIT)
+
+    report = import_shop(project, path, skip_snapshots=False)
+
+    assert report.status == "success", [
+        i.message for i in report.issues if i.severity == "error"
+    ]
+    (control,) = SnapshotControlTable.objects.filter(project=project)
+    assert control.name == "control_snap"
+    pit = PIT.objects.get(project=project)
+    assert pit.snapshot_control_logic.snapshot_control_logic_column_name == "is_active"
+    assert pit.snapshot_control_table == control
+
+
+# ---------------------------------------------------------------------------
+# Groups
+# ---------------------------------------------------------------------------
+
+
+def test_groups_come_from_turbovaults_folders_and_tags(tmp_path):
+    hub = model(
+        "customer_h",
+        CUSTOMER_H[1]["raw_code"],
+        folder="models/30_raw_vault/customers",
+    )
+    hub[1]["config"] = {"tags": ["hub", "raw_vault", "Customers"]}
+    sat = model(
+        "customer_s_v0",
+        CUSTOMER_S_V0[1]["raw_code"],
+        folder="models/30_raw_vault/customers",
+    )
+    pit = model(
+        "customer_pit",
+        CUSTOMER_PIT[1]["raw_code"],
+        folder="models/40_business_vault/pits/customers",
+    )
+    path = write_manifest(
+        tmp_path,
+        [
+            STG_CUSTOMER,
+            STG_ORDERS,
+            hub,
+            sat,
+            CUSTOMER_S_V1,
+            CONTROL_V0,
+            CONTROL_V1,
+            pit,
+        ],
+        [CUSTOMER, ORDERS],
+    )
+
+    domain, _ = map_manifest(path)
+
+    # The hub's tag spells the group; its folder places the others in it
+    assert domain.hubs["customer_h"].group_name == "Customers"
+    assert domain.satellites["customer_s"].group_name == "Customers"
+    assert domain.pits["customer_pit"].group_name == "Customers"
+    assert domain.groups == {"Customers"}

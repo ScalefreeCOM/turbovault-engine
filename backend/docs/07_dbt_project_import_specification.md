@@ -326,14 +326,28 @@ warning).
   Hubs' keys without being listed becomes one too, with a note: TurboVault's generated link selects it.
 - **Satellite → parent:** `parent_hashkey` and the Satellite's stage identify the Hub or Link.
 - **v1 → v0:** `sat_v0` names the v0 model; the pair confirms the Satellite's v0/v1 names.
-- **PIT:** `tracked_entity`, `sat_names` (v1 names) and `snapshot_relation` resolve to the Hub/Link,
-  Satellites and snapshot control.
-- **Reference table:** `ref_hub` and `ref_satellites` (with include / exclude columns).
+- **PIT:** `tracked_entity`, `sat_names` (v0 or v1 names) and `snapshot_relation` resolve to the Hub/Link,
+  Satellites and snapshot control. A PIT missing one of them is left out. Its `ldts`, `ledts`, `sdts`,
+  `refer_to_ghost_records` and `mandatory_strategy` aren't stored (warning).
+- **Reference table:** `ref_hub` and `ref_satellites` (v1 names, with include / exclude columns);
+  `historized: snapshot` reads `snapshot_relation` and `snapshot_trigger_column`.
+- **Snapshot controls (as implemented):** `control_snap_v0` names the control (its model name without
+  `_v0`) with its dates, daily time, `end_date` and `sdts_alias`; `control_snap_v1` names the v0 model it
+  reads and adds its `log_logic`. A mapping of intervals is one logic column, named by the
+  `datavault4dbt.snapshot_trigger_column` variable (default `is_active`); a list of `{column: {...}}`
+  entries is a column each. datavault4dbt's intervals become the components it computes them from: `daily`,
+  `weekly` → beginning of week, `monthly` → beginning of month, `yearly` → beginning of year (TurboVault's
+  other component names are read as they are). A PIT or reference table whose trigger column isn't one of the
+  control's logic columns is noted: the import adds that column with the default logic.
 
 ### 7.6 Groups, descriptions and tags
 
 - A subject area (group) comes from the model's folder below its layer folder, else from a tag that isn't
   a layer tag. Folders and tags stay in the output attributes either way.
+- As implemented: the folder counts only in TurboVault's structure (`models/NN_raw_vault/<group>/`,
+  `models/NN_business_vault/pits/<group>/`) and is spelled like a tag that matches it (TurboVault tags a
+  model with its group); otherwise the group is the one tag that is neither a default tag of the model's
+  template nor a word naming a layer or kind of model (`hub`, `satellite`, `raw_vault`, ...).
 - Descriptions of sources, columns and models are imported. Tests are not (TurboVault generates its own).
 - Tags and other configs are kept in the output attributes (§9.1).
 
@@ -566,7 +580,7 @@ The report also lists node counts per resource type (seeds, tests, … not impor
 | 1 | Corpus analysis: `scripts/dbt_import/profile_manifest.py`, extraction prototype `capture_calls.py` | done |
 | 2 | Foundations: artifact reader, sandbox extraction, datavault4dbt adapter (normalization, signature table 1.x/2.x), notation tests | done (`DbtSource`, CLI and issue locations moved to Phase 4) |
 | 3 | Pre-stages kept in the dbt project (D9), layer folders (D12), metadata extensions (§9.1–9.6): output attributes and name resolution, hash diff name/alias, stage options, derived column shadowing, Satellite v1 options, smaller additions (D13) | done |
-| 4 | 4a: `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, opt-in `dbt parse` (D21), issue locations; the import (executor and JSON round trip) stores every §9 setting and the JSON import its snapshot controls. 4b-1: sources, stages, pre-stages, Hubs, Links, Satellites (§7.1–7.5), warnings/skips for direct parsers, the project's settings as import input (D22). 4b-2: PITs, reference tables, snapshot controls, model settings (D20), naming inference (§8), groups (§7.6). 4c: round-trip and corpus tests | 4a, 4b-1 done |
+| 4 | 4a: `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, opt-in `dbt parse` (D21), issue locations; the import (executor and JSON round trip) stores every §9 setting and the JSON import its snapshot controls. 4b-1: sources, stages, pre-stages, Hubs, Links, Satellites (§7.1–7.5), warnings/skips for direct parsers, the project's settings as import input (D22). 4b-2a: PITs, reference tables, snapshot controls, groups (§7.6), dependent child keys selected by generated links (D23). 4b-2b: model settings (D20), naming inference (§8). 4c: round-trip and corpus tests | 4a, 4b-1, 4b-2a done |
 | 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models; generating into an existing dbt project (§9.7) | |
 | 6 | Custom models for downstream models (#461), optional | postponed (D19) |
 | 7 | Hardening: performance limits, docs, CLI polish | |

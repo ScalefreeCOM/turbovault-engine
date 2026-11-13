@@ -30,6 +30,13 @@ from engine.services.export.model_outputs import (
     satellite_pattern,
 )
 from engine.services.imports.dbt.artifacts import DbtArtifacts
+from engine.services.imports.dbt.business_vault import BusinessVaultMapping
+from engine.services.imports.dbt.conventions import (
+    GROUP_TAGGED,
+    group_candidates,
+    group_folder,
+    model_tags,
+)
 from engine.services.imports.dbt.datavault4dbt import (
     as_bool,
     as_list,
@@ -173,7 +180,7 @@ class _LinkInfo:
 # ---------------------------------------------------------------------------
 
 
-class _Mapper:
+class _Mapper(BusinessVaultMapping):
     def __init__(
         self,
         artifacts: DbtArtifacts,
@@ -202,6 +209,12 @@ class _Mapper:
         self._skipped_stages: set[str] = set()
         self._skipped_keys: dict[str, str] = {}
         self._warned: set[tuple[str, ...]] = set()
+        # Satellites and snapshot controls by the names of their models.
+        self._sats_by_model: dict[str, str] = {}
+        self._skipped_sat_models: set[str] = set()
+        self._controls_by_model: dict[str, str] = {}
+        # The models of each entity, by (entity type, name): groups, settings.
+        self._models_of: dict[tuple[str, str], list[DbtModel]] = {}
 
     # -- entry --------------------------------------------------------------
 
@@ -222,6 +235,12 @@ class _Mapper:
             self._map_effectivity_satellite(model)
         for model in self.index.models_with("rec_track_sat"):
             self._map_record_tracking_satellite(model)
+        self._map_snapshot_controls()
+        for model in self.index.models_with("pit"):
+            self._map_pit(model)
+        for model in self.index.models_with("ref_table"):
+            self._map_reference_table(model)
+        self._assign_groups()
         self._finish_tables()
         self._report_unmapped()
         return self.domain, self.issues
@@ -930,6 +949,7 @@ class _Mapper:
         info.hub.outputs = {}
         self.hubs[model.name] = info
         self.domain.hubs[model.name] = info.hub
+        self._models_of[("hub", model.name)] = [model]
         self._mapped.add(model.unique_id)
 
     def _check_hash_inputs(
@@ -1142,6 +1162,7 @@ class _Mapper:
             link=link, model=model, stages=[stage.model.name for stage in stages]
         )
         self.domain.links[model.name] = link
+        self._models_of[("link", model.name)] = [model]
         self._mapped.add(model.unique_id)
         if as_bool(params.get("source_is_single_batch"), False):
             self._single_batch_tables.update(stage.identifier for stage in stages)
@@ -1407,7 +1428,7 @@ class _Mapper:
             self._depends_on_skipped(
                 model, f"the stage '{stage_name}'", parameter="source_model"
             )
-            self._skip("satellite", name, "depends_on_skipped")
+            self._skip_satellite(name, model, v1, "depends_on_skipped")
             return
         if stage is None:
             self._issue(
@@ -1418,7 +1439,7 @@ class _Mapper:
                 "imported stage; the satellite is left out",
                 parameter="source_model",
             )
-            self._skip("satellite", name, "missing_source_table")
+            self._skip_satellite(name, model, v1, "missing_source_table")
             return
         parent_key = str(params.get("parent_hashkey") or "").lower()
         if (
@@ -1438,11 +1459,11 @@ class _Mapper:
                 f"'{self._skipped_keys[parent_key]}'",
                 parameter="parent_hashkey",
             )
-            self._skip("satellite", name, "depends_on_skipped")
+            self._skip_satellite(name, model, v1, "depends_on_skipped")
             return
         parent = self._satellite_parent(model, stage, satellite_type)
         if parent is None:
-            self._skip("satellite", name, "missing_parent")
+            self._skip_satellite(name, model, v1, "missing_parent")
             return
 
         hashdiff_column, hashdiff_alias = (None, None)
@@ -1530,9 +1551,22 @@ class _Mapper:
             )
             return
         self.domain.satellites[name] = satellite
+        self._sats_by_model[model.name] = name
+        self._models_of[("satellite", name)] = [model]
+        if v1 is not None:
+            self._sats_by_model[v1.name] = name
+            self._models_of[("satellite", name)].append(v1)
         self._mapped.add(model.unique_id)
         if as_bool(params.get("source_is_single_batch"), False):
             self._single_batch_tables.add(stage.identifier)
+
+    def _skip_satellite(
+        self, name: str, v0: DbtModel, v1: DbtModel | None, reason: str
+    ) -> None:
+        self._skip("satellite", name, reason)
+        self._skipped_sat_models.add(v0.name)
+        if v1 is not None:
+            self._skipped_sat_models.add(v1.name)
 
     def _satellite_name(self, v0_name: str, v1_name: str | None) -> str:
         """A Satellite's name: what the v0 (else v1) naming pattern makes of
@@ -1689,6 +1723,53 @@ class _Mapper:
             )
         self._mapped.add(model.unique_id)
 
+    # -- groups -----------------------------------------------------------------
+
+    def _assign_groups(self) -> None:
+        """Groups (subject areas) from the models' folders and tags (§7.6).
+
+        TurboVault places a model in its layer folder per group and tags it
+        with the group: the group folder, spelled like the tag that matches
+        it. Otherwise one tag that isn't a default tag of the model.
+        """
+        tagged: dict[tuple[str, str], str] = {}
+        folders: dict[tuple[str, str], str] = {}
+        for key, models in self._models_of.items():
+            for model in models:
+                macro = model.macro or ""
+                candidates = (
+                    group_candidates(macro, model_tags(model.node))
+                    if macro in GROUP_TAGGED
+                    else []
+                )
+                folder = group_folder(model.path)
+                if folder:
+                    spelled = next(
+                        (t for t in candidates if t.lower() == folder.lower()), None
+                    )
+                    if spelled:
+                        tagged[key] = spelled
+                        break
+                    folders.setdefault(key, folder)
+                elif len(candidates) == 1:
+                    tagged.setdefault(key, candidates[0])
+        spellings = {group.lower(): group for group in tagged.values()}
+        entities = {
+            "hub": self.domain.hubs,
+            "link": self.domain.links,
+            "satellite": self.domain.satellites,
+            "pit": self.domain.pits,
+            "reference_table": self.domain.reference_tables,
+        }
+        for key in self._models_of:
+            group = tagged.get(key)
+            if group is None and key in folders:
+                group = spellings.get(folders[key].lower(), folders[key])
+            entity = entities.get(key[0], {}).get(key[1])
+            if group and entity is not None:
+                entity.group_name = group
+                self.domain.groups.add(group)
+
     # -- tables -----------------------------------------------------------------
 
     def _finish_tables(self) -> None:
@@ -1791,13 +1872,6 @@ class _Mapper:
         for model in self.index.models.values():
             if model.call is None or model.unique_id in self._mapped:
                 continue
-            if model.call.macro in (
-                "pit",
-                "ref_table",
-                "control_snap_v0",
-                "control_snap_v1",
-            ):
-                continue  # mapped in a later step
             if model.call.macro in _V1_MACROS:
                 self._issue(
                     model,

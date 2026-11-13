@@ -192,8 +192,8 @@ dbt source; for a pre-stage, dbt would fail to find that source.
 
 **Status:** In progress (dbt import branch). Built: artifact reading, call extraction, the `DbtSource` in the
 import pipeline with artifact detection and its issues, the CLI, and the mapping of stages, pre-stages, Hubs,
-Links and Satellites (spec Phase 4b-1). PITs, reference tables, snapshot controls, the models' folders and
-config settings, and naming pattern inference follow (4b-2).
+Links, Satellites, snapshot controls, PITs, reference tables and groups (spec Phases 4b-1, 4b-2a). The models'
+folders and config settings, and naming pattern inference follow (4b-2b).
 
 ### API
 
@@ -252,6 +252,9 @@ report = import_metadata(
   - Stage derived columns become derived columns of the table; Hub, Link and Satellite columns map to them, to
     prejoined columns or to source columns, matched by name.
   - Effectivity and record-tracking satellites set their Hub's or Link's flags and options.
+  - Snapshot controls come with their logic rules (one per logic column and component), PITs and reference
+    tables with their snapshot control and trigger column. The plan lists `snapshot_control` entities (item 13).
+  - Groups come from TurboVault's folder structure and the models' tags (spec §7.6).
   - A model's name is stored as a `ModelOutput` only where it differs from the naming patterns.
 
 Imports an existing datavault4dbt project from its dbt artifacts. The Engine never runs dbt or connects to the
