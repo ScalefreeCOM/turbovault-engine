@@ -49,6 +49,7 @@ package-specific part separate so an AutomateDV adapter can be added.
 | D17 | **Generating into an existing dbt project** (§9.7). Generating into an empty folder always gives a complete project, also for an imported one. In an existing dbt project TurboVault doesn't write `dbt_project.yml` and `packages.yml` and reports what its models need. Sources and model YAML are written by default; an option (off by default) skips writing sources, and a final check reports models and sources the project defines twice. TurboVault records the files it generates; files it no longer generates are reported, and deleted only on request. | 2026-11-13 |
 | D18 | The configured dbt project folder (D11) is `dbt_project.path` in the project's `turbovault.yml`. `output.dbt_project_dir` stays for generating a separate project. | 2026-11-13 |
 | D19 | Custom models (Phase 6, #461) are postponed: the first release of the dbt import doesn't include them. Models downstream of the Data Vault stay in the dbt project and are reported. | 2026-11-13 |
+| D20 | **Minimal model settings.** With `dbt_project.yml` available, an imported model stores only the settings that differ from what the project's folder-level configuration (its `models:` block) gives it. That folder-level configuration becomes a project setting (`dbt_project_models`: runtime config, CLI `config.yml`), which generation writes into `dbt_project.yml` next to TurboVault's layer settings; in Studio it can go into the manual `dbt_project.yml` instead. Without `dbt_project.yml`, a model stores its effective settings (`unrendered_config`). | 2026-11-13 |
 
 ---
 
@@ -361,8 +362,12 @@ layer's schema and materialization in its `config()`, unless its attributes set 
 leave the project.
 
 For the import (Phase 4): the manifest can't tell a model's own config from folder-level settings
-(`config_call_dict` isn't serialized; `unrendered_config` merges both), so the import stores the effective
-`schema`/`materialized`/`tags`/... of each model unless `dbt_project.yml` is available to tell them apart.
+(`config_call_dict` isn't serialized; `unrendered_config` merges both). With `dbt_project.yml`, the import
+resolves the folder-level configuration along each model's `fqn` (dbt's `models:` hierarchy, `+`-prefixed
+and plain config keys) and stores only what differs (D20). The folder-level configuration itself becomes
+the project setting `dbt_project_models`, written into the generated `dbt_project.yml`. Without
+`dbt_project.yml`, each model stores its effective `schema`/`materialized`/`tags`/... from
+`unrendered_config`.
 
 ### 9.2 Hash diff name and alias (Satellite)
 

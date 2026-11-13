@@ -201,6 +201,12 @@ warehouse.
   - Or a local dbt project folder (CLI and local use): the Engine finds the files in it and reports each as
     found or missing. A missing catalog or `dbt_project.yml` is a warning. Studio uploads the files.
   - Never `profiles.yml`.
+- **Folder-level settings (spec D20):** with `dbt_project.yml` uploaded, each imported model keeps only the
+  settings that differ from the original project's folder-level configuration (the `models:` block of its
+  `dbt_project.yml`). That block comes back with the import as the project setting `dbt_project_models`
+  (planned runtime config field). Studio either passes it on to generation, which writes it into
+  `dbt_project.yml`, or puts it into the project's manual `dbt_project.yml`. Without `dbt_project.yml`, each
+  model stores its effective settings.
 - **Pre-stages:** the models upstream of the stages become pre-stages (item 1); their SQL stays in the dbt
   project. The report warns that the project must be generated back into that dbt project
   (`dbt.prestage_maintained_in_dbt`). Show this before the user confirms the import.
@@ -312,9 +318,15 @@ Helpers: `engine.models.model_output.model_name_error(name)`, `folder_error(fold
   templates the tags with `[[ model_tags([...]) ]]`. The bundled `satellite_v1` templates use `v0_name` /
   `v1_name`, `pit` uses `satellite_models`, `reference_table` uses `sat.model_name`.
 - `model_config` and `model_tags` are also globals of the template environment that write the defaults, so
-  rendering a template outside generation still works. **If Studio renders templates itself** (previews,
-  editors), pass `**ModelConfig(output, layer).context()` from `engine.services.generation.model_config` to
-  apply a model's stored settings.
+  rendering a template outside generation still works.
+- **Model preview (entity detail pages).** The preview must show what generation writes. Preferred: run the
+  pipeline for the entity, `generate(project=…, output_type="dbt", output_path=None,
+  options=GenerationOptions(dry_run=True, return_content=True, entity_selection=EntitySelection(…)))`, and
+  show the artifacts' `content`: stored names, folders (`path`), `config()` settings and every reference are
+  applied. If Studio renders the templates itself instead, it must pass the model's context,
+  `**ModelConfig(output, layer).context()` from `engine.services.generation.model_config` (with the
+  entity's output from the export, e.g. `HubDefinition.output`), plus `v0_name`/`v1_name` for v1 views; else
+  the preview shows the defaults while generation writes the stored settings.
 - Workspace copies of the templates made before this change keep working while nothing is stored. When a
   model has stored settings or names they ignore, generation reports `render.template_outdated` (warning)
   on the model. **Studio:** if Studio keeps its own template copies, update them from the bundled ones.
