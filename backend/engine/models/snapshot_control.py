@@ -232,3 +232,34 @@ class SnapshotControlLogic(models.Model):
         return (
             f"{self.snapshot_component} ({self.snapshot_duration} {self.snapshot_unit})"
         )
+
+
+# The logic of a default snapshot control: one is_active column with
+# datavault4dbt's example retention. Daily snapshots for three months, weekly
+# ones (beginning of week) for a year, monthly ones for five years, yearly
+# ones forever. Only daily and the beginnings of a week, month and year are
+# intervals datavault4dbt computes (see services.generation.snapshot_logic).
+DEFAULT_LOGIC_COLUMN = "is_active"
+DEFAULT_LOGIC: tuple[dict, ...] = (
+    {"component": "daily", "duration": 3, "unit": "MONTH"},
+    {"component": "beginning_of_week", "duration": 1, "unit": "YEAR"},
+    {"component": "beginning_of_month", "duration": 5, "unit": "YEAR"},
+    {"component": "beginning_of_year", "forever": True},
+)
+
+
+def create_default_logic(
+    control: SnapshotControlTable, column: str = DEFAULT_LOGIC_COLUMN
+) -> list[SnapshotControlLogic]:
+    """Give a snapshot control the default logic, in one logic column."""
+    return [
+        SnapshotControlLogic.objects.create(
+            snapshot_control_table=control,
+            snapshot_control_logic_column_name=column,
+            snapshot_component=rule["component"],
+            snapshot_duration=rule.get("duration"),
+            snapshot_unit=rule.get("unit"),
+            snapshot_forever=rule.get("forever", False),
+        )
+        for rule in DEFAULT_LOGIC
+    ]

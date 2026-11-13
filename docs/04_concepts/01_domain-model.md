@@ -664,13 +664,19 @@ Defines reusable snapshot logic patterns.
 | ---------------------------------- | ---------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | snapshot_control_logic_id          | identifier | PK       | Unique identifier of the snapshot logic entry.                                                                                                                                            |
 | snapshot_control_table_id          | identifier | ✓ (FK)  | FK to `snapshot_control_table.snapshot_control_table_id`.                                                                                                                               |
-| snapshot_control_logic_column_name | string     | ✓       | Name of the derived/logic column to be produced in the snapshot context.                                                                                                                  |
-| snapshot_component                 | string     | ✓       | One of:`daily`, `beginning_of_week`, `end_of_week`, `beginning_of_month`, `end_of_month`, `beginning_of_quarter`, `end_of_quarter`, `beginning_of_year`, `end_of_year`. |
+| snapshot_control_logic_column_name | string     | ✓       | Name of the logic column the snapshot control's logic model computes; PITs and reference tables select snapshots by it (`snapshot_trigger_column`). Rules with the same column name make one column. |
+| snapshot_component                 | string     | ✓       | One of:`daily`, `beginning_of_week`, `end_of_week`, `beginning_of_month`, `end_of_month`, `beginning_of_quarter`, `end_of_quarter`, `beginning_of_year`, `end_of_year`. Generated as datavault4dbt's `log_logic` intervals: `daily`, `beginning_of_week` (`weekly`), `beginning_of_month` (`monthly`), `beginning_of_year` (`yearly`), one each per column. The other components have no datavault4dbt interval: generation leaves them out with a `SNAP_002` warning. |
 | snapshot_duration                  | int        |          | Duration value for the snapshot window (e.g. 3, 6, 12).                                                                                                                                   |
 | snapshot_unit                      | string     |          | Unit for duration:`DAY`, `WEEK`, `MONTH`, `QUARTER`, `YEAR`.                                                                                                                    |
 | snapshot_forever                   | boolean    | ✓       | If `true`, `snapshot_duration` and `snapshot_unit` must be `NULL` and snapshot is open-ended.                                                                                     |
 | created_at                         | datetime   | ✓       | Timestamp when the record was created.                                                                                                                                                    |
 | updated_at                         | datetime   | ✓       | Timestamp when the record was last updated.                                                                                                                                               |
+
+A control whose rules form one column named like the `datavault4dbt.snapshot_trigger_column` variable
+(default `is_active`) is generated as a `log_logic` mapping, which every datavault4dbt version reads.
+Several columns are generated as a list of `{column: {...}}` entries, which newer datavault4dbt versions
+read (1.18 does, 1.0 doesn't). A new project's default snapshot control has one `is_active` column: daily
+snapshots for 3 months, weekly for a year, monthly for 5 years, yearly forever.
 
 **Relationships**
 

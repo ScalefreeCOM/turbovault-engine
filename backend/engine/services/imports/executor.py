@@ -54,6 +54,7 @@ from engine.models import (
     StagingColumn,
 )
 from engine.models.model_output import normalize_folder
+from engine.models.snapshot_control import create_default_logic
 from engine.services.imports.changes import (
     LOOKUP,
     OpOutcome,
@@ -554,17 +555,7 @@ class _Executor:
             daily_snapshot_time=time(8, 0, 0),
         )
         self._set("_default_snap_control", control)
-        self._set(
-            "_default_snap_logic",
-            SnapshotControlLogic.objects.create(
-                snapshot_control_table=control,
-                snapshot_control_logic_column_name="is_active",
-                snapshot_component=SnapshotControlLogic.SnapshotComponent.BEGINNING_OF_MONTH,
-                snapshot_duration=1,
-                snapshot_unit=SnapshotControlLogic.SnapshotUnit.YEAR,
-                snapshot_forever=False,
-            ),
-        )
+        self._set("_default_snap_logic", create_default_logic(control)[0])
         return self._default_snap_logic
 
     def _logic_row_for(

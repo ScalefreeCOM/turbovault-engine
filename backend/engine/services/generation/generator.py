@@ -10,6 +10,7 @@ import logging
 import os
 import re
 from collections.abc import Iterable
+from dataclasses import asdict
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
@@ -22,6 +23,7 @@ from .folder_config import GenerationConfig, get_model_filename
 from .model_config import LayerDefaults, ModelConfig
 from .profiles_yml import LiteralSecretError, render_profiles_yml
 from .report import GenerationReport
+from .snapshot_logic import COMPONENT_INTERVALS, log_logic, trigger_column
 from .template_resolver import TemplateResolver
 from .vars_block import render_vars_block
 
@@ -76,6 +78,19 @@ _MODEL_LAYERS = {
     "snapshot_control_v0": "control",
     "snapshot_control_v1": "control",
 }
+
+# TurboVault's snapshot components (SnapshotControlLogic.SnapshotComponent).
+_SNAPSHOT_COMPONENTS = (
+    "daily",
+    "beginning_of_week",
+    "end_of_week",
+    "beginning_of_month",
+    "end_of_month",
+    "beginning_of_quarter",
+    "end_of_quarter",
+    "beginning_of_year",
+    "end_of_year",
+)
 
 _OUTDATED_TEMPLATE_HINT = (
     "`python manage.py populate_templates --overwrite` refreshes the workspace's "
@@ -519,6 +534,34 @@ class DbtProjectGenerator:
                     f"The {entity_type} template doesn't {' or '.join(problems)}: "
                     "it predates stored model names and settings. Update the "
                     f"template: {_OUTDATED_TEMPLATE_HINT}"
+                ),
+                code="TPL_003",
+            )
+
+    def _check_log_logic(self, model_name: str, sql: str | None) -> None:
+        """Warn when a template copy writes TurboVault's components as log_logic.
+
+        datavault4dbt reads its intervals only (daily, weekly, monthly,
+        yearly); copies made before they were mapped write component names
+        it ignores.
+        """
+        if not sql:
+            return
+        written = [
+            component
+            for component in _SNAPSHOT_COMPONENTS
+            if component not in COMPONENT_INTERVALS.values()
+            and re.search(rf"^\s*{component}:", sql, re.MULTILINE)
+        ]
+        if written:
+            self.report.add_warning(
+                entity_type="snapshot_control_v1",
+                entity_name=model_name,
+                message=(
+                    "The snapshot_control_v1 template writes TurboVault's "
+                    f"components ({', '.join(written)}) into log_logic, which "
+                    "datavault4dbt ignores: it reads daily, weekly, monthly and "
+                    f"yearly. Update the template: {_OUTDATED_TEMPLATE_HINT}"
                 ),
                 code="TPL_003",
             )
@@ -1347,11 +1390,29 @@ class DbtProjectGenerator:
                 # Templates append _v0/_v1 to `name`, so they get the base name:
                 # a control stored as 'control_snap_v0' must not name its models
                 # 'control_snap_v0_v0'. The model names are passed as they are.
+                logic = log_logic(
+                    snap_ctrl.logic_patterns, trigger_column(self.config.global_vars)
+                )
+                for column, component in logic.unsupported:
+                    self.report.add_warning(
+                        entity_type="snapshot_control",
+                        entity_name=snap_ctrl.name,
+                        message=(
+                            f"Logic column '{column}': '{component}' isn't an "
+                            "interval datavault4dbt's control_snap_v1 reads (daily, "
+                            "weekly = beginning of week, monthly = beginning of "
+                            "month, yearly = beginning of year, each once per "
+                            "column); it is left out"
+                        ),
+                        code="SNAP_002",
+                    )
                 context = {
                     **snap_ctrl.model_dump(),
                     "name": snap_ctrl.base_name,
                     "v0_name": snap_ctrl.v0_name,
                     "v1_name": snap_ctrl.v1_name,
+                    "log_logic_columns": [asdict(c) for c in logic.columns],
+                    "log_logic_mapping": logic.as_mapping,
                 }
 
                 # Generate v0 model (control table)
@@ -1381,7 +1442,7 @@ class DbtProjectGenerator:
                         control_dir,
                         "control",
                     )
-                    self._write_model(
+                    sql = self._write_model(
                         entity_type="snapshot_control_v1",
                         model_name=snap_ctrl.v1_name,
                         directory=directory,
@@ -1396,6 +1457,7 @@ class DbtProjectGenerator:
                         },
                         references=[snap_ctrl.v0_name],
                     )
+                    self._check_log_logic(snap_ctrl.v1_name, sql)
 
                 self.report.snapshot_controls_generated += 1
 

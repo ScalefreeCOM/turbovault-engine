@@ -25,6 +25,7 @@ section is completed when the Engine change lands).
 | 12 | [Layer folders renumbered](#12-layer-folders-renumbered) | In progress | Use the new folder names wherever Studio shows or builds model paths |
 | 13 | [JSON export and import of the new settings; snapshot controls](#13-json-export-and-import-of-the-new-settings-snapshot-controls) | In progress | Show the new `snapshot_control` plan entities; keep `model_outputs` when Studio builds or edits exports |
 | 14 | [Links select their dependent child keys](#14-links-select-their-dependent-child-keys) | In progress | Template editor: new variable `dependent_child_keys`; tell users their links gain columns |
+| 15 | [Snapshot control logic as datavault4dbt reads it](#15-snapshot-control-logic-as-datavault4dbt-reads-it) | In progress | Offer the components datavault4dbt computes; show `SNAP_002`; template editor variables |
 
 Background for items 4–11: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
 
@@ -675,3 +676,33 @@ into the link hash key but didn't select them, so the link table lacked the colu
 - **Studio:** if the template editor lists variables, add `dependent_child_keys`. Projects with dependent child
   keys get new link columns on their next generation (the TPC-H sample: `LINEITEM_NL`, `ORDERS_CUSTOMERS_L`);
   incremental links need a full refresh or a schema change to add them.
+
+---
+
+## 15. Snapshot control logic as datavault4dbt reads it
+
+**Status:** In progress (dbt import branch). Spec D24. Changes generated output; fixes snapshot controls that
+datavault4dbt partly ignored.
+
+datavault4dbt's `control_snap_v1` reads `log_logic` intervals: `daily`, `weekly`, `monthly`, `yearly` (computed
+from the snapshot's day and the beginning of its week, month and year). TurboVault wrote its component names
+(`beginning_of_month`, `end_of_week`, ...) as keys, which datavault4dbt ignores: only `daily` took effect, and a
+control without a daily rule produced an invalid model.
+
+- **Generation:** `daily` → `daily`, `beginning_of_week` → `weekly`, `beginning_of_month` → `monthly`,
+  `beginning_of_year` → `yearly`. Logic rules are grouped by their column name: one column named like the
+  `datavault4dbt.snapshot_trigger_column` variable (default `is_active`) is written as a mapping, several columns
+  as a list of `{column: {...}}` entries (datavault4dbt 1.18 reads lists, 1.0 doesn't). The v1 model's YAML
+  lists each logic column once and names the snapshot date column after `sdts_alias`.
+- **Components without an interval** (end of week, month, year; beginning and end of quarter) and a second rule
+  with the same interval in one column are left out with the generation warning `SNAP_002` (entity type
+  `snapshot_control`, the control's name).
+- A workspace copy of the `snapshot_control_v1` template that still writes component names gets `TPL_003`.
+  New template variables: `log_logic_columns` (list of `{name, intervals: [{name, duration, unit, forever}]}`)
+  and `log_logic_mapping` (bool).
+- **Default snapshot control** (new projects, and the import's fallback for PITs): one `is_active` column with
+  daily snapshots for 3 months, weekly for 1 year, monthly for 5 years and yearly forever. It was five columns
+  (`snap_daily` ... `snap_yearly`) of end-of-period components. Stored controls aren't changed.
+- **Studio:** in the logic editor, offer (or mark as generated) only `daily`, beginning of week, beginning of
+  month and beginning of year, at most once per column; explain that rules sharing a column name form one logic
+  column, and that PITs pick a column by its name (`snapshot_trigger_column`). Show `SNAP_002` warnings.

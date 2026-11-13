@@ -27,7 +27,8 @@ def create_default_snapshot_controls(project_or_name: "Project | str") -> None:
     """
     from datetime import datetime, time
 
-    from engine.models import Project, SnapshotControlLogic, SnapshotControlTable
+    from engine.models import Project, SnapshotControlTable
+    from engine.models.snapshot_control import create_default_logic
 
     # Check if we should skip default snapshot creation
     if os.environ.get("TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS", "").lower() in (
@@ -64,51 +65,9 @@ def create_default_snapshot_controls(project_or_name: "Project | str") -> None:
             daily_snapshot_time=time(23, 59, 59),  # End of day
         )
 
-        # Create common snapshot logic patterns
-        snapshot_patterns = [
-            {
-                "snapshot_control_logic_column_name": "snap_daily",
-                "snapshot_component": SnapshotControlLogic.SnapshotComponent.DAILY,
-                "snapshot_duration": 1,
-                "snapshot_unit": SnapshotControlLogic.SnapshotUnit.DAY,
-                "snapshot_forever": False,
-            },
-            {
-                "snapshot_control_logic_column_name": "snap_weekly",
-                "snapshot_component": SnapshotControlLogic.SnapshotComponent.END_OF_WEEK,
-                "snapshot_duration": 7,
-                "snapshot_unit": SnapshotControlLogic.SnapshotUnit.DAY,
-                "snapshot_forever": False,
-            },
-            {
-                "snapshot_control_logic_column_name": "snap_monthly",
-                "snapshot_component": SnapshotControlLogic.SnapshotComponent.END_OF_MONTH,
-                "snapshot_duration": 1,
-                "snapshot_unit": SnapshotControlLogic.SnapshotUnit.MONTH,
-                "snapshot_forever": False,
-            },
-            {
-                "snapshot_control_logic_column_name": "snap_quarterly",
-                "snapshot_component": SnapshotControlLogic.SnapshotComponent.END_OF_QUARTER,
-                "snapshot_duration": 3,
-                "snapshot_unit": SnapshotControlLogic.SnapshotUnit.MONTH,
-                "snapshot_forever": False,
-            },
-            {
-                "snapshot_control_logic_column_name": "snap_yearly",
-                "snapshot_component": SnapshotControlLogic.SnapshotComponent.END_OF_YEAR,
-                "snapshot_duration": 1,
-                "snapshot_unit": SnapshotControlLogic.SnapshotUnit.YEAR,
-                "snapshot_forever": False,
-            },
-        ]
-
-        created_count = 0
-        for pattern in snapshot_patterns:
-            SnapshotControlLogic.objects.create(
-                snapshot_control_table=snapshot_control, **pattern
-            )
-            created_count += 1
+        # The default logic: one is_active column, the column PITs read by
+        # default (daily, weekly, monthly and yearly snapshots)
+        created_count = len(create_default_logic(snapshot_control))
 
         console.print(
             f"[dim]  Created snapshot control for project '{project.name}' with {created_count} logic patterns[/dim]"
