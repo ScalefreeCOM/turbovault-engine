@@ -177,12 +177,6 @@ def _count_dbt(
         1 if generate_profiles_yml else 0
     )
 
-    # Pre-stages: one sql + one yml per pre-stage with SQL. One maintained
-    # outside TurboVault gets no files.
-    prestage_models = sum(1 for p in project_export.prestages if p.sql)
-    if prestage_models:
-        counts["prestage"] = prestage_models * 2
-
     # Stages: one sql + one yml per stage.
     if project_export.stages:
         counts["stage"] = len(project_export.stages) * 2

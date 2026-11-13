@@ -690,9 +690,6 @@ class _Executor:
             description=table_d.description,
             table_type=table_d.table_type,
         )
-        if table_d.prestage_sql is not None:
-            # "" is the source saying the table has no SQL: clear it.
-            values["prestage_sql"] = table_d.prestage_sql or None
         obj, _ = self._upsert(
             SourceTable,
             lookup={

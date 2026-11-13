@@ -207,11 +207,13 @@ _LEGACY_ERROR_CODE_MAP: dict[str, str] = {
     "MAT_001": Code.RENDER_INVALID_MATERIALIZATION,
 }
 
-# Legacy warning codes surfaced as warnings: YML_001 ("SQL but no YAML") and
-# TPL_003 (a stage template that predates pre-stages).
+# Legacy warning codes surfaced as warnings: YML_001 ("SQL but no YAML"),
+# TPL_003 (a stage template that predates pre-stages) and PST_001 (a pre-stage
+# the dbt project must contain).
 _LEGACY_WARNING_CODE_MAP: dict[str, str] = {
     "YML_001": Code.RENDER_TEMPLATE_NOT_FOUND,
     "TPL_003": Code.RENDER_TEMPLATE_OUTDATED,
+    "PST_001": Code.RENDER_PRESTAGE_MAINTAINED_IN_DBT,
 }
 
 

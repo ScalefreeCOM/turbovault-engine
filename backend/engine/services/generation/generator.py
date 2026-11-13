@@ -12,8 +12,6 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from markupsafe import Markup
-
 from engine.services.config_schema import MODEL_MATERIALIZATION_DEFAULTS
 
 from .file_writer import write_sql_file, write_yaml_file
@@ -28,7 +26,6 @@ if TYPE_CHECKING:
         HubDefinition,
         LinkDefinition,
         PITDefinition,
-        PrestageDefinition,
         ProjectExport,
         ReferenceTableDefinition,
         SatelliteDefinition,
@@ -215,15 +212,16 @@ class DbtProjectGenerator:
             self._generate_project_files(
                 vars_block,
                 profiles_content,
-                has_prestage_models=any(p.sql for p in project_export.prestages),
+                has_prestages=bool(project_export.prestages),
             )
 
             # 3. Generate sources.yml
             self._generate_sources(project_export.sources)
 
-            # 4. Generate pre-stage models, then the stage models reading them
-            self._generate_prestages(project_export.prestages)
+            # 4. Generate stage models. Pre-stages are the dbt project's own:
+            # their stages read them, and the report says where they must be.
             self._generate_stages(project_export.stages)
+            self._report_prestages(project_export)
 
             # 5. Generate hub models
             self._generate_hubs(project_export.hubs)
@@ -325,7 +323,7 @@ class DbtProjectGenerator:
         self,
         vars_block: str = "",
         profiles_content: str | None = None,
-        has_prestage_models: bool = False,
+        has_prestages: bool = False,
     ) -> None:
         """Generate dbt_project.yml, packages.yml and the optional profiles.yml.
 
@@ -333,7 +331,8 @@ class DbtProjectGenerator:
         `profiles_content` the already-rendered profiles.yml, or None when not
         requested (see `generate()`, which resolves both up front so an invalid
         value fails before any file is written). The pre-stage layer is only
-        configured when `has_prestage_models`, so dbt finds no unused path.
+        configured when the project `has_prestages`: the dbt project's
+        pre-stage models placed there get the staging layer's settings.
         """
         # Generate dbt_project.yml
         template = self.template_resolver.get_project_template("dbt_project.yml")
@@ -352,7 +351,7 @@ class DbtProjectGenerator:
                     self.config.business_vault_materialization
                 ),
                 prestaging_materialization=(
-                    self._prestaging_materialization() if has_prestage_models else None
+                    self._prestaging_materialization() if has_prestages else None
                 ),
                 vars_block=vars_block,
             )
@@ -425,55 +424,32 @@ class DbtProjectGenerator:
                     code="TPL_001",
                 )
 
-    def _generate_prestages(self, prestages: list[PrestageDefinition]) -> None:
-        """Generate the pre-stage models: their SQL as it is, and a YAML file.
+    def _report_prestages(self, project_export: ProjectExport) -> None:
+        """Warn once per pre-stage that the dbt project must contain its model.
 
-        A pre-stage without SQL is maintained outside TurboVault: nothing is
-        written for it, and its stage reads the model all the same.
+        TurboVault generates no file for a pre-stage: the model belongs to the
+        dbt project and its developers. The generated stage reads it with
+        ``ref()``, which only resolves inside the dbt project that has it.
         """
-        prestages = [prestage for prestage in prestages if prestage.sql]
-        if not prestages:
-            logger.debug("No pre-stage models to generate")
-            return
-
-        sql_template, yaml_template = self.template_resolver.get_templates("prestage")
-
-        for prestage in prestages:
-            try:
-                output_dir = self.folder_config.get_prestaging_path(
-                    prestage.source_system, self.output_path
-                )
-                context = prestage.model_dump()
-                # The SQL goes in as it is: templates loaded from strings (the
-                # workspace's copies) autoescape, which would mangle its quotes.
-                context["prestage_sql"] = Markup(prestage.sql)
-
-                if sql_template:
-                    content = sql_template.render(**context)
-                    filename = get_model_filename(prestage.model_name, extension="sql")
-                    path = output_dir / filename
-                    write_sql_file(path, content)
-                    self.report.add_file(path, "prestage", prestage.model_name, "sql")
-
-                if yaml_template:
-                    content = yaml_template.render(**context)
-                    filename = get_model_filename(prestage.model_name, extension="yml")
-                    path = output_dir / filename
-                    write_yaml_file(path, content)
-                    self.report.add_file(path, "prestage", prestage.model_name, "yaml")
-
-                self.report.prestages_generated += 1
-
-            except Exception as e:
-                logger.warning(
-                    f"Failed to generate pre-stage {prestage.model_name}: {e}"
-                )
-                self.report.add_error(
-                    entity_type="prestage",
-                    entity_name=prestage.model_name,
-                    message=str(e),
-                    code="PST_001",
-                )
+        stage_of = {
+            stage.prestage_model: stage.stage_name
+            for stage in project_export.stages
+            if stage.prestage_model
+        }
+        for prestage in project_export.prestages:
+            stage = stage_of.get(prestage.model_name)
+            reader = f"stage '{stage}' reads" if stage else "its stage reads"
+            self.report.add_warning(
+                entity_type="prestage",
+                entity_name=prestage.model_name,
+                message=(
+                    f"Pre-stage '{prestage.model_name}' isn't generated: it is a "
+                    f"model of your dbt project, and {reader} it with ref(). "
+                    "Generate into the dbt project that contains this model; "
+                    "anywhere else dbt won't find it."
+                ),
+                code="PST_001",
+            )
 
     def _check_prestage_support(self, stage: StageDefinition, content: str) -> None:
         """Warn when the stage template doesn't know pre-stages.

@@ -52,14 +52,8 @@ class SourceTableDef(BaseModel):
         default="physical",
         description=(
             "physical: a table of the source system, read with source(). "
-            "prestage: a dbt model (pre-stage) the stage reads with ref()"
-        ),
-    )
-    prestage_sql: str | None = Field(
-        default=None,
-        description=(
-            "A pre-stage's dbt model, written to the project as it is. None for "
-            "a physical table, or a pre-stage maintained outside TurboVault"
+            "prestage: a dbt model of the project (pre-stage) the stage reads "
+            "with ref(); the dbt project maintains it"
         ),
     )
     alias: str | None = None
@@ -394,11 +388,11 @@ class LinkDefinition(BaseModel):
 
 
 class PrestageDefinition(BaseModel):
-    """A pre-stage: a dbt model that prepares a table's data for its stage.
+    """A pre-stage: a dbt model of the project that prepares data for a stage.
 
-    Built from a source table of type ``prestage``. Generation writes its SQL
-    as it is, with a YAML file documenting its columns; the stage reads the
-    model with ``ref()``.
+    Built from a source table of type ``prestage``. The dbt project maintains
+    the model; TurboVault generates no file for it, and its stage reads it
+    with ``ref()``.
     """
 
     model_name: str = Field(
@@ -406,13 +400,6 @@ class PrestageDefinition(BaseModel):
     )
     table_name: str = Field(description="Name of the pre-stage's source table")
     source_system: str = Field(description="Source system the pre-stage belongs to")
-    sql: str | None = Field(
-        default=None,
-        description=(
-            "The model's SQL. None: the model is maintained outside TurboVault "
-            "and only referenced"
-        ),
-    )
     description: str | None = None
     columns: list[SourceColumnDef] = Field(
         default_factory=list, description="Columns the model provides"

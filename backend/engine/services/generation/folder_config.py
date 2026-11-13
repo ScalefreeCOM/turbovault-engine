@@ -24,6 +24,7 @@ class FolderConfig:
     # Base paths for each layer
     control_path: str = "models/00_control"
     source_path: str = "models/10_sources"
+    # The dbt project's own pre-stage models go here; nothing is generated
     prestaging_path: str = "models/15_prestaging"
     staging_path: str = "models/20_staging"
     raw_vault_path: str = "models/30_raw_vault"
@@ -35,10 +36,6 @@ class FolderConfig:
     def get_source_path(self, output_root: Path) -> Path:
         """Get the source directory path."""
         return output_root / self.source_path
-
-    def get_prestaging_path(self, source_system: str, output_root: Path) -> Path:
-        """Get the path for the pre-stage models of a source system."""
-        return output_root / self.prestaging_path / self._sanitize_name(source_system)
 
     def get_staging_path(self, source_system: str, output_root: Path) -> Path:
         """

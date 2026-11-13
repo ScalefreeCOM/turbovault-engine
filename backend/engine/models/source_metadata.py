@@ -4,7 +4,7 @@ Source metadata models for TurboVault Engine.
 These models represent upstream source systems and their physical schemas:
 - SourceSystem: A source database/schema
 - SourceTable: A table within a source system: a physical table, or a
-  pre-stage (a dbt model that prepares a table's data for its stage)
+  pre-stage (a dbt model of the project that prepares data for a stage)
 - SourceColumn: A column within a source table
 """
 
@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import uuid
 
-from django.core.exceptions import ValidationError
 from django.db import models
 
 from engine.models.project import Project
@@ -106,10 +105,11 @@ class SourceTable(models.Model):
     Represents a source table within a source system.
 
     Most are physical tables of the source system, which the stage reads as a
-    dbt source. A pre-stage is a dbt model instead: SQL that prepares data the
-    stage can't load directly (parsing JSON, pivoting, ...). It reads the
-    system's physical tables, and its stage reads it with ``ref()``. Columns,
-    mappings, derived columns and prejoins work on both alike.
+    dbt source. A pre-stage is a dbt model instead, one that prepares data the
+    stage can't load directly (parsing JSON, pivoting, ...). The model belongs
+    to the dbt project and its developers: TurboVault doesn't generate it, the
+    stage reads it with ``ref()``. Columns, mappings, derived columns and
+    prejoins work on both alike.
 
     Includes Data Vault-specific configuration such as record source values
     and load date expressions.
@@ -154,16 +154,8 @@ class SourceTable(models.Model):
         default=TableType.PHYSICAL,
         help_text=(
             "physical: a table of the source system, read as a dbt source. "
-            "prestage: a dbt model that prepares data for the stage"
-        ),
-    )
-
-    prestage_sql = models.TextField(
-        blank=True,
-        null=True,
-        help_text=(
-            "The pre-stage's dbt model, written to the project as it is. "
-            "Empty: the model is maintained outside TurboVault"
+            "prestage: a dbt model of the project that prepares data for the "
+            "stage; the dbt project maintains it"
         ),
     )
 
@@ -221,19 +213,6 @@ class SourceTable(models.Model):
     def is_prestage(self) -> bool:
         """Whether this table is a pre-stage, i.e. a dbt model."""
         return self.table_type == self.TableType.PRESTAGE
-
-    def clean(self) -> None:
-        """Only a pre-stage has SQL."""
-        super().clean()
-        if not self.is_prestage and (self.prestage_sql or "").strip():
-            raise ValidationError(
-                {
-                    "prestage_sql": (
-                        "Only a pre-stage has SQL. Set the table type to "
-                        "pre-stage, or clear the SQL."
-                    )
-                }
-            )
 
     def __str__(self) -> str:
         return self.physical_table_name

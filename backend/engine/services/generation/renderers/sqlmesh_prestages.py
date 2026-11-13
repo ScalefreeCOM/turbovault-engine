@@ -1,10 +1,10 @@
 """
 Pre-stage handling for SQLMesh output.
 
-A pre-stage's SQL is a dbt model: it reads its inputs with dbt Jinja
-(``source()``, ``ref()``), which SQLMesh can't run. SQLMesh output therefore
-has no pre-stages yet. This module works out, before anything is rendered,
-what is left out because of that:
+A pre-stage is a model of the dbt project: the dbt project maintains it and
+TurboVault generates nothing for it. A SQLMesh project has no such model to
+read, so SQLMesh output can't load from pre-stages. This module works out,
+before anything is rendered, what is left out because of that:
 
 - every stage that reads a pre-stage;
 - the hubs, links and satellites loaded from those stages.
@@ -53,9 +53,9 @@ def plan_prestage_skips(export: ProjectExport) -> PrestageSkips:
             code=Code.SQLMESH_UNSUPPORTED_PRESTAGE,
             stage="render",
             message=(
-                f"Pre-stage '{prestage.model_name}' is not generated: SQLMesh "
-                "output doesn't support pre-stages yet. Its stage and the hubs, "
-                "links and satellites loaded from it are skipped."
+                f"Pre-stage '{prestage.model_name}' is a model of the dbt "
+                "project, which SQLMesh output can't read. Its stage and the "
+                "hubs, links and satellites loaded from it are skipped."
             ),
             entity=EntityRef(type="prestage", name=prestage.model_name),
             suggestion=(
@@ -94,8 +94,8 @@ def prestage_dependent_warning(
         stage="render",
         message=(
             f"{entity_type.capitalize()} '{name}' was skipped because it loads "
-            f"from stage '{stage_name}', which reads a pre-stage. SQLMesh output "
-            "doesn't support pre-stages yet."
+            f"from stage '{stage_name}', which reads a pre-stage: a model of the "
+            "dbt project, which SQLMesh output can't read."
         ),
         entity=EntityRef(type=entity_type, name=name, group=group),
     )

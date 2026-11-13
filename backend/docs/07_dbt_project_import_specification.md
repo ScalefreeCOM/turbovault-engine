@@ -1,9 +1,10 @@
 # dbt Project Import — Specification
 
-**Status:** Draft 1, 2026-11-13 (Phase 0). Decisions recorded in §2.
-**Tracking:** `product_development_milestones` #460 (import) and its phase sub-issues; related #442
-(per-model output attributes) and #461 (custom models). The issue texts were initial ideas; this
-document supersedes them where they differ.
+**Status:** Draft 2, 2026-11-13. Decisions recorded in §2; Phases 0–5 are built on one branch,
+`feat/dbt-project-import` (D15).
+**Tracking:** `product_development_milestones` #460 (import); related #442 (per-model output attributes)
+and #461 (custom models). The issue texts were initial ideas; this document supersedes them where they
+differ.
 **Studio:** every change this initiative makes to the Engine's model or behaviour is documented in
 [`STUDIO_INTEGRATION_NOTES.md`](STUDIO_INTEGRATION_NOTES.md), the single handover document for the
 Studio team.
@@ -14,10 +15,10 @@ Studio team.
 
 Teams with an existing **datavault4dbt** project can import it into a TurboVault project from its dbt
 artifacts. The import rebuilds the Data Vault model (sources, stages, Hubs, Links, Satellites, PITs,
-reference tables, snapshot controls), keeps the models upstream of the stages as pre-stages, and keeps
-each model's name, path and configuration, so that generating the project again produces (almost) the
-same dbt project. Models the import can't map are reported; keeping them as custom models comes later
-and is optional.
+reference tables, snapshot controls), describes the models upstream of the stages as pre-stages (the
+models themselves stay in the dbt project), and keeps each model's name, folder and configuration, so
+that generating the project again into the same dbt project produces (almost) the same models. Models
+the import can't map are reported; keeping them as custom models comes later and is optional.
 
 The import never runs dbt, never connects to a warehouse and never accesses the network: it only reads
 artifact files. AutomateDV projects are out of scope for now, but the design keeps the
@@ -34,9 +35,16 @@ package-specific part separate so an AutomateDV adapter can be added.
 | D3 | Original model names, paths and configurations are kept (per-model output attributes, §9.1). | 2026-11-13 |
 | D4 | Features TurboVault lacks are decided one by one: implement, import leniently (warning), or strictly (skip). See the support matrix, §10. | 2026-11-13 |
 | D5 | `manifest.json` schema **v12** only (dbt Core ≥ 1.8, dbt Cloud, dbt Fusion). datavault4dbt **1.x and 2.x**. | 2026-11-13 |
-| D6 | This specification lives in the repository; the phases are sub-issues of #460. | 2026-11-13 |
+| D6 | This specification lives in the repository. ~~The phases are sub-issues of #460~~ (superseded by D15). | 2026-11-13 |
 | D7 | Every per-feature proposal of the Phase 1 analysis is accepted (§10, rows marked *accepted*). | 2026-11-13 |
 | D8 | Breaking changes to derived columns and pre-stages are allowed: neither is released or in use. | 2026-11-13 |
+| D9 | **Pre-stages store no SQL.** Their models belong to the dbt project and its developers: TurboVault generates no file for them (SQLMesh or future outputs couldn't run them anyway). A project with pre-stages must be generated into the dbt project that contains their models; generation and import say so with a warning. | 2026-11-13 |
+| D10 | Inputs are single files (Studio uploads them) or a local dbt project folder: the import finds the manifest, catalog, `dbt_project.yml` and package files in it and reports what it found and what is missing. A missing catalog is a warning. Also in the CLI's interactive mode. | 2026-11-13 |
+| D11 | A configured dbt project folder serves import (where to read the artifacts) and export (where to generate). | 2026-11-13 |
+| D12 | Generated layer folders: `00_control`, `10_sources`, `15_prestaging`, `20_staging`, `30_raw_vault`, `40_business_vault` (were `00_control`, `01_sources`, `01_prestaging`, `02_staging`, `03_raw_vault`, `04_business_vault`). | 2026-11-13 |
+| D13 | Also implemented (§9.6): `additional_columns`, `disable_hwm`, `source_is_single_batch` (as a delivery method, #468), `union_strategy` (written when set), snapshot control `end_date` / `sdts_alias`, effectivity Satellites on Links, PIT `snapshot_optimization` (stored; written only when set). Hash diff `exclude_columns`: lenient. | 2026-11-13 |
+| D14 | Output attributes store a model's **folder** only: the file name is the model name. | 2026-11-13 |
+| D15 | Phases 0–5 are one branch and one pull request. The GitHub issues aren't changed for now. | 2026-11-13 |
 
 ---
 
@@ -50,8 +58,13 @@ package-specific part separate so an AutomateDV adapter can be added.
 | `packages.yml`, `dependencies.yml`, `package-lock.yml` | no | datavault4dbt version, where argument formats differ between 1.x and 2.x. Detecting other DV packages. |
 | `profiles.yml` | never | Contains credentials. |
 
-Accepted as single files or as a directory holding `target/manifest.json` (+ `target/catalog.json`) and
-`dbt_project.yml`. `metadata.dbt_schema_version` must be v12; anything else stops the import with
+Accepted as single files or as a dbt project folder (D10). In a folder the import looks for
+`target/manifest.json` (else `manifest.json`), `target/catalog.json` (else `catalog.json`),
+`dbt_project.yml` and `packages.yml` / `dependencies.yml` / `package-lock.yml`, and reports each file as
+found or missing: no manifest stops the import, no catalog is a warning (`dbt.catalog_missing`), no
+`dbt_project.yml` a warning (`var()` calls fall back to their defaults), no package file an info (both
+argument formats are accepted). Files given explicitly take precedence over the folder's.
+`metadata.dbt_schema_version` must be v12; anything else stops the import with
 `dbt.unsupported_manifest_version`. Fusion manifests (`dbt_version` 2.x) have the same structure for
 every field the import reads (verified on a Fusion 2.0.1 manifest).
 
@@ -72,12 +85,13 @@ manifest / catalog / dbt_project.yml / packages
    6  Plan, Execute   the existing import pipeline: merge / replace_all / update_only, dry run, change report
 ```
 
-- Code lives in `engine/services/imports/dbt/`: `artifacts.py` (reading, versions), `extract.py`
-  (sandbox), `adapters/datavault4dbt.py` (normalization, signature table), `mapping.py`,
-  `naming.py` (convention inference), `codes`.
-- A new import source `DbtSource` (`manifest`, optional `catalog`, `dbt_project`, `packages`) joins the
-  `SourceInput` union. The CLI gets `--format`, and detects a manifest by `metadata.dbt_schema_version`
-  before falling back to the JSON or IRiS import.
+- Code lives in `engine/services/imports/dbt/`: `artifacts.py` (reading, versions, locating the files in
+  a folder), `extract.py` (sandbox), `datavault4dbt.py` (normalization, signature table), and in Phase 4
+  `mapping.py` and `naming.py` (convention inference).
+- A new import source `DbtSource` (a project folder, or `manifest` with optional `catalog`,
+  `dbt_project`, `packages`) joins the `SourceInput` union. The CLI gets `--format`, accepts a dbt project
+  folder (also in its interactive mode), and detects a manifest by `metadata.dbt_schema_version` before
+  falling back to the JSON or IRiS import.
 - **Warnings and skips for direct parsers.** Only the Excel/SQLite path can report non-fatal issues
   today; the parser contract gains a way to return issues and skipped entities with the domain model.
 - **Issue locations** gain the dbt node id and file path.
@@ -223,20 +237,20 @@ Manifest size and render time per model are limited and documented (Phase 7 meas
 
 Each dbt source (`source_name`) becomes a source system (schema, database, description), each source
 table a source table (`identifier` or `name`, description), with columns and types from the catalog,
-else the YAML. Only sources a stage or a pre-stage reads are imported. When every table of a system
-shares the record source or load date, it is set on the system (value inheritance).
+else the YAML. Only sources a stage reads are imported. When every table of a system shares the record
+source or load date, it is set on the system (value inheritance).
 
 ### 7.2 Pre-stages (models upstream of the stages)
 
-- A model without a Data Vault call that a stage reads (directly or through other models) becomes a
-  **pre-stage**: a source table of type `prestage` whose SQL is the model's `raw_code`, under its
-  original model name (§9.1), in the source system of what it reads.
-- Chains of upstream models are pre-stages reading each other with `ref()`.
+- A model without a Data Vault call that a stage reads becomes a **pre-stage**: a source table of type
+  `prestage` under the model's original name (§9.1), in the source system of the sources it reads
+  (lineage), else one named after its folder. Its SQL stays in the dbt project (D9).
+- Models further upstream aren't imported: only what a stage reads matters to TurboVault.
 - A stage reading a **seed**, a **dbt snapshot** or a **model of another package/project** gets a
-  pre-stage without SQL (maintained outside TurboVault) under that name. Seed data stays in the repo.
+  pre-stage the same way. Seed data stays in the repo.
 - Columns: the catalog's columns of the model, else its YAML columns.
-- The ephemeral check (`validate.prestage.ephemeral`) applies only to pre-stages a stage reads; models
-  only other pre-stages read may be ephemeral (change to the pre-stage feature).
+- The report warns once per pre-stage that the project must be generated into this dbt project
+  (`dbt.prestage_maintained_in_dbt`).
 
 ### 7.3 Stages
 
@@ -324,9 +338,9 @@ One record per generated dbt model, keyed by entity and output kind:
 | PIT, reference table | `pit`, `reference_table` |
 | snapshot control | `v0`, `v1` |
 
-Fields (all optional; empty means "derived as today"): `model_name`, `alias`, `file_path` (relative to
-`models/`), `schema`, `database`, `materialized`, `tags`, `config` (other config keys verbatim: hooks,
-`unique_key`, …). Proposed storage: one table with explicit nullable foreign keys to the entities (as
+Fields (all optional; empty means "derived as today"): `model_name`, `alias`, `folder` (relative to the
+dbt project root, e.g. `models/raw_vault/hubs`; the file name is the model name, D14), `schema`,
+`database`, `materialized`, `tags`, `config` (other config keys verbatim: hooks, `unique_key`, …). Proposed storage: one table with explicit nullable foreign keys to the entities (as
 `StagingColumn` does), unique per entity and output kind, and per project by model name.
 
 Generation resolves every model name through one service, so file names **and every reference**
@@ -371,12 +385,20 @@ whether the Satellite gets a v1 at all (default: the project's `generate_satelli
 
 ### 9.6 Smaller additions
 
-- Effectivity Satellite `is_active_alias` per Hub.
+- Effectivity Satellite `is_active_alias`.
+- **Effectivity Satellites on Links** (D13), next to those on Hubs.
 - PIT `custom_rsrc`: generation writes the stored `custom_record_source`.
+- PIT `snapshot_optimization`: stored nullable, written only when set (D13). Existing PITs become unset.
 - Hub loaded from a differently named hash key column of a stage (`hk_column`): role-playing sources
   (e.g. author / committer users from one stage). Data model designed in Phase 3.
 - Snapshot control: generation writes the stored `snapshot_end_date` (`end_date`) and an `sdts_alias`
   when set.
+- `additional_columns` on Hubs, Links, non-historized Links and effectivity Satellites (the existing Hub
+  and Link additional columns get generated too).
+- `disable_hwm` per Hub, Link, non-historized Link, effectivity Satellite and Satellite.
+- `source_is_single_batch` through a **delivery method** on source systems and tables with a project
+  switch (#468).
+- non-historized Link `union_strategy`, written only when set.
 
 ---
 
@@ -391,30 +413,32 @@ the example corpus.
 | stage: `source_model`, `ldts`, `rsrc`, `hashed_columns`, `prejoined_columns` (both notations), `multi_active_config` | all | supported |
 | stage: `derived_columns` | 0 | supported; shadowing a source column: implement (§9.4) |
 | stage: `missing_columns`, `include_source_columns`, `sequence`, `enable_ghost_records` | `include_source_columns: true` ×15 | implement (§9.3) |
-| stage: hash diff `exclude_columns` | 0 | lenient (proposed) |
+| stage: hash diff `exclude_columns` | 0 | lenient (D13) |
 | hub / ref_hub: `hashkey`, `business_keys`, `ref_keys`, `source_models` (`bk_columns`, `rsrc_static`) | all | supported |
 | hub: `source_models[].hk_column` | 8 | implement (§9.6) |
-| hub / link / nh_link / eff_sat: `additional_columns` | 0 | lenient (proposed; implement when seen) |
-| hub / link / nh_link / eff_sat / sat: `disable_hwm` | 0 | lenient (proposed) |
+| hub / link / nh_link / eff_sat: `additional_columns` | 0 | implement (D13) |
+| hub / link / nh_link / eff_sat / sat: `disable_hwm` | 0 | implement (D13) |
 | all: `src_ldts`, `src_rsrc` (per-entity columns) | 1 | lenient |
 | link / nh_link: `link_hashkey`, `foreign_hashkeys`, `payload`, `source_models` (`fk_columns`, `link_hk`) | all | supported |
-| nh_link: `union_strategy`; nh_link / nh_sat / sat: `source_is_single_batch` | 0 | lenient (proposed) |
+| nh_link: `union_strategy` | 0 | implement, written when set (D13) |
+| nh_link / nh_sat / sat / eff_sat: `source_is_single_batch` | 0 | implement as a delivery method (D13, #468) |
 | sat_v0 / ma_sat_v0 / nh_sat / ref_sat_v0: `parent_hashkey`, `parent_ref_keys`, `src_payload`, `src_ma_key`, `source_model` | all | supported |
 | sat_v0: `src_hashdiff` as a name | all | supported; per-Satellite name: implement (§9.2) |
 | sat_v0: `src_hashdiff: {source_column, alias}` | 18 | implement (§9.2) |
 | sat_v1 / ma_sat_v1 / ref_sat_v1: `ledts_alias`, `add_is_current_flag`, `include_payload` | 335 / 354 / 1 | implement (§9.5) |
 | eff_sat_v0: `tracked_hashkey` (Hub) | 1 | supported |
-| eff_sat_v0 on a Link | 0 | strict (TurboVault has effectivity Satellites on Hubs only) |
+| eff_sat_v0 on a Link | 0 | implement (D13) |
 | eff_sat_v0: `is_active_alias` | 1 | implement (§9.6) |
 | rec_track_sat | 1 | supported |
 | pit: `tracked_entity`, `hashkey`, `sat_names`, `snapshot_relation`, `snapshot_trigger_column`, `dimension_key`, `pit_type` | all | supported |
 | pit: `custom_rsrc` | 6 | implement (§9.6) |
+| pit: `snapshot_optimization` | 0 | implement, written when set (D13) |
 | ref_table: `ref_hub`, `ref_satellites`, `historized`, `snapshot_relation`, `snapshot_trigger_column` | 0 | supported |
 | control_snap_v0: `start_date`, `daily_snapshot_time` | all | supported; `end_date`, `sdts_alias`: implement (§9.6) |
 | control_snap_v1: `control_snap_v0`, `log_logic` | all | supported |
 | parameters a macro doesn't know (incl. SQL-comment YAML keys) | 5 | lenient: reported as ignored |
 | unknown datavault4dbt macros, Python models | 0 | strict |
-| seeds / dbt snapshots / other packages' models read by a stage | 11 stages | lenient: pre-stage without SQL (§7.2) |
+| upstream models, seeds, dbt snapshots, other packages' models read by a stage | 97 models / 11 stages | supported: pre-stage, kept in the dbt project (§7.2, D9) |
 | models downstream of the Data Vault | 78 | skipped and reported; custom models in Phase 6 (D2) |
 
 ---
@@ -436,7 +460,13 @@ Proposed codes (final list in `services/imports/codes.md`):
 | `dbt.value_unresolved` | warning | `var()` / `env_var()` / unknown function without a value |
 | `dbt.reference_unresolved` | error (entity skipped) | a stage, parent or Satellite that isn't in the project |
 | `dbt.link_hub_ambiguous` | error (Link skipped) | a foreign hash key matches no Hub, or several |
+| `dbt.artifact_too_large` | error (abort) | an artifact is larger than the limit (512 MB) |
+| `dbt.artifacts_located` | info | which files a project folder provided (D10) |
 | `dbt.catalog_missing` | warning | no catalog: column types from YAML only |
+| `dbt.project_file_missing` | warning | no `dbt_project.yml`: `var()` calls fall back to their defaults |
+| `dbt.value_invalid` | error (model skipped) | a metadata block that isn't valid YAML / JSON, or a value of the wrong shape |
+| `dbt.prestage_maintained_in_dbt` | warning | a pre-stage: generate the project into this dbt project (D9) |
+| `dbt.resource_not_imported` | info | seeds, tests, snapshots, … counted, not imported |
 | `dbt.naming_inferred` | info | a naming pattern was inferred, with its share of matching names |
 
 The report also lists node counts per resource type (seeds, tests, … not imported).
@@ -462,23 +492,31 @@ The report also lists node counts per resource type (seeds, tests, … not impor
 
 | Phase | Delivers | Status |
 |-------|----------|--------|
-| 0 | This specification, Studio integration notes | in review |
+| 0 | This specification, Studio integration notes | done |
 | 1 | Corpus analysis: `scripts/dbt_import/profile_manifest.py`, extraction prototype `capture_calls.py` | done |
-| 2 | Foundations: `DbtSource`, artifact reader, CLI `--format`, issue locations, warnings/skips for direct parsers, sandbox extraction, datavault4dbt adapter (normalization, signature table 1.x/2.x), notation tests | |
-| 3 | Metadata extensions (§9): output attributes and name resolution in generation, hash diff name/alias, stage options, derived column shadowing, Satellite v1 options, smaller additions | |
-| 4 | Raw Vault mapping (§7.1, 7.3–7.6), naming inference (§8), round-trip and corpus tests | |
-| 5 | Upstream models: pre-stages with original names, chains, seeds / snapshots / package models | |
+| 2 | Foundations: artifact reader, sandbox extraction, datavault4dbt adapter (normalization, signature table 1.x/2.x), notation tests | done (`DbtSource`, CLI and issue locations moved to Phase 4) |
+| 3 | Pre-stages kept in the dbt project (D9) and layer folders (D12): done. Metadata extensions (§9): output attributes and name resolution in generation, hash diff name/alias, stage options, derived column shadowing, Satellite v1 options, smaller additions (D13) | in progress |
+| 4 | `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, issue locations, warnings/skips for direct parsers; Raw Vault mapping (§7.1, 7.3–7.6), naming inference (§8), round-trip and corpus tests | |
+| 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models | |
 | 6 | Custom models for downstream models (#461), optional | |
 | 7 | Hardening: performance limits, docs, CLI polish | |
 
-Every phase is a pull request with tests, Engine docs and its section in the Studio integration notes.
+Phases 0–5 are one pull request (D15); every phase comes with tests, Engine docs and its section in the
+Studio integration notes.
 
 ---
 
 ## 14. Open questions for review
 
-1. **Output attributes storage (§9.1):** one table with explicit foreign keys (proposed) or fields on
-   each entity.
-2. **Missing columns (§9.3):** source columns flagged `is_missing` (proposed) or a separate list per
-   table.
-3. **Imported descriptions and tags:** imported by default (proposed), with an option to skip them.
+Resolved (D7): output attributes in one table with explicit foreign keys; missing columns as source
+columns flagged `is_missing`; descriptions and tags imported by default, with an option to skip them.
+
+Open:
+
+1. **Tables only pre-stages read:** without the SQL, TurboVault can't tell that a pre-stage's model reads a
+   table, so every table gets a stage. Proposed: a per-table "generate stage" switch, which the import
+   turns off for sources only upstream models read.
+2. **Generating into an existing dbt project:** which project files TurboVault leaves to the dbt project
+   (`dbt_project.yml`, `packages.yml`), how to avoid defining the project's own sources twice (a per-system
+   "defined in the dbt project" flag), and how to report files TurboVault no longer generates.
+3. **The configured dbt project folder (D11):** option name and scope (workspace or project).

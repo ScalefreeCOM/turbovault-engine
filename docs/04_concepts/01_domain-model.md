@@ -108,8 +108,7 @@ prepares data for its stage (see [Pre-stages](#35-pre-stages)).
 | project_id                   | identifier | ✓ (FK)  | FK to `Project`.                                                  |
 | source_system_id             | identifier | ✓ (FK)  | FK to `source_system.source_system_id`.                           |
 | physical_table_name          | string     | ✓       | Physical name of the table in the source system (e.g.`CUSTOMER`). For a pre-stage, the name its model and stage are named after. |
-| table_type                   | string     | ✓       | `physical` (default): a table of the source system, read as a dbt source. `prestage`: a dbt model, read with `ref()`. |
-| prestage_sql                 | string     |          | Only for a pre-stage: its dbt model, written to the project as it is. Empty: the model is maintained outside TurboVault. |
+| table_type                   | string     | ✓       | `physical` (default): a table of the source system, read as a dbt source. `prestage`: a model of the dbt project, read with `ref()`; the dbt project maintains it. |
 | alias                        | string     |          | Optional alias used in generated code/dbt models.                   |
 | record_source_value          | string     |          | The stage's `rsrc`: a column name, SQL, or fixed text after a `!` (e.g. `!CRM`). Empty inherits (see below). |
 | static_part_of_record_source | string     |          | The part of the record source that stays the same across loads, as an SQL `LIKE` pattern (e.g. `SAP/Accounts/%`). Written as the `rsrc_static` of the hubs and links the table loads. Empty inherits. |
@@ -211,39 +210,37 @@ columns and prejoins compute values within one row of the stage; anything more
 needs a model of its own before the stage. That is a pre-stage: a
 `source_table` with `table_type = prestage`.
 
+The model belongs to the dbt project and its developers, not to TurboVault:
+TurboVault stores no SQL for it and generates no file. A pre-stage only
+describes the model's output, so the Raw Vault can be mapped onto it.
+
 A pre-stage is a source table in every other respect. It belongs to a source
-system, has columns (its output, declared like any table's), a record source
-and load date, derived columns and prejoins, and hubs, links and satellites map
-its columns. It gets a stage like any table, which reads the pre-stage model
-with `ref()` instead of a dbt source. A prejoin onto a pre-stage reads it the
-same way (`ref_model`).
+system, has columns (the model's output, declared like any table's), a record
+source and load date, derived columns and prejoins, and hubs, links and
+satellites map its columns. It gets a stage like any table, which reads the
+pre-stage model with `ref()` instead of a dbt source. A prejoin onto a
+pre-stage reads it the same way (`ref_model`).
 
-| Generated | Name | Where |
-| --------- | ---- | ----- |
-| Pre-stage model | `pstg__<system>__<table>` | `models/15_prestaging/<system>/`, with a YAML file documenting its columns |
-| Its stage | `stg__<system>__<table>` | `models/20_staging/<system>/`, as for any table |
+| | Name | Where |
+| - | ---- | ----- |
+| Pre-stage model (the dbt project's own) | `pstg__<system>__<table>` | Anywhere in the dbt project; `models/15_prestaging/` gets the staging layer's settings |
+| Its stage (generated) | `stg__<system>__<table>` | `models/20_staging/<system>/`, as for any table |
 
-`prestage_sql` holds the complete dbt model, written as it is: it reads its
-inputs with `{{ source('crm', 'CUSTOMER_RAW') }}` or
-`{{ ref('pstg__crm__other') }}` and may set its own `{{ config() }}`. The
-`15_prestaging` layer has the staging layer's schema and materialization; the
-model's own `config()` takes precedence. Without SQL, the model is maintained
-outside TurboVault (by hand, or in a dbt package): nothing is generated for it,
-and its stage reads `pstg__<system>__<table>` all the same.
+Consequences:
 
-Constraints:
-
-- **Not ephemeral.** datavault4dbt's stage reads its input's columns from the
-  database, where an ephemeral model doesn't exist. An ephemeral staging layer
-  gives the pre-stage layer views, and a model configured as ephemeral fails
-  validation (`validate.prestage.ephemeral`).
-- **Sources must exist.** A `source()` the project doesn't define fails in dbt;
-  validation reports it first (`validate.prestage.unknown_source`).
-- **Inputs get no stage of their own.** A table that pre-stages read (with
-  `source()` or `ref()`) and that loads nothing into the Raw Vault itself
-  gets no stage: it would hash nothing.
-- **dbt only.** SQLMesh output skips pre-stages, their stages and what loads
-  from them, with a warning.
+- **Generate into the dbt project.** The stage's `ref()` only resolves in the
+  dbt project that contains the model. Every dbt generation warns once per
+  pre-stage (`render.prestage.maintained_in_dbt`).
+- **The `15_prestaging` layer.** When the project has pre-stages,
+  `dbt_project.yml` configures `models/15_prestaging/` with the staging layer's
+  schema and materialization, as views where the staging layer is ephemeral:
+  datavault4dbt's stage reads its input's columns from the database, where an
+  ephemeral model doesn't exist. Models placed there get these settings; a
+  model's own `config()` takes precedence.
+- **Inputs keep their stages.** TurboVault doesn't know what a pre-stage's
+  model reads, so the tables it reads get a stage like any other.
+- **dbt only.** SQLMesh output can't read a dbt model: it skips pre-stages,
+  their stages and what loads from them, with a warning.
 
 Only the JSON export carries pre-stages. Other import formats (Excel, SQLite,
 IRiS, the `source_metadata` format of database imports) have no place for them,

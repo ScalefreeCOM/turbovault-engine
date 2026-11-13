@@ -65,9 +65,6 @@ class DSourceTable:
     # "physical" or "prestage". None when the format has no place for it: the
     # table keeps its type (a new one is physical).
     table_type: str | None = None
-    # A pre-stage's SQL. None: the format has no place for it, so the table
-    # keeps its SQL. "" : the source says the table has none.
-    prestage_sql: str | None = None
     columns: dict[str, DSourceColumn] = field(default_factory=dict)
     # Keyed by lowercased name. None when the format carries no derived
     # columns, so the table's existing ones are left alone.

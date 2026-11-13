@@ -71,8 +71,6 @@ class Code:
     VALIDATE_STAGE_NO_KEYS = "validate.stage.no_keys"
 
     # Validate stage — pre-stages
-    VALIDATE_PRESTAGE_EPHEMERAL = "validate.prestage.ephemeral"
-    VALIDATE_PRESTAGE_UNKNOWN_SOURCE = "validate.prestage.unknown_source"
 
     # Validate stage — hubs
     VALIDATE_HUB_MISSING_HASHKEY = "validate.hub.missing_hashkey"
@@ -113,6 +111,7 @@ class Code:
     RENDER_INVALID_PROFILES = "render.invalid_profiles"
     RENDER_LITERAL_SECRET_IN_PROFILE = "render.literal_secret_in_profile"
     RENDER_INVALID_MATERIALIZATION = "render.invalid_materialization"
+    RENDER_PRESTAGE_MAINTAINED_IN_DBT = "render.prestage.maintained_in_dbt"
 
     # Write stage
     WRITE_IO_ERROR = "write.io_error"

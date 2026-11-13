@@ -41,7 +41,7 @@ The admin is organized into the following sections:
 | **Engine > Projects** | Top-level project containers |
 | **Engine > Groups** | Logical groupings for organizing entities into subfolders |
 | **Engine > Source Systems** | Database/schema definitions of upstream sources |
-| **Engine > Source Tables** | Source tables with DV config (record source, load date): physical tables, and pre-stages with their dbt SQL |
+| **Engine > Source Tables** | Source tables with DV config (record source, load date): physical tables, and pre-stages (models of the dbt project) |
 | **Engine > Source Columns** | Columns belonging to source tables |
 | **Engine > Hubs** | Data Vault hub definitions (standard and reference) |
 | **Engine > Hub Columns** | Business keys and reference keys within hubs |
@@ -79,21 +79,23 @@ When building a Data Vault model manually in the admin (rather than importing fr
 ## Working with Pre-stages
 
 When a table's data can't be loaded as it is (JSON to parse, a table to pivot),
-add a [pre-stage](../04_concepts/01_domain-model.md#35-pre-stages): a source
-table with **Table type** `Pre-stage`, in the source system whose data it
-prepares.
+your dbt project prepares it in a model of its own, and TurboVault loads from
+that model: add a [pre-stage](../04_concepts/01_domain-model.md#35-pre-stages),
+a source table with **Table type** `Pre-stage`, in the source system whose data
+it prepares. The model itself stays in the dbt project; TurboVault doesn't
+store or generate it.
 
-- **Pre-stage SQL** — the complete dbt model, written to
-  `models/15_prestaging/<system>/pstg__<system>__<table>.sql` as it is. Read
-  inputs with `{{ source('<system>', '<TABLE>') }}`, using the names in the
-  generated `sources.yml`. Leave it empty to maintain the model yourself.
+- **Physical table name** — the model is named `pstg__<system>__<table>` after
+  it (e.g. `pstg__crm__customer_address`). Place it in
+  `models/15_prestaging/` to give it the staging layer's settings.
 - **Source columns** — add the columns the model returns, with their data
   types. Hubs, links and satellites map them like any table's columns.
 - **Load date / record source** — as for any table; the load date usually is a
   column the model passes through.
 
-The pre-stage's stage reads the model with `ref()`. A table that only
-pre-stages read gets no stage of its own.
+The pre-stage's stage reads the model with `ref()`, so generate into the dbt
+project that contains the model: each generation warns about this once per
+pre-stage.
 
 ---
 

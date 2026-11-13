@@ -44,11 +44,6 @@ from engine.services.export.models import (
     StageHashdiffDef,
     StageHashkeyDef,
 )
-from engine.services.prestage_sql import (
-    dbt_source_name,
-    referenced_models,
-    referenced_sources,
-)
 from engine.services.runtime_config import (
     EngineRuntimeConfig,
     resolve_runtime_config,
@@ -102,6 +97,15 @@ def _prejoin_origin(staging_column: StagingColumn) -> tuple[str | None, str | No
         return None, None
     target = prejoin_column.prejoin.prejoin_target_table
     return target.physical_table_name, target.source_system.name
+
+
+def dbt_source_name(source_system_name: str) -> str:
+    """The name a source system has in generated dbt code.
+
+    It names the system's source in ``sources.yml`` and is the middle part of
+    its stage and pre-stage names (``stg__crm__customer``).
+    """
+    return source_system_name.lower().replace(" ", "_")
 
 
 def stage_model_name(table: SourceTable) -> str:
@@ -238,7 +242,6 @@ class ModelBuilder:
                     SourceTableDef(
                         table_name=table.physical_table_name,
                         table_type=table.table_type,
-                        prestage_sql=table.prestage_sql or None,
                         alias=table.alias,
                         record_source=table.record_source_value,
                         static_part_of_record_source=(
@@ -458,9 +461,7 @@ class ModelBuilder:
         computed from hubs (and future: links) that use this source,
         plus hashdiffs from satellites.
 
-        A pre-stage's stage reads the pre-stage model with ``ref()``. Tables
-        that only pre-stages read get no stage (see
-        ``_tables_read_only_by_prestages``).
+        A pre-stage's stage reads the pre-stage model with ``ref()``.
 
         Returns:
             List of stage definitions with hashkey and hashdiff calculations
@@ -472,13 +473,9 @@ class ModelBuilder:
             .select_related("source_system")
             .prefetch_related("columns", "derived_columns")
         )
-        read_only_by_prestages = self._tables_read_only_by_prestages(source_tables)
 
         result = []
         for table in source_tables:
-            if table.pk in read_only_by_prestages:
-                continue
-
             # Get all hashkeys needed for this source table
             hashkeys = self._get_hashkeys_for_source_table(table)
 
@@ -530,11 +527,10 @@ class ModelBuilder:
         return result
 
     def _build_prestages(self) -> list[PrestageDefinition]:
-        """Build the pre-stage models: one per source table of type prestage.
+        """Build the pre-stages: one per source table of type prestage.
 
-        A pre-stage without SQL is maintained outside TurboVault: it is listed
-        (its stage still reads it) with ``sql=None``, and generation writes no
-        model for it.
+        The dbt project maintains each pre-stage's model; TurboVault generates
+        no file for it. The list names the models the project must contain.
         """
         from engine.models import SourceTable
 
@@ -550,7 +546,6 @@ class ModelBuilder:
                 model_name=prestage_model_name(table),
                 table_name=table.physical_table_name,
                 source_system=table.source_system.name,
-                sql=table.prestage_sql if (table.prestage_sql or "").strip() else None,
                 description=table.description or None,
                 columns=[
                     SourceColumnDef(
@@ -563,62 +558,6 @@ class ModelBuilder:
             )
             for table in tables
         ]
-
-    def _tables_read_only_by_prestages(self, tables: list[SourceTable]) -> set:
-        """Primary keys of the tables only pre-stages read.
-
-        A table a pre-stage reads (a JSON landing table, say) needs no stage of
-        its own when nothing in the Raw Vault loads from it: the stage would
-        hash nothing. That holds for physical tables read with ``source()`` and
-        for pre-stages other pre-stages read with ``ref()``. A pre-stage's
-        reads come from scanning its SQL (``engine.services.prestage_sql``).
-        """
-        from engine.models import (
-            HubSourceMapping,
-            LinkHubSourceMapping,
-            LinkSourceMapping,
-            Satellite,
-        )
-
-        physical = {
-            (dbt_source_name(t.source_system.name), t.physical_table_name.lower()): t.pk
-            for t in tables
-            if not t.is_prestage
-        }
-        prestages = {prestage_model_name(t): t.pk for t in tables if t.is_prestage}
-
-        read: set = set()
-        for table in tables:
-            if not table.is_prestage or not table.prestage_sql:
-                continue
-            for source_name, table_name in referenced_sources(table.prestage_sql):
-                pk = physical.get((source_name.lower(), table_name.lower()))
-                if pk is not None:
-                    read.add(pk)
-            for model in referenced_models(table.prestage_sql):
-                pk = prestages.get(model.lower())
-                if pk is not None and pk != table.pk:
-                    read.add(pk)
-        if not read:
-            return set()
-
-        loading: set = set()
-        for mapping_model in (
-            HubSourceMapping,
-            LinkHubSourceMapping,
-            LinkSourceMapping,
-        ):
-            loading.update(
-                mapping_model.objects.filter(
-                    staging_column__source_table__in=read
-                ).values_list("staging_column__source_table", flat=True)
-            )
-        loading.update(
-            Satellite.objects.filter(source_table__in=read).values_list(
-                "source_table", flat=True
-            )
-        )
-        return read - loading
 
     def _get_hashdiffs_for_source_table(
         self, source_table: SourceTable
