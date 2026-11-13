@@ -197,6 +197,19 @@ def quoted_list(values: Iterable[object] | None) -> Markup:
     return Markup("[" + ", ".join(quoted) + "]")
 
 
+def yaml_json(value: object) -> Markup:
+    """A JSON value as a YAML flow value, e.g. ``{"relation": true}``.
+
+    Used for ``custom_config_json`` values in a model's ``.yml`` config. JSON
+    is valid YAML flow syntax; the line breaks YAML knows but JSON leaves
+    unescaped are escaped as in ``yaml_quote``.
+    """
+    dumped = json.dumps(value, ensure_ascii=False)
+    for char, escaped in _YAML_LINE_BREAKS.items():
+        dumped = dumped.replace(char, escaped)
+    return Markup(dumped)
+
+
 def config_literal(value: object) -> Markup:
     """A JSON value as a literal in a dbt ``config()`` call.
 
@@ -219,7 +232,8 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
 
     Adds the ``yaml_quote``, ``yaml_scalar`` and ``yaml_single_quote`` filters
     for writing user text into YAML, ``quoted_list`` for tag lists,
-    ``config_literal`` for custom ``config()`` values, and the ``py``, ``py_dict``,
+    ``config_literal`` / ``yaml_json`` for custom config values in SQL / YAML,
+    and the ``py``, ``py_dict``,
     ``py_hashed_columns`` and ``py_source_models`` filters for writing Python
     literals into SQLMesh model files.
     """
@@ -241,6 +255,7 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     environment.filters["yaml_single_quote"] = yaml_single_quote
     environment.filters["quoted_list"] = quoted_list
     environment.filters["config_literal"] = config_literal
+    environment.filters["yaml_json"] = yaml_json
     environment.filters["py"] = py_literal
     environment.filters["py_dict"] = py_dict_filter
     environment.filters["py_hashed_columns"] = py_hashed_columns_filter

@@ -11,10 +11,10 @@ the generator will emit:
 - its per-model config: alias, schema, database, materialization, tags and
   any further `custom_config_json` settings.
 
-Every reference between models (stages in `source_models`, `sat_v0` in v1
-views and PITs, `sat_v1` in reference tables, the snapshot control in PITs)
-is looked up here, so references always match the names the models are
-written under.
+Every reference between models (pre-stages read by stages and prejoins,
+stages in `source_models`, `sat_v0` in v1 views and PITs, `sat_v1` in
+reference tables, the snapshot control in PITs) is looked up here, so
+references always match the names the models are written under.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 # Model kinds the dbt generator emits, with the layer each belongs to.
 LAYER_BY_KIND: dict[str, str] = {
+    "prestage": "prestaging",
     "stage": "staging",
     "hub": "raw_vault",
     "link": "raw_vault",
@@ -194,6 +195,18 @@ def resolve_model_outputs(
     """
     resolver = _Resolver(config)
     folders = config.folder_config
+
+    # Every pre-stage, also one maintained outside TurboVault (no SQL): its
+    # stage refers to it, and its name is taken in the dbt project.
+    for prestage in project_export.prestages:
+        resolver.add(
+            "prestage",
+            prestage.model_name,
+            entity_name=prestage.model_name,
+            default_name=prestage.model_name,
+            default_directory=folders.prestaging_dir(prestage.source_system),
+            attributes=prestage.generation_config.dbt.get("prestage"),
+        )
 
     for stage in project_export.stages:
         resolver.add(

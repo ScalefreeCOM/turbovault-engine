@@ -99,10 +99,10 @@ class Migration(migrations.Migration):
             field=models.JSONField(
                 blank=True,
                 default=dict,
-                help_text="Output attributes of the generated model(s), keyed by framework (dbt) and output kind (stage): model_name, alias, file_path (relative to models/), materialized, tags, schema, database, custom_config_json. Generation derives whatever is not set.",
+                help_text="Output attributes of the generated model(s), keyed by framework (dbt) and output kind (stage, prestage): model_name, alias, file_path (relative to models/), materialized, tags, schema, database, custom_config_json. Generation derives whatever is not set.",
                 validators=[
                     engine.models.output_attributes.GenerationConfigValidator(
-                        ("stage",)
+                        ("stage", "prestage")
                     )
                 ],
             ),

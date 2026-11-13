@@ -113,8 +113,13 @@ def _prejoin_origin(staging_column: StagingColumn) -> tuple[str | None, str | No
     return target.physical_table_name, target.source_system.name
 
 
-def _generation_config(entity: Model, label: str) -> GenerationConfigDef:
+def _generation_config(
+    entity: Model, label: str, kinds: tuple[str, ...] | None = None
+) -> GenerationConfigDef:
     """The entity's stored ``generation_config``, checked.
+
+    ``kinds`` keeps only those output kinds, for definitions that carry part
+    of an entity's models (a source table's stage and pre-stage).
 
     Raises ValueError naming the entity when a stored value is invalid (e.g.
     written to the database without going through validation).
@@ -129,6 +134,9 @@ def _generation_config(entity: Model, label: str) -> GenerationConfigDef:
         raise ValueError(
             f"Invalid generation_config on {label} '{entity}': {'; '.join(errors)}"
         )
+    if kinds is not None:
+        by_kind = (stored.get("dbt") or {}).items()
+        stored = {"dbt": {kind: attrs for kind, attrs in by_kind if kind in kinds}}
     try:
         return GenerationConfigDef.model_validate(stored)
     except ValidationError as exc:
@@ -558,7 +566,7 @@ class ModelBuilder:
                     multi_active_config=multi_active_config,
                     derived_columns=derived_columns,
                     columns=columns,
-                    generation_config=_generation_config(table, "source table"),
+                    generation_config=_generation_config(table, "source table", ("stage",)),
                 )
             )
 
@@ -595,6 +603,9 @@ class ModelBuilder:
                     )
                     for column in table.columns.all()
                 ],
+                generation_config=_generation_config(
+                    table, "source table", ("prestage",)
+                ),
             )
             for table in tables
         ]

@@ -115,7 +115,7 @@ prepares data for its stage (see [Pre-stages](#35-pre-stages)).
 | static_part_of_record_source | string     |          | The part of the record source that stays the same across loads, as an SQL `LIKE` pattern (e.g. `SAP/Accounts/%`). Written as the `rsrc_static` of the hubs and links the table loads. Empty inherits. |
 | load_date_value              | string     |          | The stage's `ldts`: a column name or SQL expression (e.g. `sysdate()`). Empty inherits (see below). |
 | description                  | string     |          | Optional description; written to `sources.yml` and the stage's model YAML. |
-| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`stage`). Empty: derived. See [Output attributes](#output-attributes). |
+| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`stage`, `prestage`). Empty: derived. See [Output attributes](#output-attributes). |
 | created_at                   | datetime   | ✓       | Timestamp when the record was created.                              |
 | updated_at                   | datetime   | ✓       | Timestamp when the record was last updated.                         |
 
@@ -289,7 +289,7 @@ rejected.
 
 | Entity                   | Output kinds                                                      |
 | ------------------------ | ----------------------------------------------------------------- |
-| `source_table`           | `stage`                                                           |
+| `source_table`           | `stage`, `prestage` (pre-stage tables)                            |
 | `hub`                    | `hub`, `record_tracking_satellite`, `effectivity_satellite`       |
 | `link`                   | `link`, `record_tracking_satellite`                               |
 | `satellite`              | `satellite_v0`, `satellite_v1`                                    |
@@ -326,10 +326,16 @@ as before (layer folders, naming patterns, `dbt_project.yml` settings):
 
 Generation honors them unless it runs with `--standard-paths`
 (`GenerationOptions.use_original_paths=False`), and every reference to a model
-(stages in `source_models`, `sat_v0` of v1 views and PITs, `sat_v1` of
-reference tables, the snapshot control of PITs) uses its actual name. A model
+(pre-stages read by stages and prejoins, stages in `source_models`, `sat_v0`
+of v1 views and PITs, `sat_v1` of reference tables, the snapshot control of
+PITs) uses its actual name. A model
 placed outside its layer's folder gets that layer's schema and materialization
 in its own `config()`, since `dbt_project.yml` configures layers by folder.
+A pre-stage's SQL is the user's complete model and may call `config()` itself,
+so its stored config (including the layer fallback) goes into the `config:`
+block of its `.yml` instead, which dbt ranks below the model's own `config()`.
+A pre-stage maintained outside Turbovault (no SQL) can store a `model_name`:
+nothing is written for it, but its stage reads it under that name.
 Two models with the same name or file, or a model file that would overwrite a
 generated sources file (`01_sources/source__<system>.yml`), fail generation
 with `write.path_collision` before anything is written.

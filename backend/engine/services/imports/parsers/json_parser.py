@@ -17,6 +17,7 @@ from engine.services.export.models import (
     HubDefinition,
     LinkDefinition,
     PITDefinition,
+    PrestageDefinition,
     ProjectExport,
     ReferenceTableDefinition,
     SatelliteDefinition,
@@ -128,6 +129,7 @@ def _generation_config(
         | LinkDefinition
         | SatelliteDefinition
         | StageDefinition
+        | PrestageDefinition
         | PITDefinition
         | ReferenceTableDefinition
         | SnapshotControlDefinition
@@ -141,6 +143,21 @@ def _generation_config(
     if "generation_config" not in definition.model_fields_set:
         return None
     return definition.generation_config.as_stored()
+
+
+def _merged_generation_config(
+    current: dict[str, Any] | None, part: dict[str, Any]
+) -> dict[str, Any]:
+    """Add one definition's part of a source table's ``generation_config``.
+
+    A source table's stage and pre-stage each export their own output kind;
+    together they are the table's value.
+    """
+    by_kind = {
+        **((current or {}).get("dbt") or {}),
+        **(part.get("dbt") or {}),
+    }
+    return {"dbt": by_kind} if by_kind else {}
 
 
 def _project_export_to_domain(export: ProjectExport) -> DomainModel:
@@ -546,15 +563,24 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             generation_config=_generation_config(pit_def),
         )
 
-    # A stage's output attributes belong to its source table.
-    for stage in export.stages:
-        generation_config = _generation_config(stage)
+    # The output attributes of a stage and of a pre-stage belong to their
+    # source table; a pre-stage table carries both.
+    for definition, system_name, table_name in (
+        *((stage, stage.source_system, stage.source_table) for stage in export.stages),
+        *(
+            (prestage, prestage.source_system, prestage.table_name)
+            for prestage in export.prestages
+        ),
+    ):
+        generation_config = _generation_config(definition)
         if generation_config is None:
             continue
-        system = model.source_systems.get(stage.source_system)
-        table = system.tables.get(stage.source_table) if system else None
+        system = model.source_systems.get(system_name)
+        table = system.tables.get(table_name) if system else None
         if table is not None:
-            table.generation_config = generation_config
+            table.generation_config = _merged_generation_config(
+                table.generation_config, generation_config
+            )
 
     # Prejoins are embedded in stage definitions in JSON exports.
     for stage in export.stages:

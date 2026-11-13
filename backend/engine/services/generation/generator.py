@@ -80,6 +80,7 @@ _SPECIFIC_MATERIALIZATIONS = MODEL_MATERIALIZATION_DEFAULTS
 # Each layer's schema setting in GenerationConfig (its materialization is
 # `<layer>_materialization`).
 _LAYER_SCHEMA_FIELDS = {
+    "prestaging": "stage_schema",
     "staging": "stage_schema",
     "raw_vault": "rdv_schema",
     "business_vault": "bdv_schema",
@@ -243,7 +244,9 @@ class DbtProjectGenerator:
             self._generate_project_files(
                 vars_block,
                 profiles_content,
-                has_prestage_models=any(p.sql for p in project_export.prestages),
+                has_prestage_models=self._has_prestages_in_layer_folder(
+                    project_export.prestages
+                ),
             )
 
             # 3. Generate sources.yml
@@ -338,9 +341,7 @@ class DbtProjectGenerator:
         )
         schema = output.schema
         if not output.directory.is_relative_to(self.folder_config.layer_dir(layer)):
-            materialization = materialization or getattr(
-                self.config, f"{layer}_materialization"
-            )
+            materialization = materialization or self._layer_materialization(layer)
             schema = schema or getattr(self.config, _LAYER_SCHEMA_FIELDS[layer])
         return {
             "model_name": output.model_name,
@@ -352,6 +353,29 @@ class DbtProjectGenerator:
             # Further config() settings from custom_config_json, in stored order.
             "model_custom_config": dict(output.custom_config),
         }
+
+    def _layer_materialization(self, layer: str) -> str:
+        """A layer's materialization, as dbt_project.yml configures it."""
+        if layer == "prestaging":
+            return self._prestaging_materialization()
+        return getattr(self.config, f"{layer}_materialization")
+
+    def _has_prestages_in_layer_folder(
+        self, prestages: list[PrestageDefinition]
+    ) -> bool:
+        """Whether a pre-stage model is written into the pre-staging folder.
+
+        dbt_project.yml only configures that folder then, so dbt finds no
+        unused path when every pre-stage was moved elsewhere.
+        """
+        layer_dir = self.folder_config.layer_dir("prestaging")
+        return any(
+            self._output("prestage", prestage.model_name).directory.is_relative_to(
+                layer_dir
+            )
+            for prestage in prestages
+            if prestage.sql
+        )
 
     def _output(self, kind: str, key: str) -> ModelOutput:
         """The resolved output of a model generate() is about to write."""
@@ -388,8 +412,9 @@ class DbtProjectGenerator:
 
     def _with_resolved_references(self, project_export: ProjectExport) -> ProjectExport:
         """A copy of the export whose references to other models use the
-        resolved model names: stages, the hub or link a PIT tracks, the hub of
-        a reference table and the snapshot control of a PIT.
+        resolved model names: pre-stages (read by stages and prejoins),
+        stages, the hub or link a PIT tracks, the hub of a reference table and
+        the snapshot control of a PIT.
 
         References to satellite v0/v1 models are passed to the templates as
         their own variables (`v0_name`, `v1_name`, `satellite_v0_names`), as
@@ -403,6 +428,22 @@ class DbtProjectGenerator:
 
         def stage(name: str) -> str:
             return outputs.name("stage", name, name)
+
+        def prestage(name: str | None) -> str | None:
+            return outputs.name("prestage", name, name) if name else None
+
+        def with_prestages(stage_def: StageDefinition) -> StageDefinition:
+            return stage_def.model_copy(
+                update={
+                    "prestage_model": prestage(stage_def.prestage_model),
+                    "prejoins": [
+                        prejoin.model_copy(
+                            update={"target_model": prestage(prejoin.target_model)}
+                        )
+                        for prejoin in stage_def.prejoins
+                    ],
+                }
+            )
 
         def with_stages(entity: Any) -> Any:
             return entity.model_copy(
@@ -424,6 +465,7 @@ class DbtProjectGenerator:
         }
         return project_export.model_copy(
             update={
+                "stages": [with_prestages(stage) for stage in project_export.stages],
                 "hubs": [with_stages(hub) for hub in project_export.hubs],
                 "links": [with_stages(link) for link in project_export.links],
                 "satellites": [
@@ -627,26 +669,16 @@ class DbtProjectGenerator:
 
         for prestage in prestages:
             try:
-                output_dir = self.output_path.joinpath(
-                    *self.folder_config.prestaging_dir(prestage.source_system).parts
-                )
+                output = self._output("prestage", prestage.model_name)
                 context = prestage.model_dump()
                 # The SQL goes in as it is: templates loaded from strings (the
                 # workspace's copies) autoescape, which would mangle its quotes.
+                # It may set its own config(), so the stored config goes into
+                # the .yml, which dbt ranks below the model's config().
                 context["prestage_sql"] = Markup(prestage.sql)
-
-                if sql_template:
-                    content = sql_template.render(**context)
-                    path = output_dir / f"{prestage.model_name}.sql"
-                    write_sql_file(path, content)
-                    self.report.add_file(path, "prestage", prestage.model_name, "sql")
-
-                if yaml_template:
-                    content = yaml_template.render(**context)
-                    path = output_dir / f"{prestage.model_name}.yml"
-                    write_yaml_file(path, content)
-                    self.report.add_file(path, "prestage", prestage.model_name, "yaml")
-
+                self._write_model(
+                    output, sql_template, yaml_template, context, "prestage"
+                )
                 self.report.prestages_generated += 1
 
             except Exception as e:

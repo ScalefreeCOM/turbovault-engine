@@ -121,9 +121,15 @@ class GenerationConfigDef(BaseModel):
         return {"dbt": {kind: attrs.as_stored() for kind, attrs in self.dbt.items()}}
 
 
-def _output_kinds_of(entity: str) -> AfterValidator:
-    """Reject output kinds the entity does not generate."""
-    allowed = OUTPUT_KINDS_BY_ENTITY[entity]
+def _output_kinds_of(
+    entity: str, kinds: tuple[str, ...] | None = None
+) -> AfterValidator:
+    """Reject output kinds the entity does not generate.
+
+    ``kinds`` narrows them for definitions that carry only some of an
+    entity's models, e.g. a source table's stage and pre-stage definitions.
+    """
+    allowed = kinds or OUTPUT_KINDS_BY_ENTITY[entity]
 
     def check(value: GenerationConfigDef) -> GenerationConfigDef:
         unknown = [kind for kind in value.dbt if kind not in allowed]
@@ -138,7 +144,13 @@ def _output_kinds_of(entity: str) -> AfterValidator:
 
 
 # `generation_config` of each entity definition.
-StageGenerationConfig = Annotated[GenerationConfigDef, _output_kinds_of("SourceTable")]
+# A source table's attributes are split between its stage and pre-stage.
+StageGenerationConfig = Annotated[
+    GenerationConfigDef, _output_kinds_of("SourceTable", ("stage",))
+]
+PrestageGenerationConfig = Annotated[
+    GenerationConfigDef, _output_kinds_of("SourceTable", ("prestage",))
+]
 HubGenerationConfig = Annotated[GenerationConfigDef, _output_kinds_of("Hub")]
 LinkGenerationConfig = Annotated[GenerationConfigDef, _output_kinds_of("Link")]
 SatelliteGenerationConfig = Annotated[
@@ -571,6 +583,10 @@ class PrestageDefinition(BaseModel):
     description: str | None = None
     columns: list[SourceColumnDef] = Field(
         default_factory=list, description="Columns the model provides"
+    )
+    generation_config: PrestageGenerationConfig = Field(
+        default_factory=GenerationConfigDef,
+        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
 

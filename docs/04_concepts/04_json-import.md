@@ -95,8 +95,10 @@ tables, and importing it leaves the project's derived columns alone.
 
 [Output attributes](01_domain-model.md#output-attributes) — the stored file
 path, model name and config of each generated model — round-trip as the
-`generation_config` (`{"dbt": {<output kind>: {...}}}`) of stages, hubs, links, satellites, PITs, reference tables
-and snapshot controls. A stage's attributes belong to its source table. Unset
+`generation_config` (`{"dbt": {<output kind>: {...}}}`) of stages, pre-stages,
+hubs, links, satellites, PITs, reference tables and snapshot controls. The
+attributes of a stage (`stage`) and of a pre-stage (`prestage`) belong to their
+source table; the import merges them back into the table's value. Unset
 attributes are left out of the export. The import validates them like any
 other input (e.g. a `file_path` outside `models/` is rejected), reports changed
 ones as `generation_config` changes, and an export from before they existed

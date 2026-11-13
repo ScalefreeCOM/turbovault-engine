@@ -68,6 +68,7 @@ class FolderConfig:
         """
         return PurePosixPath(
             {
+                "prestaging": self.prestaging_path,
                 "staging": self.staging_path,
                 "raw_vault": self.raw_vault_path,
                 "business_vault": self.business_vault_path,

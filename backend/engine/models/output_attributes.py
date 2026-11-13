@@ -37,7 +37,8 @@ GENERATION_CONFIG_FRAMEWORKS: tuple[str, ...] = ("dbt",)
 
 # Output kinds each entity generates, by the entity's model name.
 OUTPUT_KINDS_BY_ENTITY: dict[str, tuple[str, ...]] = {
-    "SourceTable": ("stage",),
+    # A pre-stage table generates its pre-stage model and (usually) a stage.
+    "SourceTable": ("stage", "prestage"),
     "Hub": ("hub", "record_tracking_satellite", "effectivity_satellite"),
     "Link": ("link", "record_tracking_satellite"),
     "Satellite": ("satellite_v0", "satellite_v1"),

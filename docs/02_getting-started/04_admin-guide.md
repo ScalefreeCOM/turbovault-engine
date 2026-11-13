@@ -188,6 +188,8 @@ Every dbt model template (SQL and YAML) receives:
 | `model_tags` | Stored tags, replacing the default ones in `config()` and the YAML, or `none`. |
 | `model_custom_config` | Further `config()` settings from the stored `custom_config_json`, as a mapping of key to value (empty when none). Write each as `[[ key ]]=[[ value \| config_literal ]],`; the `config_literal` filter turns a value into a literal dbt reads back unchanged. The bundled `pit` template leaves out its `clean_up_pit` post-hook when this holds a `post_hook`. |
 
+The `prestage` YAML template writes the same variables into its `config:` block (custom values with the `yaml_json` filter), since a pre-stage's SQL is written as it is.
+
 References to other models, by template:
 
 | Template | Variable | Refers to |

@@ -27,6 +27,11 @@ logger = logging.getLogger(__name__)
 # earlier bundled version, with CRLF normalised to LF. Generated from git
 # history; the SQLMesh templates have not changed since they were added.
 SUPERSEDED_BUNDLED_HASHES: dict[tuple[str, str, str], frozenset[str]] = {
+    ("dbt", "prestage", "yaml"): frozenset(
+        {
+            "91c7d70bc20b27a860c989e2c8f72052d64ff95fc610db9c76ba35356128e04c",
+        }
+    ),
     ("dbt", "hub_reference", "sql"): frozenset(
         {
             "098772f5528f9be94fcb389edb922f69be97d39c8f83a1fce5a72cb6c2a9bae0",
