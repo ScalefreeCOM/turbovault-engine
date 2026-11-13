@@ -4,8 +4,23 @@
 [% if materialization %]
     materialized='[[ materialization ]]',
 [% endif %]
-    tags=['pit', 'business_vault'],
+[% if model_alias %]
+    alias='[[ model_alias ]]',
+[% endif %]
+[% if model_schema %]
+    schema='[[ model_schema ]]',
+[% endif %]
+[% if model_database %]
+    database='[[ model_database ]]',
+[% endif %]
+[% for key, value in (model_custom_config | default({})).items() %]
+    [[ key ]]=[[ value | config_literal ]],
+[% endfor %]
+    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['pit', 'business_vault'][% endif %],
+[# A post_hook in custom_config_json replaces the default clean-up hook #]
+[% if 'post_hook' not in model_custom_config | default({}) %]
     post_hook="{{ datavault4dbt.clean_up_pit('[[ snapshot_control_name ]]') }}"
+[% endif %]
 ) }}
 
 {%- set yaml_metadata -%}
@@ -15,8 +30,9 @@ pit_type: '[[ pit_type ]]'
 tracked_entity: [[ tracked_entity_name ]]
 hashkey: [[ tracked_hashkey ]]
 sat_names:
-[% for sat in satellites %]
-    - [[ sat ]]_v0
+[# satellite_v0_names: the v0 model of each satellite in `satellites` #]
+[% for sat in satellite_v0_names %]
+    - [[ sat ]]
 [% endfor %]
 snapshot_relation: [[ snapshot_control_name ]]
 snapshot_trigger_column: [[ snapshot_logic_column ]]

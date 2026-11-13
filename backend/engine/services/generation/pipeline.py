@@ -44,6 +44,9 @@ _PROJECT_INPUT_ERROR_CODES = frozenset(
         Code.RENDER_INVALID_PROFILES,
         Code.RENDER_LITERAL_SECRET_IN_PROFILE,
         Code.RENDER_INVALID_MATERIALIZATION,
+        # Two models resolved to the same name or file: writing either would
+        # silently drop the other, so nothing is written.
+        Code.WRITE_PATH_COLLISION,
     }
 )
 
@@ -160,6 +163,7 @@ def run_pipeline(
             output_type=output_type,
             runtime_config=runtime_config,
             options=options,
+            reference_export=project_export,
         )
         artifacts = rendered
         issues.extend(render_issues)

@@ -569,6 +569,65 @@ class _Executor:
         # If we have any PITs in the domain and snap is not skipped, ensure one exists.
         if not self.skip_snapshots and self.domain.pits:
             self._ensure_default_snapshot_control()
+        if not self.skip_snapshots:
+            self._apply_snapshot_control_attributes()
+
+    def _apply_snapshot_control_attributes(self) -> None:
+        """Store the output attributes the source gives its snapshot controls.
+
+        Snapshot controls have no plan op of their own (the import creates
+        them on demand for PITs), so the attributes go to the project's
+        control table with the same base name, when there is one. Having no
+        plan entry, a change is reported as an info issue, and attributes
+        without a matching table as a warning rather than dropped silently.
+        """
+        tables = list(SnapshotControlTable.objects.filter(project=self.project))
+        for control_d in self.domain.snapshot_controls.values():
+            if control_d.generation_config is None:
+                continue
+            base_name = _snapshot_base_name(control_d.name)
+            matching = [t for t in tables if _snapshot_base_name(t.name) == base_name]
+            if not matching:
+                if control_d.generation_config:
+                    self.issues.append(
+                        make_issue(
+                            severity="warning",
+                            code=Code.EXECUTE_SNAPSHOT_CONTROL_NOT_FOUND,
+                            stage="execute",
+                            entity=EntityRef(
+                                type="snapshot_control", name=control_d.name
+                            ),
+                            message=(
+                                f"Output attributes of snapshot control "
+                                f"'{control_d.name}' were not stored: the project "
+                                "has no snapshot control with that name."
+                            ),
+                            suggestion=(
+                                "Import a PIT that uses it, or rename the "
+                                "project's snapshot control to match."
+                            ),
+                        )
+                    )
+                continue
+            for table in matching:
+                if table.generation_config == control_d.generation_config:
+                    continue
+                before = table.generation_config
+                table.generation_config = control_d.generation_config
+                table.save(update_fields=["generation_config", "updated_at"])
+                self.issues.append(
+                    make_issue(
+                        severity="info",
+                        code=Code.EXECUTE_SNAPSHOT_CONTROL_ATTRIBUTES_UPDATED,
+                        stage="execute",
+                        entity=EntityRef(type="snapshot_control", name=table.name),
+                        message=(
+                            f"Output attributes of snapshot control "
+                            f"'{table.name}' changed from {before or {}} to "
+                            f"{control_d.generation_config or {}}."
+                        ),
+                    )
+                )
 
     def _run_op(self, index: int, op: Any, apply: Callable[[Any], None]) -> None:
         """Apply one op in its own savepoint, recording what it did.
@@ -689,6 +748,7 @@ class _Executor:
             static_part_of_record_source=table_d.static_part_of_record_source,
             description=table_d.description,
             table_type=table_d.table_type,
+            generation_config=table_d.generation_config,
         )
         if table_d.prestage_sql is not None:
             # "" is the source saying the table has no SQL: clear it.
@@ -1029,7 +1089,9 @@ class _Executor:
                 "create_record_tracking_satellite": d.create_record_tracking_satellite,
                 "create_effectivity_satellite": d.create_effectivity_satellite,
                 "group": group,
-                **_only_supplied(description=d.description),
+                **_only_supplied(
+                    description=d.description, generation_config=d.generation_config
+                ),
             },
             existing=self._hubs_by_name.get(d.physical_name, LOOKUP),
         )
@@ -1207,7 +1269,9 @@ class _Executor:
                 ),
                 "create_record_tracking_satellite": d.create_record_tracking_satellite,
                 "group": group,
-                **_only_supplied(description=d.description),
+                **_only_supplied(
+                    description=d.description, generation_config=d.generation_config
+                ),
             },
             existing=self._links_by_name.get(d.physical_name, LOOKUP),
         )
@@ -1482,7 +1546,9 @@ class _Executor:
                 "parent_link": parent_link,
                 "source_table": source_table,
                 "group": group,
-                **_only_supplied(description=d.description),
+                **_only_supplied(
+                    description=d.description, generation_config=d.generation_config
+                ),
             },
             existing=self._satellites_by_name.get(d.physical_name, LOOKUP),
         )
@@ -1557,7 +1623,9 @@ class _Executor:
                 "reference_hub": hub,
                 "historization_type": d.historization_type,
                 "group": group,
-                **_only_supplied(description=d.description),
+                **_only_supplied(
+                    description=d.description, generation_config=d.generation_config
+                ),
             },
         )
 
@@ -1691,6 +1759,7 @@ class _Executor:
                 "pit_type": d.pit_type,
                 "custom_record_source": d.custom_record_source,
                 "group": group,
+                **_only_supplied(generation_config=d.generation_config),
             },
         )
 

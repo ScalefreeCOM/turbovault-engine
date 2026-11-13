@@ -26,6 +26,8 @@ from engine.services.generation.python_literals import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from jinja2 import BaseLoader
 
     from engine.models.templates import ModelTemplate
@@ -181,6 +183,45 @@ def yaml_single_quote(value: object) -> Markup:
     return Markup("'" + text.replace("'", "''") + "'")
 
 
+def quoted_list(values: Iterable[object] | None) -> Markup:
+    """``values`` as a list of single-quoted strings, e.g. ``['a', 'b']``.
+
+    Valid in a dbt ``config()`` call and as a YAML flow sequence. Used for
+    stored model tags, which are validated to hold no quotes, backslashes or
+    whitespace; escaping is kept anyway so a value can never end the string.
+    """
+    quoted = (
+        "'" + str(item).replace("\\", "\\\\").replace("'", "\\'") + "'"
+        for item in values or ()
+    )
+    return Markup("[" + ", ".join(quoted) + "]")
+
+
+def yaml_json(value: object) -> Markup:
+    """A JSON value as a YAML flow value, e.g. ``{"relation": true}``.
+
+    Used for ``custom_config_json`` values in a model's ``.yml`` config. JSON
+    is valid YAML flow syntax; the line breaks YAML knows but JSON leaves
+    unescaped are escaped as in ``yaml_quote``.
+    """
+    dumped = json.dumps(value, ensure_ascii=False)
+    for char, escaped in _YAML_LINE_BREAKS.items():
+        dumped = dumped.replace(char, escaped)
+    return Markup(dumped)
+
+
+def config_literal(value: object) -> Markup:
+    """A JSON value as a literal in a dbt ``config()`` call.
+
+    Used for ``custom_config_json`` values. dbt's Jinja reads Python literal
+    syntax: quoted strings with backslash escapes, numbers, ``True`` /
+    ``False`` / ``None``, lists and dicts, so ``repr`` of a JSON value is a
+    valid literal that parses back to the same value. Marked safe so HTML
+    autoescaping (on for templates loaded from strings) leaves it alone.
+    """
+    return Markup(repr(value))
+
+
 def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     """Build the Jinja2 environment shared by template rendering and validation.
 
@@ -190,7 +231,9 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     - [# #] for comments (instead of {# #})
 
     Adds the ``yaml_quote``, ``yaml_scalar`` and ``yaml_single_quote`` filters
-    for writing user text into YAML, and the ``py``, ``py_dict``,
+    for writing user text into YAML, ``quoted_list`` for tag lists,
+    ``config_literal`` / ``yaml_json`` for custom config values in SQL / YAML,
+    and the ``py``, ``py_dict``,
     ``py_hashed_columns`` and ``py_source_models`` filters for writing Python
     literals into SQLMesh model files.
     """
@@ -210,6 +253,9 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     environment.filters["yaml_quote"] = yaml_quote
     environment.filters["yaml_scalar"] = yaml_scalar
     environment.filters["yaml_single_quote"] = yaml_single_quote
+    environment.filters["quoted_list"] = quoted_list
+    environment.filters["config_literal"] = config_literal
+    environment.filters["yaml_json"] = yaml_json
     environment.filters["py"] = py_literal
     environment.filters["py_dict"] = py_dict_filter
     environment.filters["py_hashed_columns"] = py_hashed_columns_filter

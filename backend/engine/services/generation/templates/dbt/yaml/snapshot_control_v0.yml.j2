@@ -6,7 +6,7 @@ models:
   - name: [[ v0_name ]]
     description: "Snapshot control table (base configuration)"
     config:
-      tags: ['snapshot_control', 'control']
+      tags: [% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['snapshot_control', 'control'][% endif +%]
     columns:
       - name: sdts
         description: "Snapshot date timestamp"

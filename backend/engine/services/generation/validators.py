@@ -122,7 +122,10 @@ _PLAIN_COLUMN = re.compile(r'[A-Za-z_][A-Za-z0-9_$]*|"[^"]+"')
 
 
 def validate_export(
-    project_export: ProjectExport, *, keeps_load_columns: bool = False
+    project_export: ProjectExport,
+    *,
+    keeps_load_columns: bool = False,
+    use_original_paths: bool = True,
 ) -> ValidationResult:
     """
     Validate a project export before generation.
@@ -132,6 +135,8 @@ def validate_export(
         keeps_load_columns: Whether the stages keep the columns their record
             source and load date are read from (datavault4dbt's
             ``copy_rsrc_ldts_input_columns``); by default they drop them.
+        use_original_paths: Whether generation applies the models' stored
+            output attributes (``generation_config``).
 
     Returns:
         ValidationResult with any errors and warnings found.
@@ -146,7 +151,7 @@ def validate_export(
         result.merge(_validate_source(source))
 
     # Validate pre-stages
-    result.merge(_validate_prestages(project_export))
+    result.merge(_validate_prestages(project_export, use_original_paths))
 
     # Validate stages
     for stage in project_export.stages:
@@ -200,11 +205,14 @@ def _validate_source(source: SourceDefinition) -> ValidationResult:
     return result
 
 
-def _validate_prestages(project_export: ProjectExport) -> ValidationResult:
+def _validate_prestages(
+    project_export: ProjectExport, use_original_paths: bool = True
+) -> ValidationResult:
     """Check a pre-stage's SQL for what fails in dbt before it runs.
 
     - Its stage reads the pre-stage's columns from the database, so the model
-      can't be ephemeral (error).
+      can't be ephemeral (error): neither by its SQL's own config() nor, when
+      the SQL sets none, by its stored ``materialized`` output attribute.
     - A source it reads must be one the project defines; dbt doesn't compile
       the model otherwise (warning). Not checked when the project doesn't
       generate its sources (``export_sources`` off): they're defined elsewhere.
@@ -229,7 +237,12 @@ def _validate_prestages(project_export: ProjectExport) -> ValidationResult:
         if not prestage.sql:
             continue
 
-        if configured_materialization(prestage.sql) == "ephemeral":
+        materialization = configured_materialization(prestage.sql)
+        if materialization is None and use_original_paths:
+            # The SQL's config() ranks above the .yml the stored value goes to.
+            stored = prestage.generation_config.dbt.get("prestage")
+            materialization = stored.materialized if stored else None
+        if materialization == "ephemeral":
             result.add_error(
                 entity_type="prestage",
                 entity_name=prestage.model_name,

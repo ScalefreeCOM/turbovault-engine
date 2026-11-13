@@ -25,6 +25,11 @@ turbovault generate --project "My Project" --zip
 | `--zip` | `-z` | Create ZIP archive after generation | `false` |
 | `--skip-validation` | | Skip pre-generation validation | `false` |
 | `--no-v1-satellites` | | Skip generating satellite _v1 views | `false` |
+| `--standard-paths` | | Ignore stored output attributes; use the standard structure below | `false` |
+
+Models with stored output attributes (e.g. imported from an existing dbt
+project) keep their own file path, model name and `config()` instead of the
+structure below; see "Output attributes" in `docs/04_concepts/01_domain-model.md`.
 
 ## Generated Project Structure
 
@@ -99,6 +104,11 @@ The generator creates two models for each satellite:
 1. **v0 model** (`sat_*_v0.sql`): Core incremental satellite using `datavault4dbt.sat_v0()`
 2. **v1 model** (`sat_*_v1.sql`): View with load_end_date using `datavault4dbt.sat_v1()`
 
+The `_v0` / `_v1` suffixes are the defaults of the `satellite_v0_naming` and
+`satellite_v1_naming` patterns. With other patterns, file names and every
+reference (`sat_v0` of the v1 view, `sat_names` of PITs, `ref_satellites` of
+reference tables) follow them.
+
 To skip v1 generation:
 
 ```bash
@@ -114,6 +124,11 @@ Templates can be customized via Django Admin:
 3. Create custom templates for specific entity types
 
 The generator checks database templates first, then falls back to file-based defaults.
+
+Custom templates must take model names, references and per-model config from
+the template variables (`model_name`, `model_alias`, `v0_name`,
+`satellite_v0_names`, ...) instead of building names themselves; see "Model
+names, references and config (dbt)" in `docs/02_getting-started/04_admin-guide.md`.
 
 ## Using the Generated Project
 

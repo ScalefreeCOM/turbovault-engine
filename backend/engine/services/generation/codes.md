@@ -65,7 +65,8 @@ deep-link errors; the CLI groups them in summary tables.
 | Code | Cause | Suggestion |
 |------|-------|------------|
 | `write.io_error` | A file could not be written (permission, disk full). | Resolve the filesystem issue and re-run. |
-| `write.path_collision` | Two artifacts tried to write to the same path. | Rename one of the colliding entities or report a bug. |
+| `write.path_collision` | Two models resolve to the same model name or file path — from their stored output attributes (`model_name`, `file_path`) or the naming patterns. Checked before rendering (stage `render`); nothing is written. Names and paths compare case-insensitively. | Change the `model_name` / `file_path` output attribute or the naming pattern of one of the listed models, or generate with `--standard-paths`. |
+| `write.path_outside_output` | A file would land outside the output folder. Stored file paths are validated on input, so this is a safeguard. Only that file is skipped. | Fix the entity's name or `file_path` output attribute. |
 | `write.zip_failed` | The optional ZIP archive could not be created. | Re-run without `--zip`; the dbt tree on disk is still valid. |
 
 ## Internal

@@ -93,6 +93,17 @@ only its own is imported, so an inherited description stays inherited. An
 export from before derived columns existed has no `derived_columns` on its
 tables, and importing it leaves the project's derived columns alone.
 
+[Output attributes](01_domain-model.md#output-attributes) — the stored file
+path, model name and config of each generated model — round-trip as the
+`generation_config` (`{"dbt": {<output kind>: {...}}}`) of stages, pre-stages,
+hubs, links, satellites, PITs, reference tables and snapshot controls. The
+attributes of a stage (`stage`) and of a pre-stage (`prestage`) belong to their
+source table; the import merges them back into the table's value. Unset
+attributes are left out of the export. The import validates them like any
+other input (e.g. a `file_path` outside `models/` is rejected), reports changed
+ones as `generation_config` changes, and an export from before they existed
+leaves the project's attributes alone.
+
 Pre-stages round-trip as source tables with `table_type: "prestage"` and their
 SQL in `prestage_sql`. A `prestage_sql` of `null` clears a pre-stage's SQL (it
 is then maintained outside TurboVault). An export from before pre-stages existed
