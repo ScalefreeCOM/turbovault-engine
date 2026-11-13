@@ -83,6 +83,27 @@ class SourceSystem(models.Model):
         help_text="Load date of this system's tables that set none",
     )
 
+    # Stage options of this system's tables that set none. Empty: the project's.
+    include_source_columns = models.BooleanField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text=(
+            "Whether the stages of this system's tables pass all source columns "
+            "on. Empty: the project's setting"
+        ),
+    )
+
+    enable_ghost_records = models.BooleanField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text=(
+            "Whether the stages of this system's tables add ghost records. "
+            "Empty: the project's setting"
+        ),
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the source system was created"
     )
@@ -190,6 +211,34 @@ class SourceTable(models.Model):
         help_text="Load date: a column or SQL. Empty inherits",
     )
 
+    # Stage options. Empty inherits: from the source system, then the project.
+    include_source_columns = models.BooleanField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text=(
+            "Whether the stage passes all source columns on (datavault4dbt's "
+            "include_source_columns). Empty inherits"
+        ),
+    )
+
+    enable_ghost_records = models.BooleanField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text="Whether the stage adds ghost records. Empty inherits",
+    )
+
+    sequence_column = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=(
+            "Column holding a sequence number from the extraction "
+            "(datavault4dbt's sequence)"
+        ),
+    )
+
     description = models.TextField(
         blank=True,
         null=True,
@@ -251,6 +300,15 @@ class SourceColumn(models.Model):
         blank=True,
         null=True,
         help_text="Optional description of the column. Raw Vault columns loaded from it inherit it unless they set their own",
+    )
+
+    is_missing = models.BooleanField(
+        default=False,
+        help_text=(
+            "The column no longer exists in the source: the stage adds it with "
+            "NULL values of its data type (datavault4dbt's missing_columns), so "
+            "mappings, hash diffs and payloads keep working"
+        ),
     )
 
     created_at = models.DateTimeField(

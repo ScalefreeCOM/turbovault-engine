@@ -12,6 +12,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+# Satellite types with a v1 view (load end date) on top of their v0 table.
+V1_SATELLITE_TYPES = frozenset({"standard", "effectivity", "multi_active", "reference"})
+
+
 # =============================================================================
 # Generated dbt models
 # =============================================================================
@@ -67,6 +71,13 @@ class SourceColumnDef(BaseModel):
     column_name: str
     datatype: str
     description: str | None = None
+    is_missing: bool = Field(
+        default=False,
+        description=(
+            "The source no longer has the column: the stage adds it with NULL "
+            "values (missing_columns), and the dbt source leaves it out"
+        ),
+    )
 
 
 class SourceDerivedColumnDef(BaseModel):
@@ -105,6 +116,10 @@ class SourceTableDef(BaseModel):
     record_source: str | None = None
     static_part_of_record_source: str | None = None
     load_date: str | None = None
+    # Stage options as the table sets them; None inherits.
+    include_source_columns: bool | None = None
+    enable_ghost_records: bool | None = None
+    sequence_column: str | None = None
     description: str | None = None
     columns: list[SourceColumnDef] = Field(default_factory=list)
     derived_columns: list[SourceDerivedColumnDef] = Field(
@@ -124,6 +139,8 @@ class SourceSystemDef(BaseModel):
     record_source: str | None = None
     static_part_of_record_source: str | None = None
     load_date: str | None = None
+    include_source_columns: bool | None = None
+    enable_ghost_records: bool | None = None
     tables: list[SourceTableDef] = Field(default_factory=list)
 
 
@@ -576,6 +593,21 @@ class StageDefinition(BaseModel):
         default=None, description="Description of the source table"
     )
 
+    # Stage options, resolved over table, source system and project
+    include_source_columns: bool = Field(
+        default=True, description="Whether the stage passes all source columns on"
+    )
+    enable_ghost_records: bool = Field(
+        default=True, description="Whether the stage adds ghost records"
+    )
+    sequence_column: str | None = Field(
+        default=None, description="Column holding the extraction's sequence number"
+    )
+    missing_columns: list[SourceColumnDef] = Field(
+        default_factory=list,
+        description="Columns the source no longer has: added with NULL values",
+    )
+
     # Hashkey calculations for hubs
     hashkeys: list[StageHashkeyDef] = Field(
         default_factory=list, description="All hashkeys to compute in this stage"
@@ -670,7 +702,16 @@ class SatelliteDefinition(BaseModel):
     source_table: str = Field(description="Source table name that feeds this satellite")
     source_system: str = Field(description="Source system name")
     stage_name: str = Field(description="Stage model name that feeds this satellite")
-    hashdiff_name: str = Field(description="Hashdiff column name for this satellite")
+    hashdiff_name: str = Field(
+        description="The stage's hash diff column for this satellite"
+    )
+    hashdiff_alias: str | None = Field(
+        None,
+        description=(
+            "The hash diff column's name inside the satellite, when it differs "
+            "from the stage's"
+        ),
+    )
     columns: list[SatelliteColumnDef] = Field(
         default_factory=list, description="Satellite columns"
     )
@@ -685,6 +726,34 @@ class SatelliteDefinition(BaseModel):
             "when v1 views are on)"
         ),
     )
+    create_v1_view: bool | None = Field(
+        None, description="Whether it gets a v1 view; None: the project's setting"
+    )
+    v1_ledts_alias: str | None = Field(
+        None, description="Load end date column of the v1 view (None: the variable)"
+    )
+    v1_add_is_current_flag: bool = Field(
+        True, description="Whether the v1 view adds an is_current flag"
+    )
+    v1_include_payload: bool = Field(
+        True, description="Whether the v1 view includes the payload"
+    )
+
+    @property
+    def hashdiff_column(self) -> str:
+        """The hash diff column inside the satellite: its alias, else its name."""
+        return self.hashdiff_alias or self.hashdiff_name
+
+    def gets_v1_view(self, project_default: bool) -> bool:
+        """Whether the satellite gets a v1 view: its own setting, else the project's.
+
+        Only the types with a load end date view have one.
+        """
+        if self.satellite_type not in V1_SATELLITE_TYPES:
+            return False
+        if self.create_v1_view is not None:
+            return self.create_v1_view
+        return project_default
 
 
 # =============================================================================

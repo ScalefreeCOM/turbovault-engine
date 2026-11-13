@@ -190,12 +190,11 @@ def _count_dbt(
     if project_export.satellites:
         # _v0 (sql + yml) plus optional _v1 view (sql + yml).
         sat_files = len(project_export.satellites) * 2
-        if options.generate_satellite_v1_views:
-            sat_files += sum(
-                2
-                for s in project_export.satellites
-                if s.satellite_type in ("standard", "multi_active")
-            )
+        sat_files += sum(
+            2
+            for s in project_export.satellites
+            if s.gets_v1_view(options.generate_satellite_v1_views)
+        )
         counts["satellite"] = sat_files
 
     # Record-tracking satellites: one sql + one yml per flagged hub/link.

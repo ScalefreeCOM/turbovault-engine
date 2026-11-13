@@ -87,6 +87,8 @@ Describes a physical source system (database/schema) and a human-readable name.
 | record_source_value | string  |          | Record source of the system's tables that set none. |
 | static_part_of_record_source | string |   | Static part of the record source of the system's tables that set none. |
 | load_date_value  | string     |          | Load date of the system's tables that set none. |
+| include_source_columns | boolean |       | Stage option of the system's tables that set none (see [Stage options](#stage-options)). Empty: the project's. |
+| enable_ghost_records | boolean |         | Stage option of the system's tables that set none. Empty: the project's. |
 | created_at       | datetime   | ✓       | Timestamp when the record was created.        |
 | updated_at       | datetime   | ✓       | Timestamp when the record was last updated.   |
 
@@ -113,6 +115,9 @@ prepares data for its stage (see [Pre-stages](#35-pre-stages)).
 | record_source_value          | string     |          | The stage's `rsrc`: a column name, SQL, or fixed text after a `!` (e.g. `!CRM`). Empty inherits (see below). |
 | static_part_of_record_source | string     |          | The part of the record source that stays the same across loads, as an SQL `LIKE` pattern (e.g. `SAP/Accounts/%`). Written as the `rsrc_static` of the hubs and links the table loads. Empty inherits. |
 | load_date_value              | string     |          | The stage's `ldts`: a column name or SQL expression (e.g. `sysdate()`). Empty inherits (see below). |
+| include_source_columns       | boolean    |          | Whether the stage passes all source columns on (datavault4dbt `include_source_columns`). Empty inherits (see [Stage options](#stage-options)). |
+| enable_ghost_records         | boolean    |          | Whether the stage adds ghost records. Empty inherits. |
+| sequence_column              | string     |          | Column holding a sequence number from the extraction (datavault4dbt `sequence`). |
 | description                  | string     |          | Optional description; written to `sources.yml` and the stage's model YAML. |
 | created_at                   | datetime   | ✓       | Timestamp when the record was created.                              |
 | updated_at                   | datetime   | ✓       | Timestamp when the record was last updated.                         |
@@ -136,6 +141,16 @@ table: `![[ source_system ]].[[ source_table ]]` gives `!CRM.CUSTOMER`.
 datavault4dbt reads a record source or load date that starts with `!` as fixed
 text, one that contains `(` and `)`, `::` or `||` (or is wrapped in `'…'`) as
 SQL, and anything else as a column name.
+
+**Stage options**
+
+`include_source_columns` and `enable_ghost_records` inherit like the values
+above: table, then source system, then the project (`include_source_columns`
+and `enable_ghost_records` in `config.yml`, both `true` by default). The stage
+writes an option only where it differs from datavault4dbt's default (`true`),
+so projects that set nothing generate as before. `sequence_column` is per table
+only.
+
 - `source_table` **has many** `source_column`.
 - `prejoin_definition` references `source_table` as source and target.
 
@@ -152,6 +167,7 @@ Represents a single column in a source table.
 | source_column_physical_name | string     | ✓       | Physical column name in the source table.    |
 | source_column_datatype      | string     | ✓       | Logical or physical data type of the column. |
 | description                 | string     |          | Optional description. Raw Vault columns loaded from this column inherit it unless they set their own (see [Descriptions](#descriptions)). |
+| is_missing                  | boolean    | ✓        | The source no longer has the column (default `false`). The stage adds it with NULL values of its data type (datavault4dbt `missing_columns`), so mappings, hash diffs and payloads keep working; `sources.yml` leaves it out. |
 | created_at                  | datetime   | ✓       | Timestamp when the record was created.       |
 | updated_at                  | datetime   | ✓       | Timestamp when the record was last updated.  |
 
@@ -180,7 +196,7 @@ keys, link keys and payload, satellite payload.
 | derived_column_id | identifier | PK       | Unique identifier of the derived column. |
 | project_id        | identifier | ✓ (FK)   | FK to `Project`. |
 | source_table_id   | identifier | ✓ (FK)   | FK to the `source_table` whose stage computes it. |
-| column_name       | string     | ✓        | Name of the column in the stage. Unique per table, and must not match a source column or a prejoined column of the table. |
+| column_name       | string     | ✓        | Name of the column in the stage. Unique per table; must not match a prejoined column of the table. It may match a source column of the table: it then shadows it (below). |
 | expression        | string     | ✓        | SQL in the target platform's dialect. It may read the table's columns and its prejoined columns, and may use dbt Jinja (`{{ var('x') }}`). |
 | datatype          | string     |          | Data type of the value. datavault4dbt needs it to build ghost records for an expression; generation warns (`validate.stage.derived_column_no_datatype`) without one. |
 | description       | string     |          | Optional description, inherited by Raw Vault columns loaded from it. |
@@ -193,6 +209,13 @@ computes all derived columns in one `SELECT`, so one can't read another: a
 transformation or a renamed satellite column over a derived column inlines its
 expression instead. `src_cols_required` lists the table's columns the
 expression reads.
+
+**Shadowing a source column.** A derived column named like a source column of
+its table (e.g. `C_NAME` with `TRIM(C_NAME)`) shadows it: datavault4dbt's stage
+replaces the source column with the derived value. Everything that maps the
+source column then reads the derived value, and a hub or link transformation
+of it builds on that value (`UPPER((TRIM(C_NAME)))`). The source column stays
+in the metadata: the expression reads it.
 
 **Relationships**
 
@@ -534,10 +557,21 @@ Represents a Data Vault satellite attached to either a hub or a link.
 | parent_entity_id        | identifier | ✓       | Identifier of the parent entity (hub or link).                                                                                                                        |
 | satellite_type          | string     | ✓       | `standard` (default for standard hub & link), `reference` (default for reference hub), `non-historized` (default for non-historized link), or `multi-active`. |
 | description             | string     |          | Optional description, written to the satellite's model YAML. |
+| hashdiff_name           | string     |          | The stage's hash diff column for this satellite. Empty: the project's `hashdiff_naming` pattern. Not for non-historized satellites. |
+| hashdiff_alias          | string     |          | The hash diff column's name inside the satellite when it differs from the stage's, e.g. one uniform `hashdiff` in every satellite (datavault4dbt `src_hashdiff: {source_column, alias}`). The v1 view reads the alias. |
+| create_v1_view          | boolean    |          | Whether the satellite gets a v1 view (load end dates). Empty: the project's `generate_satellite_v1_views`. Standard, multi-active and reference satellites only. |
+| v1_ledts_alias          | string     |          | The v1 view's load end date column (`ledts_alias`). Empty: datavault4dbt's variable. |
+| v1_add_is_current_flag  | boolean    | ✓        | Whether the v1 view adds an `is_current` flag (default `true`, as always generated). |
+| v1_include_payload      | boolean    | ✓        | Whether the v1 view of a standard satellite includes the payload (default `true`). |
 | created_at              | datetime   | ✓       | Timestamp when the record was created.                                                                                                                                |
 | updated_at              | datetime   | ✓       | Timestamp when the record was last updated.                                                                                                                           |
 
 > In implementation, `parent_entity_id` will likely be paired with a `parent_entity_type` field (e.g. `hub` / `link`) or modeled via two separate FKs to `hub` and `link` with constraints.
+
+Two satellites of one stage may name the same hash diff only if they hash the
+same columns (`validate.stage.duplicate_hashdiff`). A reference table reads its
+satellites' v1 views; generation warns when one has none
+(`validate.reference_table.satellite_without_v1`).
 
 **Relationships**
 

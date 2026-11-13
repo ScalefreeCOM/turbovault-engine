@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from engine.services.export.models import ModelOutputDef
+from engine.services.export.models import (  # noqa: F401 (re-exported)
+    V1_SATELLITE_TYPES,
+    ModelOutputDef,
+)
 
 if TYPE_CHECKING:
     from engine.models import (
@@ -29,9 +32,6 @@ if TYPE_CHECKING:
 
 # DV type suffixes stripped when deriving a satellite base name (longest first).
 _DV_TYPE_SUFFIXES = ("_rh", "_nl", "_h", "_l")
-
-# Satellite types with a v1 view (load end date) on top of their v0 table.
-V1_SATELLITE_TYPES = frozenset({"standard", "effectivity", "multi_active", "reference"})
 
 
 def dbt_source_name(source_system_name: str) -> str:

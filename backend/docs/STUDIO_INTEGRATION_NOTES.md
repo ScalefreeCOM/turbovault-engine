@@ -16,10 +16,10 @@ section is completed when the Engine change lands).
 | 3 | [Outdated stage template warning](#3-outdated-stage-template-warning) | Merged (Engine PR #232, unreleased) | Show the warning; keep Studio-stored stage templates current |
 | 4 | [dbt project import](#4-dbt-project-import) | Planned | Upload artifacts, options, review the report |
 | 5 | [Model names, paths and configs](#5-model-names-paths-and-configs) | In progress | Edit a generated model's name, folder, schema, materialization, tags, config; stage/pre-stage naming patterns |
-| 6 | [Hash diff name and alias](#6-hash-diff-name-and-alias) | Planned | Two Satellite fields |
-| 7 | [Stage options and missing columns](#7-stage-options-and-missing-columns) | Planned | Project defaults and source table overrides; flag a column as missing |
-| 8 | [Derived columns that shadow a source column](#8-derived-columns-that-shadow-a-source-column) | Planned | Allow a derived column with a source column's name |
-| 9 | [Satellite v1 options](#9-satellite-v1-options) | Planned | Satellite fields for its v1 view |
+| 6 | [Hash diff name and alias](#6-hash-diff-name-and-alias) | In progress | Two Satellite fields |
+| 7 | [Stage options and missing columns](#7-stage-options-and-missing-columns) | In progress | Project defaults, source system and table overrides; flag a column as missing |
+| 8 | [Derived columns that shadow a source column](#8-derived-columns-that-shadow-a-source-column) | In progress | Allow a derived column with a source column's name |
+| 9 | [Satellite v1 options](#9-satellite-v1-options) | In progress | Satellite fields for its v1 view |
 | 10 | [Smaller additions](#10-smaller-additions) | Planned | A few fields on Hubs, PITs and snapshot controls |
 | 11 | [Custom models](#11-custom-models) | Planned | List, view and edit custom models |
 | 12 | [Layer folders renumbered](#12-layer-folders-renumbered) | In progress | Use the new folder names wherever Studio shows or builds model paths |
@@ -353,54 +353,82 @@ Helpers: `engine.models.model_output.model_name_error(name)`, `folder_error(fold
 
 ## 6. Hash diff name and alias
 
-**Status:** Planned (spec §9.2).
+**Status:** In progress (dbt import branch), migration `0022_satellite_and_stage_options`. Engine docs:
+domain model §7.1.
 
-- **Satellite hash diff name:** the stage's hash diff column. Default: the project's `hashdiff_naming`
-  pattern; editable per Satellite.
-- **Satellite hash diff alias:** the column's name inside the Satellite when it differs, e.g. a uniform
-  `hashdiff` column in every Satellite (datavault4dbt `src_hashdiff: {source_column, alias}`).
-- **Studio:** two optional fields on the Satellite form; show the derived default as placeholder.
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `Satellite.hashdiff_name` | text, nullable | empty | The stage's hash diff column. Empty: the project's `hashdiff_naming` pattern (placeholder: the derived name, e.g. `hd_CUSTOMER_S`). |
+| `Satellite.hashdiff_alias` | text, nullable | empty | The column's name inside the Satellite when it differs, e.g. a uniform `hashdiff` in every Satellite. |
+
+- Generation: the stage's `hashed_columns` uses the name; the v0 model writes
+  `src_hashdiff: {source_column: <name>, alias: <alias>}` when an alias is set; the v1 view reads the alias.
+- `Satellite.clean()`: a non-historized Satellite can't have either ("A non-historized satellite has no hash
+  diff: clear the hash diff name and alias.").
+- New issue `validate.stage.duplicate_hashdiff` (error): two Satellites of one stage share a hash diff name
+  but hash different columns. Show on the hash diff name.
+- **Studio:** two optional fields on the Satellite form (hidden for non-historized Satellites).
 
 ---
 
 ## 7. Stage options and missing columns
 
-**Status:** Planned (spec §9.3).
+**Status:** In progress (dbt import branch), migration `0022_satellite_and_stage_options`. Engine docs:
+domain model §3.1–3.3, project schema.
 
-- **Project defaults, overridable per source table:**
-  - `include_source_columns` (default true)
-  - `enable_ghost_records` (default true)
-  - `sequence` (a column name, default none)
-- **Missing columns:** columns that disappeared from the source but must stay in the stage as NULL (so
-  Satellites and hash diffs keep working). Proposed as a flag on the source column (name + data type stay),
-  mappable like other columns.
-- **Studio:** project settings for the defaults; a "stage options" section on the source table form; a
-  "missing in source" toggle on columns.
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `EngineRuntimeConfig.include_source_columns` / CLI `configuration.include_source_columns` | bool | `true` | Project default. |
+| `EngineRuntimeConfig.enable_ghost_records` / CLI `configuration.enable_ghost_records` | bool | `true` | Project default. |
+| `SourceSystem.include_source_columns`, `SourceSystem.enable_ghost_records` | bool, nullable | empty | Empty: the project's. |
+| `SourceTable.include_source_columns`, `SourceTable.enable_ghost_records` | bool, nullable | empty | Empty: the system's, then the project's. |
+| `SourceTable.sequence_column` | text, nullable | empty | datavault4dbt `sequence`. |
+| `SourceColumn.is_missing` | bool | `false` | The source no longer has the column. |
+
+- Generation writes an option only where it differs from datavault4dbt's default (`true`), so nothing changes
+  for projects that set nothing. A missing column goes to the stage's `missing_columns` (name: data type) and
+  stays mappable; `sources.yml` leaves it out.
+- **Studio:** project settings for the two defaults; tri-state controls (inherit / on / off) on the source
+  system and source table forms, plus the sequence column; a "missing in source" toggle on columns, which
+  keeps the column's data type editable (the stage needs it).
 
 ---
 
 ## 8. Derived columns that shadow a source column
 
-**Status:** Planned (spec §9.4). Breaking change to derived columns.
+**Status:** In progress (dbt import branch). Breaking change to derived columns (unreleased).
 
-A derived column may use the name of a source column of its table: the stage computes it in place of the
-source column. Today the Engine rejects that name. A Hub/Link column transformation on the same column
-conflicts and fails validation. **Studio:** drop the corresponding client-side check, and show the new
-validation error.
+- A derived column may take the name of a source column of its table (case-insensitive): it **shadows** it.
+  datavault4dbt's stage replaces the source column with the derived value. Property
+  `DerivedColumn.shadowed_column` returns the source column it replaces.
+- `DerivedColumn.clean()` now only rejects a prejoined column's name ("'X' is a column a prejoin brings into
+  CUSTOMER's stage.").
+- Everything that maps the shadowed source column reads the derived value. A Hub or Link transformation of it
+  builds on the derived value (`UPPER((TRIM(C_NAME)))`) instead of conflicting (planned validation dropped).
+- JSON import: a table may list a source column and a derived column of the same name; both are created.
+- **Studio:** drop the client-side "name already used" check for source columns (keep it for prejoined
+  columns); in column pickers, show a shadowed source column as "replaced by derived column"; a mapping of
+  either reads the derived value.
 
 ---
 
 ## 9. Satellite v1 options
 
-**Status:** Planned (spec §9.5).
+**Status:** In progress (dbt import branch), migration `0022_satellite_and_stage_options`. Engine docs:
+domain model §7.1.
 
-Per Satellite:
-- the load-end-date column name of its v1 view (`ledts_alias`; default: the project's datavault4dbt setting)
-- whether v1 adds an `is_current` flag (default true, as today)
-- whether v1 includes the payload (default true)
-- whether the Satellite gets a v1 view at all (default: the project's setting)
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `Satellite.create_v1_view` | bool, nullable | empty | Whether the Satellite gets a v1 view. Empty: the project's `generate_satellite_v1_views` (generation option). Standard, multi-active and reference Satellites only. |
+| `Satellite.v1_ledts_alias` | text, nullable | empty | The view's load end date column. Empty: datavault4dbt's `ledts_alias` variable. |
+| `Satellite.v1_add_is_current_flag` | bool | `true` | As always generated. |
+| `Satellite.v1_include_payload` | bool | `true` | Standard Satellites only. |
 
-**Studio:** a "v1 view" section on the Satellite form.
+- New export helper `SatelliteDefinition.gets_v1_view(project_default)`; the plan, validation and SQLMesh output
+  use it too (the plan now also counts the v1 views of reference Satellites, which it missed before).
+- New issue `validate.reference_table.satellite_without_v1` (warning): a reference table reads a Satellite
+  without a v1 view.
+- **Studio:** a "v1 view" section on the Satellite form (tri-state "v1 view: project default / on / off").
 
 ---
 

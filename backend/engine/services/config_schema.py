@@ -395,6 +395,20 @@ class ProjectConfiguration(BaseModel):
         None,
         description="Load date of tables and source systems that set none",
     )
+    include_source_columns: bool = Field(
+        True,
+        description=(
+            "Whether stages pass all source columns on, for source tables and "
+            "systems that set nothing (datavault4dbt include_source_columns)"
+        ),
+    )
+    enable_ghost_records: bool = Field(
+        True,
+        description=(
+            "Whether stages add ghost records, for source tables and systems that "
+            "set nothing"
+        ),
+    )
 
     # dbt project settings (dbt_project.yml). Defaults match the project the
     # engine has always generated.

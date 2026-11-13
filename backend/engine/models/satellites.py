@@ -94,6 +94,59 @@ class Satellite(models.Model):
         help_text="Source table that feeds this satellite (all columns must come from this table)",
     )
 
+    hashdiff_name = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=(
+            "The stage's hash diff column for this satellite. Empty: the "
+            "project's hashdiff naming pattern"
+        ),
+    )
+
+    hashdiff_alias = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=(
+            "Name of the hash diff column inside the satellite, when it differs "
+            "from the stage's (e.g. one uniform 'hashdiff' in every satellite)"
+        ),
+    )
+
+    create_v1_view = models.BooleanField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text=(
+            "Whether the satellite gets a v1 view with load end dates. Empty: the "
+            "project's setting"
+        ),
+    )
+
+    v1_ledts_alias = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=(
+            "Load end date column of the v1 view. Empty: datavault4dbt's "
+            "ledts_alias variable"
+        ),
+    )
+
+    v1_add_is_current_flag = models.BooleanField(
+        default=True,
+        help_text="Whether the v1 view adds an is_current flag column",
+    )
+
+    v1_include_payload = models.BooleanField(
+        default=True,
+        help_text=(
+            "Whether the v1 view includes the payload columns (standard and "
+            "effectivity satellites)"
+        ),
+    )
+
     description = models.TextField(
         blank=True,
         null=True,
@@ -121,6 +174,19 @@ class Satellite(models.Model):
         if not (bool(self.parent_hub) ^ bool(self.parent_link)):
             raise ValidationError(
                 "Satellite must have exactly one parent: either parent_hub OR parent_link, not both."
+            )
+
+        # A non-historized satellite keeps no history, so it has no hash diff
+        if self.satellite_type == self.SatelliteType.NON_HISTORIZED and (
+            self.hashdiff_name or self.hashdiff_alias
+        ):
+            raise ValidationError(
+                {
+                    "hashdiff_name": (
+                        "A non-historized satellite has no hash diff: clear the "
+                        "hash diff name and alias."
+                    )
+                }
             )
 
     def __str__(self) -> str:

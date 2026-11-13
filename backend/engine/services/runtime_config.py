@@ -48,6 +48,11 @@ class EngineRuntimeConfig:
     default_static_part_of_record_source: str | None = None
     default_load_date_value: str | None = None
 
+    # Stage options of source tables (and systems) that set none: whether the
+    # stage passes all source columns on, and whether it adds ghost records.
+    include_source_columns: bool = True
+    enable_ghost_records: bool = True
+
     dbt_project_name: str | None = None
     create_zip: bool = False
     export_sources: bool = True
@@ -169,6 +174,8 @@ class EngineRuntimeConfig:
                 config.configuration.default_static_part_of_record_source
             ),
             default_load_date_value=config.configuration.default_load_date_value,
+            include_source_columns=config.configuration.include_source_columns,
+            enable_ghost_records=config.configuration.enable_ghost_records,
             profile_name=config.configuration.profile_name,
             control_schema=config.configuration.control_schema,
             control_materialization=config.configuration.control_materialization,

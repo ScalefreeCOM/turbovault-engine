@@ -255,6 +255,8 @@ Project-level Data Vault configuration. If not provided, defaults are used.
 | `default_record_source_value` | string | No | `null` | Record source of source systems and tables that set none: a column, SQL, or fixed text after a `!`. With none, a table uses its source system's name as fixed text |
 | `default_static_part_of_record_source` | string | No | `null` | Static part of the record source (an SQL `LIKE` pattern) of tables that set none |
 | `default_load_date_value` | string | No | `null` | Load date of source systems and tables that set none: a column or SQL. With none, `sysdate()` |
+| `include_source_columns` | boolean | No | `true` | Whether stages pass all source columns on (datavault4dbt `include_source_columns`), for source systems and tables that set nothing |
+| `enable_ghost_records` | boolean | No | `true` | Whether stages add ghost records, for source systems and tables that set nothing |
 
 **Example:**
 

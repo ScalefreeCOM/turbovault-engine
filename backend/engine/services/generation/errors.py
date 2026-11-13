@@ -69,6 +69,10 @@ class Code:
     VALIDATE_SOURCE_NO_TABLES = "validate.source.no_tables"
     VALIDATE_STAGE_NO_SOURCE_TABLE = "validate.stage.no_source_table"
     VALIDATE_STAGE_NO_KEYS = "validate.stage.no_keys"
+    VALIDATE_STAGE_DUPLICATE_HASHDIFF = "validate.stage.duplicate_hashdiff"
+    VALIDATE_REFERENCE_TABLE_SATELLITE_WITHOUT_V1 = (
+        "validate.reference_table.satellite_without_v1"
+    )
 
     # Validate stage — model names and folders
     VALIDATE_MODEL_DUPLICATE_NAME = "validate.model.duplicate_name"

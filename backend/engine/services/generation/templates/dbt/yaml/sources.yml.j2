@@ -16,7 +16,8 @@ sources:
       - name: [[ table.table_name ]]
         description: [[ (table.description or ("Source table from " ~ source.name)) | yaml_quote ]]
         columns:
-[% for column in table.columns %]
+[# A missing column isn't in the source: its stage adds it #]
+[% for column in table.columns if not column.is_missing %]
           - name: [[ column.column_name ]]
             data_type: [[ column.datatype ]]
 [% if column.description %]

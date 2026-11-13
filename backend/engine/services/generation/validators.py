@@ -24,6 +24,7 @@ if TYPE_CHECKING:
         SnapshotControlDefinition,
         SourceDefinition,
         StageDefinition,
+        StageHashdiffDef,
     )
 
 
@@ -145,6 +146,11 @@ def validate_export(
     # Model names and folders: one model per name, files inside the project
     result.merge(_validate_models(project_export, generate_satellite_v1_views))
 
+    # Reference tables read v1 views
+    result.merge(
+        _validate_reference_tables(project_export, generate_satellite_v1_views)
+    )
+
     # Validate sources
     for source in project_export.sources:
         result.merge(_validate_source(source))
@@ -217,7 +223,7 @@ def _project_models(
                     sat.v0_output.model_name,
                 )
             )
-        if generate_satellite_v1_views and sat.v1_output:
+        if sat.v1_output and sat.gets_v1_view(generate_satellite_v1_views):
             models.append(
                 (
                     "satellite",
@@ -370,6 +376,51 @@ def _validate_stage(stage: StageDefinition) -> ValidationResult:
                 code="STG_003",
             )
 
+    # One hash diff column per name: satellites may share one only if they hash
+    # the same columns (a stored hash diff name can make two collide).
+    hashdiffs: dict[str, StageHashdiffDef] = {}
+    for hashdiff in stage.hashdiffs:
+        other = hashdiffs.setdefault(hashdiff.hashdiff_name.lower(), hashdiff)
+        if other is not hashdiff and other.columns != hashdiff.columns:
+            result.add_error(
+                entity_type="stage",
+                entity_name=stage.stage_name,
+                field="hashdiffs",
+                message=(
+                    f"Satellites '{other.satellite_name}' and "
+                    f"'{hashdiff.satellite_name}' both name their hash diff "
+                    f"'{hashdiff.hashdiff_name}' but hash different columns. "
+                    "Give one of them its own hash diff name."
+                ),
+                code="STG_005",
+            )
+
+    return result
+
+
+def _validate_reference_tables(
+    project_export: ProjectExport, generate_satellite_v1_views: bool
+) -> ValidationResult:
+    """A reference table reads its satellites' v1 views, which must exist."""
+    result = ValidationResult()
+    satellites = {sat.satellite_name: sat for sat in project_export.satellites}
+    for table in project_export.reference_tables:
+        for assignment in table.satellites:
+            satellite = satellites.get(assignment.satellite_name)
+            if satellite is not None and not satellite.gets_v1_view(
+                generate_satellite_v1_views
+            ):
+                result.add_warning(
+                    entity_type="reference_table",
+                    entity_name=table.table_name,
+                    field="satellites",
+                    message=(
+                        f"Reference table '{table.table_name}' reads the v1 view "
+                        f"of satellite '{assignment.satellite_name}', which gets "
+                        "none. Turn on its v1 view."
+                    ),
+                    code="REF_001",
+                )
     return result
 
 

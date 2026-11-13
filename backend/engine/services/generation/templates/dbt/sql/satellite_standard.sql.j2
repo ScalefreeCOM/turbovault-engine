@@ -6,7 +6,14 @@
 {%- set yaml_metadata -%}
 source_model: [[ stage_name ]]
 parent_hashkey: [[ parent_hashkey ]]
+[# hashdiff_alias: the hash diff's name inside the satellite, when it differs from the stage's #]
+[% if hashdiff_alias %]
+src_hashdiff:
+    source_column: [[ hashdiff_name ]]
+    alias: [[ hashdiff_alias ]]
+[% else %]
 src_hashdiff: [[ hashdiff_name ]]
+[% endif %]
 src_payload:
 [% for col in columns %]
     - [[ col.target_column_name if col.target_column_name else col.source_column ]]

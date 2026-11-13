@@ -185,6 +185,20 @@ class SourceTableAdmin(admin.ModelAdmin):
                 "classes": ["collapse"],
             },
         ),
+        (
+            "Stage options",
+            {
+                "fields": [
+                    "include_source_columns",
+                    "enable_ghost_records",
+                    "sequence_column",
+                ],
+                "classes": ["collapse"],
+                "description": (
+                    "Empty inherits from the source system, then the project."
+                ),
+            },
+        ),
     ]
 
 
@@ -195,10 +209,11 @@ class SourceColumnAdmin(admin.ModelAdmin):
     list_display = [
         "source_column_physical_name",
         "source_column_datatype",
+        "is_missing",
         "source_table",
         "get_source_system",
     ]
-    list_filter = ["source_table__source_system", "source_table"]
+    list_filter = ["is_missing", "source_table__source_system", "source_table"]
     search_fields = [
         "source_column_physical_name",
         "source_column_datatype",
@@ -597,6 +612,30 @@ class SatelliteAdmin(admin.ModelAdmin):
             {
                 "fields": ["source_table"],
                 "description": "All satellite columns must come from this source table",
+            },
+        ),
+        (
+            "Hash diff",
+            {
+                "fields": ["hashdiff_name", "hashdiff_alias"],
+                "classes": ["collapse"],
+                "description": (
+                    "Empty name: the project's hashdiff naming pattern. The alias "
+                    "names the column inside the satellite when it differs."
+                ),
+            },
+        ),
+        (
+            "v1 view",
+            {
+                "fields": [
+                    "create_v1_view",
+                    "v1_ledts_alias",
+                    "v1_add_is_current_flag",
+                    "v1_include_payload",
+                ],
+                "classes": ["collapse"],
+                "description": "Empty v1 view setting: the project's.",
             },
         ),
         (

@@ -61,6 +61,8 @@ turbovault generate --project my_project --skip-validation
 | Code | Entity | Rule | How to Fix |
 |------|--------|------|------------|
 | `SAT_001` | Satellite | Must have a parent entity (hub or link) | Set either `parent_hub` or `parent_link` in Django Admin → Satellites |
+| `STG_005` | Stage | Satellites of one stage may share a hash diff name only if they hash the same columns (`validate.stage.duplicate_hashdiff`) | Give one satellite its own `hashdiff_name` |
+| `REF_001` | Reference table | Each satellite it reads must get a v1 view (warning, `validate.reference_table.satellite_without_v1`) | Turn the satellite's v1 view on (`create_v1_view`, or the project's `generate_satellite_v1_views`) |
 
 ---
 

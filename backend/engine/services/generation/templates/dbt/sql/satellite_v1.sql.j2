@@ -2,6 +2,8 @@
 [# Creates a view on top of the v0 satellite that adds load_end_date column #]
 [# Handles: standard, effectivity, multi_active, and reference satellite types #]
 [# v0_name: the satellite's v0 model, which the view reads #]
+[# The v0 table's hash diff column is its alias, if it has one #]
+[# v1_ledts_alias, v1_add_is_current_flag, v1_include_payload: the view's options #]
 [# model_config: the config() block; the view's stored settings override these defaults #]
 [[ model_config(materialized=materialization, tags=['satellite', 'v1', 'raw_vault', group]) ]]
 
@@ -14,8 +16,11 @@ ref_keys:
 [% for bk in parent_business_keys %]
     - [[ bk ]]
 [% endfor %]
-hashdiff: [[ hashdiff_name ]]
-add_is_current_flag: true
+hashdiff: [[ hashdiff_alias or hashdiff_name ]]
+[% if v1_ledts_alias %]
+ledts_alias: [[ v1_ledts_alias ]]
+[% endif %]
+add_is_current_flag: [[ 'false' if v1_add_is_current_flag is false else 'true' ]]
 {%- endset -%}
 
 {{ datavault4dbt.ref_sat_v1(yaml_metadata=yaml_metadata) }}
@@ -25,12 +30,15 @@ add_is_current_flag: true
 {%- set yaml_metadata -%}
 sat_v0: [[ v0_name ]]
 hashkey: [[ parent_hashkey ]]
-hashdiff: [[ hashdiff_name ]]
+hashdiff: [[ hashdiff_alias or hashdiff_name ]]
 ma_attribute:
 [% for col in columns if col.is_multi_active_key %]
     - [[ col.target_column_name if col.target_column_name else col.source_column ]]
 [% endfor %]
-add_is_current_flag: true
+[% if v1_ledts_alias %]
+ledts_alias: [[ v1_ledts_alias ]]
+[% endif %]
+add_is_current_flag: [[ 'false' if v1_add_is_current_flag is false else 'true' ]]
 {%- endset -%}
 
 {{ datavault4dbt.ma_sat_v1(yaml_metadata=yaml_metadata) }}
@@ -40,8 +48,14 @@ add_is_current_flag: true
 {%- set yaml_metadata -%}
 sat_v0: [[ v0_name ]]
 hashkey: [[ parent_hashkey ]]
-hashdiff: [[ hashdiff_name ]]
-add_is_current_flag: true
+hashdiff: [[ hashdiff_alias or hashdiff_name ]]
+[% if v1_ledts_alias %]
+ledts_alias: [[ v1_ledts_alias ]]
+[% endif %]
+add_is_current_flag: [[ 'false' if v1_add_is_current_flag is false else 'true' ]]
+[% if v1_include_payload is false %]
+include_payload: false
+[% endif %]
 {%- endset -%}
 
 {{ datavault4dbt.sat_v1(yaml_metadata=yaml_metadata) }}

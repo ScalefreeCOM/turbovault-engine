@@ -515,6 +515,7 @@ build.project_load_failed             build.export_inconsistent
 validate.source.no_schema             validate.source.no_tables
 validate.stage.no_source_table        validate.stage.no_keys             validate.stage.derived_column_no_datatype
 validate.stage.uses_load_column
+validate.stage.duplicate_hashdiff     validate.reference_table.satellite_without_v1
 validate.model.duplicate_name         validate.model.invalid_name        validate.model.invalid_folder
 validate.hub.missing_hashkey          validate.hub.no_business_keys      validate.hub.no_source_tables
 validate.link.missing_hashkey         validate.link.too_few_hubs         validate.link.no_sources

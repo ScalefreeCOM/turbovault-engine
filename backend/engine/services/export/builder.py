@@ -218,6 +218,7 @@ class ModelBuilder:
                         column_name=col.source_column_physical_name,
                         datatype=col.source_column_datatype,
                         description=col.description or None,
+                        is_missing=col.is_missing,
                     )
                     for col in table.columns.all()
                 ]
@@ -241,6 +242,9 @@ class ModelBuilder:
                             table.static_part_of_record_source
                         ),
                         load_date=table.load_date_value,
+                        include_source_columns=table.include_source_columns,
+                        enable_ghost_records=table.enable_ghost_records,
+                        sequence_column=table.sequence_column or None,
                         description=table.description or None,
                         columns=columns,
                         derived_columns=derived_columns,
@@ -258,6 +262,8 @@ class ModelBuilder:
                         source_system.static_part_of_record_source
                     ),
                     load_date=source_system.load_date_value,
+                    include_source_columns=source_system.include_source_columns,
+                    enable_ghost_records=source_system.enable_ghost_records,
                     tables=tables,
                 )
             )
@@ -501,12 +507,13 @@ class ModelBuilder:
             # Derived columns: defined on the table, or from transformations
             derived_columns = self._get_derived_columns_for_source_table(table)
 
-            # Get columns
+            # Get columns; the missing ones the stage adds with NULL values
             columns = [
                 SourceColumnDef(
                     column_name=col.source_column_physical_name,
                     datatype=col.source_column_datatype,
                     description=col.description or None,
+                    is_missing=col.is_missing,
                 )
                 for col in table.columns.all()
             ]
@@ -527,6 +534,14 @@ class ModelBuilder:
                     load_date=values.load_date.value,
                     output=output,
                     description=table.description or None,
+                    include_source_columns=self._stage_option(
+                        table, "include_source_columns"
+                    ),
+                    enable_ghost_records=self._stage_option(
+                        table, "enable_ghost_records"
+                    ),
+                    sequence_column=table.sequence_column or None,
+                    missing_columns=[col for col in columns if col.is_missing],
                     hashkeys=hashkeys,
                     hashdiffs=hashdiffs,
                     prejoins=prejoins,
@@ -596,21 +611,33 @@ class ModelBuilder:
             ]
 
             if hashdiff_columns:
-                # Generate hashdiff name using project pattern
-                sat_name = sat.satellite_physical_name
-                hd_name = self.project.resolve_naming_pattern(
-                    "hashdiff_naming", sat_name, runtime_config=self.runtime_config
-                )
-
                 result.append(
                     StageHashdiffDef(
                         satellite_name=sat.satellite_physical_name,
-                        hashdiff_name=hd_name,
+                        hashdiff_name=self._hashdiff_name(sat),
                         columns=hashdiff_columns,
                     )
                 )
 
         return result
+
+    def _hashdiff_name(self, satellite) -> str:
+        """The stage's hash diff column of a satellite: stored, else the pattern."""
+        return satellite.hashdiff_name or self.project.resolve_naming_pattern(
+            "hashdiff_naming",
+            satellite.satellite_physical_name,
+            runtime_config=self.runtime_config,
+        )
+
+    def _stage_option(self, table: SourceTable, field: str) -> bool:
+        """A stage option: the table's, else its source system's, else the project's."""
+        for value in (
+            getattr(table, field),
+            getattr(table.source_system, field),
+        ):
+            if value is not None:
+                return value
+        return getattr(self.runtime_config, field)
 
     def _get_multi_active_config_for_source_table(
         self, source_table: SourceTable
@@ -740,10 +767,15 @@ class ModelBuilder:
         # Where each derived column defined on the table sits in `result`, so
         # an in-place transformation of it replaces its definition.
         defined_at: dict[str, int] = {}
+        # Derived columns by name. One named like a source column shadows it:
+        # the stage replaces the source column with the derived value, so a
+        # mapping of that source column reads the derived column.
+        derived_by_name: dict[str, DerivedColumn] = {}
 
         for derived in DerivedColumn.objects.filter(source_table=source_table):
             required = referenced_columns(derived.expression, table_columns)
             defined_at[derived.column_name.lower()] = len(result)
+            derived_by_name[derived.column_name.lower()] = derived
             result.append(
                 DerivedColumnDef(
                     target_column_name=derived.column_name,
@@ -763,6 +795,9 @@ class ModelBuilder:
         ) -> None:
             source_col_name = staging_column.physical_name
             derived = staging_column.derived_column
+            if derived is None and staging_column.source_column_id is not None:
+                # A source column a derived column shadows reads the derived value
+                derived = derived_by_name.get(source_col_name.lower())
             if derived is not None:
                 if target_col_name == source_col_name and not transformation:
                     return  # the derived column itself, already defined
@@ -1224,11 +1259,8 @@ class ModelBuilder:
 
             stage_name = self.outputs.stage(sat.source_table).model_name
 
-            # Generate hashdiff name using project pattern
-            sat_name = sat.satellite_physical_name
-            hashdiff_name = self.project.resolve_naming_pattern(
-                "hashdiff_naming", sat_name, runtime_config=self.runtime_config
-            )
+            # The stage's hash diff column: stored, else the project pattern
+            hashdiff_name = self._hashdiff_name(sat)
 
             # Build column definitions
             columns = []
@@ -1259,6 +1291,7 @@ class ModelBuilder:
                     source_system=sat.source_table.source_system.name,
                     stage_name=stage_name,
                     hashdiff_name=hashdiff_name,
+                    hashdiff_alias=sat.hashdiff_alias or None,
                     columns=columns,
                     description=sat.description or None,
                     v0_output=self.outputs.satellite_v0(sat),
@@ -1267,6 +1300,10 @@ class ModelBuilder:
                         if sat.satellite_type in V1_SATELLITE_TYPES
                         else None
                     ),
+                    create_v1_view=sat.create_v1_view,
+                    v1_ledts_alias=sat.v1_ledts_alias or None,
+                    v1_add_is_current_flag=sat.v1_add_is_current_flag,
+                    v1_include_payload=sat.v1_include_payload,
                 )
             )
 

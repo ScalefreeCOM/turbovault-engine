@@ -713,7 +713,8 @@ class _Executor:
         derived_columns = self._derived_by_table.setdefault(obj.pk, {})
 
         # Derived columns first: a mapped column with a derived column's name
-        # is that derived column, not a source column to create.
+        # is that derived column (see _resolve_staging_column). A source column
+        # of the same name still exists: the derived column shadows it.
         for derived_d in (table_d.derived_columns or {}).values():
             derived, _ = self._upsert(
                 DerivedColumn,
@@ -732,8 +733,15 @@ class _Executor:
                 self._derived_columns, (obj.pk, derived_d.name.lower()), derived
             )
 
+        # A format without derived columns (Excel) lists the columns its
+        # mappings name: one named like a derived column means that column.
+        # A format that describes them (JSON) lists real source columns, which
+        # may share a derived column's name: the derived column shadows it.
+        describes_derived = table_d.derived_columns is not None
         for col in table_d.columns.values():
-            if (obj.pk, col.name.lower()) in self._derived_columns:
+            if not describes_derived and (obj.pk, col.name.lower()) in (
+                self._derived_columns
+            ):
                 continue
             sc, _ = self._upsert(
                 SourceColumn,

@@ -240,7 +240,9 @@ def render_sqlmesh(
         if artifact:
             artifacts.append(artifact)
             rendered_sat_names.add(sat.satellite_name)
-            if options.generate_satellite_v1_views and sat.satellite_type == "standard":
+            if sat.satellite_type == "standard" and sat.gets_v1_view(
+                options.generate_satellite_v1_views
+            ):
                 artifacts.append(
                     _render_satellite_v1(sat, runtime_config, template_resolver)
                 )

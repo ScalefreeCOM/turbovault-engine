@@ -15,11 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from engine.models.model_output import folder_error, normalize_folder
 from engine.services.config_schema import MODEL_MATERIALIZATION_DEFAULTS
-from engine.services.export.model_outputs import (
-    V1_SATELLITE_TYPES,
-    entity_base_name,
-    satellite_pattern,
-)
+from engine.services.export.model_outputs import entity_base_name, satellite_pattern
 
 from .file_writer import write_sql_file, write_yaml_file
 from .folder_config import GenerationConfig, get_model_filename
@@ -875,8 +871,8 @@ class DbtProjectGenerator:
 
                 self.report.satellites_generated += 1
 
-                # Generate v1 view if enabled and satellite type supports it
-                if generate_v1 and satellite.satellite_type in V1_SATELLITE_TYPES:
+                # The v1 view: the satellite's own setting, else the project's
+                if satellite.gets_v1_view(generate_v1):
                     self._generate_satellite_v1(satellite, default_dir, v0_name)
 
             except Exception as e:

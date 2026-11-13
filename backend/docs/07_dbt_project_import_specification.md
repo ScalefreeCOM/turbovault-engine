@@ -369,37 +369,40 @@ the project setting `dbt_project_models`, written into the generated `dbt_projec
 `dbt_project.yml`, each model stores its effective `schema`/`materialized`/`tags`/... from
 `unrendered_config`.
 
-### 9.2 Hash diff name and alias (Satellite)
+### 9.2 Hash diff name and alias (Satellite) — implemented
 
 - `hashdiff_name`: the stage's hash diff column (default: the project's `hashdiff_naming` pattern).
 - `hashdiff_alias`: the column name inside the Satellite when it differs (`src_hashdiff: {source_column,
-  alias}`), e.g. one uniform `hashdiff` column in every Satellite.
+  alias}`), e.g. one uniform `hashdiff` column in every Satellite. The v1 view reads the alias.
 
-### 9.3 Stage options
+### 9.3 Stage options — implemented
 
-Project defaults (configuration) and per source table overrides:
+Project defaults (configuration), source system and source table overrides (empty inherits):
 
-| Option | Default | Per table | Notes |
-|--------|---------|-----------|-------|
-| `include_source_columns` | true | yes | |
-| `enable_ghost_records` | true | yes | |
-| `sequence` | none | yes | a column name |
-| missing columns | — | yes | proposed as source columns flagged `is_missing` (name + type): the stage adds them as NULL columns, and they can be mapped like other columns |
+| Option | Default | Per system / table | Notes |
+|--------|---------|--------------------|-------|
+| `include_source_columns` | true | yes / yes | |
+| `enable_ghost_records` | true | yes / yes | |
+| `sequence` | none | — / yes | `SourceTable.sequence_column` |
+| missing columns | — | — / yes | source columns flagged `is_missing` (name + type): the stage adds them as NULL columns (`missing_columns`), they can be mapped like other columns, and `sources.yml` leaves them out |
 
-Per-model load-date / record-source columns (`src_ldts`, `src_rsrc`) stay out for now (lenient).
+Options are written only where they differ from datavault4dbt's defaults. Per-model load-date /
+record-source columns (`src_ldts`, `src_rsrc`) stay out for now (lenient).
 
-### 9.4 Derived columns that shadow a source column
+### 9.4 Derived columns that shadow a source column — implemented
 
 A derived column may take the name of a source column of its table: the stage computes it in place of
-the source column (datavault4dbt's behaviour). Mappings then use the derived column. A Hub/Link column
-transformation on the same column conflicts and fails validation. Replaces today's rule that a derived
-column's name must be new (breaking change allowed, D8).
+the source column (datavault4dbt's behaviour). Mappings of the source column read the derived value; a
+Hub/Link column transformation of it builds on the derived value (`UPPER((TRIM(x)))`) rather than failing
+validation as first planned. Replaces the rule that a derived column's name must be new (breaking change
+allowed, D8). A prejoined column still can't be shadowed.
 
-### 9.5 Satellite v1 options
+### 9.5 Satellite v1 options — implemented
 
 Per Satellite: `v1_ledts_alias` (default: the project's datavault4dbt `ledts_alias`),
 `v1_add_is_current_flag` (default true, as generated today), `v1_include_payload` (default true), and
-whether the Satellite gets a v1 at all (default: the project's `generate_satellite_v1_views`).
+`create_v1_view` (default: the project's `generate_satellite_v1_views`). A reference table reading a
+Satellite without a v1 view gets a warning.
 
 ### 9.6 Smaller additions
 

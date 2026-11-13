@@ -14,6 +14,23 @@ source_model:
 [% endif %]
 ldts: [[ load_date | yaml_quote ]]
 rsrc: [[ record_source | yaml_quote ]]
+[# Stage options, written only where they differ from datavault4dbt's defaults #]
+[% if include_source_columns is false %]
+include_source_columns: false
+[% endif %]
+[% if enable_ghost_records is false %]
+enable_ghost_records: false
+[% endif %]
+[% if sequence_column %]
+sequence: [[ sequence_column | yaml_quote ]]
+[% endif %]
+[# Columns the source no longer has: added with NULL values of their type #]
+[% if missing_columns %]
+missing_columns:
+[% for column in missing_columns %]
+    [[ column.column_name ]]: [[ column.datatype | yaml_quote ]]
+[% endfor %]
+[% endif %]
 [% if hashkeys or hashdiffs %]
 hashed_columns:
 [% for hashkey in hashkeys %]
