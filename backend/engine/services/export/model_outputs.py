@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from engine.services.export.models import (  # noqa: F401 (re-exported)
     V1_SATELLITE_TYPES,
     ModelOutputDef,
+    StoredModelOutputDef,
 )
 
 if TYPE_CHECKING:
@@ -78,10 +79,38 @@ class ModelOutputs:
 
         self.config = runtime_config
         self._stored: dict[tuple[str, object], ModelOutput] = {}
+        self._by_entity: dict[tuple[str, object], list[ModelOutput]] = {}
         for row in ModelOutput.objects.filter(project=project):
             field = row.entity_field
             if field is not None:
-                self._stored[(row.kind, getattr(row, f"{field}_id"))] = row
+                entity_pk = getattr(row, f"{field}_id")
+                self._stored[(row.kind, entity_pk)] = row
+                self._by_entity.setdefault((field, entity_pk), []).append(row)
+
+    def stored(
+        self, entity_field: str, entity_pk: object
+    ) -> dict[str, StoredModelOutputDef]:
+        """What the project stores for an entity's models, by kind.
+
+        The JSON export carries it so an import restores exactly the stored
+        values, not the derived ones.
+        """
+        rows = sorted(
+            self._by_entity.get((entity_field, entity_pk), []), key=lambda r: r.kind
+        )
+        return {
+            row.kind: StoredModelOutputDef(
+                model_name=row.model_name or None,
+                folder=row.folder or None,
+                alias=row.alias or None,
+                schema_name=row.schema_name or None,
+                database_name=row.database_name or None,
+                materialized=row.materialized or None,
+                tags=list(row.tags) if row.tags is not None else None,
+                config=dict(row.config) if row.config else None,
+            )
+            for row in rows
+        }
 
     def _output(self, kind: str, entity_pk: object, derived: str) -> ModelOutputDef:
         from engine.models import ModelOutput

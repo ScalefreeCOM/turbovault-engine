@@ -250,6 +250,7 @@ class ModelBuilder:
                         description=table.description or None,
                         columns=columns,
                         derived_columns=derived_columns,
+                        model_outputs=self.outputs.stored("source_table", table.pk),
                     )
                 )
 
@@ -387,6 +388,7 @@ class ModelBuilder:
                         if hub.create_record_tracking_satellite
                         else None
                     ),
+                    model_outputs=self.outputs.stored("hub", hub.pk),
                 )
             )
 
@@ -1382,6 +1384,7 @@ class ModelBuilder:
                     v1_include_payload=sat.v1_include_payload,
                     disable_hwm=sat.disable_hwm,
                     source_is_single_batch=self._single_batch(sat.source_table),
+                    model_outputs=self.outputs.stored("satellite", sat.pk),
                 )
             )
 
@@ -1634,6 +1637,7 @@ class ModelBuilder:
                         if link.create_record_tracking_satellite
                         else None
                     ),
+                    model_outputs=self.outputs.stored("link", link.pk),
                 )
             )
 
@@ -1683,6 +1687,7 @@ class ModelBuilder:
                     logic_patterns=logic_patterns,
                     v0_output=self.outputs.snapshot_control_v0(control),
                     v1_output=self.outputs.snapshot_control_v1(control),
+                    model_outputs=self.outputs.stored("snapshot_control", control.pk),
                 )
             )
 
@@ -1790,6 +1795,7 @@ class ModelBuilder:
                     satellites=satellite_assignments,
                     description=ref_table.description or None,
                     output=self.outputs.reference_table(ref_table),
+                    model_outputs=self.outputs.stored("reference_table", ref_table.pk),
                 )
             )
 
@@ -1863,6 +1869,7 @@ class ModelBuilder:
                     custom_record_source=pit.custom_record_source or None,
                     include_business_objects_before_appearance=pit.include_business_objects_before_appearance,
                     output=self.outputs.pit(pit),
+                    model_outputs=self.outputs.stored("pit", pit.pk),
                 )
             )
 

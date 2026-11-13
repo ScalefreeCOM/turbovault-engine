@@ -60,6 +60,38 @@ class ModelOutputDef(BaseModel):
         return settings
 
 
+class StoredModelOutputDef(BaseModel):
+    """What a project stores for one dbt model of an entity.
+
+    The stored values of an ``engine.models.ModelOutput``: None stores
+    nothing, and the model follows TurboVault's defaults there. An entity's
+    ``model_outputs`` maps each of its models with stored values by kind
+    (``stage``, ``hub``, ``satellite_v1``, ...); its ``output`` fields are the
+    resolved models. The JSON import restores ``model_outputs``.
+    """
+
+    model_name: str | None = None
+    folder: str | None = None
+    alias: str | None = None
+    schema_name: str | None = None
+    database_name: str | None = None
+    materialized: str | None = None
+    tags: list[str] | None = Field(
+        None, description="Tags replacing the default tags ([]: no tags)"
+    )
+    config: dict[str, Any] | None = None
+
+
+def _stored_outputs_field(kinds: str) -> Any:
+    return Field(
+        default_factory=dict,
+        description=(
+            f"Stored settings of the entity's models by kind ({kinds}); "
+            "models without any are left out"
+        ),
+    )
+
+
 # =============================================================================
 # Source Layer Models
 # =============================================================================
@@ -126,6 +158,9 @@ class SourceTableDef(BaseModel):
     derived_columns: list[SourceDerivedColumnDef] = Field(
         default_factory=list,
         description="Columns the stage computes from this table's columns",
+    )
+    model_outputs: dict[str, StoredModelOutputDef] = _stored_outputs_field(
+        "stage, prestage"
     )
 
 
@@ -296,6 +331,9 @@ class HubDefinition(BaseModel):
     )
     record_tracking_satellite_output: ModelOutputDef | None = Field(
         None, description="The record-tracking satellite's model, when the hub has one"
+    )
+    model_outputs: dict[str, StoredModelOutputDef] = _stored_outputs_field(
+        "hub, effectivity_satellite, record_tracking_satellite"
     )
 
 
@@ -510,6 +548,9 @@ class LinkDefinition(BaseModel):
     record_tracking_satellite_output: ModelOutputDef | None = Field(
         None,
         description="The record-tracking satellite's model, when the link has one",
+    )
+    model_outputs: dict[str, StoredModelOutputDef] = _stored_outputs_field(
+        "link, effectivity_satellite, record_tracking_satellite"
     )
     column_descriptions: dict[str, ColumnDescriptionDef] = Field(
         default_factory=dict,
@@ -784,6 +825,9 @@ class SatelliteDefinition(BaseModel):
             "when v1 views are on)"
         ),
     )
+    model_outputs: dict[str, StoredModelOutputDef] = _stored_outputs_field(
+        "satellite_v0, satellite_v1"
+    )
     create_v1_view: bool | None = Field(
         None, description="Whether it gets a v1 view; None: the project's setting"
     )
@@ -871,6 +915,9 @@ class ReferenceTableDefinition(BaseModel):
     output: ModelOutputDef | None = Field(
         None, description="The reference table's dbt model (None: named table_name)"
     )
+    model_outputs: dict[str, StoredModelOutputDef] = _stored_outputs_field(
+        "reference_table"
+    )
 
 
 class PITDefinition(BaseModel):
@@ -913,6 +960,7 @@ class PITDefinition(BaseModel):
     output: ModelOutputDef | None = Field(
         None, description="The PIT's dbt model (None: named pit_name, defaults)"
     )
+    model_outputs: dict[str, StoredModelOutputDef] = _stored_outputs_field("pit")
 
 
 # ============================================================================
@@ -971,6 +1019,9 @@ class SnapshotControlDefinition(BaseModel):
     )
     v1_output: ModelOutputDef | None = Field(
         None, description="The control logic's model (None: named <base>_v1)"
+    )
+    model_outputs: dict[str, StoredModelOutputDef] = _stored_outputs_field(
+        "snapshot_control_v0, snapshot_control_v1"
     )
 
     @property

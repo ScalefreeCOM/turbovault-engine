@@ -53,7 +53,7 @@ deep-link errors; the CLI groups them in summary tables.
 | `entity.missing_reference` | A link, reference table or PIT references a hub/link that is not defined. | Add the hub or remove the reference. |
 | `entity.missing_source_column` | A mapping references a source column that does not exist. | Add the column to the source table or fix the mapping. |
 | `entity.missing_source_table` | A mapping references a source table identifier that does not exist. | Add the source table or fix the identifier. |
-| `entity.invalid_configuration` | An entity is internally inconsistent (e.g. satellite with both hub & link parent). | Correct the entity definition. |
+| `entity.invalid_configuration` | An entity is internally inconsistent (e.g. satellite with both hub & link parent), or one of its stored model settings (`model_outputs`) can't be stored: an invalid model name or folder, or a name another model has. That setting is left out; the entity is imported. | Correct the entity definition or the model setting. |
 | `entity.depends_on_skipped` | *Warning.* An entity is left out because an entity it depends on can't be imported (a satellite of a skipped link, a PIT tracking a skipped satellite). | Fix the problem reported for that entity. |
 
 An entity that can't be imported is left out rather than imported

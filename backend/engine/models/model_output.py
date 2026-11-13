@@ -318,9 +318,11 @@ class ModelOutput(models.Model):
             "alias": self.alias,
             "schema": self.schema_name,
             "database": self.database_name,
-            "tags": self.tags,
         }
-        settings = {key: value for key, value in values.items() if value}
+        settings: dict[str, Any] = {k: v for k, v in values.items() if v}
+        # An empty list is a model without tags; None keeps the default tags.
+        if self.tags is not None:
+            settings["tags"] = list(self.tags)
         settings.update(self.config or {})
         return settings
 

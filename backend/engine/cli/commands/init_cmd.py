@@ -438,14 +438,16 @@ def _create_project(
         project.delete()
         raise typer.Exit(1)
 
-    # Create default snapshot controls, unless a JSON export is the source
-    # (JSON exports already carry their own snapshot control definitions)
-    skip_snapshots = os.getenv(
-        "TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS", ""
-    ).lower() == "true" or (
+    # Create default snapshot controls, unless a JSON export is the source:
+    # it carries its own, which the import restores with the PITs and
+    # reference tables that read them.
+    skip_snapshots = (
+        os.getenv("TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS", "").lower() == "true"
+    )
+    json_source = (
         config.source is not None and getattr(config.source, "type", None) == "json"
     )
-    if snapshot_controls and not skip_snapshots:
+    if snapshot_controls and not skip_snapshots and not json_source:
         from engine.cli.utils.db_utils import create_default_snapshot_controls
 
         create_default_snapshot_controls(project)

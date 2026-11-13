@@ -300,7 +300,7 @@ neither.
 | `--mode STR` | | Conflict strategy: `merge`, `replace-all`, or `update-only` | `merge` |
 | `--on-error STR` | | Error strategy: `best-effort` or `fail-fast` | `best-effort` |
 | `--dry-run` | | Run the import and roll it back: report what would change, keep nothing | `false` |
-| `--skip-snapshots` | | Skip creating a default snapshot control table | `false` |
+| `--skip-snapshots` | | Leave snapshot controls and PITs out (no default snapshot control is created either) | `false` |
 | `--interactive` | `-i` | Run the interactive import wizard | `false` |
 
 #### Exit Codes

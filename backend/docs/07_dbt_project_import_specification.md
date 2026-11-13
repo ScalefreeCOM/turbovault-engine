@@ -536,7 +536,7 @@ The report also lists node counts per resource type (seeds, tests, … not impor
 | 1 | Corpus analysis: `scripts/dbt_import/profile_manifest.py`, extraction prototype `capture_calls.py` | done |
 | 2 | Foundations: artifact reader, sandbox extraction, datavault4dbt adapter (normalization, signature table 1.x/2.x), notation tests | done (`DbtSource`, CLI and issue locations moved to Phase 4) |
 | 3 | Pre-stages kept in the dbt project (D9), layer folders (D12), metadata extensions (§9.1–9.6): output attributes and name resolution, hash diff name/alias, stage options, derived column shadowing, Satellite v1 options, smaller additions (D13) | done |
-| 4 | `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, issue locations, warnings/skips for direct parsers; Raw Vault mapping (§7.1, 7.3–7.6), naming inference (§8), round-trip and corpus tests | |
+| 4 | 4a: `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, opt-in `dbt parse` (D21), issue locations; the import (executor and JSON round trip) stores every §9 setting and the JSON import its snapshot controls. 4b: Raw Vault mapping (§7.1, 7.3–7.6), naming inference (§8), warnings/skips for direct parsers. 4c: round-trip and corpus tests | 4a done |
 | 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models; generating into an existing dbt project (§9.7) | |
 | 6 | Custom models for downstream models (#461), optional | postponed (D19) |
 | 7 | Hardening: performance limits, docs, CLI polish | |

@@ -23,6 +23,7 @@ section is completed when the Engine change lands).
 | 10 | [Hub, Link, PIT and snapshot control options; delivery method](#10-hub-link-pit-and-snapshot-control-options-delivery-method) | In progress | Fields on Hubs, Links, mappings, Satellites, source systems/tables, PITs and snapshot controls; two project settings |
 | 11 | [Custom models](#11-custom-models) | Planned | List, view and edit custom models |
 | 12 | [Layer folders renumbered](#12-layer-folders-renumbered) | In progress | Use the new folder names wherever Studio shows or builds model paths |
+| 13 | [JSON export and import of the new settings; snapshot controls](#13-json-export-and-import-of-the-new-settings-snapshot-controls) | In progress | Show the new `snapshot_control` plan entities; keep `model_outputs` when Studio builds or edits exports |
 
 Background for items 4–11: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
 
@@ -558,3 +559,63 @@ Generated dbt projects number their layer folders in tens, leaving room for laye
   `ephemeral`) when the project has pre-stages.
 - **Studio:** use the new names wherever Studio shows, filters or links generated paths (file tree, previews,
   its `dbt_project.yml` prefill). Consider telling existing users once, since their path selectors break.
+
+---
+
+## 13. JSON export and import of the new settings; snapshot controls
+
+**Status:** In progress (dbt import branch). Engine docs: JSON import ("Options and settings", "Model
+settings", "Snapshot controls").
+
+A JSON export now restores everything items 5–10 added, and its snapshot controls. Exporting a project and
+importing the file into an empty project gives the same stored values; importing it into the project itself
+changes nothing.
+
+### Export format
+
+- **`model_outputs`** (new) on source tables, hubs, links, satellites, PITs, reference tables and snapshot
+  controls: the stored settings of the entity's models by kind (`stage`, `hub`, `satellite_v1`, ...), each with
+  the `ModelOutput` fields (`model_name`, `folder`, `alias`, `schema_name`, `database_name`, `materialized`,
+  `tags`, `config`), all nullable. Models without stored values are left out, so most entities have `{}`.
+- The resolved models (`output`, `v0_output`, `v1_output`, `effectivity_satellite_output`, ...) stay as they
+  are. They are what generation uses and are not read back.
+
+### Import rules
+
+- A field the file has is restored, an empty value included: `"sequence_column": null` clears the table's
+  sequence column, `"create_v1_view": null` makes the satellite follow the project's setting. A field the file
+  doesn't have (an export from an older Engine) leaves the project's value alone. This covers the stage
+  options and delivery method of systems and tables, `is_missing`, the hub source's `hk_column` (stored as the
+  mapping's `stage_hashkey_name`), the hub/link/satellite high-water mark and effectivity options, the link's
+  `union_strategy`, the satellite's hash diff alias and v1 options, the PIT's `use_snapshot_optimization` and
+  `include_business_objects_before_appearance`, and the snapshot control's `sdts_alias` and end date.
+- An entity gets exactly the `model_outputs` the file lists: a kind the file leaves out is removed. A stored
+  setting that fails `ModelOutput.clean()` (bad name or folder, a name another model has) is reported as
+  `entity.invalid_configuration`, with the `clean()` message, and not stored; the entity is still imported.
+- `hashdiff_name` in the export is the generated hash diff column. The import stores it on the satellite only
+  where it differs from the importing project's `hashdiff_naming` pattern.
+- The PIT's `custom_record_source` is now read (a JSON import used to clear it).
+
+### Snapshot controls
+
+- Before, a JSON import never stored the export's snapshot controls (PITs got a new control with default
+  dates instead). Now they are created and updated, with dates, daily time, `sdts_alias`, logic patterns and
+  `model_outputs`, before the reference tables and PITs.
+- Matched by base name: `control_snap`, `control_snap_v0` and `control_snap_v1` are one control; an existing
+  control keeps its name. Logic patterns are added and updated, never removed. Snapshot controls are never
+  deleted, not even by `replace_all`, since PITs and reference tables may read them.
+- PITs and reference tables find their control by its v1 model name, also when `model_outputs` renamed it.
+  Snapshot-based reference tables now get their snapshot control and logic set on import (they had none).
+- **Plan:** a new entity type `snapshot_control` (`create`, `update`, `unchanged`, or `skip` with
+  `skip_snapshots` / `update_only`). Change paths: the control's own fields (`snapshot_start_date`,
+  `snapshot_end_date`, `daily_snapshot_time`, `sdts_alias`), `logic_rules.<column>` (added) and
+  `logic_rules.<column>.<field>` (changed).
+- Change paths for model outputs on every entity: `model_outputs.<kind>` (added or removed) and
+  `model_outputs.<kind>.<field>` (changed).
+- `project init` from a JSON export creates no default snapshot controls and now imports the export's
+  controls and PITs. Before, it ran the import with `skip_snapshots`, which left every PIT out.
+
+### Studio
+
+- If Studio shows the import plan by entity type, add `snapshot_control` ("Snapshot control").
+- If Studio builds or edits JSON exports itself, carry `model_outputs` through unchanged.
