@@ -146,6 +146,22 @@ def write_project_config(config_path: Path, config) -> None:
         if value := getattr(config.configuration, pattern_key):
             config_dict["configuration"][pattern_key] = value
 
+    # Stage options and the delivery method, where they differ from the defaults
+    if not config.configuration.include_source_columns:
+        config_dict["configuration"]["include_source_columns"] = False
+    if not config.configuration.enable_ghost_records:
+        config_dict["configuration"]["enable_ghost_records"] = False
+    if config.configuration.use_delivery_method:
+        config_dict["configuration"]["use_delivery_method"] = True
+    if config.configuration.delivery_method != "multi_batch":
+        config_dict["configuration"][
+            "delivery_method"
+        ] = config.configuration.delivery_method
+
+    # The dbt project the CLI imports from
+    if config.dbt_project:
+        config_dict["dbt_project"] = {"path": str(config.dbt_project.path)}
+
     # Add source if present
     if config.source:
         config_dict["source"] = {

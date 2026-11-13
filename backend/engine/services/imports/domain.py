@@ -359,6 +359,21 @@ class DomainModel:
 
     # ---------------- helpers ----------------
 
+    def is_empty(self) -> bool:
+        """Whether the model holds no entity at all."""
+        return not any(
+            (
+                self.source_systems,
+                self.hubs,
+                self.links,
+                self.satellites,
+                self.snapshot_controls,
+                self.reference_tables,
+                self.pits,
+                self.prejoins,
+            )
+        )
+
     def get_source_table(
         self, identifier: str
     ) -> tuple[DSourceSystem, DSourceTable] | None:

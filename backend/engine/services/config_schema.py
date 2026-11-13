@@ -584,6 +584,28 @@ class OutputConfiguration(BaseModel):
     )
 
 
+class DbtProjectConfig(BaseModel):
+    """The dbt project this TurboVault project belongs to (spec D11, D18).
+
+    The CLI imports from it (its ``target/manifest.json``, catalog,
+    ``dbt_project.yml`` and package files) when no source is given.
+    """
+
+    path: Path = Field(
+        ...,
+        description=(
+            "Folder of the dbt project, absolute or relative to the directory "
+            "the CLI runs in"
+        ),
+    )
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def sanitize_path(cls, v: object) -> str:
+        """Strip quotes and whitespace from the path."""
+        return _sanitize_path_string(v)
+
+
 class TurboVaultConfig(BaseModel):
     """
     Root configuration model for TurboVault Engine.
@@ -610,6 +632,10 @@ class TurboVaultConfig(BaseModel):
     output: OutputConfiguration = Field(
         default_factory=OutputConfiguration,
         description="dbt project output configuration",
+    )
+    dbt_project: DbtProjectConfig | None = Field(
+        None,
+        description="The dbt project to import from (dbt project import)",
     )
 
     @model_validator(mode="after")

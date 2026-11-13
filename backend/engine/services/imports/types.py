@@ -68,8 +68,44 @@ class IrisSource(_SourceBase):
     type: Literal["iris"] = "iris"
 
 
+class DbtSource(_SourceBase):
+    """A dbt project's artifacts: a datavault4dbt project to import.
+
+    ``path`` is a dbt project folder (the import finds ``target/manifest.json``
+    or ``manifest.json``, the catalog, ``dbt_project.yml`` and the package
+    files in it) or a ``manifest.json`` file. Files given explicitly win over
+    the ones found. The import reads files only: it never runs dbt or connects
+    to a warehouse. See ``engine.services.imports.dbt``.
+    """
+
+    type: Literal["dbt"] = "dbt"
+    catalog: Path | None = Field(
+        default=None, description="catalog.json: column types (optional)"
+    )
+    dbt_project: Path | None = Field(
+        default=None,
+        description="dbt_project.yml: vars and folder settings (optional)",
+    )
+    packages: Path | None = Field(
+        default=None,
+        description=(
+            "packages.yml, dependencies.yml or package-lock.yml: the "
+            "datavault4dbt version (optional)"
+        ),
+    )
+    import_descriptions: bool = Field(
+        default=True, description="Import the descriptions of models and columns"
+    )
+    import_tags: bool = Field(default=True, description="Import the models' tags")
+
+
 SourceInput = Annotated[
-    ExcelSource | SqliteSource | JsonSource | SourceMetadataSource | IrisSource,
+    ExcelSource
+    | SqliteSource
+    | JsonSource
+    | SourceMetadataSource
+    | IrisSource
+    | DbtSource,
     Field(discriminator="type"),
 ]
 
@@ -157,7 +193,11 @@ PLAN_ACTIONS: tuple[PlanAction, ...] = (
 
 
 class IssueLocation(BaseModel):
-    """Where in the source an issue was detected."""
+    """Where in the source an issue was detected.
+
+    Spreadsheets name a sheet, row and column. A dbt project names the node
+    (``model.my_project.hub_customer``), its file and the macro parameter.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -165,6 +205,8 @@ class IssueLocation(BaseModel):
     sheet: str | None = None
     row: int | None = None
     column: str | None = None
+    node_id: str | None = None
+    parameter: str | None = None
 
 
 class EntityRef(BaseModel):

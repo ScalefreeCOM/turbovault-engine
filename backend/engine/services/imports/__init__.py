@@ -30,6 +30,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from engine.models import Project
+from engine.services.imports.dbt.parser import parse_dbt
 from engine.services.imports.domain import DomainModel
 from engine.services.imports.errors import Code, PipelineAbort, make_issue
 from engine.services.imports.executor import apply_outcomes, execute_plan
@@ -50,6 +51,7 @@ from engine.services.imports.reporting import (
 )
 from engine.services.imports.types import (
     ConflictStrategy,
+    DbtSource,
     EntityRef,
     ErrorStrategy,
     ExcelSource,
@@ -76,6 +78,7 @@ __all__ = [
     "JsonSource",
     "SourceMetadataSource",
     "IrisSource",
+    "DbtSource",
     "SourceInput",
     "ImportOptions",
     "ImportReport",
@@ -158,6 +161,23 @@ def import_metadata(
                 domain = parse_source_metadata(Path(source.path))
             elif isinstance(source, IrisSource):
                 domain = parse_iris(Path(source.path))
+            elif isinstance(source, DbtSource):
+                domain, parse_issues = parse_dbt(source)
+                issues.extend(parse_issues)
+                if domain.is_empty():
+                    # Nothing to plan: above all, replace_all must not read an
+                    # empty project as "delete everything".
+                    raise PipelineAbort(
+                        make_issue(
+                            severity="error",
+                            code=Code.DBT_NOTHING_TO_IMPORT,
+                            stage="parse",
+                            message=(
+                                "The dbt project has no datavault4dbt models "
+                                "the import can map: nothing is imported"
+                            ),
+                        )
+                    )
             else:
                 raise PipelineAbort(
                     make_issue(

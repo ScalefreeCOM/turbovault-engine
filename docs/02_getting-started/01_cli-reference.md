@@ -216,7 +216,31 @@ alone, and skip individual rows that fail validation (reporting each one
 with full sheet/row/column context). See [Import Pipeline](../04_concepts/06_import-pipeline.md)
 for the full behavior reference.
 
-The source format is selected from the path: a `.xlsx` / `.db` / `.sqlite` / `.json` file picks the matching parser, and a **directory** is read as an IRiS three-file export (`Source_*` / `DataVault_*` / `Mappings_*`). The IRiS reader is the reverse of `generate --type iris`. See [IRiS Import (Round-Trip)](../00_index.md#iris-import-round-trip).
+The source format is selected from the path, or named with `--format`:
+
+- a `.xlsx` / `.db` / `.sqlite` file picks the matching parser;
+- a `.json` file is a TurboVault JSON export, or a **dbt manifest** (told apart
+  by its content);
+- a **directory** is a **dbt project** when it has a `dbt_project.yml` or a
+  manifest (`target/manifest.json` or `manifest.json`), else an IRiS three-file
+  export (`Source_*` / `DataVault_*` / `Mappings_*`). The IRiS reader is the
+  reverse of `generate --type iris`. See [IRiS Import (Round-Trip)](../00_index.md#iris-import-round-trip).
+
+**dbt projects.** In a dbt project folder the import finds the manifest, the
+catalog (`target/catalog.json`), `dbt_project.yml` and the package files
+(`packages.yml`, `dependencies.yml`, `package-lock.yml`), and shows what it
+found before importing. Only the manifest is required: without a catalog,
+column data types come from the YAML properties (warning); without
+`dbt_project.yml`, `var()` calls fall back to their defaults (warning). The
+import reads files only. When the folder has no manifest yet, `--dbt-parse`
+(or the interactive wizard, if dbt is installed) runs `dbt parse` to create
+it: that renders the project without connecting to the warehouse, but needs
+dbt-core, the project's adapter and its installed packages (`dbt deps`). The
+catalog comes from `dbt docs generate`, which queries the warehouse: run it
+yourself when you want column types from the warehouse.
+
+A project with `dbt_project.path` in its `config.yml` imports from that folder
+when no `--source` is given.
 
 #### Non-Interactive Mode (Flags)
 
@@ -232,6 +256,14 @@ turbovault import --project my_project --source ./metadata.xlsx --on-error fail-
 
 # Dry-run: the whole import, rolled back, so it shows exactly what would change
 turbovault import --project my_project --source ./metadata.xlsx --dry-run
+
+# A dbt project: its folder, or its manifest
+turbovault import --project my_project --source ../analytics_dbt --dry-run
+turbovault import --project my_project --source ./target/manifest.json --catalog ./target/catalog.json
+
+# The project's configured dbt project (dbt_project.path in config.yml),
+# creating the manifest with `dbt parse` if it has none
+turbovault import --project my_project --format dbt --dbt-parse
 ```
 
 #### Interactive Mode
@@ -244,7 +276,10 @@ turbovault import --interactive
 
 Prompts for project (chosen from a list of existing projects), source
 file, conflict strategy, error strategy, dry-run, and snapshot control
-behavior.
+behavior. For a dbt project (the project's `dbt_project.path` is the default
+answer) it shows which artifacts it found, offers `dbt parse` when the
+manifest is missing and dbt is installed, and asks whether to import
+descriptions and tags.
 
 If only one of `--project` / `--source` is supplied, the command exits
 with a clear error rather than running half-blind — pass both or pass
@@ -254,7 +289,13 @@ neither.
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `--source PATH` | `-s` | Path to the source metadata file (`.xlsx`, `.db`/`.sqlite`, or `.json`), or a directory holding an IRiS three-file export | prompted |
+| `--source PATH` | `-s` | Path to the source metadata file (`.xlsx`, `.db`/`.sqlite`, or `.json`), a directory holding an IRiS three-file export, or a dbt project (folder or `manifest.json`) | prompted; for dbt the configured `dbt_project.path` |
+| `--format STR` | `-f` | Source format: `excel`, `sqlite`, `json`, `iris` or `dbt` | from the path |
+| `--catalog PATH` | | dbt: the `catalog.json` to use | found next to the manifest |
+| `--dbt-project PATH` | | dbt: the `dbt_project.yml` to use | found in the project folder |
+| `--dbt-parse` | | dbt: run `dbt parse` first when the project folder has no manifest | `false` |
+| `--no-descriptions` | | dbt: don't import descriptions | `false` |
+| `--no-tags` | | dbt: don't import the models' tags | `false` |
 | `--project NAME` | `-p` | Target project name (must exist) | prompted |
 | `--mode STR` | | Conflict strategy: `merge`, `replace-all`, or `update-only` | `merge` |
 | `--on-error STR` | | Error strategy: `best-effort` or `fail-fast` | `best-effort` |

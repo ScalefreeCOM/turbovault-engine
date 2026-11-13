@@ -188,8 +188,40 @@ dbt source; for a pre-stage, dbt would fail to find that source.
 
 ## 4. dbt project import
 
-**Status:** In progress (dbt import branch): artifact reading and call extraction are built; the import
-itself comes with spec Phases 4 and 5.
+**Status:** In progress (dbt import branch). Built: artifact reading, call extraction, the `DbtSource` in the
+import pipeline with artifact detection and its issues, the CLI. The mapping to TurboVault entities follows
+(spec Phase 4b): until then every dbt import stops with `dbt.nothing_to_import`.
+
+### API
+
+```python
+from engine.services.imports import DbtSource, ImportOptions, import_metadata
+
+report = import_metadata(
+    project=project,
+    source=DbtSource(
+        path=upload_dir / "manifest.json",      # or a dbt project folder
+        catalog=upload_dir / "catalog.json",    # optional
+        dbt_project=upload_dir / "dbt_project.yml",  # optional
+        packages=upload_dir / "packages.yml",   # optional: or dependencies.yml / package-lock.yml
+        import_descriptions=True,
+        import_tags=True,
+    ),
+    options=ImportOptions(conflict_strategy="merge", dry_run=True),
+)
+```
+
+- Files named `catalog.json`, `dbt_project.yml`, `packages.yml` beside an uploaded `manifest.json` are found
+  without passing them (a manifest in `target/` also finds the project files one level up); explicit paths
+  win.
+- `IssueLocation` gained `node_id` (the dbt unique id, e.g. `model.shop.hub_customer`) and `parameter` (the
+  macro parameter); `file` holds the model's file path.
+- Parse-stage issues (codes in `engine/services/imports/codes.md`, "dbt project import"):
+  `dbt.artifacts_located` (info: what was found), `dbt.catalog_missing` (warning), `dbt.project_file_missing`
+  (warning), `dbt.packages_missing` (info), `dbt.resource_not_imported` (info, per resource type with its
+  count), and the aborting errors `dbt.manifest_missing`, `dbt.unsupported_manifest_version`,
+  `dbt.artifact_too_large`, `dbt.nothing_to_import` (a project mapping to no entity imports nothing; above all,
+  `replace_all` can't empty a project).
 
 Imports an existing datavault4dbt project from its dbt artifacts. The Engine never runs dbt or connects to the
 warehouse.

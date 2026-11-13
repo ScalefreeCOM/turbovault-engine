@@ -13,6 +13,20 @@ deep-link errors; the CLI groups them in summary tables.
 | `source.empty` | The file contains no parsable content. | Confirm the file has the expected sheets/tables. |
 | `source.invalid_json` | The JSON file is malformed or not a Turbovault export. | Re-export the project as JSON and re-upload. |
 
+## dbt project import
+
+| Code | Severity | Cause | Suggestion shown to user |
+|------|----------|-------|--------------------------|
+| `dbt.manifest_missing` | error (abort) | No `manifest.json` in the dbt project folder (`target/manifest.json` or `manifest.json`). | Run `dbt parse` (no warehouse connection needed) or pass the manifest's path. |
+| `dbt.unsupported_manifest_version` | error (abort) | The manifest isn't schema v12 (dbt 1.8 or later, dbt Cloud, dbt Fusion). | Regenerate it with a current dbt version (`dbt parse`). |
+| `dbt.artifact_too_large` | error (abort) | An artifact is larger than 512 MB. | — |
+| `dbt.artifacts_located` | info | Which artifacts the import found (manifest, catalog, `dbt_project.yml`, package files). | — |
+| `dbt.catalog_missing` | warning | No `catalog.json`: column data types come from the YAML properties only. | Run `dbt docs generate` (it queries the warehouse) and import again. |
+| `dbt.project_file_missing` | warning | No `dbt_project.yml`: `var()` calls fall back to their defaults, and folder-level settings can't be told apart from a model's own. | Pass the project's `dbt_project.yml`. |
+| `dbt.packages_missing` | info | No package file: the datavault4dbt version is unknown, both argument formats are read. | — |
+| `dbt.resource_not_imported` | info | Resources the import doesn't read, with their count (seeds, tests, dbt snapshots, analyses, exposures, ...). | — |
+| `dbt.nothing_to_import` | error (abort) | No datavault4dbt model maps to TurboVault: nothing is planned (a `replace_all` never deletes everything because of an empty project). | Check that the project uses datavault4dbt macros. |
+
 ## Schema validation
 
 | Code | Cause | Suggestion |

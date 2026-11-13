@@ -56,60 +56,47 @@ class DbtArtifactPaths:
         """Find the artifacts from a manifest file or a project directory.
 
         A directory may be the dbt project (``target/manifest.json``,
-        ``dbt_project.yml``) or a folder holding the artifacts directly.
-        Paths given explicitly win over the ones found.
+        ``dbt_project.yml``) or a folder holding the artifacts directly. A
+        manifest file finds the catalog beside it, and the project files in
+        its folder, or one level up when it sits in ``target/``. Paths given
+        explicitly win over the ones found. The manifest path is where it was
+        looked for: it may not exist.
         """
         path = Path(path)
         if path.is_dir():
-            manifest = next(
-                (
-                    candidate
-                    for candidate in (
-                        path / "target" / "manifest.json",
-                        path / "manifest.json",
-                    )
-                    if candidate.is_file()
-                ),
-                path / "target" / "manifest.json",
-            )
-            found_catalog = next(
-                (
-                    candidate
-                    for candidate in (
-                        path / "target" / "catalog.json",
-                        path / "catalog.json",
-                    )
-                    if candidate.is_file()
-                ),
-                None,
-            )
-            found_project = (
-                path / "dbt_project.yml"
-                if (path / "dbt_project.yml").is_file()
-                else None
-            )
-            found_packages = tuple(
-                candidate
-                for candidate in (
-                    path / "packages.yml",
-                    path / "dependencies.yml",
-                    path / "package-lock.yml",
-                )
-                if candidate.is_file()
-            )
+            manifest = _first_file(
+                path / "target" / "manifest.json", path / "manifest.json"
+            ) or (path / "target" / "manifest.json")
+            artifact_dirs = (path / "target", path)
+            project_dir = path
         else:
-            manifest, found_catalog, found_project, found_packages = (
-                path,
-                None,
-                None,
-                (),
+            manifest = path
+            artifact_dirs = (path.parent,)
+            project_dir = (
+                path.parent.parent if path.parent.name == "target" else path.parent
             )
+        found_catalog = _first_file(*(d / "catalog.json" for d in artifact_dirs))
+        found_project = _first_file(project_dir / "dbt_project.yml")
+        found_packages = tuple(
+            candidate
+            for candidate in (
+                project_dir / "packages.yml",
+                project_dir / "dependencies.yml",
+                project_dir / "package-lock.yml",
+            )
+            if candidate.is_file()
+        )
         return cls(
             manifest=manifest,
             catalog=catalog or found_catalog,
             dbt_project=dbt_project or found_project,
             packages=(packages,) if packages else found_packages,
         )
+
+
+def _first_file(*candidates: Path) -> Path | None:
+    """The first candidate that is a file, or None."""
+    return next((c for c in candidates if c.is_file()), None)
 
 
 @dataclass

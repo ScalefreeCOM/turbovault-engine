@@ -67,7 +67,12 @@ class Code:
     # dbt project import
     DBT_UNSUPPORTED_MANIFEST_VERSION = "dbt.unsupported_manifest_version"
     DBT_ARTIFACT_TOO_LARGE = "dbt.artifact_too_large"
+    DBT_MANIFEST_MISSING = "dbt.manifest_missing"
+    DBT_NOTHING_TO_IMPORT = "dbt.nothing_to_import"
+    DBT_ARTIFACTS_LOCATED = "dbt.artifacts_located"
     DBT_CATALOG_MISSING = "dbt.catalog_missing"
+    DBT_PROJECT_FILE_MISSING = "dbt.project_file_missing"
+    DBT_PACKAGES_MISSING = "dbt.packages_missing"
     DBT_MODEL_NOT_MAPPED = "dbt.model_not_mapped"
     DBT_MODEL_RENDER_FAILED = "dbt.model_render_failed"
     DBT_MACRO_UNSUPPORTED = "dbt.macro_unsupported"

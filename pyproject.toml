@@ -80,6 +80,12 @@ dev = [
     "pytest-django>=4.5",
     "pre-commit>=3.0",
 ]
+# `dbt parse` for local dbt projects without a manifest (CLI --dbt-parse) and
+# for the dbt import's round-trip tests. Parsing doesn't connect to a database.
+dbt = [
+    "dbt-core>=1.8,<2.0",
+    "dbt-postgres>=1.8,<2.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/ScalefreeCOM/turbovault-engine"

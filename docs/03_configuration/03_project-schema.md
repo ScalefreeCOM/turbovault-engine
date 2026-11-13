@@ -397,6 +397,23 @@ output:
 2. Config value in `config.yml` (`output.dbt_project_dir`, `output.sqlmesh_output_dir`, etc.)
 3. Convention default (`exports/<type>/` inside the project folder)
 
+### `dbt_project` (Optional)
+
+The dbt project this TurboVault project belongs to: `turbovault import` reads
+its artifacts when no `--source` is given (see the
+[CLI reference](../02_getting-started/01_cli-reference.md#turbovault-import)).
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `path` | path | Yes | The dbt project folder, absolute or relative to the directory the CLI runs in. The import finds `target/manifest.json` (or `manifest.json`), `target/catalog.json`, `dbt_project.yml` and the package files in it |
+
+**Example:**
+
+```yaml
+dbt_project:
+  path: ../analytics_dbt
+```
+
 ---
 
 ## Complete Configuration Example
