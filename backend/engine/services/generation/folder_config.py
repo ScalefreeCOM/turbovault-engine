@@ -8,17 +8,20 @@ utilities for creating folders and resolving paths.
 from __future__ import annotations
 
 import re
+from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
 # Where each kind of model goes: patterns relative to the dbt project, like
 # the naming patterns (spec D27). [[ group ]] and [[ source_system ]] stand for
-# the entity's group and the stage's source system as folder names (lowercase,
-# spaces and dashes as underscores); [[ group_name ]] and
-# [[ source_system_name ]] as they are spelled. A part whose placeholder has no
-# value (an entity without a group) is left out. The defaults are TurboVault's
-# layer folders (D12).
+# the entity's group and its source system as folder names (lowercase, spaces
+# and dashes as underscores); [[ group_name ]] and [[ source_system_name ]] as
+# they are spelled. A stage's source system is its table's; an entity's that
+# of its (primary) source tables (main_source_system). A part whose
+# placeholder has no value (an entity without a group) is left out. The
+# defaults are TurboVault's layer folders (D12).
 DEFAULT_FOLDERS: dict[str, str] = {
     "control": "models/00_control",
     "sources": "models/10_sources",
@@ -48,6 +51,17 @@ FOLDER_PLACEHOLDERS = frozenset(
     {"group", "group_name", "source_system", "source_system_name"}
 )
 _PLACEHOLDER = re.compile(r"\[\[\s*(\w+)\s*\]\]")
+
+
+def main_source_system(systems: Iterable[str | None]) -> str | None:
+    """The source system an entity's folder names: of the systems of its
+    source tables (a Hub's primary ones), the most common; on a tie the
+    first by name. None without any."""
+    counts = Counter(system for system in systems if system)
+    if not counts:
+        return None
+    top = max(counts.values())
+    return min(system for system, count in counts.items() if count == top)
 
 
 def folder_name(name: str) -> str:

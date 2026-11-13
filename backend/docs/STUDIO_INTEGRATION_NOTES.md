@@ -785,7 +785,10 @@ the generated file matches the original in content (comments and formatting asid
   follow their v0 or parent unless they have their own.
 - **Placeholders:** `[[ group ]]` (lowercase, spaces/dashes as `_`), `[[ group_name ]]` (as named),
   `[[ source_system ]]`, `[[ source_system_name ]]`. A folder whose placeholder has no value is left out (no
-  group: the layer's folder).
+  group: the layer's folder). The source system is a stage's table's. For other models it comes from the
+  tables they load (a hub's primary source tables, a link's source tables, a satellite's table); PITs, reference
+  tables, effectivity and record-tracking satellites take their hub's or link's. Several systems: the most common
+  one, then the first by name (`folder_config.main_source_system`). Only the default stage pattern uses it.
 - **Validation** (`engine.services.generation.folder_config.folder_pattern_error(pattern)`, and
   `FOLDER_KEYS`): known keys and placeholders, relative, no `..`, at least a model path and a folder. Messages:
   "Unknown folders: ...", "Folder pattern '...' uses unknown placeholders: ...", "... must be relative to the

@@ -1,7 +1,7 @@
 """Where generated models go: folder patterns and the folder setting (D27).
 
 A project's folders are patterns per layer and kind of model, with the
-entity's group and the stage's source system as placeholders; dbt_project.yml
+entity's group and source system as placeholders; dbt_project.yml
 configures each layer on the fixed part of its pattern. Models outside their
 layer's configured folder carry the layer's settings themselves. With
 use_model_folders off, models go to the patterns instead of the folders stored
@@ -101,6 +101,33 @@ def _group(project, name):
     from engine.models import Group
 
     return Group.objects.get_or_create(project=project, group_name=name)[0]
+
+
+def test_vault_folders_may_name_the_entitys_source_system(project, tmp_path):
+    folders = {
+        "raw_vault": "models/rdv/[[ source_system ]]",
+        "pit": "models/bdv/[[ source_system_name ]]/pits",
+    }
+
+    report = _generate(project, tmp_path, runtime_config=_config(folders=folders))
+
+    assert report.status == "success", report.issues
+    files = _files(tmp_path)
+    # Hubs: their primary source's system; satellites: their table's
+    assert "models/rdv/crm/CUSTOMER_H.sql" in files
+    assert "models/rdv/crm/CUSTOMER_S_v0.sql" in files
+    assert "models/rdv/crm/CUSTOMER_S_v1.sql" in files
+    # Reference tables and PITs: their Hub's
+    assert "models/rdv/crm/NATION_R.sql" in files
+    assert "models/bdv/CRM/pits/CUSTOMER_PIT.sql" in files
+
+
+def test_an_entitys_source_system_is_its_most_common():
+    from engine.services.generation.folder_config import main_source_system
+
+    assert main_source_system(["crm", "erp", "crm"]) == "crm"
+    assert main_source_system(["erp", "crm"]) == "crm"  # a tie: first by name
+    assert main_source_system([None]) is None
 
 
 def test_invalid_patterns_are_rejected():

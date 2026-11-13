@@ -20,7 +20,7 @@ from engine.services.export.model_outputs import entity_base_name, satellite_pat
 
 from . import project_yml
 from .file_writer import write_sql_file, write_yaml_file
-from .folder_config import GenerationConfig, get_model_filename
+from .folder_config import GenerationConfig, get_model_filename, main_source_system
 from .model_config import LayerDefaults, ModelConfig
 from .profiles_yml import LiteralSecretError, render_profiles_yml
 from .report import GenerationReport
@@ -123,6 +123,24 @@ def _in_folder_of(
     return output.model_copy(update={"folder": other.folder})
 
 
+def _entity_source_systems(
+    project_export: ProjectExport,
+) -> dict[tuple[str, str], str | None]:
+    """The source system of each Hub (of its primary source tables) and Link
+    (of its source tables): see ``main_source_system``."""
+    systems: dict[tuple[str, str], str | None] = {}
+    for hub in project_export.hubs:
+        primary = [s.source_system for s in hub.source_tables if s.is_primary_source]
+        systems[("hub", hub.hub_name)] = main_source_system(
+            primary or [s.source_system for s in hub.source_tables]
+        )
+    for link in project_export.links:
+        systems[("link", link.link_name)] = main_source_system(
+            s.source_system for s in link.source_tables
+        )
+    return systems
+
+
 def _model_outputs(project_export: ProjectExport) -> Iterable[ModelOutputDef]:
     """Every resolved model output the export carries."""
     for stage in project_export.stages:
@@ -189,6 +207,10 @@ class DbtProjectGenerator:
         self.template_resolver = template_resolver or TemplateResolver()
         self.folder_config = self.config.folder_config
         self._has_prestages = False
+        # The source system of each Hub and Link, by (type, name): what
+        # [[ source_system ]] stands for in their folders and their
+        # satellites', PITs' and reference tables'
+        self._entity_systems: dict[tuple[str, str], str | None] = {}
 
         # Initialize report
         self.report = GenerationReport(project_path=self.output_path)
@@ -274,6 +296,7 @@ class DbtProjectGenerator:
             return self.report
 
         self._has_prestages = bool(project_export.prestages)
+        self._entity_systems = _entity_source_systems(project_export)
         try:
             # 1. Create folder structure
             self._create_folder_structure()
@@ -1004,7 +1027,11 @@ class DbtProjectGenerator:
                 # Standard folder: the raw vault layer's, per group
                 directory, model_config = self._placement(
                     hub.output,
-                    self._default_dir("hub", group=hub.group),
+                    self._default_dir(
+                        "hub",
+                        group=hub.group,
+                        source_system=self._entity_systems.get(("hub", hub.hub_name)),
+                    ),
                     "raw_vault",
                 )
                 self._write_model(
@@ -1053,7 +1080,13 @@ class DbtProjectGenerator:
                 # Standard folder: the raw vault layer's, per group
                 directory, model_config = self._placement(
                     link.output,
-                    self._default_dir("link", group=link.group),
+                    self._default_dir(
+                        "link",
+                        group=link.group,
+                        source_system=self._entity_systems.get(
+                            ("link", link.link_name)
+                        ),
+                    ),
                     "raw_vault",
                 )
                 self._write_model(
@@ -1112,7 +1145,11 @@ class DbtProjectGenerator:
                     )
                 )
                 # Standard folder: the raw vault layer's, per group
-                default_dir = self._default_dir("satellite", group=satellite.group)
+                default_dir = self._default_dir(
+                    "satellite",
+                    group=satellite.group,
+                    source_system=satellite.source_system,
+                )
                 directory, model_config = self._placement(
                     satellite.v0_output, default_dir, "raw_vault"
                 )
@@ -1136,7 +1173,11 @@ class DbtProjectGenerator:
                 if satellite.gets_v1_view(generate_v1):
                     self._generate_satellite_v1(
                         satellite,
-                        self._default_dir("satellite_v1", group=satellite.group)
+                        self._default_dir(
+                            "satellite_v1",
+                            group=satellite.group,
+                            source_system=satellite.source_system,
+                        )
                         if self.folder_config.has_own("satellite_v1")
                         else default_dir,
                         v0_name,
@@ -1230,9 +1271,10 @@ class DbtProjectGenerator:
         Without a folder of its own, the satellite goes where its parent goes.
         """
         # Collect flagged parents as (name, group, hashkey_name, source_tables,
-        # the satellite's output, in its parent's folder unless it has one).
+        # the satellite's output, in its parent's folder unless it has one,
+        # the parent's type).
         parents: list[
-            tuple[str, str | None, str | None, list, ModelOutputDef | None, str]
+            tuple[str, str | None, str | None, list, ModelOutputDef | None, str, str]
         ] = []
         own = self.folder_config.has_own("record_tracking_satellite")
         for hub in hubs:
@@ -1250,6 +1292,7 @@ class DbtProjectGenerator:
                             hub.record_tracking_satellite_output, hub.output
                         ),
                         "record_tracking_satellite" if own else "hub",
+                        "hub",
                     )
                 )
         for link in links:
@@ -1267,6 +1310,7 @@ class DbtProjectGenerator:
                             link.record_tracking_satellite_output, link.output
                         ),
                         "record_tracking_satellite" if own else "link",
+                        "link",
                     )
                 )
 
@@ -1294,6 +1338,7 @@ class DbtProjectGenerator:
             source_tables,
             output,
             folder_kind,
+            parent_type,
         ) in parents:
             if not hashkey_name:
                 self.report.add_skipped(
@@ -1319,7 +1364,13 @@ class DbtProjectGenerator:
 
                 directory, model_config = self._placement(
                     output,
-                    self._default_dir(folder_kind, group=group),
+                    self._default_dir(
+                        folder_kind,
+                        group=group,
+                        source_system=self._entity_systems.get(
+                            (parent_type, parent_name)
+                        ),
+                    ),
                     "raw_vault",
                 )
                 self._write_model(
@@ -1455,7 +1506,9 @@ class DbtProjectGenerator:
                 directory, model_config = self._placement(
                     output,
                     self._default_dir(
-                        "effectivity_satellite" if own else kind, group=group
+                        "effectivity_satellite" if own else kind,
+                        group=group,
+                        source_system=self._entity_systems.get((kind, parent_name)),
                     ),
                     "raw_vault",
                 )
@@ -1504,7 +1557,13 @@ class DbtProjectGenerator:
                 # Standard folder: the business vault's pits folder, per group
                 directory, model_config = self._placement(
                     pit.output,
-                    self._default_dir("pit", group=pit.group),
+                    self._default_dir(
+                        "pit",
+                        group=pit.group,
+                        source_system=self._entity_systems.get(
+                            (pit.tracked_entity_type, pit.tracked_entity_name)
+                        ),
+                    ),
                     "business_vault",
                 )
                 self._write_model(
@@ -1558,7 +1617,13 @@ class DbtProjectGenerator:
                 # Standard folder: the raw vault layer's, per group
                 directory, model_config = self._placement(
                     ref_table.output,
-                    self._default_dir("reference_table", group=ref_table.group),
+                    self._default_dir(
+                        "reference_table",
+                        group=ref_table.group,
+                        source_system=self._entity_systems.get(
+                            ("hub", ref_table.reference_hub_name)
+                        ),
+                    ),
                     "raw_vault",
                 )
                 self._write_model(

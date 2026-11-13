@@ -33,6 +33,7 @@ from engine.services.generation.folder_config import (
     FolderConfig,
     fixed_part,
     folder_pattern_error,
+    main_source_system,
 )
 from engine.services.generation.project_yml import Settings
 from engine.services.imports.dbt.conventions import DEFAULT_TAGS, GROUP_TAGGED
@@ -243,8 +244,64 @@ class ProjectSettingsMapping:
         return folders.folder(
             self._FOLDER_KINDS[item.kind],
             group=group,
-            source_system=item.system,
+            source_system=self._system_of(item),
         )
+
+    def _system_of(self, item: _Output) -> str | None:
+        """The source system [[ source_system ]] stands for in a model's
+        folder: a stage's, else its entity's (generation's rule)."""
+        return item.system or self._entity_system(item.entity)
+
+    def _entity_system(self, entity: tuple[str, str] | None) -> str | None:
+        """An entity's source system, as generation finds it
+        (``main_source_system``): a Hub's primary source tables', a Link's
+        source tables', a Satellite's table's; a PIT's and a reference
+        table's are those of the Hub or Link they belong to."""
+        if entity is None:
+            return None
+        kind, name = entity
+        table_systems = {
+            identifier: system.name
+            for system in self.domain.source_systems.values()
+            for identifier in system.tables
+        }
+        if kind == "hub" and name in self.domain.hubs:
+            # One per source table and hash key it loads, as the export lists
+            sources = {
+                (
+                    mapping.source_table_identifier,
+                    mapping.stage_hashkey_name
+                    if isinstance(mapping.stage_hashkey_name, str)
+                    else "",
+                ): mapping.is_primary_source
+                for column in self.domain.hubs[name].columns
+                if column.column_type != "additional_column"
+                for mapping in column.source_mappings
+            }
+            primary = [table for (table, _), first in sources.items() if first]
+            return main_source_system(
+                table_systems.get(table)
+                for table in (primary or [table for table, _ in sources])
+            )
+        if kind == "link" and name in self.domain.links:
+            tables = {
+                mapping.source_table_identifier
+                for mapping in self.domain.links[name].hub_source_mappings
+            }
+            return main_source_system(table_systems.get(t) for t in tables)
+        if kind == "satellite" and name in self.domain.satellites:
+            return table_systems.get(
+                self.domain.satellites[name].source_table_identifier
+            )
+        if kind == "pit" and name in self.domain.pits:
+            pit = self.domain.pits[name]
+            return self._entity_system(
+                (pit.tracked_entity_type, pit.tracked_entity_name)
+            )
+        if kind == "reference_table" and name in self.domain.reference_tables:
+            hub = self.domain.reference_tables[name].reference_hub_name
+            return self._entity_system(("hub", hub))
+        return None
 
     def _template_materialization(self, kind: str) -> str | None:
         """What a model's template writes as its materialization, if anything."""
@@ -623,7 +680,7 @@ class ProjectSettingsMapping:
             key = self._FOLDER_KINDS[item.kind]
             folder = _folder(item.model)
             samples.setdefault(key, []).append(
-                FolderSample(folder, self._group_of(item.entity), item.system)
+                FolderSample(folder, self._group_of(item.entity), self._system_of(item))
             )
             if item.follows is not None:
                 beside.setdefault(key, []).append(folder == _folder(item.follows))

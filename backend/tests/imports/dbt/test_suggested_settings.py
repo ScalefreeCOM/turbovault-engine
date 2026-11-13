@@ -454,6 +454,32 @@ def test_subject_folders_become_groups_and_folder_patterns(tmp_path):
     )
 
 
+def test_vault_folders_may_follow_the_source_system(tmp_path):
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    vault = {"folder": "models/rdv/crm", "materialized": "incremental"}
+    path = write_manifest(
+        tmp_path,
+        [
+            STG_CUSTOMER,
+            STG_ORDERS,
+            configured(CUSTOMER_H, **vault),
+            configured(ORDER_H, **vault),
+            configured(ORDER_CUSTOMER_L, **vault),
+            configured(CUSTOMER_S_V0, **vault),
+        ],
+        [CUSTOMER, ORDERS],
+    )
+
+    domain, _ = map_manifest(path, EngineRuntimeConfig())
+
+    # Every entity loads from crm: the folder names the source system
+    found = suggestions(domain)
+    assert found["folders.raw_vault"] == "models/rdv/[[ source_system ]]"
+    domain, _ = map_manifest(path, EngineRuntimeConfig().with_settings(found))
+    assert "hub" not in domain.hubs["customer_h"].outputs
+
+
 def test_folders_named_after_kinds_of_model_are_no_groups(tmp_path):
     path = write_manifest(
         tmp_path,

@@ -434,8 +434,21 @@ Placeholders:
 |-------------|-------|
 | `[[ group ]]` | the entity's group, lowercase with spaces and dashes as `_` |
 | `[[ group_name ]]` | the group as it is named (spaces as `_`) |
-| `[[ source_system ]]` | the stage's source system, lowercase with spaces and dashes as `_` |
+| `[[ source_system ]]` | the model's source system, lowercase with spaces and dashes as `_` |
 | `[[ source_system_name ]]` | the source system as it is named |
+
+A model's source system:
+
+- stage: its table's system
+- hub: the system of its primary source tables
+- link: the system of its source tables
+- satellite and its v1 view: its table's system
+- effectivity and record-tracking satellites: their hub's or link's system
+- PIT: its hub's or link's system
+- reference table: its reference hub's system
+
+When the tables belong to several systems, the most common one counts; on a tie,
+the first by name. The default patterns use it for stages only.
 
 A folder whose placeholder has no value is left out: an entity without a group
 sits in its layer's folder. Leave `[[ group ]]` out for no group folders. A
