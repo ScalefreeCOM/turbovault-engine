@@ -220,13 +220,13 @@ same way (`ref_model`).
 
 | Generated | Name | Where |
 | --------- | ---- | ----- |
-| Pre-stage model | `pstg__<system>__<table>` | `models/01_prestaging/<system>/`, with a YAML file documenting its columns |
-| Its stage | `stg__<system>__<table>` | `models/02_staging/<system>/`, as for any table |
+| Pre-stage model | `pstg__<system>__<table>` | `models/15_prestaging/<system>/`, with a YAML file documenting its columns |
+| Its stage | `stg__<system>__<table>` | `models/20_staging/<system>/`, as for any table |
 
 `prestage_sql` holds the complete dbt model, written as it is: it reads its
 inputs with `{{ source('crm', 'CUSTOMER_RAW') }}` or
 `{{ ref('pstg__crm__other') }}` and may set its own `{{ config() }}`. The
-`01_prestaging` layer has the staging layer's schema and materialization; the
+`15_prestaging` layer has the staging layer's schema and materialization; the
 model's own `config()` takes precedence. Without SQL, the model is maintained
 outside TurboVault (by hand, or in a dbt package): nothing is generated for it,
 and its stage reads `pstg__<system>__<table>` all the same.

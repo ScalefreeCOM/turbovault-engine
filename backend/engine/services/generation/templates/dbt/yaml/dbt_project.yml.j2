@@ -29,16 +29,16 @@ clean-targets:
       +materialized: [[ control_materialization | default('table', true) | yaml_scalar ]]
 [# Only when the project has pre-stage models, so dbt finds no unused path #]
 [% if prestaging_materialization %]
-    01_prestaging:
+    15_prestaging:
       +schema: [[ stage_schema | default('stage', true) | yaml_scalar ]]
       +materialized: [[ prestaging_materialization | yaml_scalar ]]
 [% endif %]
-    02_staging:
+    20_staging:
       +schema: [[ stage_schema | default('stage', true) | yaml_scalar ]]
       +materialized: [[ staging_materialization | default('view', true) | yaml_scalar ]]
-    03_raw_vault:
+    30_raw_vault:
       +schema: [[ rdv_schema | default('rdv', true) | yaml_scalar ]]
       +materialized: [[ raw_vault_materialization | default('incremental', true) | yaml_scalar ]]
-    04_business_vault:
+    40_business_vault:
       +schema: [[ bdv_schema | default('bdv', true) | yaml_scalar ]]
       +materialized: [[ business_vault_materialization | default('table', true) | yaml_scalar ]]

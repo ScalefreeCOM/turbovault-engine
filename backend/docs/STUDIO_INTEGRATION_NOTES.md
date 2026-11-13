@@ -60,11 +60,11 @@ date, derived columns and prejoins, and Hubs, Links and Satellites map its colum
 
 | File | Content |
 |------|---------|
-| `models/01_prestaging/<system>/pstg__<system>__<table>.sql` | `prestage_sql` as it is. Only when the pre-stage has SQL. |
-| `models/01_prestaging/<system>/pstg__<system>__<table>.yml` | Model name, description (the table's, else "Pre-stage model for …"), tags `['prestage', '<system>']`, columns with `data_type` and description. |
-| `models/02_staging/<system>/stg__<system>__<table>.sql` | The stage reads the pre-stage with `source_model: 'pstg__<system>__<table>'` (dbt `ref()`). |
-| `models/01_sources/source__<system>.yml` | Leaves pre-stages out. A system with only pre-stages gets no sources file. |
-| `dbt_project.yml` | A `01_prestaging` block (staging layer's schema and materialization; `ephemeral` becomes `view`). Only when at least one pre-stage has SQL. |
+| `models/15_prestaging/<system>/pstg__<system>__<table>.sql` | `prestage_sql` as it is. Only when the pre-stage has SQL. |
+| `models/15_prestaging/<system>/pstg__<system>__<table>.yml` | Model name, description (the table's, else "Pre-stage model for …"), tags `['prestage', '<system>']`, columns with `data_type` and description. |
+| `models/20_staging/<system>/stg__<system>__<table>.sql` | The stage reads the pre-stage with `source_model: 'pstg__<system>__<table>'` (dbt `ref()`). |
+| `models/10_sources/source__<system>.yml` | Leaves pre-stages out. A system with only pre-stages gets no sources file. |
+| `dbt_project.yml` | A `15_prestaging` block (staging layer's schema and materialization; `ephemeral` becomes `view`). Only when at least one pre-stage has SQL. |
 
 `<system>` and `<table>` are lowercased, spaces become `_`. These names become configurable with item 5.
 

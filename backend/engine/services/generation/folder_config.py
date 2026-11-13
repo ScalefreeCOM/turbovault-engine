@@ -23,11 +23,11 @@ class FolderConfig:
 
     # Base paths for each layer
     control_path: str = "models/00_control"
-    source_path: str = "models/01_sources"
-    prestaging_path: str = "models/01_prestaging"
-    staging_path: str = "models/02_staging"
-    raw_vault_path: str = "models/03_raw_vault"
-    business_vault_path: str = "models/04_business_vault"
+    source_path: str = "models/10_sources"
+    prestaging_path: str = "models/15_prestaging"
+    staging_path: str = "models/20_staging"
+    raw_vault_path: str = "models/30_raw_vault"
+    business_vault_path: str = "models/40_business_vault"
 
     # Business vault subdirectories
     pits_subdir: str = "pits"

@@ -57,7 +57,7 @@ renderer, and writer specialise per type.
 
 | `output_type` | Plan emits | Renderer | Writer behaviour |
 |---------------|------------|----------|------------------|
-| `dbt` | One SQL + one YAML file per entity, plus `dbt_project.yml`, `packages.yml`, `sources.yml`. Standard / multi-active satellites also get a `_v1` view when enabled. Each [pre-stage](01_domain-model.md#35-pre-stages) with SQL gets its model (the SQL as it is) and a YAML file under `models/01_prestaging/<source_system>/`; its stage reads it with `ref()`. | `DbtProjectGenerator` (via a temp directory the writer then relocates). | Writes the tree under `output_path/`; optionally creates a sibling `.zip`. |
+| `dbt` | One SQL + one YAML file per entity, plus `dbt_project.yml`, `packages.yml`, `sources.yml`. Standard / multi-active satellites also get a `_v1` view when enabled. Each [pre-stage](01_domain-model.md#35-pre-stages) with SQL gets its model (the SQL as it is) and a YAML file under `models/15_prestaging/<source_system>/`; its stage reads it with `ref()`. | `DbtProjectGenerator` (via a temp directory the writer then relocates). | Writes the tree under `output_path/`; optionally creates a sibling `.zip`. |
 | `sqlmesh` | One Python file per entity (stage, hub, link, satellite), plus `config.yaml`, `config.json`, `requirements.txt`, `README.md`, and `models/__init__.py`. Standard / multi-active satellites also get a `_v1` view when enabled. Unsupported entity types (PITs, reference tables, non-historized links, multi-active / effectivity / non-historized / reference satellites) are skipped with a `warning` issue rather than failing the run. **Prejoins** aren't supported yet either: hash keys, hash diffs and derived columns that read prejoined columns are left out of the stage, and the hubs, links and satellites that use them are skipped with a warning. Nor are **pre-stages** (their SQL is a dbt model): each gets a `render.sqlmesh.unsupported.prestage` warning, and the stages reading them and the hubs, links and satellites loaded from those stages are skipped (`render.sqlmesh.prestage_dependent_skipped`). | `render_sqlmesh()` — a pure function that builds artifacts in memory without touching the filesystem. | Writes the tree under `output_path/` (shares the dbt writer path). |
 | `json` | One artifact, regardless of project size. | `JSONExporter`. | Writes a single `.json` file at `output_path`. |
 | `dbml` | One artifact, regardless of project size. | `DBMLExporter`. | Writes a single `.dbml` file at `output_path`. |
@@ -209,9 +209,9 @@ engine has always generated, byte for byte.
 | `profile_name` | `default` | `profile:` in `dbt_project.yml`. |
 | `control_schema` | `control` | `+schema` of `00_control`. |
 | `control_materialization` | `table` | `+materialized` of `00_control`. |
-| `staging_materialization` | `view` | `+materialized` of `02_staging`. |
-| `raw_vault_materialization` | `incremental` | `+materialized` of `03_raw_vault`. |
-| `business_vault_materialization` | `table` | `+materialized` of `04_business_vault`. |
+| `staging_materialization` | `view` | `+materialized` of `20_staging`. |
+| `raw_vault_materialization` | `incremental` | `+materialized` of `30_raw_vault`. |
+| `business_vault_materialization` | `table` | `+materialized` of `40_business_vault`. |
 | `model_specific_materializations` | `true` | Keep the own materialization of models that differ from their layer (see below); off, every model follows its layer. |
 | `model_materializations` | `{}` | Per-model overrides of those own materializations, e.g. `{satellite_v1: table}`. Model kinds left out keep their default. |
 | `global_vars` | `{}` | Rendered verbatim into the `vars:` block. |
@@ -276,13 +276,13 @@ Anything else — including `None` — fails the run with
 #### Subfolders
 
 Models with a group are written to a subfolder of their layer
-(`models/03_raw_vault/<group>/`), stages to one per source system
-(`models/02_staging/<source_system>/`), pre-stages likewise
-(`models/01_prestaging/<source_system>/`). dbt applies a folder's settings to
+(`models/30_raw_vault/<group>/`), stages to one per source system
+(`models/20_staging/<source_system>/`), pre-stages likewise
+(`models/15_prestaging/<source_system>/`). dbt applies a folder's settings to
 all of its subfolders, so these models follow their layer's materialization
 and schema.
 
-The `01_prestaging` layer is only configured when the project has pre-stage
+The `15_prestaging` layer is only configured when the project has pre-stage
 models. It takes the staging layer's schema and materialization, except that an
 `ephemeral` staging layer gives views: a stage reads its pre-stage's columns
 from the database. A pre-stage's own `{{ config() }}` takes precedence.
@@ -294,9 +294,9 @@ subfolder. dbt itself supports it — a more specific folder in
 ```yaml
 models:
   my_project:
-    03_raw_vault:
+    30_raw_vault:
       +materialized: incremental
-      sales:                       # models/03_raw_vault/sales/
+      sales:                       # models/30_raw_vault/sales/
         +materialized: table
 ```
 

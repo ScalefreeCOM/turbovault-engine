@@ -1,7 +1,7 @@
 """Pre-stages: dbt models that prepare a table's data for its stage.
 
 A pre-stage is a source table of type ``prestage``. Generation writes its SQL
-as it is (with a YAML file for its columns) to models/01_prestaging/, and its
+as it is (with a YAML file for its columns) to models/15_prestaging/, and its
 stage reads it with ref() instead of a dbt source. Hubs, links and satellites
 map its columns like any table's.
 
@@ -296,7 +296,7 @@ def test_the_prestage_model_is_written_as_it_is(prestage_project, tmp_path):
     report = _generate(prestage_project, tmp_path)
     assert report.status == "success", report.issues
 
-    folder = tmp_path / "dbt" / "models" / "01_prestaging" / "crm"
+    folder = tmp_path / "dbt" / "models" / "15_prestaging" / "crm"
     model = folder / "pstg__crm__customer_address.sql"
     assert model.read_text(encoding="utf-8") == ADDRESS_SQL + "\n"
 
@@ -318,7 +318,7 @@ def test_the_prestage_model_is_written_as_it_is(prestage_project, tmp_path):
 
 def test_the_stage_reads_the_prestage_model(prestage_project, tmp_path):
     _generate(prestage_project, tmp_path)
-    staging = tmp_path / "dbt" / "models" / "02_staging" / "crm"
+    staging = tmp_path / "dbt" / "models" / "20_staging" / "crm"
 
     stage = _yaml_metadata(staging / "stg__crm__customer_address.sql")
     assert stage["source_model"] == "pstg__crm__customer_address"
@@ -336,7 +336,7 @@ def test_a_prestage_without_sql_is_only_referenced(prestage_project, tmp_path):
     root = tmp_path / "dbt" / "models"
 
     assert not list(root.rglob("pstg__crm__order_items*"))
-    stage = _yaml_metadata(root / "02_staging" / "crm" / "stg__crm__order_items.sql")
+    stage = _yaml_metadata(root / "20_staging" / "crm" / "stg__crm__order_items.sql")
     assert stage["source_model"] == "pstg__crm__order_items"
 
 
@@ -344,7 +344,7 @@ def test_sources_leave_the_prestages_out(prestage_project, tmp_path):
     _generate(prestage_project, tmp_path)
 
     sources = yaml.safe_load(
-        (tmp_path / "dbt" / "models" / "01_sources" / "source__crm.yml").read_text(
+        (tmp_path / "dbt" / "models" / "10_sources" / "source__crm.yml").read_text(
             encoding="utf-8"
         )
     )
@@ -368,8 +368,8 @@ def test_a_system_with_only_prestages_has_no_sources_file(prestage_project, tmp_
 
     _generate(prestage_project, tmp_path)
     models = tmp_path / "dbt" / "models"
-    assert not (models / "01_sources" / "source__lake.yml").exists()
-    assert (models / "01_prestaging" / "lake" / "pstg__lake__events_flat.sql").exists()
+    assert not (models / "10_sources" / "source__lake.yml").exists()
+    assert (models / "15_prestaging" / "lake" / "pstg__lake__events_flat.sql").exists()
 
 
 def test_the_prestaging_layer_follows_the_staging_layer(prestage_project, tmp_path):
@@ -379,7 +379,7 @@ def test_the_prestaging_layer_follows_the_staging_layer(prestage_project, tmp_pa
         (tmp_path / "dbt" / "dbt_project.yml").read_text(encoding="utf-8")
     )
     (layers,) = project_yml["models"].values()
-    assert layers["01_prestaging"] == {"+schema": "stage", "+materialized": "view"}
+    assert layers["15_prestaging"] == {"+schema": "stage", "+materialized": "view"}
 
 
 def test_the_prestaging_layer_is_never_ephemeral(prestage_project, tmp_path):
@@ -397,8 +397,8 @@ def test_the_prestaging_layer_is_never_ephemeral(prestage_project, tmp_path):
         (tmp_path / "dbt" / "dbt_project.yml").read_text(encoding="utf-8")
     )
     (layers,) = project_yml["models"].values()
-    assert layers["01_prestaging"]["+materialized"] == "view"
-    assert layers["02_staging"]["+materialized"] == "ephemeral"
+    assert layers["15_prestaging"]["+materialized"] == "view"
+    assert layers["20_staging"]["+materialized"] == "ephemeral"
 
 
 def test_no_prestaging_layer_without_prestage_models(prestage_project, tmp_path):
@@ -410,8 +410,8 @@ def test_no_prestaging_layer_without_prestage_models(prestage_project, tmp_path)
     _generate(prestage_project, tmp_path)
 
     root = tmp_path / "dbt"
-    assert "01_prestaging" not in (root / "dbt_project.yml").read_text(encoding="utf-8")
-    assert not (root / "models" / "01_prestaging").exists()
+    assert "15_prestaging" not in (root / "dbt_project.yml").read_text(encoding="utf-8")
+    assert not (root / "models" / "15_prestaging").exists()
 
 
 def test_a_prejoin_onto_a_prestage_reads_the_model(prestage_project, tmp_path):
@@ -444,7 +444,7 @@ def test_a_prejoin_onto_a_prestage_reads_the_model(prestage_project, tmp_path):
     _generate(prestage_project, tmp_path)
 
     stage = _yaml_metadata(
-        tmp_path / "dbt" / "models" / "02_staging" / "crm" / "stg__crm__customer.sql"
+        tmp_path / "dbt" / "models" / "20_staging" / "crm" / "stg__crm__customer.sql"
     )
     (prejoined,) = stage["prejoined_columns"]
     assert prejoined["ref_model"] == "pstg__crm__customer_address"
@@ -468,7 +468,7 @@ def test_a_workspace_template_gets_the_sql_unescaped(prestage_project, tmp_path)
     _generate(prestage_project, tmp_path)
 
     model = (
-        tmp_path / "dbt" / "models" / "01_prestaging" / "crm"
+        tmp_path / "dbt" / "models" / "15_prestaging" / "crm"
     ) / "pstg__crm__customer_address.sql"
     assert model.read_text(encoding="utf-8") == (
         "-- generated by TurboVault\n" + ADDRESS_SQL + "\n"

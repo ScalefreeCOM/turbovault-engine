@@ -84,7 +84,7 @@ table with **Table type** `Pre-stage`, in the source system whose data it
 prepares.
 
 - **Pre-stage SQL** — the complete dbt model, written to
-  `models/01_prestaging/<system>/pstg__<system>__<table>.sql` as it is. Read
+  `models/15_prestaging/<system>/pstg__<system>__<table>.sql` as it is. Read
   inputs with `{{ source('<system>', '<TABLE>') }}`, using the names in the
   generated `sources.yml`. Leave it empty to maintain the model yourself.
 - **Source columns** — add the columns the model returns, with their data
