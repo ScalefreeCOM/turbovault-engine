@@ -672,6 +672,13 @@ class DbtProjectConfig(BaseModel):
             "snapshots:, on-run-start, dispatch, paths, other packages' models:)"
         ),
     )
+    packages: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "The dbt project's packages (packages.yml's list), written into the "
+            "generated packages.yml; datavault4dbt is added when missing"
+        ),
+    )
 
     @field_validator("path", mode="before")
     @classmethod

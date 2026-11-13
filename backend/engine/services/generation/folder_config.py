@@ -219,7 +219,13 @@ class FolderConfig:
         """
         directories = [
             output_root / self.layer_folder(layer)
-            for layer in ("sources", "staging", "raw_vault", "business_vault", "control")
+            for layer in (
+                "sources",
+                "staging",
+                "raw_vault",
+                "business_vault",
+                "control",
+            )
         ]
         directories.append(output_root / fixed_part(self.pattern("pit")))
         directories += [
@@ -302,6 +308,8 @@ class GenerationConfig:
     # models: block (folder-level settings) and its other top-level settings
     dbt_project_models: dict[str, Any] = field(default_factory=dict)
     dbt_project_settings: dict[str, Any] = field(default_factory=dict)
+    # Its packages (spec D28), written into packages.yml with datavault4dbt
+    dbt_packages: list[dict[str, Any]] = field(default_factory=list)
 
     # Per-layer settings of the dbt_project.yml models: block
     control_schema: str | None = "control"

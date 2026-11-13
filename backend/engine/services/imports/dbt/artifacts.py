@@ -10,7 +10,8 @@ The dbt import reads files only; it never runs dbt or connects to a warehouse:
 - ``dbt_project.yml`` (optional): ``vars`` (the manifest has none) and the
   project's folder settings.
 - ``packages.yml`` / ``dependencies.yml`` / ``package-lock.yml`` (optional):
-  the datavault4dbt version, for the report.
+  the project's packages (a suggested project setting) and the datavault4dbt
+  version, for the report.
 
 ``profiles.yml`` is never read: it holds credentials.
 """
@@ -177,6 +178,38 @@ class DbtArtifacts:
                         version = " ".join(map(str, version))
                     return str(version) if version is not None else None
         return None
+
+    @property
+    def package_entries(self) -> list[dict[str, Any]]:
+        """The project's packages, as its package files list them (spec D28).
+
+        ``packages.yml`` or ``dependencies.yml``; without them the pinned
+        versions of ``package-lock.yml``.
+        """
+        names = [path.name for path in self.paths.packages] if self.paths else []
+        documents = list(
+            zip(names or [""] * len(self.packages), self.packages, strict=False)
+        )
+        for lock in (False, True):
+            for name, document in documents:
+                if (name == "package-lock.yml") != lock or not isinstance(
+                    document, dict
+                ):
+                    continue
+                entries = [
+                    dict(entry)
+                    for entry in document.get("packages") or []
+                    if isinstance(entry, dict)
+                ]
+                if entries:
+                    # The lock file names each package; packages.yml doesn't
+                    return [
+                        {key: value for key, value in entry.items() if key != "name"}
+                        if lock
+                        else entry
+                        for entry in entries
+                    ]
+        return []
 
     # -- nodes ----------------------------------------------------------------
 

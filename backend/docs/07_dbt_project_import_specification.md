@@ -57,6 +57,7 @@ package-specific part separate so an AutomateDV adapter can be added.
 | D25 | **The imported dbt_project.yml comes back.** Extends D20: an import with `dbt_project.yml` reports its name, profile, variables (`global_vars`), its `models:` block (`dbt_project_models`) and every other top-level setting (`dbt_project_settings`: version, paths, `clean-targets`, `seeds:`, `snapshots:`, hooks, `dispatch`, other packages' `models:` entries, ...). Generation writes them into `dbt_project.yml`: TurboVault's layer folders keep their settings, its model paths are added; the rest comes out as it went in (comments and formatting aside). CLI: `config.yml`'s `dbt_project.vars/models/settings`. | 2026-11-13 |
 | D26 | **Default tags are a project setting.** `add_default_tags` (default on) decides whether generated models carry TurboVault's default tags; a model's stored tags are added to them (no longer replace them). dbt imports store a model's own tags only and suggest turning the setting off. | 2026-11-13 |
 | D27 | **Configurable folder structure.** A folder pattern per layer and, optionally, per kind of model (`[[ group ]]`, `[[ group_name ]]`, `[[ source_system ]]`, `[[ source_system_name ]]`; a folder without value is left out); the defaults are TurboVault's layout. `dbt_project.yml` configures each layer on its pattern's fixed part. The project setting `use_model_folders` (on by default) places models in their stored folders; off, they go to the patterns and keep the settings their original folders gave them. Layer schemas may be null (no custom schema). | 2026-11-13 |
+| D28 | **The project's settings are inferred and suggested.** Extends D22 beyond naming: the import suggests the settings most of the project's models follow (layer schemas, also none, and materializations; the tables' default record source, load date and static part, placeholders and all; stage options; the delivery method; `add_default_tags`; folder patterns per layer and kind) and copies its `dbt_project.yml` and package files (`dbt_packages`, written into the generated `packages.yml` with datavault4dbt). Suggestions are keyed by runtime config field (`project_settings.suggestions`), one `dbt.setting_suggested` info each; nothing is applied. Entities store only what differs from the settings in effect (also record source, load date, static part and delivery method). Projects whose raw vault sits in subject folders (`models/rdv/<subject>/`) get groups from them when tags and TurboVault's folders give none. | 2026-11-14 |
 
 ---
 
@@ -351,7 +352,8 @@ warning).
 - As implemented: the folder counts only in TurboVault's structure (`models/NN_raw_vault/<group>/`,
   `models/NN_business_vault/pits/<group>/`) and is spelled like a tag that matches it (TurboVault tags a
   model with its group); otherwise the group is the one tag that is neither a default tag of the model's
-  template nor a word naming a layer or kind of model (`hub`, `satellite`, `raw_vault`, ...).
+  template nor a word naming a layer or kind of model (`hub`, `satellite`, `raw_vault`, ...). When
+  neither gives any group, the project's subject folders do (D28, §8.1): `models/rdv/<subject>/`.
 - Descriptions of sources, columns and models are imported. Tests are not (TurboVault generates its own).
 - Tags and other configs are kept in the output attributes (§9.1).
 
@@ -371,9 +373,37 @@ entities follow the project's style:
 - As implemented (D22): for each pattern the import finds what its placeholders stand for in each name (a
   hub's name in its hash key, a satellite's in its models, the source system and table in a stage's name);
   the pattern at least half the names follow (and two, unless there is one) is suggested when it differs
-  from the project's, with `dbt.naming_inferred` and in the report's `project_settings.naming`. The import
-  stores names relative to the project's current patterns; the CLI offers to apply the suggestions to
-  `config.yml` after a dry run, before the real import (`--apply-settings` / `--keep-settings`).
+  from the project's, with `dbt.setting_suggested` and in the report's `project_settings.suggestions`. The
+  import stores names relative to the project's current patterns; the CLI offers to apply the suggestions
+  to `config.yml` after a dry run, before the real import (`--apply-settings` / `--keep-settings`).
+
+### 8.1 Other project settings (D28)
+
+The same rule (at least half of the samples, and two unless there is one; the project's current value wins
+a tie) suggests the other settings the models follow, keyed by runtime config field. A dotted key sets one
+entry of a mapping field.
+
+| Setting | Inferred from |
+|---|---|
+| `stage_schema`, `rdv_schema`, `bdv_schema`, `control_schema` | the models' custom schemas as written (`unrendered_config`), per layer; none: `null` |
+| `staging_materialization`, `raw_vault_materialization`, ... | the materialization of the layer's models that follow it (table, view, incremental, ephemeral) |
+| `model_materializations.<kind>` | the own materialization of v1 views, reference tables, PITs, snapshot controls |
+| `default_record_source_value`, `default_load_date_value`, `default_static_part_of_record_source` | each table's `rsrc`, `ldts` and `rsrc_static`; a source system or table name standing as a word of its own becomes `[[ source_system ]]` / `[[ source_table ]]`; among equally common patterns the most general wins |
+| `include_source_columns`, `enable_ghost_records` | the stages' options |
+| `use_delivery_method`, `delivery_method` | tables that load single-batch data (any turns the switch on; most decide the method) |
+| `add_default_tags` | whether most models carry their template's default tags |
+| `folders.<layer>`, `folders.<kind>` | the models' folders: the deepest folder named like the entity's group (or the stage's source system) becomes `[[ group ]]` / `[[ group_name ]]` (`[[ source_system ]]` / `[[ source_system_name ]]`); a model without a group drops it. A fixed folder that differs per model (a folder per source below the group) ends the pattern above it. Layers from their main kinds (stages; Hubs, Links, Satellites, reference tables; snapshot controls), a kind of its own where it differs, v1 views and effectivity / record-tracking Satellites only when most aren't next to the model they follow; `folders.business_vault` is the folder holding the PITs; `folders.sources` the folders of the source YAML files |
+| `dbt_project_name`, `profile_name`, `global_vars`, `dbt_project_models`, `dbt_project_settings` | copied from `dbt_project.yml` (D25) |
+| `dbt_packages` | copied from `packages.yml` or `dependencies.yml`, else the pinned versions of `package-lock.yml` |
+
+Groups (§7.6): when neither tags nor TurboVault's folders give any, the subject folders do: below the
+folder all Hubs, Links and Satellites share (at least `models/<layer>`), each folder holding entities of
+several kinds and not named after a kind of model (`hubs/`, `satellites/`, ...) is a group.
+
+Entities store values relative to the settings in effect: a table's record source, load date and static
+part where they differ from what the project gives it (placeholders filled in), its delivery method where
+it differs from the project's. Applied, the suggestions leave less on the entities; a second import
+suggests nothing more.
 
 ---
 
@@ -566,10 +596,9 @@ Proposed codes (final list in `services/imports/codes.md`):
 | `dbt.value_invalid` | error (model skipped) | a metadata block that isn't valid YAML / JSON, or a value of the wrong shape |
 | `dbt.prestage_maintained_in_dbt` | warning | a pre-stage: generate the project into this dbt project (D9) |
 | `dbt.resource_not_imported` | info | seeds, tests, snapshots, … counted, not imported |
-| `dbt.naming_inferred` | info | a naming pattern was inferred, with its share of matching names |
+| `dbt.setting_suggested` | info | a project setting the models follow, or the dbt project's files give, differs from the project's (§8, D28) |
 | `dbt.hash_inputs_differ` | warning | a stage hashes other columns into a key than the business keys mapped |
 | `dbt.column_unknown` | warning | columns neither the catalog nor the YAML describe (created without type) |
-| `dbt.project_setting` | info | a project setting the models need (e.g. `use_delivery_method`) |
 | `entity.depends_on_skipped` | warning | an entity needs a stage, Hub or Link that is left out |
 
 The report also lists node counts per resource type (seeds, tests, … not imported).
@@ -599,7 +628,7 @@ The report also lists node counts per resource type (seeds, tests, … not impor
 | 1 | Corpus analysis: `scripts/dbt_import/profile_manifest.py`, extraction prototype `capture_calls.py` | done |
 | 2 | Foundations: artifact reader, sandbox extraction, datavault4dbt adapter (normalization, signature table 1.x/2.x), notation tests | done (`DbtSource`, CLI and issue locations moved to Phase 4) |
 | 3 | Pre-stages kept in the dbt project (D9), layer folders (D12), metadata extensions (§9.1–9.6): output attributes and name resolution, hash diff name/alias, stage options, derived column shadowing, Satellite v1 options, smaller additions (D13) | done |
-| 4 | 4a: `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, opt-in `dbt parse` (D21), issue locations; the import (executor and JSON round trip) stores every §9 setting and the JSON import its snapshot controls. 4b-1: sources, stages, pre-stages, Hubs, Links, Satellites (§7.1–7.5), warnings/skips for direct parsers, the project's settings as import input (D22). 4b-2a: PITs, reference tables, snapshot controls, groups (§7.6), dependent child keys selected by generated links (D23). 4b-2b: model settings (D20), the dbt_project.yml (D25), naming inference (§8, D22), snapshot logic generation (D24). 4c: round-trip and corpus tests | 4a, 4b done |
+| 4 | 4a: `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, opt-in `dbt parse` (D21), issue locations; the import (executor and JSON round trip) stores every §9 setting and the JSON import its snapshot controls. 4b-1: sources, stages, pre-stages, Hubs, Links, Satellites (§7.1–7.5), warnings/skips for direct parsers, the project's settings as import input (D22). 4b-2a: PITs, reference tables, snapshot controls, groups (§7.6), dependent child keys selected by generated links (D23). 4b-2b: model settings (D20), the dbt_project.yml (D25), naming inference (§8, D22), snapshot logic generation (D24), default tags (D26), folder patterns (D27), inferred project settings (§8.1, D28). 4c: round-trip and corpus tests | 4a, 4b done |
 | 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models; generating into an existing dbt project (§9.7) | |
 | 6 | Custom models for downstream models (#461), optional | postponed (D19) |
 | 7 | Hardening: performance limits, docs, CLI polish | |

@@ -8,7 +8,8 @@ framework-neutral shape that both callers can pass into Engine services.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -98,6 +99,9 @@ class EngineRuntimeConfig:
     # models: entries, ...). Empty: TurboVault's own dbt_project.yml.
     dbt_project_models: dict[str, Any] = field(default_factory=dict, hash=False)
     dbt_project_settings: dict[str, Any] = field(default_factory=dict, hash=False)
+    # The dbt project's packages (packages.yml's list, spec D28), written into
+    # the generated packages.yml with datavault4dbt. Empty: TurboVault's own.
+    dbt_packages: list[dict[str, Any]] = field(default_factory=list, hash=False)
 
     # dbt profile referenced by `profile:` in dbt_project.yml.
     profile_name: str = "default"
@@ -231,6 +235,11 @@ class EngineRuntimeConfig:
             dbt_project_settings=(
                 dict(config.dbt_project.settings) if config.dbt_project else {}
             ),
+            dbt_packages=(
+                [dict(package) for package in config.dbt_project.packages]
+                if config.dbt_project
+                else []
+            ),
             create_zip=config.output.create_zip,
             export_sources=config.output.export_sources,
             generate_tests=config.output.generate_tests,
@@ -270,6 +279,23 @@ class EngineRuntimeConfig:
             project_description=project.description,
             dbt_project_name=project.name,
         )
+
+    def with_settings(self, values: Mapping[str, Any]) -> EngineRuntimeConfig:
+        """A copy with ``values`` applied, keyed like an import's suggested
+        settings (spec D28): by field, a dotted key setting one entry of a
+        mapping field (``folders.raw_vault``, ``model_materializations.pit``).
+        """
+        changes: dict[str, Any] = {}
+        for key, value in values.items():
+            name, _, entry = key.partition(".")
+            if not hasattr(self, name):
+                raise ValueError(f"Unknown project setting: {key}")
+            if entry:
+                mapping = changes.setdefault(name, dict(getattr(self, name) or {}))
+                mapping[entry] = value
+            else:
+                changes[name] = value
+        return replace(self, **changes)
 
     def get_schema(self, schema_type: str) -> str:
         """Return the configured schema for ``stage``, ``rdv``, or ``bdv``."""

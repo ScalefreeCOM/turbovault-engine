@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 from typing import Any
 
 from engine.services.export.model_outputs import (
@@ -36,6 +37,7 @@ from engine.services.imports.dbt.conventions import (
     group_candidates,
     group_folder,
     in_layer_folder,
+    is_kind_folder,
     model_tags,
 )
 from engine.services.imports.dbt.datavault4dbt import (
@@ -219,6 +221,15 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         self._models_of: dict[tuple[str, str], list[DbtModel]] = {}
         # Every mapped model whose output the import fills (project_settings)
         self._tracked_outputs: list = []
+        # What the project's settings are inferred from (project_settings):
+        # the stages' options, and each table's record source, load date and
+        # static part as the models set them (before _finish_tables stores
+        # them relative to the project's).
+        self._stage_option_values: dict[str, list[bool]] = {
+            "include_source_columns": [],
+            "enable_ghost_records": [],
+        }
+        self._value_samples: dict[str, list[tuple[dict[str, str], str | None]]] = {}
 
     # -- entry --------------------------------------------------------------
 
@@ -307,6 +318,18 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
 
     # -- sources --------------------------------------------------------------
 
+    def _location(self, node: dict[str, Any]) -> tuple[str, str | None]:
+        """Where a dbt source (or model) lives: its schema and database (None:
+        the target's)."""
+        schema = str(node.get("schema") or "")
+        if "unrendered_database" in node:
+            database = node.get("unrendered_database") or None
+        else:
+            database = node.get("database") or None
+            if database == self._target_database:
+                database = None
+        return schema, str(database) if database else None
+
     def _system_for(
         self, node: dict[str, Any], *, name: str | None = None
     ) -> DSourceSystem:
@@ -315,15 +338,9 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         Systems are identified by where they live, like TurboVault's: dbt
         sources sharing a schema become one system, named after the first.
         """
-        schema = str(node.get("schema") or "")
-        if "unrendered_database" in node:
-            database = node.get("unrendered_database") or None
-        else:
-            database = node.get("database") or None
-            if database == self._target_database:
-                database = None
+        schema, database = self._location(node)
         system_name = name or str(node.get("source_name") or schema)
-        key = (schema.lower(), str(database).lower() if database else None)
+        key = (schema.lower(), database.lower() if database else None)
         system = self._systems_by_location.get(key)
         if system is None:
             system = DSourceSystem(
@@ -639,6 +656,7 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
             ("enable_ghost_records", self.config.enable_ghost_records),
         ):
             value = as_bool(params.get(option), True)
+            self._stage_option_values[option].append(value)
             setattr(table, option, CLEAR if value == default else value)
         sequence = self._plain_value(stage.model, "sequence")
         table.sequence_column = sequence or CLEAR
@@ -1794,6 +1812,10 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                     continue  # TurboVault's layer folder itself: no group
                 elif len(candidates) == 1:
                     tagged.setdefault(key, candidates[0])
+        if not tagged and not folders:
+            # Neither tags nor TurboVault's folders: the project's own subject
+            # folders, if it has them
+            folders = self._subject_folders()
         spellings = {group.lower(): group for group in tagged.values()}
         entities = {
             "hub": self.domain.hubs,
@@ -1811,26 +1833,98 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                 entity.group_name = group
                 self.domain.groups.add(group)
 
+    def _subject_folders(self) -> dict[tuple[str, str], str]:
+        """Groups from the project's subject folders (spec D28).
+
+        Below the folder all Hubs, Links and Satellites share (at least
+        ``models/<layer>``), most folders hold entities of several kinds: a
+        subject area each (``models/rdv/customer/``), not a kind of model
+        (``models/rdv/hubs/``). Every entity in one is in its group.
+        """
+        core = {
+            key: PurePosixPath(models[0].path).parent.parts
+            for key, models in self._models_of.items()
+            if key[0] in ("hub", "link", "satellite") and models and models[0].path
+        }
+        if len(core) < 2:
+            return {}
+        prefix = []
+        for parts in zip(*core.values(), strict=False):
+            if len(set(parts)) > 1:
+                break
+            prefix.append(parts[0])
+        depth = len(prefix)
+        if depth < 2:
+            return {}
+        kinds: dict[str, set[str]] = {}
+        for key, parts in core.items():
+            if len(parts) > depth:
+                kinds.setdefault(parts[depth], set()).add(key[0])
+        subjects = {
+            name
+            for name, found in kinds.items()
+            if len(found) > 1 and not is_kind_folder(name)
+        }
+        if len(kinds) < 2 or len(subjects) * 2 < len(kinds):
+            return {}
+        groups: dict[tuple[str, str], str] = {}
+        for key, models in self._models_of.items():
+            for model in models:
+                parts = PurePosixPath(model.path).parent.parts
+                if (
+                    len(parts) > depth
+                    and list(parts[:depth]) == prefix
+                    and not is_kind_folder(parts[depth])
+                ):
+                    groups[key] = parts[depth]
+                    break
+        return groups
+
     # -- tables -----------------------------------------------------------------
 
     def _finish_tables(self) -> None:
-        """Delivery methods, inherited values, and columns nobody described."""
+        """Delivery methods, inherited values, and columns nobody described.
+
+        Values are stored relative to the project's settings: a table's
+        delivery method where it differs from the project's, its record
+        source, load date and static part where they differ from what it
+        inherits (spec D28).
+        """
+        self._value_samples = {
+            attribute: [
+                (
+                    {
+                        "source_system": system.name,
+                        "source_table": table.physical_name,
+                    },
+                    value
+                    if isinstance(value := getattr(table, attribute), str) and value
+                    else None,
+                )
+                for system in self.domain.source_systems.values()
+                for table in system.tables.values()
+            ]
+            for attribute in (
+                "record_source_value",
+                "load_date_value",
+                "static_part_of_record_source",
+            )
+        }
         for system in self.domain.source_systems.values():
             tables = list(system.tables.values())
             for table in tables:
-                if table.identifier in self._single_batch_tables:
-                    table.delivery_method = "single_batch"
+                method = (
+                    "single_batch"
+                    if table.identifier in self._single_batch_tables
+                    else "multi_batch"
+                )
+                table.delivery_method = (
+                    CLEAR if method == self.config.delivery_method else method
+                )
             self._hoist(system, tables, "record_source_value", self._default_rsrc)
             self._hoist(system, tables, "load_date_value", self._default_ldts)
-            self._hoist(system, tables, "static_part_of_record_source", None)
-        if self._single_batch_tables and not self.config.use_delivery_method:
-            self._issue(
-                None,
-                "info",
-                Code.DBT_PROJECT_SETTING,
-                "Some models load single-batch data (source_is_single_batch): "
-                "their tables get the delivery method single_batch. Turn on the "
-                "project setting use_delivery_method to generate them that way",
+            self._hoist(
+                system, tables, "static_part_of_record_source", self._default_static
             )
         for identifier, columns in self._unknown_columns.items():
             system_name, _, table_name = identifier.partition("|")
@@ -1854,6 +1948,14 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
 
     def _default_ldts(self, system: DSourceSystem, table: DSourceTable) -> str:
         value = self.config.default_load_date_value or DEFAULT_LOAD_DATE
+        return fill_placeholders(
+            value, source_system_name=system.name, source_table_name=table.physical_name
+        )
+
+    def _default_static(self, system: DSourceSystem, table: DSourceTable) -> str | None:
+        value = self.config.default_static_part_of_record_source
+        if not value:
+            return None
         return fill_placeholders(
             value, source_system_name=system.name, source_table_name=table.physical_name
         )

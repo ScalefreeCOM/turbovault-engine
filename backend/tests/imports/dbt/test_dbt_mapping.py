@@ -641,7 +641,10 @@ def test_effectivity_and_record_tracking_satellites_belong_to_their_hub(tmp_path
     assert names(hub.outputs) == {"record_tracking_satellite": "customer_tracking"}
     table = domain.source_systems["crm"].tables["crm|customer"]
     assert table.delivery_method == "single_batch"
-    assert "dbt.project_setting" in codes(issues)
+    # The project's delivery method needs switching on
+    suggestion = domain.project_settings.suggestions["use_delivery_method"]
+    assert (suggestion.value, suggestion.matching, suggestion.total) == (True, 1, 2)
+    assert "dbt.setting_suggested" in codes(issues)
 
 
 # ---------------------------------------------------------------------------
@@ -1334,19 +1337,28 @@ def test_folder_level_settings_stay_in_the_project_settings(tmp_path):
     assert output.folder == "models/vault"
     # Tags add up (folder, TurboVault's defaults, its own): it keeps its own
     assert output.tags == ["pii"]
-    settings = domain.project_settings
-    assert (settings.dbt_project_name, settings.profile_name) == (
-        "shop",
-        "shop_warehouse",
-    )
-    assert settings.global_vars == {"datavault4dbt.hash": "SHA2"}
-    assert settings.dbt_project_models == {
-        "vault": {"+schema": "rdv", "+materialized": "incremental", "+tags": ["vault"]}
+    # dbt_project.yml is suggested as it is (copied: no share)
+    settings = {
+        key: suggestion.value
+        for key, suggestion in domain.project_settings.suggestions.items()
+        if suggestion.total is None
     }
-    assert settings.dbt_project_settings == {
-        "version": "3.1.0",
-        "seeds": {"shop": {"+schema": "seeds"}},
-        "models": {"elementary": {"+schema": "elementary"}},
+    assert settings == {
+        "dbt_project_name": "shop",
+        "profile_name": "shop_warehouse",
+        "global_vars": {"datavault4dbt.hash": "SHA2"},
+        "dbt_project_models": {
+            "vault": {
+                "+schema": "rdv",
+                "+materialized": "incremental",
+                "+tags": ["vault"],
+            }
+        },
+        "dbt_project_settings": {
+            "version": "3.1.0",
+            "seeds": {"shop": {"+schema": "seeds"}},
+            "models": {"elementary": {"+schema": "elementary"}},
+        },
     }
 
 
@@ -1359,13 +1371,18 @@ def test_naming_patterns_the_project_follows_are_suggested(tmp_path):
         path, EngineRuntimeConfig(stage_naming="stage_[[ source_table ]]")
     )
 
-    suggestion = domain.project_settings.naming["stage_naming"]
-    assert suggestion.pattern == "stg__[[ source_system ]]__[[ source_table ]]"
+    suggestions = domain.project_settings.suggestions
+    suggestion = suggestions["stage_naming"]
+    assert suggestion.value == "stg__[[ source_system ]]__[[ source_table ]]"
     assert (suggestion.matching, suggestion.total) == (2, 2)
-    (note,) = [i for i in issues if i.code == "dbt.naming_inferred"]
-    assert "stage_naming" in note.suggestion
+    (note,) = [
+        i
+        for i in issues
+        if i.code == "dbt.setting_suggested" and "stage_naming:" in i.message
+    ]
+    assert "2 of 2 names follow it" in note.message
     # Patterns the project already uses aren't suggested
-    assert "hashkey_naming" not in domain.project_settings.naming
+    assert "hashkey_naming" not in suggestions
 
 
 def test_the_report_carries_the_suggested_settings(tmp_path, project):
@@ -1380,7 +1397,7 @@ def test_the_report_carries_the_suggested_settings(tmp_path, project):
     )
 
     assert report.project_settings is not None
-    assert "stage_naming" in report.project_settings.naming
+    assert "stage_naming" in report.project_settings.suggestions
 
 
 def test_the_cli_writes_the_suggested_settings_before_importing(tmp_path, project):

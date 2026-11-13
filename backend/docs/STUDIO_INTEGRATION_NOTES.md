@@ -29,8 +29,9 @@ section is completed when the Engine change lands).
 | 16 | [An imported dbt_project.yml comes back](#16-an-imported-dbt_projectyml-comes-back) | In progress | Store two new project settings and pass them to generation; reconcile with the manual dbt_project.yml |
 | 17 | [Default tags setting](#17-default-tags-setting) | In progress | A project switch; the tag field of a model's settings now adds tags |
 | 18 | [Folder structure; model folders setting; layers without schema](#18-folder-structure-model-folders-setting-layers-without-schema) | In progress | Folder pattern settings with placeholders; the model folders switch; "no custom schema" per layer |
+| 19 | [Project settings a dbt project suggests; packages](#19-project-settings-a-dbt-project-suggests-packages) | In progress | Show the suggestions after a dry run, apply the accepted ones to the project's settings; store the packages |
 
-Background for items 4–11: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
+Background for items 4–19: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
 
 ---
 
@@ -239,7 +240,7 @@ report = import_metadata(
   `dbt.model_render_failed`, `dbt.macro_unsupported`, `dbt.value_invalid`, `dbt.value_unresolved`,
   `dbt.parameter_ignored`, `dbt.parameter_given_twice`, `dbt.parameter_unsupported`,
   `dbt.reference_unresolved`, `dbt.link_hub_ambiguous`, `dbt.hash_inputs_differ`, `dbt.column_unknown`,
-  `dbt.prestage_maintained_in_dbt`, `dbt.project_setting`, `dbt.model_not_mapped`, and
+  `dbt.prestage_maintained_in_dbt`, `dbt.setting_suggested` (item 19), `dbt.model_not_mapped`, and
   `entity.depends_on_skipped` for entities left out because one they need is. Suggested grouping in the review
   step: errors (skipped models), warnings (imported differently), infos (models staying in the dbt project).
 - Entities that can't be mapped are planned as `skip` with a reason (`missing_source_table`,
@@ -258,21 +259,14 @@ report = import_metadata(
   - Effectivity and record-tracking satellites set their Hub's or Link's flags and options.
   - Snapshot controls come with their logic rules (one per logic column and component), PITs and reference
     tables with their snapshot control and trigger column. The plan lists `snapshot_control` entities (item 13).
-  - Groups come from TurboVault's folder structure and the models' tags (spec §7.6).
+  - Groups come from TurboVault's folder structure and the models' tags (spec §7.6), else from the project's
+    subject folders (`models/rdv/<subject>/`, item 19).
   - A model's name is stored as a `ModelOutput` only where it differs from the naming patterns; so are its
     folder and settings (materialization, schema, alias, tags, further config keys), only where they differ
     from what TurboVault generates (spec §9.1, as implemented).
 - **Suggested project settings (new, `ImportReport.project_settings`, `ProjectSettings`):** the import reports,
-  without applying them:
-  - `naming`: naming patterns the project's names follow that differ from the project's, by runtime config
-    field (`stage_naming`, `hashkey_naming`, ...), each with `pattern`, `matching` and `total` (also a
-    `dbt.naming_inferred` info each);
-  - from `dbt_project.yml`: `dbt_project_name`, `profile_name`, `global_vars`, `dbt_project_models`,
-    `dbt_project_settings` (item 16);
-  - `use_delivery_method: true` when models load single-batch data.
-  Suggested flow (the CLI's, spec D22): run a dry run, show the suggestions, let the user accept them, save them
-  in the project's settings, then run the import with the new runtime config. With the naming patterns applied,
-  names that follow them aren't stored on the models.
+  without applying them, the project settings the dbt project suggests: naming patterns, schemas, folders,
+  defaults, its `dbt_project.yml` and packages. Shape, keys and flow: item 19.
 
 Imports an existing datavault4dbt project from its dbt artifacts. The Engine never runs dbt or connects to the
 warehouse.
@@ -749,8 +743,8 @@ the generated file matches the original in content (comments and formatting asid
   `seed_paths`, `macro_paths`, `snapshot_paths`, `clean_targets`, `models_block` and `extra_block` (all
   optional; Studio's prefill rendering with the old variables still works). A workspace copy that doesn't write
   the imported settings gets `TPL_003`.
-- **CLI:** `config.yml` keeps them under `dbt_project:` (`vars`, `models`, `settings`); `dbt_project.path` is now
-  optional.
+- **CLI:** `config.yml` keeps them under `dbt_project:` (`vars`, `models`, `settings`, and `packages`, item 19);
+  `dbt_project.path` is now optional.
 - **Studio:** store the two new settings with the project and pass them in the runtime config. Studio's manual
   `dbt_project.yml` overrides the generated file anyway; when a project has imported settings, consider
   prefilling the manual file from a generation with them, or showing them read-only.
@@ -820,3 +814,63 @@ the generated file matches the original in content (comments and formatting asid
   `+schema` for that layer, so its models build into the target's schema (dbt projects without custom schemas).
   An empty string still means TurboVault's default name. SQLMesh output uses the layer's name for such a layer.
 - **Studio:** a "No custom schema" option per layer schema.
+
+---
+
+## 19. Project settings a dbt project suggests; packages
+
+**Status:** In progress (dbt import branch). Spec D22, D28 (§8, §8.1). Replaces the first shape of
+`ProjectSettings` on this branch (`naming`, `dbt_project_name`, ... fields): never released.
+
+A dbt import infers the settings most of the project's models follow and copies the dbt project's own files. It
+applies nothing: it suggests what differs from the project's settings, and stores on each entity only what
+differs from the settings it was given.
+
+### Report
+
+- **`ImportReport.project_settings: ProjectSettings | None`** with `suggestions: dict[str, SettingSuggestion]`,
+  keyed by `EngineRuntimeConfig` field; a dotted key sets one entry of a mapping field
+  (`folders.raw_vault`, `model_materializations.pit`). `SettingSuggestion`: `value` (the field's value, may be
+  `null`: e.g. `rdv_schema: null`, no custom schema), `matching` and `total` (how many models, names, tables or
+  stages follow it; both `null` for a value copied from the dbt project's files).
+- **Keys:** `hashkey_naming`, `hashdiff_naming`, `satellite_v0_naming`, `satellite_v1_naming`,
+  `effectivity_satellite_naming`, `record_tracking_satellite_naming`, `stage_naming`, `prestage_naming`;
+  `stage_schema`, `rdv_schema`, `bdv_schema`, `control_schema`; `staging_materialization`,
+  `raw_vault_materialization`, `business_vault_materialization`, `control_materialization`,
+  `model_materializations.<kind>`; `default_record_source_value`, `default_load_date_value`,
+  `default_static_part_of_record_source`; `include_source_columns`, `enable_ghost_records`;
+  `use_delivery_method`, `delivery_method`; `add_default_tags`; `folders.<layer or kind>` (item 18); copied:
+  `dbt_project_name`, `profile_name`, `global_vars`, `dbt_project_models`, `dbt_project_settings` (item 16) and
+  `dbt_packages` (below).
+- **Issue:** one `dbt.setting_suggested` info per suggestion ("The dbt project suggests rdv_schema: 'edw' (5 of
+  5 models follow it); the project's is 'rdv'"). Replaces `dbt.naming_inferred` and `dbt.project_setting`.
+- **Applying:** `EngineRuntimeConfig.with_settings(values)` returns a copy with `{key: value}` applied (dotted
+  keys too; an unknown key raises `ValueError`). The CLI writes them into `config.yml` with
+  `engine.services.project_config.apply_settings(path, values)` (keeps everything else in the file; validates
+  first) and `setting_location(key)` (where a key goes in `config.yml`).
+- **Suggested flow (the CLI's):** a dry run with the project's runtime config; show the suggestions (setting,
+  value, "n of m follow it" or "from the dbt project"), let the user pick; save the accepted ones in the
+  project's settings; run the import with the new runtime config. Importing again then suggests nothing more,
+  and entities store less: on the corpus, stored folders and schemas mostly drop to none.
+
+### What entities store now (relative to the settings in effect)
+
+- A table's record source, load date and static part where they differ from what it inherits (the project's
+  defaults with `[[ source_system ]]` / `[[ source_table ]]` filled in); the same values on all of a source
+  system's tables go to the system.
+- A table's delivery method where it differs from the project's `delivery_method` (with `single_batch` as the
+  project's, multi-batch tables store `multi_batch`).
+- Groups: a project without group tags or TurboVault's folders gets them from its subject folders (below
+  `models/<layer>/`, folders holding several kinds of entity; `hubs/`, `satellites/`, ... are none).
+
+### Packages (new project setting)
+
+- **Runtime config `dbt_packages: list[dict]`** (`config.yml` `dbt_project.packages`): the dbt project's
+  packages, as `packages.yml` lists them. A dbt import suggests them from `packages.yml` or `dependencies.yml`,
+  else the pinned versions of `package-lock.yml`.
+- **Generation** writes them into `packages.yml`, adding TurboVault's datavault4dbt entry when none of them is
+  datavault4dbt (a premium package entry counts). Empty: `packages.yml` is TurboVault's own, unchanged.
+- **Template:** `packages.yml.j2` gained the optional variable `packages_block`; a workspace copy that doesn't
+  write the imported packages gets `TPL_003`.
+- **Studio:** store the list with the project and pass it in the runtime config; a read-only list (or a YAML
+  editor) in the project's dbt settings.

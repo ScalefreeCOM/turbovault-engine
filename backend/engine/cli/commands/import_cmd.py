@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 import questionary
 import typer
+from rich.markup import escape
 from rich.table import Table
 
 from engine.cli.utils.console import (
@@ -294,9 +295,10 @@ def _offer_project_settings(
 ) -> None:
     """Show the settings a dbt project suggests; write them into config.yml.
 
-    A dry run finds them (spec D22): the naming patterns its models follow
-    and its dbt_project.yml. Applied before the import, names that follow
-    the patterns aren't stored on the models.
+    A dry run finds them (spec D22, D28): the naming patterns, schemas,
+    folders and defaults its models follow, and its dbt_project.yml and
+    packages. Applied before the import, what follows them isn't stored on
+    the models.
     """
     from engine.services.imports import import_metadata
 
@@ -332,6 +334,26 @@ def _offer_project_settings(
     print_success(f"Settings written to {path}")
 
 
+def _shown_setting(value: Any) -> str:
+    """A suggested setting's value, short enough for a table cell."""
+    from engine.services.generation.project_yml import package_source
+
+    if value is None:
+        return "none"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, dict):
+        keys = [str(key) for key in value]
+        return ", ".join(keys[:6]) + (", ..." if len(keys) > 6 else "")
+    if isinstance(value, list):
+        names = [
+            package_source(entry) if isinstance(entry, dict) else str(entry)
+            for entry in value
+        ]
+        return ", ".join(names[:4]) + (", ..." if len(names) > 4 else "")
+    return str(value)
+
+
 def _show_project_settings(settings: Any) -> None:
     table = Table(
         title="Settings the dbt project suggests",
@@ -340,58 +362,24 @@ def _show_project_settings(settings: Any) -> None:
     )
     table.add_column("Setting", style="bold")
     table.add_column("Suggested")
-    for key, suggestion in settings.naming.items():
-        table.add_row(
-            key,
-            f"{suggestion.pattern}  [dim]({suggestion.matching} of "
-            f"{suggestion.total} names)[/dim]",
+    for key, suggestion in settings.suggestions.items():
+        share = (
+            f"  [dim]({suggestion.matching} of {suggestion.total} follow it)[/dim]"
+            if suggestion.total
+            else "  [dim](from the dbt project)[/dim]"
         )
-    if settings.dbt_project_name:
-        table.add_row("dbt project name", settings.dbt_project_name)
-    if settings.profile_name:
-        table.add_row("profile", settings.profile_name)
-    if settings.global_vars:
-        table.add_row("vars", f"{len(settings.global_vars)} variables")
-    if settings.dbt_project_models:
-        table.add_row(
-            "models: block",
-            ", ".join(str(key) for key in list(settings.dbt_project_models)[:6]),
-        )
-    if settings.dbt_project_settings:
-        table.add_row(
-            "other dbt_project.yml settings",
-            ", ".join(str(key) for key in list(settings.dbt_project_settings)[:6]),
-        )
-    if settings.use_delivery_method:
-        table.add_row("use_delivery_method", "true")
+        table.add_row(key, escape(_shown_setting(suggestion.value)) + share)
     console.print(table)
 
 
 def _apply_project_settings(project: Any, settings: Any) -> Path:
     """Write suggested settings into the project's config.yml; return its path."""
-    from engine.services.config_schema import DbtProjectConfig
-    from engine.services.project_config import write_project_config
+    from engine.services.project_config import apply_settings
 
-    config = project.load_config()
-    configuration = config.configuration
-    for key, suggestion in settings.naming.items():
-        setattr(configuration, key, suggestion.pattern)
-    if settings.profile_name:
-        configuration.profile_name = settings.profile_name
-    if settings.use_delivery_method:
-        configuration.use_delivery_method = True
-    if settings.dbt_project_name:
-        config.output.dbt_project_name = settings.dbt_project_name
-    dbt_project = config.dbt_project or DbtProjectConfig()
-    if settings.global_vars:
-        dbt_project.vars = dict(settings.global_vars)
-    if settings.dbt_project_models:
-        dbt_project.models = dict(settings.dbt_project_models)
-    if settings.dbt_project_settings:
-        dbt_project.settings = dict(settings.dbt_project_settings)
-    config.dbt_project = dbt_project
     path = project.get_config_path()
-    write_project_config(path, config)
+    apply_settings(
+        path, {key: item.value for key, item in settings.suggestions.items()}
+    )
     return path
 
 

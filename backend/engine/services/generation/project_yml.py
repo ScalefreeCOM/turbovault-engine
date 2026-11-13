@@ -110,9 +110,7 @@ def layer_roots(
     return {layer: key for layer, key in roots.items() if counts[key] == 1}
 
 
-def layer_values(
-    schema: str | None, materialized: str | None
-) -> dict[str, Any]:
+def layer_values(schema: str | None, materialized: str | None) -> dict[str, Any]:
     """A layer block's settings; no ``+schema`` for a layer without one."""
     values: dict[str, Any] = {}
     if schema is not None:
@@ -194,6 +192,36 @@ def extra_block(settings: Mapping[str, Any] | None) -> str:
     return "\n" + yaml.safe_dump(
         extra, sort_keys=False, default_flow_style=False, allow_unicode=True
     )
+
+
+# TurboVault's package (the packages.yml template writes it too).
+DATAVAULT4DBT_PACKAGE: dict[str, Any] = {
+    "package": "ScalefreeCOM/datavault4dbt",
+    "version": [">=1.0.0", "<3.0.0"],
+}
+
+
+def package_source(entry: Mapping[str, Any]) -> str:
+    """Where a packages.yml entry comes from (hub name, git URL, path)."""
+    for key in ("package", "git", "private", "local", "tarball"):
+        if entry.get(key):
+            return str(entry[key])
+    return ""
+
+
+def packages_block(packages: list[Mapping[str, Any]] | None) -> str:
+    """An imported dbt project's packages as packages.yml's list (spec D28),
+    or "" for TurboVault's own. datavault4dbt is added when no package is it
+    (its premium package brings it along)."""
+    if not packages:
+        return ""
+    entries = [dict(entry) for entry in packages]
+    if not any("datavault4dbt" in package_source(e).lower() for e in entries):
+        entries.insert(0, copy.deepcopy(DATAVAULT4DBT_PACKAGE))
+    text = yaml.safe_dump(
+        entries, sort_keys=False, default_flow_style=False, allow_unicode=True
+    )
+    return "\n".join(f"  {line}" if line else line for line in text.splitlines())
 
 
 # ---------------------------------------------------------------------------

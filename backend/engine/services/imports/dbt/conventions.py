@@ -144,6 +144,41 @@ _KIND_TAGS = frozenset(
 )
 
 
+# Folder names of a kind of model or a layer (besides the tags above).
+_KIND_FOLDERS = _KIND_TAGS | frozenset(
+    {
+        "eff_sats",
+        "effectivity_satellites",
+        "rec_track_sats",
+        "record_tracking_satellites",
+        "rts",
+        "ma_sats",
+        "multi_active_satellites",
+        "nh_links",
+        "nh_sats",
+        "non_historized_links",
+        "non_historized_satellites",
+        "ref_hubs",
+        "ref_sats",
+        "ref_tables",
+        "reference_tables",
+        "references",
+        "snapshot_controls",
+        "controls",
+        "raw_data_vault",
+        "business_data_vault",
+        "vault",
+    }
+)
+
+
+def is_kind_folder(name: str) -> bool:
+    """Whether a folder is named after a kind of model or a layer (``hubs``,
+    ``02_satellites``, ``raw_vault``), not a subject area."""
+    normalized = re.sub(r"^\d+[_\- ]*", "", name.strip().lower())
+    return normalized.replace("-", "_").replace(" ", "_") in _KIND_FOLDERS
+
+
 def group_candidates(macro: str, tags: list[str]) -> list[str]:
     """The tags of a model that may name its group: not its template's
     defaults, nor a tag naming a layer or a kind of model."""

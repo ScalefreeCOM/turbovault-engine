@@ -145,6 +145,7 @@ def _build_dbt_config(
         global_vars=runtime_config.global_vars,
         dbt_project_models=dict(runtime_config.dbt_project_models or {}),
         dbt_project_settings=dict(runtime_config.dbt_project_settings or {}),
+        dbt_packages=[dict(package) for package in runtime_config.dbt_packages or []],
         control_schema=runtime_config.control_schema,
         control_materialization=runtime_config.control_materialization,
         staging_materialization=runtime_config.staging_materialization,

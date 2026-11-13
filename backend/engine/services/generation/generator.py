@@ -486,9 +486,7 @@ class DbtProjectGenerator:
                 if output and output.folder and not folder_error(output.folder)
                 else folder
             )
-            inherited = self._original_folder_settings(
-                original, folder, layer_defaults
-            )
+            inherited = self._original_folder_settings(original, folder, layer_defaults)
         return self.output_path / folder, ModelConfig(
             output,
             layer_defaults,
@@ -679,6 +677,28 @@ class DbtProjectGenerator:
                 code="TPL_003",
             )
 
+    def _check_packages_template(self, content: str) -> None:
+        """Warn when the packages.yml template drops imported packages (a
+        workspace's copy from before they existed writes its fixed list)."""
+        missing = [
+            source
+            for source in map(project_yml.package_source, self.config.dbt_packages)
+            if source and source not in content
+        ]
+        if missing:
+            self.report.add_warning(
+                entity_type="project",
+                entity_name="packages.yml",
+                message=(
+                    "The packages.yml template doesn't write the imported dbt "
+                    "project's packages ("
+                    + ", ".join(missing[:5])
+                    + (", ..." if len(missing) > 5 else "")
+                    + f"). Update the template: {_OUTDATED_TEMPLATE_HINT}"
+                ),
+                code="TPL_003",
+            )
+
     def _check_log_logic(self, model_name: str, sql: str | None) -> None:
         """Warn when a template copy writes TurboVault's components as log_logic.
 
@@ -760,7 +780,9 @@ class DbtProjectGenerator:
                     self.config.business_vault_materialization
                 ),
                 prestaging_materialization=prestaging,
-                model_paths=project_yml.model_paths(model_paths or ["models"], settings),
+                model_paths=project_yml.model_paths(
+                    model_paths or ["models"], settings
+                ),
                 vars_block=vars_block,
                 # An imported dbt project's settings (spec D25)
                 **project_yml.header_values(settings),
@@ -805,7 +827,10 @@ class DbtProjectGenerator:
         # Generate packages.yml
         template = self.template_resolver.get_project_template("packages.yml")
         if template:
-            content = template.render()
+            content = template.render(
+                packages_block=project_yml.packages_block(self.config.dbt_packages)
+            )
+            self._check_packages_template(content)
             path = self.output_path / "packages.yml"
             write_yaml_file(path, content)
             self.report.add_file(path, "project", "packages", "yaml")
@@ -1262,9 +1287,14 @@ class DbtProjectGenerator:
 
         naming = self.config.record_tracking_satellite_naming
 
-        for parent_name, group, hashkey_name, source_tables, output, folder_kind in (
-            parents
-        ):
+        for (
+            parent_name,
+            group,
+            hashkey_name,
+            source_tables,
+            output,
+            folder_kind,
+        ) in parents:
             if not hashkey_name:
                 self.report.add_skipped(
                     entity_type="satellite_record_tracking",

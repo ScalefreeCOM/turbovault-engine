@@ -198,6 +198,23 @@ keys and hash diffs the import derives, and a dbt project import stores a
 model's name only where it differs from what they give. Without it the
 import reads the project's `config.yml`, else the defaults.
 
+A dbt project import also suggests settings, and applies none of them. These
+are the values most of the project's models follow, plus copies of its
+`dbt_project.yml` and package files:
+
+- naming patterns, layer schemas and materializations, folder patterns
+- the tables' default record source, load date and static part
+- stage options, the delivery method and default tags
+- the dbt project's `dbt_project.yml` and packages
+
+The report lists them in `project_settings.suggestions`, keyed by setting.
+Each one has its value and how many models follow it, and gets a
+`dbt.setting_suggested` info. Models, tables and source systems store only
+what differs from the settings the import was given. After you apply the
+suggestions, importing again stores less. The CLI offers to apply them after a
+dry run (`--apply-settings`). `EngineRuntimeConfig.with_settings()` applies
+them to a runtime config.
+
 ---
 
 ## The ImportReport

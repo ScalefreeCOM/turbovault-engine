@@ -125,6 +125,53 @@ def test_an_outdated_template_drops_the_imported_settings_with_a_warning(
     assert "raw_vault" in warning.message
 
 
+def test_the_imported_packages_come_back_with_datavault4dbt(generate, tmp_path):
+    generate(dbt_packages=[{"package": "dbt-labs/dbt_utils", "version": "1.3.0"}])
+
+    packages = yaml.safe_load(
+        (tmp_path / "dbt" / "packages.yml").read_text(encoding="utf-8")
+    )["packages"]
+    # datavault4dbt is added: the generated models call it
+    assert packages == [
+        {"package": "ScalefreeCOM/datavault4dbt", "version": [">=1.0.0", "<3.0.0"]},
+        {"package": "dbt-labs/dbt_utils", "version": "1.3.0"},
+    ]
+
+
+def test_the_imported_datavault4dbt_version_is_kept(generate, tmp_path):
+    report, _, _ = generate(
+        dbt_packages=[{"package": "ScalefreeCOM/datavault4dbt", "version": "1.9.3"}]
+    )
+
+    packages = yaml.safe_load(
+        (tmp_path / "dbt" / "packages.yml").read_text(encoding="utf-8")
+    )["packages"]
+    assert packages == [{"package": "ScalefreeCOM/datavault4dbt", "version": "1.9.3"}]
+    assert not [w for w in report.warnings if w.code == "TPL_003"]
+
+
+def test_an_outdated_packages_template_warns(generate, tmp_path):
+    import shutil
+
+    from engine.services.generation import TemplateResolver
+    from engine.services.generation.template_resolver import TEMPLATES_DIR
+
+    templates = tmp_path / "templates"
+    shutil.copytree(TEMPLATES_DIR, templates)
+    (templates / "dbt" / "yaml" / "packages.yml.j2").write_text(
+        "packages:\n  - package: ScalefreeCOM/datavault4dbt\n    version: 1.0.0\n",
+        encoding="utf-8",
+    )
+
+    report, _, _ = generate(
+        dbt_packages=[{"package": "dbt-labs/dbt_utils", "version": "1.3.0"}],
+        resolver=TemplateResolver(templates_dir=templates, use_db_templates=False),
+    )
+
+    (warning,) = [w for w in report.warnings if w.code == "TPL_003"]
+    assert "dbt-labs/dbt_utils" in warning.message
+
+
 def test_config_yml_keeps_the_settings(tmp_path):
     from engine.services.config_schema import TurboVaultConfig
     from engine.services.project_config import write_project_config
@@ -136,6 +183,7 @@ def test_config_yml_keeps_the_settings(tmp_path):
             "vars": {"datavault4dbt.hash": "SHA2"},
             "models": IMPORTED_MODELS,
             "settings": IMPORTED_SETTINGS,
+            "packages": [{"package": "dbt-labs/dbt_utils", "version": "1.3.0"}],
         },
     )
     path = tmp_path / "config.yml"
@@ -148,3 +196,6 @@ def test_config_yml_keeps_the_settings(tmp_path):
     assert runtime.global_vars == {"datavault4dbt.hash": "SHA2"}
     assert runtime.dbt_project_models == IMPORTED_MODELS
     assert runtime.dbt_project_settings == IMPORTED_SETTINGS
+    assert runtime.dbt_packages == [
+        {"package": "dbt-labs/dbt_utils", "version": "1.3.0"}
+    ]

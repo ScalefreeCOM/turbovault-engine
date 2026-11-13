@@ -340,50 +340,41 @@ ImportStatus = Literal[
 ]
 
 
-class NamingSuggestion(BaseModel):
-    """A naming pattern a source's names follow (spec §8)."""
+class SettingSuggestion(BaseModel):
+    """A project setting a source suggests (spec D22, D28)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    pattern: str
-    # How many of the source's names follow it, out of how many
-    matching: int
-    total: int
+    # The suggested value of the runtime config field
+    value: Any
+    # For a setting inferred from the source's models: how many follow the
+    # value, out of how many. None for a value copied from the source (e.g.
+    # its dbt_project.yml)
+    matching: int | None = None
+    total: int | None = None
 
 
 class ProjectSettings(BaseModel):
-    """Project settings a source suggests (a dbt project import, D22/D25).
+    """Project settings a source suggests (a dbt project import, D22/D25/D28).
 
-    The import doesn't apply them: the caller decides (the CLI asks and
-    writes config.yml, Studio offers them). Empty fields suggest nothing.
+    Keyed by runtime config field (``EngineRuntimeConfig``): naming patterns
+    (``stage_naming``), layer schemas and materializations, defaults
+    (``default_load_date_value``, ``include_source_columns``, ...),
+    ``add_default_tags``, ``use_delivery_method``, and copies of the dbt
+    project's files (``dbt_project_name``, ``profile_name``, ``global_vars``,
+    ``dbt_project_models``, ``dbt_project_settings``, ``dbt_packages``). A
+    dotted key sets one entry of a mapping field (``folders.raw_vault``,
+    ``model_materializations.pit``). Only values that differ from the
+    project's are suggested. The import doesn't apply them: the caller does
+    (the CLI asks and writes config.yml, Studio offers them).
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    # Naming patterns by runtime config field (hashkey_naming, stage_naming,
-    # ...), only those that differ from the project's
-    naming: dict[str, NamingSuggestion] = Field(default_factory=dict)
-    # From dbt_project.yml
-    dbt_project_name: str | None = None
-    profile_name: str | None = None
-    global_vars: dict[str, Any] = Field(default_factory=dict)
-    dbt_project_models: dict[str, Any] = Field(default_factory=dict)
-    dbt_project_settings: dict[str, Any] = Field(default_factory=dict)
-    # Models load single-batch data (source_is_single_batch)
-    use_delivery_method: bool | None = None
+    suggestions: dict[str, SettingSuggestion] = Field(default_factory=dict)
 
     def is_empty(self) -> bool:
-        return not any(
-            (
-                self.naming,
-                self.dbt_project_name,
-                self.profile_name,
-                self.global_vars,
-                self.dbt_project_models,
-                self.dbt_project_settings,
-                self.use_delivery_method,
-            )
-        )
+        return not self.suggestions
 
 
 class ImportReport(BaseModel):
