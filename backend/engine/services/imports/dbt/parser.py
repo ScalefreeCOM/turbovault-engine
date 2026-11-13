@@ -18,6 +18,7 @@ from engine.services.imports.dbt.artifacts import (
 from engine.services.imports.domain import DomainModel
 from engine.services.imports.errors import Code, PipelineAbort, make_issue
 from engine.services.imports.types import DbtSource, Issue, IssueLocation
+from engine.services.runtime_config import EngineRuntimeConfig
 
 # Resource types the import reads; every other type is counted and reported.
 _IMPORTED_RESOURCES = frozenset({"model", "source"})
@@ -147,12 +148,15 @@ def resource_issues(artifacts: DbtArtifacts) -> list[Issue]:
     return issues
 
 
-def parse_dbt(source: DbtSource) -> tuple[DomainModel, list[Issue]]:
+def parse_dbt(
+    source: DbtSource, *, runtime_config: EngineRuntimeConfig | None = None
+) -> tuple[DomainModel, list[Issue]]:
     """Read a dbt project's artifacts into a domain model.
 
     Returns the model and the issues found on the way. Raises
     ``PipelineAbort`` when the artifacts are unusable (no manifest, an
-    unsupported manifest version, unreadable files).
+    unsupported manifest version, unreadable files). ``runtime_config`` holds
+    the project's naming patterns (D22).
     """
     paths = locate(source)
     issues = located_issues(paths)
@@ -161,6 +165,6 @@ def parse_dbt(source: DbtSource) -> tuple[DomainModel, list[Issue]]:
 
     from engine.services.imports.dbt.mapping import map_project
 
-    domain, mapping_issues = map_project(artifacts, source)
+    domain, mapping_issues = map_project(artifacts, source, runtime_config)
     issues.extend(mapping_issues)
     return domain, issues

@@ -406,6 +406,7 @@ SkipReason = Literal[
     "missing_parent",
     "missing_source_table",
     "depends_on_skipped",
+    "invalid_configuration",
 ]
 
 
@@ -418,7 +419,7 @@ class DSkipped:
     project's copy of it under `replace_all`.
     """
 
-    entity_type: str  # "link" | "satellite" | "reference_table" | "pit"
+    entity_type: str  # "hub" | "link" | "satellite" | "reference_table" | "pit"
     name: str
     reason: SkipReason
 

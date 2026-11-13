@@ -14,7 +14,7 @@ section is completed when the Engine change lands).
 | 1 | [Pre-stages](#1-pre-stages) | Merged (Engine PR #232, unreleased); reworked on the dbt import branch | Create and edit pre-stages: table type, columns; show the "generate into your dbt project" warning |
 | 2 | [Snapshot control model names](#2-snapshot-control-model-names) | Merged (Engine PR #232, unreleased) | Template editor: new template variables |
 | 3 | [Outdated stage template warning](#3-outdated-stage-template-warning) | Merged (Engine PR #232, unreleased) | Show the warning; keep Studio-stored stage templates current |
-| 4 | [dbt project import](#4-dbt-project-import) | Planned | Upload artifacts, options, review the report |
+| 4 | [dbt project import](#4-dbt-project-import) | In progress | Upload artifacts, pass the project's settings, options, review the report |
 | 5 | [Model names, paths and configs](#5-model-names-paths-and-configs) | In progress | Edit a generated model's name, folder, schema, materialization, tags, config; stage/pre-stage naming patterns |
 | 6 | [Hash diff name and alias](#6-hash-diff-name-and-alias) | In progress | Two Satellite fields |
 | 7 | [Stage options and missing columns](#7-stage-options-and-missing-columns) | In progress | Project defaults, source system and table overrides; flag a column as missing |
@@ -190,8 +190,9 @@ dbt source; for a pre-stage, dbt would fail to find that source.
 ## 4. dbt project import
 
 **Status:** In progress (dbt import branch). Built: artifact reading, call extraction, the `DbtSource` in the
-import pipeline with artifact detection and its issues, the CLI. The mapping to TurboVault entities follows
-(spec Phase 4b): until then every dbt import stops with `dbt.nothing_to_import`.
+import pipeline with artifact detection and its issues, the CLI, and the mapping of stages, pre-stages, Hubs,
+Links and Satellites (spec Phase 4b-1). PITs, reference tables, snapshot controls, the models' folders and
+config settings, and naming pattern inference follow (4b-2).
 
 ### API
 
@@ -209,8 +210,14 @@ report = import_metadata(
         import_tags=True,
     ),
     options=ImportOptions(conflict_strategy="merge", dry_run=True),
+    runtime_config=project_settings,  # EngineRuntimeConfig built from Studio's settings
 )
 ```
+
+- **`runtime_config` (new, all imports):** pass the project's settings, as for generation. Their naming patterns
+  name the hash keys and hash diffs, and a dbt import stores a model's name only where it differs from what the
+  patterns give (spec D22). Without it the Engine reads the project's `config.yml`, which Studio projects don't
+  have, so the Engine's default patterns would apply.
 
 - Files named `catalog.json`, `dbt_project.yml`, `packages.yml` beside an uploaded `manifest.json` are found
   without passing them (a manifest in `target/` also finds the project files one level up); explicit paths
@@ -223,6 +230,28 @@ report = import_metadata(
   count), and the aborting errors `dbt.manifest_missing`, `dbt.unsupported_manifest_version`,
   `dbt.artifact_too_large`, `dbt.nothing_to_import` (a project mapping to no entity imports nothing; above all,
   `replace_all` can't empty a project).
+- Mapping issues (same file, "Mapping the models"), each on a model's `node_id`, file and parameter:
+  `dbt.model_render_failed`, `dbt.macro_unsupported`, `dbt.value_invalid`, `dbt.value_unresolved`,
+  `dbt.parameter_ignored`, `dbt.parameter_given_twice`, `dbt.parameter_unsupported`,
+  `dbt.reference_unresolved`, `dbt.link_hub_ambiguous`, `dbt.hash_inputs_differ`, `dbt.column_unknown`,
+  `dbt.prestage_maintained_in_dbt`, `dbt.project_setting`, `dbt.model_not_mapped`, and
+  `entity.depends_on_skipped` for entities left out because one they need is. Suggested grouping in the review
+  step: errors (skipped models), warnings (imported differently), infos (models staying in the dbt project).
+- Entities that can't be mapped are planned as `skip` with a reason (`missing_source_table`,
+  `missing_reference`, `missing_parent`, `depends_on_skipped`, `invalid_configuration`); `replace_all` keeps the
+  project's copy of them. With `error_strategy="fail_fast"`, any mapping error stops the import before anything
+  is written.
+- **What the mapping produces** (relevant for the review screen):
+  - A stage reading a dbt source becomes that source table; its system is the dbt source (dbt sources sharing
+    a schema become one system, with a warning). Record source and load date are set on the system when all its
+    tables share them, and not stored at all when they equal what the project's defaults give.
+  - A stage reading a model, seed or snapshot creates a pre-stage (table type `prestage`) whose stored
+    `prestage` model name is that model. Several stages reading one model get one pre-stage each, all naming the
+    same model.
+  - Stage derived columns become derived columns of the table; Hub, Link and Satellite columns map to them, to
+    prejoined columns or to source columns, matched by name.
+  - Effectivity and record-tracking satellites set their Hub's or Link's flags and options.
+  - A model's name is stored as a `ModelOutput` only where it differs from the naming patterns.
 
 Imports an existing datavault4dbt project from its dbt artifacts. The Engine never runs dbt or connects to the
 warehouse.

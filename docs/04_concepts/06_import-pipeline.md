@@ -189,6 +189,17 @@ import would create.
 
 ---
 
+## The project's settings
+
+`import_metadata(..., runtime_config=config)` passes the project's
+settings (`EngineRuntimeConfig`) for callers that keep them outside the
+project's `config.yml`, as the Studio does. Its naming patterns name the hash
+keys and hash diffs the import derives, and a dbt project import stores a
+model's name only where it differs from what they give. Without it the
+import reads the project's `config.yml`, else the defaults.
+
+---
+
 ## The ImportReport
 
 Every invocation of the pipeline returns an `ImportReport`. The same
@@ -317,7 +328,7 @@ messages and link to fix-it docs.
 | Resolve | `entity.missing_reference` | A link, reference table or PIT references a hub/link that is not defined. |
 | Resolve | `entity.missing_source_table` | A mapping references a source table identifier that does not exist. |
 | Resolve | `entity.missing_source_column` | A mapping references a column that is not present in its source table. |
-| Resolve | `entity.invalid_configuration` | An entity is internally inconsistent. |
+| Resolve, Execute | `entity.invalid_configuration` | An entity is internally inconsistent, or one of its model settings can't be stored (left out; the entity is imported). |
 | Resolve | `entity.depends_on_skipped` | An entity is left out because something it depends on was skipped (warning). |
 | Plan | `plan.would_create` / `would_update` / `would_delete` / `would_skip` | Dry-run hints — informational only. |
 | Plan | `plan.rejected` | The caller's `on_plan` callback stopped the import before anything was written. |
@@ -368,7 +379,7 @@ underlying `ImportRun` for richer error rendering than the truncated
 | SQLite | Same column/sheet layout as Excel; tables match Excel sheet names. |
 | JSON | [JSON Import (Round-Trip)](04_json-import.md) — produced by `turbovault generate --type json`. |
 | IRiS | A directory holding the `Source_*` / `DataVault_*` / `Mappings_*` workbooks produced by `turbovault generate --type iris`. Reconstructs the hubs, links, satellites and mappings the files contain. See [IRiS Import (Round-Trip)](../00_index.md#iris-import-round-trip). |
-| dbt | A datavault4dbt project's artifacts (`DbtSource`): its folder, or its `manifest.json` (schema v12) with optional `catalog`, `dbt_project` and `packages` files. The import reads files only, never runs dbt or connects to a warehouse, and reports which artifacts it found (`dbt.*` codes). A project that maps to no TurboVault entity imports nothing (`dbt.nothing_to_import`), so `replace_all` can't empty a project. See the [dbt project import specification](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/backend/docs/07_dbt_project_import_specification.md). |
+| dbt | A datavault4dbt project's artifacts (`DbtSource`): its folder, or its `manifest.json` (schema v12) with optional `catalog`, `dbt_project` and `packages` files. The import reads files only, never runs dbt or connects to a warehouse, and reports which artifacts it found (`dbt.*` codes). Stages become source tables, or pre-stages when they read a model of the project; Hubs, Links and Satellites map their columns to the stage's source, derived and prejoined columns; effectivity and record-tracking satellites become their Hub's or Link's. A model's name is stored only where it differs from the project's naming patterns. What can't be mapped is reported on its model (`location.node_id`) and planned as a skip; under `fail_fast`, mapping errors stop the import before anything is written. A project that maps to no TurboVault entity imports nothing (`dbt.nothing_to_import`), so `replace_all` can't empty a project. See the [dbt project import specification](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/backend/docs/07_dbt_project_import_specification.md). |
 
 For source-specific format issues (missing sheets, wrong column names),
 read the parse/validate sections above and the format reference for

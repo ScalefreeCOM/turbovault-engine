@@ -1,0 +1,882 @@
+"""Mapping a datavault4dbt project to TurboVault entities (spec §7).
+
+Hand-written manifests of a small shop project: stages become source tables
+or pre-stages; Hubs, Links and Satellites map their columns to the stage's
+source, derived and prejoined columns; effectivity and record-tracking
+Satellites become their Hub's. Names are kept, and stored only where they
+differ from the project's naming patterns. What can't be mapped is reported
+on its model and left out.
+"""
+
+from __future__ import annotations
+
+import json
+import textwrap
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+pytestmark = pytest.mark.django_db
+
+PROJECT = "shop"
+V12 = "https://schemas.getdbt.com/dbt/manifest/v12.json"
+
+
+# ---------------------------------------------------------------------------
+# Building manifests
+# ---------------------------------------------------------------------------
+
+
+def dv(macro: str, yaml: str) -> str:
+    """A model calling datavault4dbt.<macro> with a yaml_metadata block."""
+    return (
+        "{{ config(materialized='incremental') }}\n"
+        "{%- set yaml_metadata -%}\n"
+        + textwrap.dedent(yaml).strip()
+        + "\n{%- endset -%}\n"
+        + f"{{{{ datavault4dbt.{macro}(yaml_metadata=yaml_metadata) }}}}\n"
+    )
+
+
+def model(
+    name: str,
+    raw_code: str,
+    *,
+    folder: str = "models/raw_vault",
+    columns: dict[str, dict[str, Any]] | None = None,
+    description: str = "",
+) -> tuple[str, dict[str, Any]]:
+    unique_id = f"model.{PROJECT}.{name}"
+    return unique_id, {
+        "resource_type": "model",
+        "package_name": PROJECT,
+        "name": name,
+        "language": "sql",
+        "raw_code": raw_code,
+        "original_file_path": f"{folder}/{name}.sql",
+        "path": f"{name}.sql",
+        "database": "analytics",
+        "schema": "dv",
+        "description": description,
+        "columns": {
+            key: {"name": key, **value} for key, value in (columns or {}).items()
+        },
+        "config": {},
+        "unrendered_config": {},
+        "fqn": [PROJECT, *folder.split("/")[1:], name],
+    }
+
+
+def source(
+    source_name: str,
+    table: str,
+    columns: list[str] | dict[str, str],
+    *,
+    schema: str | None = None,
+    database: str | None = None,
+) -> tuple[str, dict[str, Any]]:
+    if isinstance(columns, list):
+        columns = dict.fromkeys(columns, "varchar")
+    unique_id = f"source.{PROJECT}.{source_name}.{table}"
+    return unique_id, {
+        "resource_type": "source",
+        "package_name": PROJECT,
+        "source_name": source_name,
+        "name": table,
+        "identifier": table,
+        "schema": schema or f"{source_name}_raw",
+        "database": database or "analytics",
+        "unrendered_database": database,
+        "description": "",
+        "columns": {
+            name: {"name": name, "data_type": datatype}
+            for name, datatype in columns.items()
+        },
+    }
+
+
+def write_manifest(
+    path: Path,
+    nodes: list[tuple[str, dict[str, Any]]],
+    sources: list[tuple[str, dict[str, Any]]],
+    parent_map: dict[str, list[str]] | None = None,
+) -> Path:
+    manifest = {
+        "metadata": {
+            "dbt_schema_version": V12,
+            "project_name": PROJECT,
+            "adapter_type": "postgres",
+            "dbt_version": "1.10.0",
+        },
+        "nodes": dict(nodes),
+        "sources": dict(sources),
+        "macros": {},
+        "parent_map": parent_map or {},
+        "child_map": {},
+    }
+    target = path / "manifest.json"
+    target.write_text(json.dumps(manifest), encoding="utf-8")
+    return target
+
+
+CUSTOMER = source(
+    "crm", "customer", ["ID", "REFERRER_ID", "NAME", "EMAIL", "COUNTRY", "LOAD_TS"]
+)
+ORDERS = source("crm", "orders", ["ORDER_ID", "CUSTOMER_ID", "LINE_NO", "AMOUNT"])
+
+STG_CUSTOMER = model(
+    "stg__crm__customer",
+    dv(
+        "stage",
+        """
+        source_model:
+            crm: customer
+        ldts: LOAD_TS
+        rsrc: '!crm'
+        include_source_columns: false
+        derived_columns:
+            NAME_UPPER:
+                value: UPPER(NAME)
+                datatype: VARCHAR
+        missing_columns:
+            LEGACY_CODE: VARCHAR
+        hashed_columns:
+            hk_customer_h:
+                - ID
+            hk_referrer_h:
+                - REFERRER_ID
+            hd_customer_s:
+                is_hashdiff: true
+                columns:
+                    - NAME_UPPER
+                    - EMAIL
+        """,
+    ),
+    folder="models/staging",
+)
+STG_ORDERS = model(
+    "stg__crm__orders",
+    dv(
+        "stage",
+        """
+        source_model:
+            crm: orders
+        ldts: LOAD_TS
+        rsrc: '!crm'
+        hashed_columns:
+            hk_order_h:
+                - ORDER_ID
+            hk_customer_h:
+                - CUSTOMER_ID
+            hk_order_customer_l:
+                - ORDER_ID
+                - CUSTOMER_ID
+                - LINE_NO
+        """,
+    ),
+    folder="models/staging",
+)
+CUSTOMER_H = model(
+    "customer_h",
+    dv(
+        "hub",
+        """
+        hashkey: hk_customer_h
+        business_keys:
+            - customer_id
+        source_models:
+            - name: stg__crm__customer
+              bk_columns: [ID]
+              rsrc_static: '!crm'
+            - name: stg__crm__customer
+              hk_column: hk_referrer_h
+              bk_columns: [REFERRER_ID]
+            - name: stg__crm__orders
+              bk_columns: [CUSTOMER_ID]
+        additional_columns:
+            - COUNTRY
+        disable_hwm: true
+        """,
+    ),
+    description="Customers",
+)
+ORDER_H = model(
+    "order_h",
+    dv(
+        "hub",
+        """
+        hashkey: hk_order_h
+        business_keys: [ORDER_ID]
+        source_models: stg__crm__orders
+        """,
+    ),
+)
+ORDER_CUSTOMER_L = model(
+    "order_customer_l",
+    dv(
+        "link",
+        """
+        link_hashkey: hk_order_customer_l
+        foreign_hashkeys:
+            - hk_order_h
+            - hk_customer_h
+        source_models: stg__crm__orders
+        """,
+    ),
+)
+CUSTOMER_S_V0 = model(
+    "customer_s_v0",
+    dv(
+        "sat_v0",
+        """
+        source_model: stg__crm__customer
+        parent_hashkey: hk_customer_h
+        src_hashdiff:
+            source_column: hd_customer_s
+            alias: hashdiff
+        src_payload:
+            - NAME_UPPER
+            - EMAIL
+            - LEGACY_CODE
+        """,
+    ),
+    columns={"EMAIL": {"description": "Mail address"}},
+)
+CUSTOMER_S_V1 = model(
+    "customer_s_v1",
+    dv(
+        "sat_v1",
+        """
+        sat_v0: customer_s_v0
+        hashkey: hk_customer_h
+        hashdiff: hashdiff
+        ledts_alias: valid_to
+        add_is_current_flag: false
+        """,
+    ),
+)
+
+
+def shop(tmp_path: Path, *extra: tuple[str, dict[str, Any]], sources=()) -> Path:
+    return write_manifest(
+        tmp_path,
+        [
+            STG_CUSTOMER,
+            STG_ORDERS,
+            CUSTOMER_H,
+            ORDER_H,
+            ORDER_CUSTOMER_L,
+            CUSTOMER_S_V0,
+            CUSTOMER_S_V1,
+            *extra,
+        ],
+        [CUSTOMER, ORDERS, *sources],
+    )
+
+
+def map_manifest(path: Path, runtime_config=None):
+    from engine.services.imports.dbt.parser import parse_dbt
+    from engine.services.imports.types import DbtSource
+
+    return parse_dbt(DbtSource(path=path), runtime_config=runtime_config)
+
+
+def codes(issues) -> list[str]:
+    return [issue.code for issue in issues]
+
+
+@pytest.fixture
+def project(django_setup, db):
+    from engine.models import Project
+
+    return Project.objects.create(name="shop")
+
+
+def import_shop(project, path: Path, **options):
+    from engine.services.imports import DbtSource, ImportOptions, import_metadata
+
+    return import_metadata(
+        project=project,
+        source=DbtSource(path=path),
+        options=ImportOptions(skip_snapshots=True, **options),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stages
+# ---------------------------------------------------------------------------
+
+
+def test_a_stage_becomes_its_source_table(tmp_path):
+    from engine.services.imports.domain import CLEAR
+
+    domain, _ = map_manifest(shop(tmp_path))
+
+    crm = domain.source_systems["crm"]
+    assert (crm.schema_name, crm.database_name) == ("crm_raw", None)
+    # Both tables load with LOAD_TS: set on the system. Their record source
+    # '!crm' is what a crm table gets anyway: not stored.
+    assert (crm.record_source_value, crm.load_date_value) == (CLEAR, "LOAD_TS")
+    customer = crm.tables["crm|customer"]
+    assert customer.record_source_value is CLEAR
+    assert customer.include_source_columns is False
+    assert customer.enable_ghost_records is CLEAR
+    assert customer.derived_columns["name_upper"].expression == "UPPER(NAME)"
+    assert customer.columns["legacy_code"].is_missing is True
+    assert customer.columns["email"].is_missing is False
+    # stg__crm__customer is what the default stage pattern gives
+    assert customer.outputs == {}
+
+
+def test_a_stage_name_off_the_pattern_is_stored(tmp_path):
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    path = shop(tmp_path)
+    domain, _ = map_manifest(
+        path, EngineRuntimeConfig(stage_naming="stage_[[ source_table ]]")
+    )
+
+    outputs = domain.source_systems["crm"].tables["crm|customer"].outputs
+    assert outputs["stage"].model_name == "stg__crm__customer"
+
+
+def test_a_stage_reading_a_model_gets_a_prestage(tmp_path):
+    prep = model("pstg__crm__address", "select * from {{ source('crm', 'address') }}")
+    address = source("crm", "address", ["CUSTOMER_ID", "STREET"])
+    stage = model(
+        "stg__crm__address",
+        dv(
+            "stage",
+            """
+            source_model: pstg__crm__address
+            ldts: LOAD_TS
+            rsrc: '!crm'
+            """,
+        ),
+    )
+    path = write_manifest(
+        tmp_path,
+        [stage, prep],
+        [address],
+        parent_map={prep[0]: [address[0]]},
+    )
+
+    domain, issues = map_manifest(path)
+
+    table = domain.source_systems["crm"].tables["crm|address"]
+    assert table.table_type == "prestage"
+    assert table.outputs == {}
+    assert "dbt.prestage_maintained_in_dbt" in codes(issues)
+
+
+# ---------------------------------------------------------------------------
+# Hubs and Links
+# ---------------------------------------------------------------------------
+
+
+def test_a_hub_maps_its_business_keys_to_each_stage(tmp_path):
+    from engine.services.imports.domain import CLEAR
+
+    domain, _ = map_manifest(shop(tmp_path))
+
+    hub = domain.hubs["customer_h"]
+    assert (hub.hashkey_name, hub.disable_hwm, hub.description) == (
+        "hk_customer_h",
+        True,
+        "Customers",
+    )
+    key, country = hub.columns
+    assert (key.name, country.name, country.column_type) == (
+        "customer_id",
+        "COUNTRY",
+        "additional_column",
+    )
+    mappings = [
+        (m.source_table_identifier, m.source_column_name, m.is_primary_source)
+        for m in key.source_mappings
+    ]
+    assert mappings == [
+        ("crm|customer", "ID", True),
+        ("crm|customer", "REFERRER_ID", False),
+        ("crm|orders", "CUSTOMER_ID", False),
+    ]
+    roles = [m.stage_hashkey_name for m in key.source_mappings]
+    assert roles == [CLEAR, "hk_referrer_h", CLEAR]
+    table = domain.source_systems["crm"].tables["crm|customer"]
+    assert table.static_part_of_record_source == "!crm"
+
+
+def test_a_link_finds_its_hubs_and_dependent_child_keys(tmp_path):
+    domain, _ = map_manifest(shop(tmp_path))
+
+    link = domain.links["order_customer_l"]
+    assert [
+        (r.hub_physical_name, r.hub_hashkey_alias_in_link) for r in link.hub_references
+    ] == [
+        ("order_h", ""),
+        ("customer_h", ""),
+    ]
+    assert [
+        (m.hub_column_name, m.source_column_name) for m in link.hub_source_mappings
+    ] == [
+        ("ORDER_ID", "ORDER_ID"),
+        ("customer_id", "CUSTOMER_ID"),
+    ]
+    # The link hash key hashes LINE_NO on top of the hubs' keys
+    assert [(c.name, c.column_type) for c in link.columns] == [
+        ("LINE_NO", "dependent_child_key")
+    ]
+
+
+def test_a_self_link_references_its_hub_twice(tmp_path):
+    referral = model(
+        "customer_referral_l",
+        dv(
+            "link",
+            """
+            link_hashkey: hk_customer_referral_l
+            foreign_hashkeys: [hk_customer_h, hk_referrer_h]
+            source_models: stg__crm__customer
+            """,
+        ),
+    )
+    stage = model(
+        "stg__crm__customer",
+        STG_CUSTOMER[1]["raw_code"].replace(
+            "hashed_columns:",
+            "hashed_columns:\n    hk_customer_referral_l:\n        - ID\n        - REFERRER_ID",
+        ),
+        folder="models/staging",
+    )
+    path = write_manifest(
+        tmp_path, [stage, STG_ORDERS, CUSTOMER_H, referral], [CUSTOMER, ORDERS]
+    )
+
+    domain, _ = map_manifest(path)
+
+    link = domain.links["customer_referral_l"]
+    assert [
+        (r.hub_physical_name, r.hub_hashkey_alias_in_link) for r in link.hub_references
+    ] == [
+        ("customer_h", ""),
+        ("customer_h", "hk_referrer_h"),
+    ]
+    assert [m.source_column_name for m in link.hub_source_mappings] == [
+        "ID",
+        "REFERRER_ID",
+    ]
+    assert link.columns == []
+
+
+def test_a_foreign_hash_key_without_its_hub_skips_the_link(tmp_path):
+    orphan = model(
+        "order_product_l",
+        dv(
+            "link",
+            """
+            link_hashkey: hk_order_product_l
+            foreign_hashkeys: [hk_order_h, hk_product_h]
+            source_models: stg__crm__orders
+            """,
+        ),
+    )
+    domain, issues = map_manifest(shop(tmp_path, orphan))
+
+    assert "order_product_l" not in domain.links
+    assert ("link", "order_product_l") in domain.skipped
+    (issue,) = [i for i in issues if i.code == "dbt.link_hub_ambiguous"]
+    assert issue.location.node_id == "model.shop.order_product_l"
+    assert issue.location.parameter == "foreign_hashkeys"
+
+
+def test_a_non_historized_link_keeps_its_payload_and_union_strategy(tmp_path):
+    lines = model(
+        "order_line_nl",
+        dv(
+            "nh_link",
+            """
+            link_hashkey: hk_order_customer_l
+            foreign_hashkeys: [hk_order_h, hk_customer_h]
+            payload: [AMOUNT]
+            union_strategy: distinct
+            source_models: stg__crm__orders
+            """,
+        ),
+    )
+    domain, _ = map_manifest(shop(tmp_path, lines))
+
+    link = domain.links["order_line_nl"]
+    assert (link.link_type, link.union_strategy) == ("non_historized", "distinct")
+    assert [(c.name, c.column_type) for c in link.columns] == [
+        ("LINE_NO", "dependent_child_key"),
+        ("AMOUNT", "payload"),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Satellites
+# ---------------------------------------------------------------------------
+
+
+def test_a_satellite_maps_its_payload_and_v1_view(tmp_path):
+    from engine.services.imports.domain import CLEAR
+
+    domain, _ = map_manifest(shop(tmp_path))
+
+    sat = domain.satellites["customer_s"]
+    assert (sat.parent_entity_name, sat.parent_entity_type) == ("customer_h", "hub")
+    assert (sat.hashdiff_name, sat.hashdiff_alias) == ("hd_customer_s", "hashdiff")
+    assert [
+        (c.source_column_name, c.include_in_delta_detection, c.description)
+        for c in sat.columns
+    ] == [
+        ("NAME_UPPER", True, None),
+        ("EMAIL", True, "Mail address"),
+        ("LEGACY_CODE", False, None),
+    ]
+    assert sat.v1_ledts_alias == "valid_to"
+    assert sat.v1_add_is_current_flag is False
+    # Named like the default v0/v1 patterns, with a v1 view as by default
+    assert sat.create_v1_view is CLEAR
+    assert sat.outputs == {}
+
+
+def test_satellite_models_off_the_patterns_keep_their_names(tmp_path):
+    v0 = model("sat_customer", CUSTOMER_S_V0[1]["raw_code"])
+    v1 = model(
+        "sat_customer_current",
+        CUSTOMER_S_V1[1]["raw_code"].replace("customer_s_v0", "sat_customer"),
+    )
+    path = write_manifest(
+        tmp_path,
+        [STG_CUSTOMER, STG_ORDERS, CUSTOMER_H, v0, v1],
+        [CUSTOMER, ORDERS],
+    )
+
+    domain, _ = map_manifest(path)
+
+    sat = domain.satellites["sat_customer"]
+    assert sat.outputs["satellite_v0"].model_name == "sat_customer"
+    assert sat.outputs["satellite_v1"].model_name == "sat_customer_current"
+
+
+def test_a_satellite_without_a_v1_view_says_so(tmp_path):
+    path = write_manifest(
+        tmp_path,
+        [STG_CUSTOMER, STG_ORDERS, CUSTOMER_H, CUSTOMER_S_V0],
+        [CUSTOMER, ORDERS],
+    )
+
+    domain, _ = map_manifest(path)
+
+    assert domain.satellites["customer_s"].create_v1_view is False
+
+
+def test_a_multi_active_satellite_marks_its_keys(tmp_path):
+    ma = model(
+        "customer_phone_ms_v0",
+        dv(
+            "ma_sat_v0",
+            """
+            source_model: stg__crm__customer
+            parent_hashkey: hk_customer_h
+            src_hashdiff: hd_customer_s
+            src_ma_key: [EMAIL]
+            src_payload: [NAME]
+            """,
+        ),
+    )
+    domain, _ = map_manifest(shop(tmp_path, ma))
+
+    sat = domain.satellites["customer_phone_ms"]
+    assert sat.satellite_type == "multi_active"
+    assert [(c.source_column_name, c.is_multi_active_key) for c in sat.columns] == [
+        ("EMAIL", True),
+        ("NAME", False),
+    ]
+
+
+def test_effectivity_and_record_tracking_satellites_belong_to_their_hub(tmp_path):
+    eff = model(
+        "customer_es",
+        dv(
+            "eff_sat_v0",
+            """
+            source_model: stg__crm__customer
+            tracked_hashkey: hk_customer_h
+            is_active_alias: is_live
+            source_is_single_batch: true
+            """,
+        ),
+    )
+    rts = model(
+        "customer_tracking",
+        dv(
+            "rec_track_sat",
+            """
+            tracked_hashkey: hk_customer_h
+            source_models:
+                - name: stg__crm__customer
+                - name: stg__crm__orders
+            """,
+        ),
+    )
+    domain, issues = map_manifest(shop(tmp_path, eff, rts))
+
+    hub = domain.hubs["customer_h"]
+    assert hub.create_effectivity_satellite is True
+    assert hub.effectivity_is_active_alias == "is_live"
+    assert hub.create_record_tracking_satellite is True
+    # customer_es follows the pattern; customer_tracking doesn't
+    assert set(hub.outputs) == {"record_tracking_satellite"}
+    assert hub.outputs["record_tracking_satellite"].model_name == "customer_tracking"
+    table = domain.source_systems["crm"].tables["crm|customer"]
+    assert table.delivery_method == "single_batch"
+    assert "dbt.project_setting" in codes(issues)
+
+
+# ---------------------------------------------------------------------------
+# Prejoins
+# ---------------------------------------------------------------------------
+
+
+def test_a_prejoined_column_loads_a_satellite(tmp_path, project):
+    from engine.models import PrejoinExtractionColumn, SatelliteColumn
+
+    country = source("crm", "country", ["CODE", "COUNTRY_NAME"])
+    stage = model(
+        "stg__crm__customer",
+        STG_CUSTOMER[1]["raw_code"].replace(
+            "hashed_columns:",
+            textwrap.dedent(
+                """\
+                prejoined_columns:
+                    - extract_columns: [COUNTRY_NAME]
+                      aliases: [CUSTOMER_COUNTRY]
+                      src_name: crm
+                      src_table: country
+                      this_column_name: [COUNTRY]
+                      ref_column_name: [CODE]
+                hashed_columns:"""
+            ),
+        ),
+        folder="models/staging",
+    )
+    sat = model(
+        "customer_country_s_v0",
+        dv(
+            "sat_v0",
+            """
+            source_model: stg__crm__customer
+            parent_hashkey: hk_customer_h
+            src_hashdiff: hd_customer_s
+            src_payload: [CUSTOMER_COUNTRY]
+            """,
+        ),
+    )
+    path = write_manifest(
+        tmp_path,
+        [stage, STG_ORDERS, CUSTOMER_H, ORDER_H, sat],
+        [CUSTOMER, ORDERS, country],
+    )
+
+    report = import_shop(project, path)
+
+    assert report.status in ("success", "partial_success"), report.issues
+    (column,) = SatelliteColumn.objects.filter(
+        satellite__satellite_physical_name="customer_country_s"
+    )
+    extraction = column.staging_column.prejoin_column
+    assert isinstance(extraction, PrejoinExtractionColumn)
+    assert extraction.prejoin_target_column_alias == "CUSTOMER_COUNTRY"
+
+
+# ---------------------------------------------------------------------------
+# Through the pipeline
+# ---------------------------------------------------------------------------
+
+
+def test_a_dbt_project_imports_and_reimports_unchanged(tmp_path, project):
+    from engine.models import Hub, Link, Satellite, SourceTable
+
+    path = shop(tmp_path)
+
+    first = import_shop(project, path)
+
+    assert first.status == "success", [
+        i.message for i in first.issues if i.severity == "error"
+    ]
+    assert set(
+        Hub.objects.filter(project=project).values_list("hub_physical_name", flat=True)
+    ) == {
+        "customer_h",
+        "order_h",
+    }
+    assert Link.objects.filter(project=project).count() == 1
+    sat = Satellite.objects.get(project=project)
+    assert (sat.hashdiff_name, sat.hashdiff_alias) == (None, "hashdiff")
+    table = SourceTable.objects.get(project=project, physical_table_name="customer")
+    assert table.include_source_columns is False
+
+    again = import_shop(project, path)
+
+    changed = [
+        (e.ref.type, e.ref.name, e.changes)
+        for e in again.plan.entities
+        if e.action not in ("unchanged", "skip")
+    ]
+    assert changed == []
+
+
+def test_mapping_errors_stop_a_fail_fast_import(tmp_path, project):
+    from engine.models import Hub
+
+    orphan = model(
+        "orphan_h",
+        dv(
+            "hub",
+            """
+            hashkey: hk_orphan_h
+            business_keys: [ID]
+            source_models: stg_unknown
+            """,
+        ),
+    )
+
+    report = import_shop(project, shop(tmp_path, orphan), error_strategy="fail_fast")
+
+    assert report.status != "success"
+    assert "dbt.reference_unresolved" in codes(report.issues)
+    assert not Hub.objects.filter(project=project).exists()
+
+
+def test_models_without_a_data_vault_call_are_reported(tmp_path):
+    mart = model("customer_mart", "select * from {{ ref('customer_s_v1') }}")
+    domain, issues = map_manifest(shop(tmp_path, mart))
+
+    (issue,) = [i for i in issues if i.code == "dbt.model_not_mapped"]
+    assert issue.severity == "info"
+    assert issue.location.node_id == "model.shop.customer_mart"
+
+
+def test_invert_pattern():
+    from engine.services.imports.dbt.mapping import invert_pattern
+
+    assert invert_pattern("[[ satellite_name ]]_v0", "customer_s_v0") == {
+        "satellite_name": "customer_s"
+    }
+    assert invert_pattern(
+        "stg__[[ source_system ]]__[[ source_table ]]", "stg__crm__order_lines"
+    ) == {"source_system": "crm", "source_table": "order_lines"}
+    assert invert_pattern("[[ satellite_name ]]_v0", "customer_s") is None
+
+
+def test_a_key_column_among_the_foreign_hash_keys_is_a_child_key(tmp_path):
+    """Transactional links list their transaction id with the hubs' keys."""
+    lines = model(
+        "order_line_tl",
+        dv(
+            "nh_link",
+            """
+            link_hashkey: hk_order_customer_l
+            foreign_hashkeys: [hk_order_h, hk_customer_h, LINE_NO]
+            payload: [AMOUNT]
+            source_models: stg__crm__orders
+            """,
+        ),
+    )
+    domain, issues = map_manifest(shop(tmp_path, lines))
+
+    link = domain.links["order_line_tl"]
+    assert [r.hub_physical_name for r in link.hub_references] == [
+        "order_h",
+        "customer_h",
+    ]
+    assert ("LINE_NO", "dependent_child_key") in [
+        (c.name, c.column_type) for c in link.columns
+    ]
+    (warning,) = [
+        i
+        for i in issues
+        if i.code == "dbt.parameter_unsupported" and "LINE_NO" in i.message
+    ]
+    assert warning.location.parameter == "foreign_hashkeys"
+
+
+def test_several_stages_may_read_one_prestage(tmp_path):
+    prep = model("pstg__crm__organizations", "select 1")
+    stages = [
+        model(
+            name,
+            dv(
+                "stage",
+                """
+                source_model: pstg__crm__organizations
+                ldts: LOAD_TS
+                rsrc: '!crm'
+                """,
+            ),
+        )
+        for name in ("stg__crm__organizations", "stg__crm__billing_address")
+    ]
+    path = write_manifest(
+        tmp_path, [*stages, prep], [CUSTOMER], parent_map={prep[0]: [CUSTOMER[0]]}
+    )
+
+    domain, issues = map_manifest(path)
+
+    tables = {
+        table.physical_name: table
+        for system in domain.source_systems.values()
+        for table in system.tables.values()
+        if table.table_type == "prestage"
+    }
+    assert set(tables) == {"organizations", "billing_address"}
+    # Both read the same model of the dbt project
+    assert tables["billing_address"].outputs["prestage"].model_name == (
+        "pstg__crm__organizations"
+    )
+    assert "prestage" not in tables["organizations"].outputs
+    assert not [i for i in issues if i.severity == "error"]
+
+
+def test_what_depends_on_a_left_out_stage_is_left_out_quietly(tmp_path):
+    broken = model(
+        "stg__crm__broken",
+        dv("stage", "source_model:\n    crm: nowhere\nldts: LOAD_TS\nrsrc: '!crm'"),
+    )
+    hub = model(
+        "broken_h",
+        dv(
+            "hub",
+            """
+            hashkey: hk_broken_h
+            business_keys: [ID]
+            source_models: stg__crm__broken
+            """,
+        ),
+    )
+    sat = model(
+        "broken_s_v0",
+        dv(
+            "sat_v0",
+            """
+            source_model: stg__crm__orders
+            parent_hashkey: hk_broken_h
+            src_hashdiff: hd_broken_s
+            src_payload: [AMOUNT]
+            """,
+        ),
+    )
+
+    domain, issues = map_manifest(shop(tmp_path, broken, hub, sat))
+
+    errors = [(i.code, i.location.node_id) for i in issues if i.severity == "error"]
+    assert errors == [("dbt.reference_unresolved", "model.shop.stg__crm__broken")]
+    cascades = {
+        i.location.node_id for i in issues if i.code == "entity.depends_on_skipped"
+    }
+    assert cascades == {"model.shop.broken_h", "model.shop.broken_s_v0"}
+    assert domain.skipped[("hub", "broken_h")].reason == "depends_on_skipped"
+    assert domain.skipped[("satellite", "broken_s")].reason == "depends_on_skipped"

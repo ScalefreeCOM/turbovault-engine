@@ -91,6 +91,7 @@ from engine.services.imports.types import (
     PlanCounts,
     PlanState,
 )
+from engine.services.runtime_config import EngineRuntimeConfig
 
 
 def _only_supplied(**fields: Any) -> dict[str, Any]:
@@ -136,6 +137,7 @@ def execute_plan(
     error_strategy: ErrorStrategy,
     skip_snapshots: bool,
     dry_run: bool = False,
+    runtime_config: EngineRuntimeConfig | None = None,
 ) -> ExecutionResult:
     """Apply the plan to the database; return the issues and what each op did.
 
@@ -151,6 +153,7 @@ def execute_plan(
         plan=plan,
         error_strategy=error_strategy,
         skip_snapshots=skip_snapshots,
+        runtime_config=runtime_config,
     )
     with transaction.atomic():
         executor.run()
@@ -246,8 +249,11 @@ class _Executor:
         plan: ExecutionPlan,
         error_strategy: ErrorStrategy,
         skip_snapshots: bool,
+        runtime_config: EngineRuntimeConfig | None = None,
     ):
         self.project = project
+        # The project's settings: naming patterns name hash keys and diffs.
+        self.runtime_config = runtime_config
         self.domain = domain
         self.plan = plan
         self.error_strategy = error_strategy
@@ -508,7 +514,7 @@ class _Executor:
         if existing is not None and existing.hashdiff_name == name:
             return name
         derived = self.project.resolve_naming_pattern(
-            "hashdiff_naming", d.physical_name
+            "hashdiff_naming", d.physical_name, runtime_config=self.runtime_config
         )
         return CLEAR if name == derived else name
 
@@ -943,6 +949,15 @@ class _Executor:
                 return self._staging_for(
                     derived, f"{table.physical_table_name}.{derived.column_name}"
                 )
+            # A column a prejoin brings into the stage, when the table has
+            # no column of that name.
+            if (table_identifier, col_name) not in self._source_columns:
+                extraction = self._extraction_named(table, col_name)
+                if extraction is not None:
+                    return self._staging_for(
+                        extraction,
+                        f"{table.physical_table_name}.{_staged_name(extraction)}",
+                    )
         src_col = self._ensure_source_column(table_identifier, col_name)
         if src_col is None:
             return None
@@ -951,6 +966,22 @@ class _Executor:
         )
         return self._staging_for(
             src_col, f"{table_name}.{src_col.source_column_physical_name}"
+        )
+
+    def _extraction_named(
+        self, table: SourceTable, col_name: str
+    ) -> PrejoinExtractionColumn | None:
+        """The prejoin extraction a stage of ``table`` names ``col_name``."""
+        lowered = col_name.lower()
+        return next(
+            (
+                extraction
+                for (source_pk, _target_pk, staged), extraction in (
+                    self._prejoin_extractions.items()
+                )
+                if source_pk == table.pk and staged == lowered
+            ),
+            None,
         )
 
     # ---------------------------------------------------------------- prejoin
@@ -1143,7 +1174,7 @@ class _Executor:
         hashkey = d.hashkey_name
         if d.hub_type == Hub.HubType.STANDARD and not hashkey:
             hashkey = self.project.resolve_naming_pattern(
-                "hashkey_naming", d.physical_name
+                "hashkey_naming", d.physical_name, runtime_config=self.runtime_config
             )
         obj, created = self._upsert(
             Hub,
@@ -1336,7 +1367,9 @@ class _Executor:
                 # What Link.save() would store for an unnamed hashkey.
                 "link_hashkey_name": d.hashkey_name
                 or self.project.resolve_naming_pattern(
-                    "hashkey_naming", d.physical_name
+                    "hashkey_naming",
+                    d.physical_name,
+                    runtime_config=self.runtime_config,
                 ),
                 "create_record_tracking_satellite": d.create_record_tracking_satellite,
                 "group": group,

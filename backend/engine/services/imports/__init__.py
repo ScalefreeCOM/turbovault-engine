@@ -69,6 +69,7 @@ from engine.services.imports.types import (
 )
 from engine.services.imports.validation.resolver import resolve
 from engine.services.imports.validation.schema_validator import validate_schema
+from engine.services.runtime_config import EngineRuntimeConfig
 
 __all__ = [
     "import_metadata",
@@ -103,6 +104,7 @@ def import_metadata(
     options: ImportOptions | None = None,
     progress: ProgressCallback | None = None,
     on_plan: PlanCallback | None = None,
+    runtime_config: EngineRuntimeConfig | None = None,
 ) -> ImportReport:
     """Run the import pipeline against `project`.
 
@@ -119,6 +121,12 @@ def import_metadata(
     changes). Raising from it stops the import: the run is recorded as
     rejected and the exception propagates to the caller, e.g. to enforce a
     quota on the entities the import would create.
+
+    ``runtime_config`` holds the project's settings, for callers that keep
+    them outside ``config.yml`` (Studio): the naming patterns name hash keys
+    and hash diffs, and a dbt import stores a model's name only where it
+    differs from what they give. Without it the project's ``config.yml`` (or
+    the defaults) applies.
 
     The only path that does NOT return is a programming bug — those become
     `internal.bug` issues in the report.
@@ -162,8 +170,25 @@ def import_metadata(
             elif isinstance(source, IrisSource):
                 domain = parse_iris(Path(source.path))
             elif isinstance(source, DbtSource):
-                domain, parse_issues = parse_dbt(source)
+                runtime_config = runtime_config or _project_settings(project)
+                domain, parse_issues = parse_dbt(source, runtime_config=runtime_config)
                 issues.extend(parse_issues)
+                if options.error_strategy == "fail_fast" and any(
+                    issue.severity == "error" for issue in parse_issues
+                ):
+                    timings["parse"] = _ms(t0)
+                    return _finalize(
+                        project=project,
+                        source=source,
+                        options=options,
+                        plan=plan_for_report,
+                        issues=issues,
+                        started_at=started_at,
+                        timings=timings,
+                        run_id=run_id,
+                        executor_committed=False,
+                        progress=progress,
+                    )
                 if domain.is_empty():
                     # Nothing to plan: above all, replace_all must not read an
                     # empty project as "delete everything".
@@ -308,6 +333,7 @@ def import_metadata(
                     error_strategy=options.error_strategy,
                     skip_snapshots=options.skip_snapshots,
                     dry_run=options.dry_run,
+                    runtime_config=runtime_config,
                 )
                 issues.extend(result.issues)
                 # Only now is every action final: an entity that exists is
@@ -356,6 +382,14 @@ def import_metadata(
     if rejection is not None:
         raise rejection
     return report
+
+
+def _project_settings(project: Project) -> EngineRuntimeConfig:
+    """The project's settings from its config.yml, else the defaults."""
+    try:
+        return EngineRuntimeConfig.from_project(project)
+    except Exception:  # an invalid config.yml: naming falls back the same way
+        return EngineRuntimeConfig()
 
 
 def _finalize(

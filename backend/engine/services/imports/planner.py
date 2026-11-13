@@ -485,9 +485,11 @@ class _PlanBuilder:
                     )
                 )
 
+        left_out = self._plan_left_out("hub")
+
         if self.strategy == "replace_all":
             for h in existing_by_name.values():
-                if h.pk not in used_pks:
+                if h.pk not in used_pks and h.hub_physical_name not in left_out:
                     self._record(
                         DeleteOp(
                             entity_type="hub",

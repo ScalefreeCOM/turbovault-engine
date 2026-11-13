@@ -49,8 +49,9 @@ package-specific part separate so an AutomateDV adapter can be added.
 | D17 | **Generating into an existing dbt project** (§9.7). Generating into an empty folder always gives a complete project, also for an imported one. In an existing dbt project TurboVault doesn't write `dbt_project.yml` and `packages.yml` and reports what its models need. Sources and model YAML are written by default; an option (off by default) skips writing sources, and a final check reports models and sources the project defines twice. TurboVault records the files it generates; files it no longer generates are reported, and deleted only on request. | 2026-11-13 |
 | D18 | The configured dbt project folder (D11) is `dbt_project.path` in the project's `config.yml` (the per-project settings; `turbovault.yml` holds the workspace's). `output.dbt_project_dir` stays for generating a separate project. | 2026-11-13 |
 | D19 | Custom models (Phase 6, #461) are postponed: the first release of the dbt import doesn't include them. Models downstream of the Data Vault stay in the dbt project and are reported. | 2026-11-13 |
-| D21 | **Missing artifacts in a local dbt project folder.** Without a manifest, the CLI offers to run `dbt parse` (opt-in: it needs dbt-core, the project's adapter and its installed packages, and doesn't connect to the warehouse). The catalog comes from `dbt docs generate`, which queries the warehouse with the user's credentials: the Engine never runs it, and without a catalog the import warns and takes column types from the YAML. Round-trip tests use dbt-core and dbt-postgres as optional dev dependencies (`dbt parse` only). | 2026-11-13 |
 | D20 | **Minimal model settings.** With `dbt_project.yml` available, an imported model stores only the settings that differ from what the project's folder-level configuration (its `models:` block) gives it. That folder-level configuration becomes a project setting (`dbt_project_models`: runtime config, CLI `config.yml`), which generation writes into `dbt_project.yml` next to TurboVault's layer settings; in Studio it can go into the manual `dbt_project.yml` instead. Without `dbt_project.yml`, a model stores its effective settings (`unrendered_config`). | 2026-11-13 |
+| D21 | **Missing artifacts in a local dbt project folder.** Without a manifest, the CLI offers to run `dbt parse` (opt-in: it needs dbt-core, the project's adapter and its installed packages, and doesn't connect to the warehouse). The catalog comes from `dbt docs generate`, which queries the warehouse with the user's credentials: the Engine never runs it, and without a catalog the import warns and takes column types from the YAML. Round-trip tests use dbt-core and dbt-postgres as optional dev dependencies (`dbt parse` only). | 2026-11-13 |
+| D22 | **Inferred naming patterns.** The import reports the naming patterns it infers (§8) and doesn't change the project's settings itself. The CLI shows them after a dry run and asks whether to write them into `config.yml` before importing; Studio applies them to its own settings. The import takes the project's settings (runtime config) as input and stores a model's name only where it differs from what the patterns in effect give, so the result is right whether or not the patterns are applied. | 2026-11-13 |
 
 ---
 
@@ -246,6 +247,17 @@ table a source table (`identifier` or `name`, description), with columns and typ
 else the YAML. Only sources a stage reads are imported. When every table of a system shares the record
 source or load date, it is set on the system (value inheritance).
 
+As implemented (4b-1):
+
+- Systems are identified by schema and database, like TurboVault's: dbt sources sharing a schema become one
+  system named after the first (`dbt.parameter_unsupported`, once per pair). The database is stored only when
+  the source sets one (`unrendered_database`); the target's default isn't.
+- Columns keep the YAML's spelling and type; the catalog adds types and the columns the YAML lacks, in the
+  warehouse's order. A table named differently from its `identifier` is reported: TurboVault's sources.yml
+  names tables only.
+- A record source or load date equal to what the table inherits anyway (the project's default, else
+  `!<system>` / `sysdate()`) isn't stored, so the project's setting keeps applying.
+
 ### 7.2 Pre-stages (models upstream of the stages)
 
 - A model without a Data Vault call that a stage reads becomes a **pre-stage**: a source table of type
@@ -257,6 +269,10 @@ source or load date, it is set on the system (value inheritance).
 - Columns: the catalog's columns of the model, else its YAML columns.
 - The report warns once per pre-stage that the project must be generated into this dbt project
   (`dbt.prestage_maintained_in_dbt`).
+- Several stages may read one model (e.g. one stage per nested object of a source): each gets a pre-stage of
+  its own, named after the stage, whose stored `prestage` name is that model. The stage named like the model
+  keeps the plain pre-stage. A dbt source read by two stages can't be expressed (TurboVault has one stage per
+  source table): the second stage is skipped with a suggestion to read the source through a pre-stage.
 
 ### 7.3 Stages
 
@@ -298,6 +314,14 @@ warning).
   second reference to the same Hub, e.g. a self-link) is matched by comparing the business key columns
   the stage hashes into it with the Hub's business keys; it becomes a Hub reference with an alias.
   Ambiguity is reported (`dbt.link_hub_ambiguous`) and the Link skipped.
+- **Aliased foreign hash keys (as implemented):** among the Hubs with as many business keys as the stage
+  hashes into the key, the Hub a stage of the link loads under that key (role-playing), else the Hub whose
+  name the key contains (the longest), else the one Hub the link already references. An alias no stage
+  computes isn't recognized.
+- **Key columns among `foreign_hashkeys`:** a plain column the link hash key hashes (a transactional link's
+  transaction id) is imported as a dependent child key, with a warning: TurboVault's generated link hashes it
+  but doesn't select it.
+- **Dependent child keys:** the columns the link hash key hashes beyond the Hubs' business keys.
 - **Satellite → parent:** `parent_hashkey` and the Satellite's stage identify the Hub or Link.
 - **v1 → v0:** `sat_v0` names the v0 model; the pair confirms the Satellite's v0/v1 names.
 - **PIT:** `tracked_entity`, `sat_names` (v1 names) and `snapshot_relation` resolve to the Hub/Link,
@@ -508,6 +532,10 @@ Proposed codes (final list in `services/imports/codes.md`):
 | `dbt.prestage_maintained_in_dbt` | warning | a pre-stage: generate the project into this dbt project (D9) |
 | `dbt.resource_not_imported` | info | seeds, tests, snapshots, … counted, not imported |
 | `dbt.naming_inferred` | info | a naming pattern was inferred, with its share of matching names |
+| `dbt.hash_inputs_differ` | warning | a stage hashes other columns into a key than the business keys mapped |
+| `dbt.column_unknown` | warning | columns neither the catalog nor the YAML describe (created without type) |
+| `dbt.project_setting` | info | a project setting the models need (e.g. `use_delivery_method`) |
+| `entity.depends_on_skipped` | warning | an entity needs a stage, Hub or Link that is left out |
 
 The report also lists node counts per resource type (seeds, tests, … not imported).
 
@@ -536,7 +564,7 @@ The report also lists node counts per resource type (seeds, tests, … not impor
 | 1 | Corpus analysis: `scripts/dbt_import/profile_manifest.py`, extraction prototype `capture_calls.py` | done |
 | 2 | Foundations: artifact reader, sandbox extraction, datavault4dbt adapter (normalization, signature table 1.x/2.x), notation tests | done (`DbtSource`, CLI and issue locations moved to Phase 4) |
 | 3 | Pre-stages kept in the dbt project (D9), layer folders (D12), metadata extensions (§9.1–9.6): output attributes and name resolution, hash diff name/alias, stage options, derived column shadowing, Satellite v1 options, smaller additions (D13) | done |
-| 4 | 4a: `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, opt-in `dbt parse` (D21), issue locations; the import (executor and JSON round trip) stores every §9 setting and the JSON import its snapshot controls. 4b: Raw Vault mapping (§7.1, 7.3–7.6), naming inference (§8), warnings/skips for direct parsers. 4c: round-trip and corpus tests | 4a done |
+| 4 | 4a: `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, opt-in `dbt parse` (D21), issue locations; the import (executor and JSON round trip) stores every §9 setting and the JSON import its snapshot controls. 4b-1: sources, stages, pre-stages, Hubs, Links, Satellites (§7.1–7.5), warnings/skips for direct parsers, the project's settings as import input (D22). 4b-2: PITs, reference tables, snapshot controls, model settings (D20), naming inference (§8), groups (§7.6). 4c: round-trip and corpus tests | 4a, 4b-1 done |
 | 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models; generating into an existing dbt project (§9.7) | |
 | 6 | Custom models for downstream models (#461), optional | postponed (D19) |
 | 7 | Hardening: performance limits, docs, CLI polish | |

@@ -84,6 +84,10 @@ class Code:
     DBT_REFERENCE_UNRESOLVED = "dbt.reference_unresolved"
     DBT_LINK_HUB_AMBIGUOUS = "dbt.link_hub_ambiguous"
     DBT_NAMING_INFERRED = "dbt.naming_inferred"
+    DBT_PRESTAGE_MAINTAINED_IN_DBT = "dbt.prestage_maintained_in_dbt"
+    DBT_HASH_INPUTS_DIFFER = "dbt.hash_inputs_differ"
+    DBT_COLUMN_UNKNOWN = "dbt.column_unknown"
+    DBT_PROJECT_SETTING = "dbt.project_setting"
     DBT_RESOURCE_NOT_IMPORTED = "dbt.resource_not_imported"
 
     # Schema validation
