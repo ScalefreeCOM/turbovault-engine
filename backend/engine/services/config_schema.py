@@ -334,16 +334,20 @@ class IrisSourceConfig(BaseModel):
 class ProjectConfiguration(BaseModel):
     """Project-level Data Vault configuration."""
 
-    stage_schema: str = Field("stage", description="Schema name for staging layer")
+    stage_schema: str | None = Field(
+        "stage", description="Schema name for staging layer (null: no custom schema, models build into the target's schema)"
+    )
     stage_database: str | None = Field(
         None, description="Optional database name for staging layer"
     )
-    rdv_schema: str = Field("rdv", description="Schema name for Raw Data Vault layer")
+    rdv_schema: str | None = Field(
+        "rdv", description="Schema name for Raw Data Vault layer (null: no custom schema, models build into the target's schema)"
+    )
     rdv_database: str | None = Field(
         None, description="Optional database name for Raw Data Vault layer"
     )
-    bdv_schema: str = Field(
-        "bdv", description="Schema name for Business Data Vault layer"
+    bdv_schema: str | None = Field(
+        "bdv", description="Schema name for Business Data Vault layer (null: no custom schema, models build into the target's schema)"
     )
     bdv_database: str | None = Field(
         None, description="Optional database name for Business Data Vault layer"
@@ -409,6 +413,26 @@ class ProjectConfiguration(BaseModel):
             "set nothing"
         ),
     )
+    folders: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Where generated models go: folder patterns per layer (control, "
+            "sources, prestaging, staging, raw_vault, business_vault) and kind "
+            "of model (stage, hub, link, satellite, satellite_v1, "
+            "effectivity_satellite, record_tracking_satellite, reference_table, "
+            "pit, snapshot_control), with [[ group ]], [[ group_name ]], "
+            "[[ source_system ]] and [[ source_system_name ]]. Unset ones keep "
+            "TurboVault's layout"
+        ),
+    )
+    use_model_folders: bool = Field(
+        True,
+        description=(
+            "Generate models in the folders stored for them (an imported dbt "
+            "project's); off: in the folder patterns, keeping the settings their "
+            "original folders gave them"
+        ),
+    )
     add_default_tags: bool = Field(
         True,
         description=(
@@ -435,8 +459,8 @@ class ProjectConfiguration(BaseModel):
     profile_name: str = Field(
         "default", description="dbt profile referenced by dbt_project.yml"
     )
-    control_schema: str = Field(
-        "control", description="Schema name for the control layer"
+    control_schema: str | None = Field(
+        "control", description="Schema name for the control layer (null: no custom schema, models build into the target's schema)"
     )
     control_materialization: DbtMaterialization = Field(
         "table", description="Materialization of the control layer"
@@ -467,10 +491,32 @@ class ProjectConfiguration(BaseModel):
         ),
     )
 
+    @field_validator("folders")
+    @classmethod
+    def validate_folders(cls, v: dict[str, str]) -> dict[str, str]:
+        """Known keys and patterns that stay inside the dbt project."""
+        from engine.services.generation.folder_config import (
+            FOLDER_KEYS,
+            folder_pattern_error,
+        )
+
+        unknown = sorted(set(v) - FOLDER_KEYS)
+        if unknown:
+            raise ValueError(
+                "Unknown folders: " + ", ".join(unknown) + " (use "
+                + ", ".join(sorted(FOLDER_KEYS)) + ")"
+            )
+        for pattern in v.values():
+            if error := folder_pattern_error(str(pattern)):
+                raise ValueError(error)
+        return {key: str(pattern) for key, pattern in v.items() if pattern}
+
     @field_validator("stage_schema", "rdv_schema", "bdv_schema", "control_schema")
     @classmethod
-    def validate_schema_name(cls, v: str) -> str:
-        """Validate schema name is a valid SQL identifier."""
+    def validate_schema_name(cls, v: str | None) -> str | None:
+        """Validate schema name is a valid SQL identifier (null: none)."""
+        if v is None:
+            return None
         if not v:
             raise ValueError("Schema name cannot be empty")
 

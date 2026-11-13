@@ -97,9 +97,14 @@ class ModelConfig:
         layer: LayerDefaults | None = None,
         *,
         default_tags: bool = True,
+        inherited: Any = None,
     ) -> None:
         self.output = output
         self.layer = layer
+        # Settings the model's original folder gave it, which its folder in
+        # TurboVault's structure doesn't (project_yml.Settings): the model
+        # keeps them in its config(), below its template's and its own
+        self.inherited = inherited
         # Whether the template's own tags are written (add_default_tags)
         self.default_tags = default_tags
         self.config_used = False
@@ -111,6 +116,7 @@ class ModelConfig:
         return (
             bool(self.layer)
             or not self.default_tags
+            or bool(self.inherited and (self.inherited.values or self.inherited.tags))
             or bool(self.output and self.output.settings())
         )
 
@@ -120,10 +126,12 @@ class ModelConfig:
         return not self.default_tags or bool(self.output and self.output.tags)
 
     def _tags(self, defaults: Sequence[Any] | None) -> list[str]:
-        """The template's tags (unless turned off), then the stored ones."""
+        """The template's tags (unless turned off), then the stored ones and
+        the ones its original folder gave it."""
         tags = _clean_tags(defaults) if self.default_tags else []
         stored = self.output.tags if self.output else None
-        for tag in stored or []:
+        inherited = self.inherited.tags if self.inherited else []
+        for tag in [*(stored or []), *inherited]:
             if tag not in tags:
                 tags.append(tag)
         return tags
@@ -132,20 +140,35 @@ class ModelConfig:
         """The model's ``config()`` settings: stored over template defaults."""
         stored = self.output.settings() if self.output else {}
         layer = self.layer or LayerDefaults(None, None)
+        inherited = dict(self.inherited.values) if self.inherited else {}
 
+        # Stored over the template's defaults over the original folder's over
+        # the layer's
         leading: dict[str, Any] = {
             "materialized": stored.get("materialized")
             or defaults.get("materialized")
+            or inherited.get("materialized")
             or layer.materialized,
-            "alias": stored.get("alias") or defaults.get("alias"),
-            "schema": stored.get("schema") or defaults.get("schema") or layer.schema,
-            "database": stored.get("database") or defaults.get("database"),
+            "alias": stored.get("alias")
+            or defaults.get("alias")
+            or inherited.get("alias"),
+            "schema": stored.get("schema")
+            or defaults.get("schema")
+            or inherited.get("schema")
+            or layer.schema,
+            "database": stored.get("database")
+            or defaults.get("database")
+            or inherited.get("database"),
         }
+        for key in ("materialized", "alias", "schema", "database"):
+            inherited.pop(key, None)
         result = {key: value for key, value in leading.items() if value}
         tags = self._tags(defaults.get("tags"))
         if tags:
             result["tags"] = tags
 
+        for key, value in inherited.items():
+            result[key] = value
         for key, value in defaults.items():
             if key not in _LEADING_KEYS and value is not None:
                 result[key] = value

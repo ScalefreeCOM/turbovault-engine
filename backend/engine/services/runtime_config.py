@@ -23,11 +23,13 @@ class EngineRuntimeConfig:
     project_name: str | None = None
     project_description: str | None = None
 
-    stage_schema: str = "stage"
+    # Layer schemas. None: no custom schema (dbt models build into the
+    # target's schema; SQLMesh falls back to the layer's name, get_schema).
+    stage_schema: str | None = "stage"
     stage_database: str | None = None
-    rdv_schema: str = "rdv"
+    rdv_schema: str | None = "rdv"
     rdv_database: str | None = None
-    bdv_schema: str = "bdv"
+    bdv_schema: str | None = "bdv"
     bdv_database: str | None = None
 
     hashdiff_naming: str = "hd_[[ satellite_name ]]"
@@ -52,6 +54,13 @@ class EngineRuntimeConfig:
     # stage passes all source columns on, and whether it adds ghost records.
     include_source_columns: bool = True
     enable_ghost_records: bool = True
+
+    # Where generated models go (spec D27): folder patterns per layer and kind
+    # of model, over TurboVault's layout (generation.folder_config's
+    # DEFAULT_FOLDERS). use_model_folders off: models go to these folders, not
+    # to the ones stored for them, and keep their original folders' settings.
+    folders: dict[str, str] = field(default_factory=dict, hash=False)
+    use_model_folders: bool = True
 
     # Whether generated models carry TurboVault's default tags (hub,
     # raw_vault, the group, ...). A model's stored tags are added either way
@@ -95,7 +104,7 @@ class EngineRuntimeConfig:
 
     # Per-layer settings of the `models:` block in dbt_project.yml. The
     # defaults reproduce the project the engine has always generated.
-    control_schema: str = "control"
+    control_schema: str | None = "control"
     control_materialization: str = "table"
     staging_materialization: str = "view"
     raw_vault_materialization: str = "incremental"
@@ -198,6 +207,8 @@ class EngineRuntimeConfig:
             include_source_columns=config.configuration.include_source_columns,
             enable_ghost_records=config.configuration.enable_ghost_records,
             add_default_tags=config.configuration.add_default_tags,
+            folders=dict(config.configuration.folders or {}),
+            use_model_folders=config.configuration.use_model_folders,
             use_delivery_method=config.configuration.use_delivery_method,
             delivery_method=config.configuration.delivery_method,
             profile_name=config.configuration.profile_name,

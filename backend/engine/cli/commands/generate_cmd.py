@@ -90,6 +90,18 @@ def generate(
         bool,
         typer.Option("--no-v1-satellites", help="Skip generating satellite _v1 views"),
     ] = False,
+    model_folders: Annotated[
+        bool | None,
+        typer.Option(
+            "--model-folders/--standard-folders",
+            help=(
+                "dbt: generate models in the folders stored for them (e.g. an "
+                "imported dbt project's), or in the project's folder patterns "
+                "(TurboVault's structure; models keep their original folders' "
+                "settings). Default: the project's use_model_folders setting"
+            ),
+        ),
+    ] = None,
     json_output: Annotated[
         Path | None,
         typer.Option("--json-output", help="Alias for --output when type=json"),
@@ -213,6 +225,7 @@ def generate(
         skip_validation=skip_validation,
         create_zip=create_zip,
         generate_satellite_v1_views=not no_v1_satellites,
+        use_model_folders=model_folders,
         entity_selection=_build_selection(
             include_type=include_type,
             exclude_type=exclude_type,

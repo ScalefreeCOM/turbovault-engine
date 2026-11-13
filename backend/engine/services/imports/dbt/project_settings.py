@@ -133,20 +133,30 @@ class ProjectSettingsMapping:
         }.get(entity[0], {}).get(entity[1])
         return getattr(found, "group_name", None) if found is not None else None
 
+    # Folder pattern of each kind of model output (generation's keys)
+    _FOLDER_KINDS = {
+        "stage": "stage",
+        "hub": "hub",
+        "link": "link",
+        "satellite_v0": "satellite",
+        "satellite_v1": "satellite_v1",
+        "effectivity_satellite": "effectivity_satellite",
+        "record_tracking_satellite": "record_tracking_satellite",
+        "reference_table": "reference_table",
+        "pit": "pit",
+        "snapshot_control_v0": "snapshot_control",
+        "snapshot_control_v1": "snapshot_control",
+    }
+
     def _default_folder(self, item: _Output, group: str | None) -> str:
-        """The folder TurboVault generates a model in (without a stored one)."""
-        folders = FolderConfig()
-        named = folders._sanitize_name
-        if item.kind == "stage":
-            return f"{folders.staging_path}/{named(item.system or '')}"
-        if item.kind == "pit":
-            base = f"{folders.business_vault_path}/{folders.pits_subdir}"
-            return f"{base}/{named(group)}" if group else base
-        if item.kind.startswith("snapshot_control"):
-            return folders.control_path
-        if item.kind == "reference_table" or not group:
-            return folders.raw_vault_path
-        return f"{folders.raw_vault_path}/{named(group)}"
+        """The folder TurboVault generates a model in (without a stored one):
+        the project's folder pattern for its kind (spec D27)."""
+        folders = FolderConfig(dict(self.config.folders or {}))
+        return folders.folder(
+            self._FOLDER_KINDS[item.kind],
+            group=group,
+            source_system=item.system,
+        )
 
     def _template_materialization(self, kind: str) -> str | None:
         """What a model's template writes as its materialization, if anything."""
@@ -198,7 +208,11 @@ class ProjectSettingsMapping:
         for item in self._tracked_outputs:
             group = self._group_of(item.entity)
             folder = _folder(item.model)
-            if item.follows is not None:
+            folders = FolderConfig(dict(self.config.folders or {}))
+            follows = item.follows is not None and not folders.has_own(
+                self._FOLDER_KINDS[item.kind]
+            )
+            if follows:
                 stored_folder = None if folder == _folder(item.follows) else folder
             else:
                 default = self._default_folder(item, group)

@@ -7,86 +7,208 @@ utilities for creating folders and resolving paths.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
+
+# Where each kind of model goes: patterns relative to the dbt project, like
+# the naming patterns (spec D27). [[ group ]] and [[ source_system ]] stand for
+# the entity's group and the stage's source system as folder names (lowercase,
+# spaces and dashes as underscores); [[ group_name ]] and
+# [[ source_system_name ]] as they are spelled. A part whose placeholder has no
+# value (an entity without a group) is left out. The defaults are TurboVault's
+# layer folders (D12).
+DEFAULT_FOLDERS: dict[str, str] = {
+    "control": "models/00_control",
+    "sources": "models/10_sources",
+    "prestaging": "models/15_prestaging",
+    "staging": "models/20_staging/[[ source_system ]]",
+    "raw_vault": "models/30_raw_vault/[[ group ]]",
+    "business_vault": "models/40_business_vault",
+    "pit": "models/40_business_vault/pits/[[ group ]]",
+}
+# Layers: dbt_project.yml configures each on the fixed part of its pattern.
+LAYERS = ("control", "sources", "prestaging", "staging", "raw_vault", "business_vault")
+# Kinds of model with a pattern of their own; without one, their layer's.
+KIND_LAYERS: dict[str, str] = {
+    "stage": "staging",
+    "hub": "raw_vault",
+    "link": "raw_vault",
+    "satellite": "raw_vault",
+    "satellite_v1": "raw_vault",
+    "effectivity_satellite": "raw_vault",
+    "record_tracking_satellite": "raw_vault",
+    "reference_table": "raw_vault",
+    "pit": "business_vault",
+    "snapshot_control": "control",
+}
+FOLDER_KEYS = frozenset(LAYERS) | frozenset(KIND_LAYERS)
+FOLDER_PLACEHOLDERS = frozenset(
+    {"group", "group_name", "source_system", "source_system_name"}
+)
+_PLACEHOLDER = re.compile(r"\[\[\s*(\w+)\s*\]\]")
+
+
+def folder_name(name: str) -> str:
+    """A name as a folder name: lowercase, spaces and dashes as underscores."""
+    return name.lower().replace(" ", "_").replace("-", "_")
+
+
+def folder_pattern_error(pattern: str) -> str | None:
+    """Why *pattern* can't place models, or None when it can."""
+    unknown = sorted(
+        {m.group(1) for m in _PLACEHOLDER.finditer(pattern)} - FOLDER_PLACEHOLDERS
+    )
+    if unknown:
+        return (
+            f"Folder pattern '{pattern}' uses unknown placeholders: "
+            + ", ".join(unknown)
+            + " (use group, group_name, source_system, source_system_name)"
+        )
+    raw = pattern.strip()
+    if not raw or raw.startswith(("/", "\\", "~")) or re.match(r"[A-Za-z]:", raw):
+        return f"Folder pattern '{pattern}' must be relative to the dbt project"
+    parts = [part for part in raw.replace("\\", "/").split("/") if part]
+    if any(part in ("..", ".") for part in parts):
+        return f"Folder pattern '{pattern}' must stay inside the dbt project"
+    if len(parts) < 2 or _PLACEHOLDER.search(parts[0]):
+        return (
+            f"Folder pattern '{pattern}' needs a model path and a folder (e.g. "
+            "models/raw_vault)"
+        )
+    return None
 
 
 @dataclass
 class FolderConfig:
     """
-    Configuration for dbt project folder structure.
+    Where generated models go: a folder pattern per layer and kind of model.
 
-    Defines paths for all model layers and provides methods to resolve
-    entity paths based on group membership.
+    ``patterns`` override ``DEFAULT_FOLDERS``; a kind without a pattern of its
+    own uses its layer's.
     """
 
-    # Base paths for each layer
-    control_path: str = "models/00_control"
-    source_path: str = "models/10_sources"
-    # The dbt project's own pre-stage models go here; nothing is generated
-    prestaging_path: str = "models/15_prestaging"
-    staging_path: str = "models/20_staging"
-    raw_vault_path: str = "models/30_raw_vault"
-    business_vault_path: str = "models/40_business_vault"
+    patterns: dict[str, str] = field(default_factory=dict)
 
-    # Business vault subdirectories
-    pits_subdir: str = "pits"
+    # -- patterns ---------------------------------------------------------------
+
+    def pattern(self, key: str) -> str:
+        """The folder pattern of a layer or kind of model."""
+        if self.patterns.get(key):
+            return self.patterns[key].strip().replace("\\", "/").strip("/")
+        if key in DEFAULT_FOLDERS:
+            return DEFAULT_FOLDERS[key]
+        if key in KIND_LAYERS:
+            return self.pattern(KIND_LAYERS[key])
+        raise KeyError(key)
+
+    def has_own(self, key: str) -> bool:
+        """Whether a kind of model has a pattern of its own (not its layer's)."""
+        return bool(self.patterns.get(key)) or (
+            key in DEFAULT_FOLDERS and key not in LAYERS
+        )
+
+    def is_default(self) -> bool:
+        """Whether every pattern is TurboVault's default layout."""
+        return all(self.pattern(key) == self._default(key) for key in FOLDER_KEYS)
+
+    def _default(self, key: str) -> str:
+        return DEFAULT_FOLDERS.get(key) or DEFAULT_FOLDERS[KIND_LAYERS[key]]
+
+    def layer_folder(self, layer: str) -> str:
+        """The fixed part of a layer's pattern: where dbt_project.yml
+        configures the layer (e.g. models/30_raw_vault)."""
+        return fixed_part(self.pattern(layer))
+
+    def folder(
+        self,
+        key: str,
+        *,
+        group: str | None = None,
+        source_system: str | None = None,
+    ) -> str:
+        """A model's folder, relative to the project: its pattern filled in."""
+        values = {
+            "group": folder_name(group) if group else "",
+            "group_name": group or "",
+            "source_system": folder_name(source_system) if source_system else "",
+            "source_system_name": source_system or "",
+        }
+        parts = []
+        for part in self.pattern(key).split("/"):
+            names = [m.group(1) for m in _PLACEHOLDER.finditer(part)]
+            filled = _PLACEHOLDER.sub(lambda m: values.get(m.group(1), ""), part)
+            if names and not all(values.get(name) for name in names):
+                continue  # a placeholder without value: the part is left out
+            if filled:
+                parts.append(filled)
+        return "/".join(parts)
+
+    def model_paths(self) -> list[str]:
+        """The top folders the patterns place models in (dbt's model-paths)."""
+        paths: list[str] = []
+        for key in sorted(FOLDER_KEYS):
+            top = self.pattern(key).split("/")[0]
+            if top and top not in paths:
+                paths.append(top)
+        return paths
+
+    # -- TurboVault's default layout, by name (kept for callers) ------------
+
+    @property
+    def control_path(self) -> str:
+        return self.layer_folder("control")
+
+    @property
+    def source_path(self) -> str:
+        return self.layer_folder("sources")
+
+    @property
+    def prestaging_path(self) -> str:
+        return self.layer_folder("prestaging")
+
+    @property
+    def staging_path(self) -> str:
+        return self.layer_folder("staging")
+
+    @property
+    def raw_vault_path(self) -> str:
+        return self.layer_folder("raw_vault")
+
+    @property
+    def business_vault_path(self) -> str:
+        return self.layer_folder("business_vault")
 
     def get_source_path(self, output_root: Path) -> Path:
         """Get the source directory path."""
-        return output_root / self.source_path
+        return output_root / self.folder("sources")
 
     def get_staging_path(self, source_system: str, output_root: Path) -> Path:
-        """
-        Get the path for staging models of a source system.
-
-        Args:
-            source_system: Source system name (sanitized for filesystem)
-            output_root: Root directory of the dbt project
-
-        Returns:
-            Path to the staging subdirectory for this source system.
-        """
-        system_name = self._sanitize_name(source_system)
-        return output_root / self.staging_path / system_name
+        """The folder of a source system's stages."""
+        return output_root / self.folder("stage", source_system=source_system)
 
     def get_staging_base_path(self, output_root: Path) -> Path:
         """Get the base staging directory path."""
-        return output_root / self.staging_path
+        return output_root / self.layer_folder("staging")
 
     def get_raw_vault_path(self, group: str | None, output_root: Path) -> Path:
-        """
-        Get the path for raw vault models.
-
-        Args:
-            group: Optional group name. If None, entities go in base folder.
-            output_root: Root directory of the dbt project
-
-        Returns:
-            Path to the raw vault directory (with group subdirectory if applicable).
-        """
-        base = output_root / self.raw_vault_path
-        if group:
-            return base / self._sanitize_name(group)
-        return base
+        """The folder of a group's raw vault models."""
+        return output_root / self.folder("hub", group=group)
 
     def get_business_vault_pits_path(
         self, group: str | None, output_root: Path
     ) -> Path:
-        """Get the path for PIT models. With optional group name for subfolder."""
-        base = output_root / self.business_vault_path / self.pits_subdir
-        if group:
-            return base / self._sanitize_name(group)
-        return base
+        """The folder of a group's PITs."""
+        return output_root / self.folder("pit", group=group)
 
     def get_raw_vault_reference_tables_path(self, output_root: Path) -> Path:
         """Get the path for reference table models."""
-        return output_root / self.raw_vault_path
+        return output_root / self.folder("reference_table")
 
     def get_control_path(self, output_root: Path) -> Path:
         """Get the path for control models (snapshot control)."""
-        return output_root / self.control_path
+        return output_root / self.folder("snapshot_control")
 
     def create_project_structure(self, output_root: Path) -> None:
         """
@@ -95,20 +217,15 @@ class FolderConfig:
         Args:
             output_root: Root directory for the dbt project.
         """
-        # Core directories
         directories = [
-            output_root / self.source_path,
-            output_root / self.staging_path,
-            output_root / self.raw_vault_path,
-            output_root / self.business_vault_path / self.pits_subdir,
-            output_root / self.control_path,
-            output_root / "macros",
-            output_root / "tests",
-            output_root / "seeds",
-            output_root / "analyses",
-            output_root / "snapshots",
+            output_root / self.layer_folder(layer)
+            for layer in ("sources", "staging", "raw_vault", "business_vault", "control")
         ]
-
+        directories.append(output_root / fixed_part(self.pattern("pit")))
+        directories += [
+            output_root / name
+            for name in ("macros", "tests", "seeds", "analyses", "snapshots")
+        ]
         for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -117,12 +234,18 @@ class FolderConfig:
         path.mkdir(parents=True, exist_ok=True)
 
     def _sanitize_name(self, name: str) -> str:
-        """
-        Sanitize a name for use in filesystem paths.
+        """A name as a folder name (see ``folder_name``)."""
+        return folder_name(name)
 
-        Converts to lowercase and replaces spaces with underscores.
-        """
-        return name.lower().replace(" ", "_").replace("-", "_")
+
+def fixed_part(pattern: str) -> str:
+    """The folders of a pattern before its first placeholder."""
+    parts = []
+    for part in pattern.split("/"):
+        if _PLACEHOLDER.search(part):
+            break
+        parts.append(part)
+    return "/".join(parts)
 
 
 @dataclass
@@ -150,10 +273,10 @@ class GenerationConfig:
     record_tracking_satellite_naming: str = "[[ satellite_name ]]_ts"
     effectivity_satellite_naming: str = "[[ satellite_name ]]_es"
 
-    # Schemas
-    stage_schema: str = "stage"
-    rdv_schema: str = "rdv"
-    bdv_schema: str = "bdv"
+    # Schemas (None: no custom schema)
+    stage_schema: str | None = "stage"
+    rdv_schema: str | None = "rdv"
+    bdv_schema: str | None = "bdv"
 
     def resolve_entity_name(self, pattern: str, entity_name: str) -> str:
         """Resolve a naming pattern with placeholder replacement."""
@@ -181,7 +304,7 @@ class GenerationConfig:
     dbt_project_settings: dict[str, Any] = field(default_factory=dict)
 
     # Per-layer settings of the dbt_project.yml models: block
-    control_schema: str = "control"
+    control_schema: str | None = "control"
     control_materialization: str = "table"
     staging_materialization: str = "view"
     raw_vault_materialization: str = "incremental"

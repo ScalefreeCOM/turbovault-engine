@@ -279,7 +279,10 @@ Models with a group are written to a subfolder of their layer
 (`models/30_raw_vault/<group>/`), stages to one per source system
 (`models/20_staging/<source_system>/`). dbt applies a folder's settings to
 all of its subfolders, so these models follow their layer's materialization
-and schema.
+and schema. The project's [folder patterns](../03_configuration/03_project-schema.md#folder-structure)
+change this layout; `dbt_project.yml` then configures each layer on the fixed
+part of its pattern, and a layer without a schema (`rdv_schema: null`) gets no
+`+schema`.
 
 The `15_prestaging` layer is only configured when the project has
 [pre-stages](01_domain-model.md#35-pre-stages). Their models belong to the dbt
@@ -334,20 +337,29 @@ satellites and snapshot controls, `effectivity_satellite_output` and
 `record_tracking_satellite_output` for hubs and links).
 
 **Folders.** A model with a stored folder is written there, relative to the dbt
-project; otherwise it goes to its layer's folder. A satellite's v1 view without
-a folder of its own follows its v0 table, an effectivity or record-tracking
-satellite its parent, a snapshot control's logic its table. `dbt_project.yml`
-configures schema and materialization for the layer folders only, so a model
-stored in a folder outside its layer's gets them in its own `config()` block
-(unless its settings say otherwise). A folder outside `models/` adds its top
-folder to `model-paths`. `GenerationOptions.use_model_folders=False` writes
-every model to its layer folder again; names and settings stay.
+project; otherwise it goes to its folder pattern. A satellite's v1 view without
+a folder or pattern of its own follows its v0 table, an effectivity or
+record-tracking satellite its parent, a snapshot control's logic its table.
+`dbt_project.yml` configures schema and materialization for the layer folders
+only, so a model in a folder outside its layer's gets them in its own `config()`
+block (unless its settings say otherwise, or an imported `models:` block
+configures its folder). A folder outside `models/` adds its top folder to
+`model-paths`.
+
+The project setting `use_model_folders` (`--standard-folders` for one run,
+`GenerationOptions.use_model_folders` in the API) set to off writes every model
+to its folder pattern instead; names and settings stay. A model then keeps the
+settings its original folder gave it through an imported `dbt_project.yml`: those
+that differ from its new folder's go into its `config()` block, and
+`dbt_project.yml` keeps only the imported settings for every model. The
+warehouse objects stay the same; only the files move.
 
 **`config()` settings.** Templates write the block with
 `[[ model_config(materialized=..., tags=[...]) ]]`, YAML templates the tags with
 `[[ model_tags([...]) ]]`. The arguments are the template's defaults; stored
-settings override them: `materialized`, `alias`, `schema`, `database`, `tags`
-(which replace the default tags), then further keys as they are stored. With
+settings override them: `materialized`, `alias`, `schema`, `database`, then
+further keys as they are stored. Stored tags are added to the template's
+default tags, which the project setting `add_default_tags` turns off. With
 nothing stored, the block is exactly the one written before model outputs
 existed.
 

@@ -28,6 +28,7 @@ section is completed when the Engine change lands).
 | 15 | [Snapshot control logic as datavault4dbt reads it](#15-snapshot-control-logic-as-datavault4dbt-reads-it) | In progress | Offer the components datavault4dbt computes; show `SNAP_002`; template editor variables |
 | 16 | [An imported dbt_project.yml comes back](#16-an-imported-dbt_projectyml-comes-back) | In progress | Store two new project settings and pass them to generation; reconcile with the manual dbt_project.yml |
 | 17 | [Default tags setting](#17-default-tags-setting) | In progress | A project switch; the tag field of a model's settings now adds tags |
+| 18 | [Folder structure; model folders setting; layers without schema](#18-folder-structure-model-folders-setting-layers-without-schema) | In progress | Folder pattern settings with placeholders; the model folders switch; "no custom schema" per layer |
 
 Background for items 4–11: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
 
@@ -771,3 +772,51 @@ the generated file matches the original in content (comments and formatting asid
 - Workspace template copies that write fixed tags get `TPL_003` while the setting is off.
 - **Studio:** a switch in the project settings ("Add TurboVault's default tags"); the tag field of a model's
   settings reads "Additional tags".
+
+---
+
+## 18. Folder structure; model folders setting; layers without schema
+
+**Status:** In progress (dbt import branch). Spec D27. The defaults generate exactly the files they did.
+
+### Folder patterns (new project setting)
+
+- **Runtime config `folders: dict[str, str]`** (`config.yml` `configuration.folders`): a folder pattern per layer
+  (`control`, `sources`, `prestaging`, `staging`, `raw_vault`, `business_vault`) and, optionally, per kind of
+  model (`stage`, `hub`, `link`, `satellite`, `satellite_v1`, `effectivity_satellite`,
+  `record_tracking_satellite`, `reference_table`, `pit`, `snapshot_control`). Unset keys keep TurboVault's layout:
+  `models/00_control`, `models/10_sources`, `models/15_prestaging`, `models/20_staging/[[ source_system ]]`,
+  `models/30_raw_vault/[[ group ]]`, `models/40_business_vault`, and `models/40_business_vault/pits/[[ group ]]`
+  for PITs. A kind without a pattern uses its layer's; v1 views, effectivity and record-tracking satellites
+  follow their v0 or parent unless they have their own.
+- **Placeholders:** `[[ group ]]` (lowercase, spaces/dashes as `_`), `[[ group_name ]]` (as named),
+  `[[ source_system ]]`, `[[ source_system_name ]]`. A folder whose placeholder has no value is left out (no
+  group: the layer's folder).
+- **Validation** (`engine.services.generation.folder_config.folder_pattern_error(pattern)`, and
+  `FOLDER_KEYS`): known keys and placeholders, relative, no `..`, at least a model path and a folder. Messages:
+  "Unknown folders: ...", "Folder pattern '...' uses unknown placeholders: ...", "... must be relative to the
+  dbt project", "... must stay inside the dbt project", "... needs a model path and a folder (e.g.
+  models/raw_vault)".
+- **Generation:** `dbt_project.yml` configures each layer on its pattern's fixed part (nested keys for deeper
+  folders), `model-paths` gains the patterns' top folders, and a model outside its layer's folder (or in one two
+  layers share) carries its layer's settings in `config()`. Entity previews (Studio's model preview) aren't
+  affected: they render the SQL/YAML only.
+- **Studio:** a "Folder structure" section in the project settings: one input per layer with the default as
+  placeholder text, and an "advanced" list for per-kind patterns; show the placeholders and validate live.
+
+### Model folders (new project setting)
+
+- **Runtime config `use_model_folders: bool`** (default `true`; `config.yml` `configuration.use_model_folders`):
+  models with a stored folder (`ModelOutput.folder`, e.g. from a dbt import) go there. Off: every model goes to
+  its folder pattern (TurboVault's structure) and keeps the settings its original folder gave it through an
+  imported `dbt_project.yml` (written into its `config()` where they differ); `dbt_project.yml` then keeps only
+  the imported settings for every model, not the imported folders'.
+- `GenerationOptions.use_model_folders` is now `bool | None` (None: the project's setting; it was `True`).
+- **Studio:** a switch "Use the models' own folders" (on by default), worth showing for imported projects.
+
+### Layers without a custom schema
+
+- `stage_schema`, `rdv_schema`, `bdv_schema`, `control_schema` may be **null** (runtime config `None`): no
+  `+schema` for that layer, so its models build into the target's schema (dbt projects without custom schemas).
+  An empty string still means TurboVault's default name. SQLMesh output uses the layer's name for such a layer.
+- **Studio:** a "No custom schema" option per layer schema.

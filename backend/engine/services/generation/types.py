@@ -162,8 +162,10 @@ class GenerationOptions(BaseModel):
     create_zip: bool = False
     generate_satellite_v1_views: bool = True
     # Write models into the folders stored for them (ModelOutput.folder); off:
-    # every model goes to TurboVault's layer folders. Names stay either way.
-    use_model_folders: bool = True
+    # every model goes to the project's folder patterns, keeping its original
+    # folder's settings. Names stay either way. None: the project's setting
+    # (runtime config use_model_folders).
+    use_model_folders: bool | None = None
     # Preserve the legacy resolver contract: active DB templates precede files.
     use_db_templates: bool = True
     entity_selection: EntitySelection | None = None

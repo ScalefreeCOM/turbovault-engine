@@ -28,7 +28,7 @@ from engine.services.export.exporters.dbml_exporter import DBMLExporter
 from engine.services.export.exporters.json_exporter import JSONExporter
 from engine.services.export.models import ProjectExport
 from engine.services.generation.errors import Code, make_issue
-from engine.services.generation.folder_config import GenerationConfig
+from engine.services.generation.folder_config import FolderConfig, GenerationConfig
 from engine.services.generation.generator import DbtProjectGenerator
 from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
 from engine.services.generation.template_resolver import TemplateResolver
@@ -124,7 +124,12 @@ def _build_dbt_config(
         project_name=(project_name or "turbovault_project").lower().replace(" ", "_"),
         profile_name=runtime_config.profile_name,
         generate_satellite_v1_views=options.generate_satellite_v1_views,
-        use_model_folders=options.use_model_folders,
+        use_model_folders=(
+            runtime_config.use_model_folders
+            if options.use_model_folders is None
+            else options.use_model_folders
+        ),
+        folder_config=FolderConfig(dict(runtime_config.folders or {})),
         add_default_tags=runtime_config.add_default_tags,
         satellite_v0_naming=runtime_config.satellite_v0_naming,
         satellite_v1_naming=runtime_config.satellite_v1_naming,

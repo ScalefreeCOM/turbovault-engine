@@ -82,79 +82,104 @@ def model_paths(own: list[str], settings: Mapping[str, Any] | None) -> list[str]
     return paths or ["models"]
 
 
-def layer_settings(
-    *,
-    control_schema: str,
-    control_materialization: str,
-    stage_schema: str,
-    staging_materialization: str,
-    rdv_schema: str,
-    raw_vault_materialization: str,
-    bdv_schema: str,
-    business_vault_materialization: str,
-    prestaging_materialization: str | None,
-) -> dict[str, dict[str, Any]]:
-    """TurboVault's layer folders and their settings, as the template writes them."""
-    layers: dict[str, dict[str, Any]] = {
-        "00_control": {
-            "+schema": control_schema or "control",
-            "+materialized": control_materialization or "table",
-        }
+# The layers dbt_project.yml configures, in the order the template writes them.
+BLOCK_LAYERS = ("control", "prestaging", "staging", "raw_vault", "business_vault")
+
+
+def layer_roots(
+    layer_folders: Mapping[str, str], *, prestaging: bool
+) -> dict[str, tuple[str, ...]]:
+    """Where dbt_project.yml configures each layer: its key path below the project.
+
+    ``layer_folders`` are the fixed parts of the layers' folder patterns
+    (``models/30_raw_vault`` -> ``("30_raw_vault",)``: dbt's config paths are
+    relative to the model path). A layer whose folder is a model path itself,
+    or shares its key path with another layer, gets no block: its models carry
+    the layer's settings in their own config().
+    """
+    roots: dict[str, tuple[str, ...]] = {}
+    for layer in BLOCK_LAYERS:
+        if layer == "prestaging" and not prestaging:
+            continue
+        parts = tuple(part for part in layer_folders[layer].split("/") if part)
+        if len(parts) >= 2:
+            roots[layer] = parts[1:]
+    counts: dict[tuple[str, ...], int] = {}
+    for key in roots.values():
+        counts[key] = counts.get(key, 0) + 1
+    return {layer: key for layer, key in roots.items() if counts[key] == 1}
+
+
+def layer_values(
+    schema: str | None, materialized: str | None
+) -> dict[str, Any]:
+    """A layer block's settings; no ``+schema`` for a layer without one."""
+    values: dict[str, Any] = {}
+    if schema is not None:
+        values["+schema"] = schema
+    if materialized:
+        values["+materialized"] = materialized
+    return values
+
+
+def layer_tree(
+    roots: Mapping[str, tuple[str, ...]], values: Mapping[str, Mapping[str, Any]]
+) -> dict[str, Any]:
+    """The layers' blocks, nested along their key paths."""
+    tree: dict[str, Any] = {}
+    for layer, key in roots.items():
+        node = tree
+        for part in key:
+            node = node.setdefault(part, {})
+        node.update(values[layer])
+    return tree
+
+
+def root_level(models_block: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The settings of a models: block that apply to every model (no folders)."""
+    return {
+        name: value
+        for name, value in (models_block or {}).items()
+        if _is_setting(str(name), value)
     }
-    if prestaging_materialization:
-        layers["15_prestaging"] = {
-            "+schema": stage_schema or "stage",
-            "+materialized": prestaging_materialization,
-        }
-    layers["20_staging"] = {
-        "+schema": stage_schema or "stage",
-        "+materialized": staging_materialization or "view",
-    }
-    layers["30_raw_vault"] = {
-        "+schema": rdv_schema or "rdv",
-        "+materialized": raw_vault_materialization or "incremental",
-    }
-    layers["40_business_vault"] = {
-        "+schema": bdv_schema or "bdv",
-        "+materialized": business_vault_materialization or "table",
-    }
-    return layers
+
+
+def _merge(base: dict[str, Any], tree: Mapping[str, Any]) -> None:
+    """Merge *tree* into *base*; the tree's settings win."""
+    for name, value in tree.items():
+        if isinstance(value, Mapping) and not _is_setting(str(name), value):
+            node = base.get(name)
+            if not isinstance(node, dict):
+                node = {}
+                base[name] = node
+            _merge(node, value)
+        else:
+            base[name] = copy.deepcopy(value)
 
 
 def models_block(
     project_name: str,
-    layers: Mapping[str, Mapping[str, Any]],
+    layers: Mapping[str, Any],
     imported: Mapping[str, Any] | None,
     settings: Mapping[str, Any] | None,
 ) -> str:
-    """The ``models:`` block with the imported folders' settings, or "".
+    """The ``models:`` block: the imported one with TurboVault's layers merged in.
 
-    The project's imported subtree comes first; TurboVault's layer folders are
-    merged in, their settings winning for those folders. Other packages'
-    entries of the imported ``models:`` block (``settings["models"]``) stay.
-    Empty when nothing was imported: the template writes its own block.
+    ``layers`` is the nested layer tree (``layer_tree``); its settings win for
+    the layers' folders. Other packages' entries of the imported ``models:``
+    block (``settings["models"]``) stay.
     """
     other = (settings or {}).get("models")
     other = dict(other) if isinstance(other, Mapping) else {}
-    if not imported and not other:
-        return ""
     project = copy.deepcopy(dict(imported or {}))
-    for folder, values in layers.items():
-        merged = (
-            dict(project.get(folder) or {})
-            if isinstance(project.get(folder), Mapping)
-            else {}
-        )
-        merged.update(values)
-        project[folder] = merged
+    _merge(project, layers)
     other.pop(project_name, None)
-    body = yaml.safe_dump(
+    return yaml.safe_dump(
         {"models": {**other, project_name: project}},
         sort_keys=False,
         default_flow_style=False,
         allow_unicode=True,
     )
-    return body
 
 
 def extra_block(settings: Mapping[str, Any] | None) -> str:
@@ -220,6 +245,13 @@ class Settings:
     tags: list[str] = field(default_factory=list)
 
 
+def _is_setting(name: str, value: Any) -> bool:
+    """Whether a models: block entry is a setting (else a subfolder)."""
+    return name.startswith("+") or (
+        not isinstance(value, Mapping) or settings_key(name) in _MAPPING_SETTINGS
+    )
+
+
 def folder_settings(models_block: Mapping[str, Any] | None, fqn: list[str]) -> Settings:
     """The settings a project's models: block gives a model at ``fqn``.
 
@@ -237,11 +269,7 @@ def folder_settings(models_block: Mapping[str, Any] | None, fqn: list[str]) -> S
             break
         for name, value in level.items():
             name = str(name)
-            is_setting = name.startswith("+") or (
-                not isinstance(value, Mapping)
-                or settings_key(name) in _MAPPING_SETTINGS
-            )
-            if not is_setting:
+            if not _is_setting(name, value):
                 continue
             key = settings_key(name)
             if key == "tags":

@@ -238,11 +238,11 @@ Project-level Data Vault configuration. If not provided, defaults are used.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `stage_schema` | string | No | `"stage"` | Schema name for staging layer |
+| `stage_schema` | string or null | No | `"stage"` | Schema name for staging layer; `null`: no custom schema (dbt models build into the target's schema) |
 | `stage_database` | string | No | `null` | Database name for staging layer (optional) |
-| `rdv_schema` | string | No | `"rdv"` | Schema name for Raw Data Vault layer |
+| `rdv_schema` | string or null | No | `"rdv"` | Schema name for Raw Data Vault layer; `null`: no custom schema |
 | `rdv_database` | string | No | `null` | Database name for Raw Data Vault layer (optional) |
-| `bdv_schema` | string | No | `"bdv"` | Schema name for Business Data Vault layer |
+| `bdv_schema` | string or null | No | `"bdv"` | Schema name for Business Data Vault layer; `null`: no custom schema |
 | `bdv_database` | string | No | `null` | Database name for Business Data Vault layer (optional) |
 | `hashdiff_naming` | string | No | `"hd_[[ satellite_name ]]"` | Naming pattern for hashdiff columns |
 | `hashkey_naming` | string | No | `"hk_[[ entity_name ]]"` | Naming pattern for hub/link hashkey columns |
@@ -257,6 +257,8 @@ Project-level Data Vault configuration. If not provided, defaults are used.
 | `default_load_date_value` | string | No | `null` | Load date of source systems and tables that set none: a column or SQL. With none, `sysdate()` |
 | `include_source_columns` | boolean | No | `true` | Whether stages pass all source columns on (datavault4dbt `include_source_columns`), for source systems and tables that set nothing |
 | `enable_ghost_records` | boolean | No | `true` | Whether stages add ghost records, for source systems and tables that set nothing |
+| `folders` | mapping | No | TurboVault's layout | Where generated models go: a folder pattern per layer or kind of model (see [Folder structure](#folder-structure)) |
+| `use_model_folders` | boolean | No | `true` | Generate models in the folders stored for them (an imported dbt project's). `false`: in the folder patterns, each model keeping the settings its original folder gave it. `turbovault generate --standard-folders` does this for one run |
 | `add_default_tags` | boolean | No | `true` | Give generated models TurboVault's default tags (`hub`, `raw_vault`, the group, ...). A model's own tags are added either way. A dbt project import suggests turning it off, so its models keep exactly their own tags |
 | `use_delivery_method` | boolean | No | `false` | Use the delivery method of source tables: models loading only single-batch data use datavault4dbt's single-batch logic (`source_is_single_batch`) |
 | `delivery_method` | string | No | `"multi_batch"` | Delivery method (`single_batch` / `multi_batch`) of source systems and tables that set none |
@@ -397,6 +399,72 @@ output:
 1. CLI flag (`--output`, `--sqlmesh-output`, `--json-output`, `--dbml-output`, `--iris-output`)
 2. Config value in `config.yml` (`output.dbt_project_dir`, `output.sqlmesh_output_dir`, etc.)
 3. Convention default (`exports/<type>/` inside the project folder)
+
+### Folder structure
+
+`configuration.folders` sets where generated models go: a folder pattern, relative
+to the dbt project, per layer and, optionally, per kind of model. Patterns not set
+keep TurboVault's layout:
+
+```yaml
+configuration:
+  folders:
+    control: models/00_control
+    sources: models/10_sources
+    prestaging: models/15_prestaging
+    staging: models/20_staging/[[ source_system ]]
+    raw_vault: models/30_raw_vault/[[ group ]]
+    business_vault: models/40_business_vault
+    pit: models/40_business_vault/pits/[[ group ]]
+```
+
+| Key | Models | Default |
+|-----|--------|---------|
+| `control`, `sources`, `prestaging`, `staging`, `raw_vault`, `business_vault` | the layers | as above |
+| `stage` | stages | `staging` |
+| `hub`, `link`, `satellite`, `reference_table` | Raw Vault entities | `raw_vault` |
+| `satellite_v1` | v1 views | next to their v0 satellite |
+| `effectivity_satellite`, `record_tracking_satellite` | | next to their hub or link |
+| `pit` | PITs | as above |
+| `snapshot_control` | snapshot controls (both models) | `control` |
+
+Placeholders:
+
+| Placeholder | Value |
+|-------------|-------|
+| `[[ group ]]` | the entity's group, lowercase with spaces and dashes as `_` |
+| `[[ group_name ]]` | the group as it is named (spaces as `_`) |
+| `[[ source_system ]]` | the stage's source system, lowercase with spaces and dashes as `_` |
+| `[[ source_system_name ]]` | the source system as it is named |
+
+A folder whose placeholder has no value is left out: an entity without a group
+sits in its layer's folder. Leave `[[ group ]]` out for no group folders. A
+pattern must stay inside the dbt project and name a model path and a folder
+(`models/rdv`); a pattern whose first folder isn't `models` adds it to
+`model-paths`.
+
+`dbt_project.yml` configures each layer's schema and materialization on the
+fixed part of its pattern (`models/30_raw_vault` for `models/30_raw_vault/[[ group ]]`).
+A model outside its layer's folder, or in a folder two layers share, carries
+its layer's settings in its own `config()` block.
+
+Example: hubs, links and satellites in subfolders of a subject area, stages per
+source system, no group folders for PITs:
+
+```yaml
+configuration:
+  folders:
+    staging: models/staging/[[ source_system ]]
+    raw_vault: models/raw_vault/[[ group_name ]]
+    hub: models/raw_vault/[[ group_name ]]/hubs
+    link: models/raw_vault/[[ group_name ]]/links
+    satellite: models/raw_vault/[[ group_name ]]/satellites
+    business_vault: models/business_vault
+    pit: models/business_vault/pits
+```
+
+Models stored in a folder of their own (an imported dbt project's) stay there
+while `use_model_folders` is on.
 
 ### `dbt_project` (Optional)
 

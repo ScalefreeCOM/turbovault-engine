@@ -156,6 +156,10 @@ def write_project_config(config_path: Path, config) -> None:
         config_dict["configuration"]["include_source_columns"] = False
     if not config.configuration.enable_ghost_records:
         config_dict["configuration"]["enable_ghost_records"] = False
+    if config.configuration.folders:
+        config_dict["configuration"]["folders"] = dict(config.configuration.folders)
+    if not config.configuration.use_model_folders:
+        config_dict["configuration"]["use_model_folders"] = False
     if not config.configuration.add_default_tags:
         config_dict["configuration"]["add_default_tags"] = False
     if config.configuration.use_delivery_method:

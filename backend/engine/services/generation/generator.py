@@ -188,6 +188,7 @@ class DbtProjectGenerator:
         self.config = config or GenerationConfig()
         self.template_resolver = template_resolver or TemplateResolver()
         self.folder_config = self.config.folder_config
+        self._has_prestages = False
 
         # Initialize report
         self.report = GenerationReport(project_path=self.output_path)
@@ -272,6 +273,7 @@ class DbtProjectGenerator:
             )
             return self.report
 
+        self._has_prestages = bool(project_export.prestages)
         try:
             # 1. Create folder structure
             self._create_folder_structure()
@@ -393,27 +395,60 @@ class DbtProjectGenerator:
     # -- model outputs -----------------------------------------------------
 
     def _layer_folder(self, layer: str) -> str:
-        """A layer's folder, relative to the project (e.g. models/30_raw_vault)."""
-        folders = self.folder_config
-        return {
-            "staging": folders.staging_path,
-            "raw_vault": folders.raw_vault_path,
-            "business_vault": folders.business_vault_path,
-            "control": folders.control_path,
-        }[layer]
+        """A layer's folder, relative to the project (e.g. models/30_raw_vault):
+        the fixed part of its folder pattern, which dbt_project.yml configures."""
+        return self.folder_config.layer_folder(layer)
+
+    def _default_dir(
+        self, kind: str, *, group: str | None = None, source_system: str | None = None
+    ) -> Path:
+        """Where a kind of model goes by default: its folder pattern, filled in."""
+        return self.output_path / self.folder_config.folder(
+            kind, group=group, source_system=source_system
+        )
+
+    # The schema setting of each layer (the pre-stages share the staging one)
+    _SCHEMA_KEYS = {
+        "control": ("control_schema", "control"),
+        "prestaging": ("stage_schema", "stage"),
+        "staging": ("stage_schema", "stage"),
+        "raw_vault": ("rdv_schema", "rdv"),
+        "business_vault": ("bdv_schema", "bdv"),
+    }
+
+    def _layer_schema(self, layer: str) -> str | None:
+        """A layer's schema: None for no custom schema (the target's), an
+        empty setting is TurboVault's default name."""
+        field_name, default = self._SCHEMA_KEYS[layer]
+        value = getattr(self.config, field_name)
+        if value is None:
+            return None
+        return value or default
 
     def _layer_defaults(self, layer: str) -> LayerDefaults:
         """The schema and materialization dbt_project.yml gives a layer's folder."""
-        schemas = {
-            "staging": self.config.stage_schema,
-            "raw_vault": self.config.rdv_schema,
-            "business_vault": self.config.bdv_schema,
-            "control": self.config.control_schema,
-        }
         return LayerDefaults(
             materialized=getattr(self.config, f"{layer}_materialization"),
-            schema=schemas[layer],
+            schema=self._layer_schema(layer),
         )
+
+    @property
+    def _layer_roots(self) -> dict[str, tuple[str, ...]]:
+        """Where dbt_project.yml configures each layer (key path per layer)."""
+        return project_yml.layer_roots(
+            {layer: self._layer_folder(layer) for layer in project_yml.BLOCK_LAYERS},
+            prestaging=self._has_prestages,
+        )
+
+    def _governing_layer(self, folder: str) -> str | None:
+        """The layer whose dbt_project.yml block applies to *folder*: the one
+        configured on its most specific folder."""
+        parts = tuple(part for part in folder.split("/") if part)[1:]
+        best: tuple[int, str | None] = (-1, None)
+        for layer, key in self._layer_roots.items():
+            if parts[: len(key)] == key and len(key) > best[0]:
+                best = (len(key), layer)
+        return best[1]
 
     def _stored_folder(self, output: ModelOutputDef | None) -> str | None:
         """The folder stored for a model, or None for its layer's folder."""
@@ -428,25 +463,93 @@ class DbtProjectGenerator:
     ) -> tuple[Path, ModelConfig]:
         """Where a model's files go, and the settings of its config() block.
 
-        A model stored in a folder outside its layer's folder misses the
-        layer's settings in dbt_project.yml, so its config() gets them, unless
-        an imported dbt project's models: block gives that folder settings.
+        A model whose folder dbt_project.yml configures for another layer, or
+        not at all, gets its layer's settings in its config(), unless an
+        imported dbt project's models: block gives its folder settings. In
+        TurboVault's structure (use_model_folders off) a model keeps the
+        settings its original folder gave it (spec D27).
         """
-        default_tags = self.config.add_default_tags
-        folder = self._stored_folder(output)
-        if folder is None:
-            return default_dir, ModelConfig(output, default_tags=default_tags)
-        layer_folder = self._layer_folder(layer)
-        inside = folder == layer_folder or folder.startswith(f"{layer_folder}/")
-        imported = project_yml.covers(self.config.dbt_project_models, folder)
-        layer_defaults = None if inside or imported else self._layer_defaults(layer)
+        default_dir_rel = default_dir.relative_to(self.output_path).as_posix()
+        stored = self._stored_folder(output)
+        folder = stored or default_dir_rel
+        imported = self.config.use_model_folders and project_yml.covers(
+            self.config.dbt_project_models, folder
+        )
+        governing = self._governing_layer(folder)
+        layer_defaults = (
+            None if governing == layer or imported else self._layer_defaults(layer)
+        )
+        inherited = None
+        if not self.config.use_model_folders and self.config.dbt_project_models:
+            original = (
+                normalize_folder(output.folder)
+                if output and output.folder and not folder_error(output.folder)
+                else folder
+            )
+            inherited = self._original_folder_settings(
+                original, folder, layer_defaults
+            )
         return self.output_path / folder, ModelConfig(
-            output, layer_defaults, default_tags=default_tags
+            output,
+            layer_defaults,
+            default_tags=self.config.add_default_tags,
+            inherited=inherited,
+        )
+
+    def _original_folder_settings(
+        self, original: str, folder: str, layer_defaults: LayerDefaults | None
+    ) -> project_yml.Settings:
+        """What a model's original folder gave it beyond its new folder's.
+
+        The imported models: block configured the original folder; in
+        TurboVault's structure only its settings for every model are written,
+        plus TurboVault's layer blocks.
+        """
+        block = self.config.dbt_project_models
+
+        def walk(path: str) -> list[str]:
+            return ["project", *[p for p in path.split("/") if p][1:], "model"]
+
+        given = project_yml.folder_settings(block, walk(original))
+        root = project_yml.root_level(block)
+        now = project_yml.Settings(
+            values={
+                project_yml.settings_key(name): value
+                for name, value in root.items()
+                if project_yml.settings_key(name) != "tags"
+            },
+            tags=project_yml.tag_list(root.get("+tags", root.get("tags"))),
+        )
+        governing = self._governing_layer(folder)
+        if governing is not None:
+            for name, value in project_yml.layer_values(
+                self._layer_schema(governing),
+                getattr(self.config, f"{governing}_materialization", None)
+                if governing != "prestaging"
+                else self._prestaging_materialization(),
+            ).items():
+                now.values[project_yml.settings_key(name)] = value
+        if layer_defaults is not None:  # the model's config() gets them too
+            if layer_defaults.schema:
+                now.values["schema"] = layer_defaults.schema
+            if layer_defaults.materialized:
+                now.values["materialized"] = layer_defaults.materialized
+        return project_yml.Settings(
+            values={
+                key: value
+                for key, value in given.values.items()
+                if now.values.get(key) != value
+            },
+            tags=[tag for tag in given.tags if tag not in now.tags],
         )
 
     def _model_paths(self, project_export: ProjectExport) -> list[str]:
-        """dbt_project.yml's model-paths: models, plus stored folders' tops."""
-        paths = ["models"]
+        """dbt_project.yml's model-paths: the folder patterns' tops (models by
+        default), plus stored folders' tops."""
+        paths = self.folder_config.model_paths()
+        if "models" in paths:
+            paths.remove("models")
+        paths.insert(0, "models")
         if not self.config.use_model_folders:
             return paths
         for output in _model_outputs(project_export):
@@ -627,6 +730,22 @@ class DbtProjectGenerator:
             prestaging = self._prestaging_materialization() if has_prestages else None
             settings = self.config.dbt_project_settings
             imported_models = self.config.dbt_project_models
+            # In TurboVault's structure the imported folders hold no models:
+            # only the settings for every model stay (the models carry their
+            # folders' in config())
+            written_models = (
+                imported_models
+                if self.config.use_model_folders
+                else project_yml.root_level(imported_models)
+            )
+            # TurboVault's own block unless the layers, their schemas or an
+            # imported project's settings need the generated one
+            custom_block = (
+                bool(written_models)
+                or isinstance((settings or {}).get("models"), dict)
+                or not self.folder_config.is_default()
+                or any(self._layer_schema(layer) is None for layer in self._SCHEMA_KEYS)
+            )
             content = template.render(
                 project_name=self.config.project_name,
                 profile_name=self.config.profile_name,
@@ -645,29 +764,32 @@ class DbtProjectGenerator:
                 vars_block=vars_block,
                 # An imported dbt project's settings (spec D25)
                 **project_yml.header_values(settings),
-                models_block=project_yml.models_block(
-                    self.config.project_name,
-                    project_yml.layer_settings(
-                        control_schema=self.config.control_schema,
-                        control_materialization=self.config.control_materialization,
-                        stage_schema=self.config.stage_schema,
-                        staging_materialization=self.config.staging_materialization,
-                        rdv_schema=self.config.rdv_schema,
-                        raw_vault_materialization=(
-                            self.config.raw_vault_materialization
+                models_block=(
+                    project_yml.models_block(
+                        self.config.project_name,
+                        project_yml.layer_tree(
+                            self._layer_roots,
+                            {
+                                layer: project_yml.layer_values(
+                                    self._layer_schema(layer),
+                                    prestaging
+                                    if layer == "prestaging"
+                                    else getattr(
+                                        self.config, f"{layer}_materialization"
+                                    ),
+                                )
+                                for layer in self._layer_roots
+                            },
                         ),
-                        bdv_schema=self.config.bdv_schema,
-                        business_vault_materialization=(
-                            self.config.business_vault_materialization
-                        ),
-                        prestaging_materialization=prestaging,
-                    ),
-                    imported_models,
-                    settings,
+                        written_models,
+                        settings,
+                    )
+                    if custom_block
+                    else ""
                 ),
                 extra_block=project_yml.extra_block(settings),
             )
-            self._check_project_template(content, imported_models, settings)
+            self._check_project_template(content, written_models, settings)
             path = self.output_path / "dbt_project.yml"
             write_yaml_file(path, content)
             self.report.add_file(path, "project", "dbt_project", "yaml")
@@ -721,7 +843,8 @@ class DbtProjectGenerator:
             if template:
                 content = template.render(source=source)
                 path = (
-                    self.folder_config.get_source_path(self.output_path)
+                    self.output_path
+                    / self.folder_config.folder("sources", source_system=source.name)
                     / f"source__{source_name}.yml"
                 )
                 write_yaml_file(path, content)
@@ -805,9 +928,7 @@ class DbtProjectGenerator:
                 # Standard folder: one per source system
                 directory, model_config = self._placement(
                     stage.output,
-                    self.folder_config.get_staging_path(
-                        stage.source_system, self.output_path
-                    ),
+                    self._default_dir("stage", source_system=stage.source_system),
                     "staging",
                 )
                 content = self._write_model(
@@ -858,7 +979,7 @@ class DbtProjectGenerator:
                 # Standard folder: the raw vault layer's, per group
                 directory, model_config = self._placement(
                     hub.output,
-                    self.folder_config.get_raw_vault_path(hub.group, self.output_path),
+                    self._default_dir("hub", group=hub.group),
                     "raw_vault",
                 )
                 self._write_model(
@@ -907,7 +1028,7 @@ class DbtProjectGenerator:
                 # Standard folder: the raw vault layer's, per group
                 directory, model_config = self._placement(
                     link.output,
-                    self.folder_config.get_raw_vault_path(link.group, self.output_path),
+                    self._default_dir("link", group=link.group),
                     "raw_vault",
                 )
                 self._write_model(
@@ -966,9 +1087,7 @@ class DbtProjectGenerator:
                     )
                 )
                 # Standard folder: the raw vault layer's, per group
-                default_dir = self.folder_config.get_raw_vault_path(
-                    satellite.group, self.output_path
-                )
+                default_dir = self._default_dir("satellite", group=satellite.group)
                 directory, model_config = self._placement(
                     satellite.v0_output, default_dir, "raw_vault"
                 )
@@ -990,7 +1109,13 @@ class DbtProjectGenerator:
 
                 # The v1 view: the satellite's own setting, else the project's
                 if satellite.gets_v1_view(generate_v1):
-                    self._generate_satellite_v1(satellite, default_dir, v0_name)
+                    self._generate_satellite_v1(
+                        satellite,
+                        self._default_dir("satellite_v1", group=satellite.group)
+                        if self.folder_config.has_own("satellite_v1")
+                        else default_dir,
+                        v0_name,
+                    )
 
             except Exception as e:
                 logger.warning(
@@ -1034,7 +1159,8 @@ class DbtProjectGenerator:
             if output
             else satellite_pattern(self.config.satellite_v1_naming, base_name)
         )
-        output = _in_folder_of(output, satellite.v0_output)
+        if not self.folder_config.has_own("satellite_v1"):
+            output = _in_folder_of(output, satellite.v0_output)
 
         # Build context for v1 template
         context = satellite.model_dump()
@@ -1081,8 +1207,9 @@ class DbtProjectGenerator:
         # Collect flagged parents as (name, group, hashkey_name, source_tables,
         # the satellite's output, in its parent's folder unless it has one).
         parents: list[
-            tuple[str, str | None, str | None, list, ModelOutputDef | None]
+            tuple[str, str | None, str | None, list, ModelOutputDef | None, str]
         ] = []
+        own = self.folder_config.has_own("record_tracking_satellite")
         for hub in hubs:
             if getattr(hub, "create_record_tracking_satellite", False):
                 hashkey_name = hub.hashkey.hashkey_name if hub.hashkey else None
@@ -1092,7 +1219,12 @@ class DbtProjectGenerator:
                         hub.group,
                         hashkey_name,
                         hub.source_tables,
-                        _in_folder_of(hub.record_tracking_satellite_output, hub.output),
+                        hub.record_tracking_satellite_output
+                        if own
+                        else _in_folder_of(
+                            hub.record_tracking_satellite_output, hub.output
+                        ),
+                        "record_tracking_satellite" if own else "hub",
                     )
                 )
         for link in links:
@@ -1104,9 +1236,12 @@ class DbtProjectGenerator:
                         link.group,
                         hashkey_name,
                         link.source_tables,
-                        _in_folder_of(
+                        link.record_tracking_satellite_output
+                        if own
+                        else _in_folder_of(
                             link.record_tracking_satellite_output, link.output
                         ),
+                        "record_tracking_satellite" if own else "link",
                     )
                 )
 
@@ -1127,7 +1262,9 @@ class DbtProjectGenerator:
 
         naming = self.config.record_tracking_satellite_naming
 
-        for parent_name, group, hashkey_name, source_tables, output in parents:
+        for parent_name, group, hashkey_name, source_tables, output, folder_kind in (
+            parents
+        ):
             if not hashkey_name:
                 self.report.add_skipped(
                     entity_type="satellite_record_tracking",
@@ -1152,7 +1289,7 @@ class DbtProjectGenerator:
 
                 directory, model_config = self._placement(
                     output,
-                    self.folder_config.get_raw_vault_path(group, self.output_path),
+                    self._default_dir(folder_kind, group=group),
                     "raw_vault",
                 )
                 self._write_model(
@@ -1265,7 +1402,8 @@ class DbtProjectGenerator:
                 continue
 
             try:
-                output = _in_folder_of(own_output, parent_output)
+                own = self.folder_config.has_own("effectivity_satellite")
+                output = own_output if own else _in_folder_of(own_output, parent_output)
                 es_name = (
                     output.model_name
                     if output
@@ -1286,7 +1424,9 @@ class DbtProjectGenerator:
 
                 directory, model_config = self._placement(
                     output,
-                    self.folder_config.get_raw_vault_path(group, self.output_path),
+                    self._default_dir(
+                        "effectivity_satellite" if own else kind, group=group
+                    ),
                     "raw_vault",
                 )
                 self._write_model(
@@ -1334,9 +1474,7 @@ class DbtProjectGenerator:
                 # Standard folder: the business vault's pits folder, per group
                 directory, model_config = self._placement(
                     pit.output,
-                    self.folder_config.get_business_vault_pits_path(
-                        pit.group, self.output_path
-                    ),
+                    self._default_dir("pit", group=pit.group),
                     "business_vault",
                 )
                 self._write_model(
@@ -1390,9 +1528,7 @@ class DbtProjectGenerator:
                 # Standard folder: the raw vault layer's, per group
                 directory, model_config = self._placement(
                     ref_table.output,
-                    self.folder_config.get_raw_vault_path(
-                        ref_table.group, self.output_path
-                    ),
+                    self._default_dir("reference_table", group=ref_table.group),
                     "raw_vault",
                 )
                 self._write_model(
@@ -1449,7 +1585,7 @@ class DbtProjectGenerator:
 
         for snap_ctrl in snapshot_controls:
             try:
-                control_dir = self.folder_config.get_control_path(self.output_path)
+                control_dir = self._default_dir("snapshot_control")
                 # Templates append _v0/_v1 to `name`, so they get the base name:
                 # a control stored as 'control_snap_v0' must not name its models
                 # 'control_snap_v0_v0'. The model names are passed as they are.

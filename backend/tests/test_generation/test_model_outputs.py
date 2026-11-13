@@ -23,6 +23,11 @@ pytestmark = pytest.mark.django_db
 def project(django_setup, db):
     """CUSTOMER_H with a satellite, effectivity and record-tracking satellites
     and a PIT; NATION_RH with a reference satellite and a reference table."""
+    return build_project()
+
+
+def build_project():
+    """The ``project`` fixture's project (also for other test modules)."""
     from engine.models import (
         PIT,
         Hub,

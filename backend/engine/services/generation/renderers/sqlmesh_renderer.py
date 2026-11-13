@@ -31,6 +31,7 @@ Unsupported entities produce warnings and are skipped:
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 import textwrap  # used by _render_readme and _MODELS_INIT
@@ -156,6 +157,15 @@ def render_sqlmesh(
         template_resolver = TemplateResolver(
             use_db_templates=False, framework="sqlmesh"
         )
+    # SQLMesh models are named schema.model: a layer without a custom schema
+    # (dbt's target schema) uses the layer's name.
+    runtime_config = dataclasses.replace(
+        runtime_config,
+        stage_schema=runtime_config.get_schema("stage"),
+        rdv_schema=runtime_config.get_schema("rdv"),
+        bdv_schema=runtime_config.get_schema("bdv"),
+        control_schema=runtime_config.get_schema("control"),
+    )
     artifacts: list[GeneratedArtifact] = []
     issues: list[Issue] = []
 
