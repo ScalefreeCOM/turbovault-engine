@@ -216,6 +216,13 @@ _LEGACY_ERROR_CODE_MAP: dict[str, str] = {
     "PTH_001": Code.WRITE_PATH_COLLISION,
 }
 
+# Legacy warning codes surfaced as warnings: YML_001 ("SQL but no YAML") and
+# TPL_003 (a stage template that predates pre-stages).
+_LEGACY_WARNING_CODE_MAP: dict[str, str] = {
+    "YML_001": Code.RENDER_TEMPLATE_NOT_FOUND,
+    "TPL_003": Code.RENDER_TEMPLATE_OUTDATED,
+}
+
 
 def _translate_dbt_issues(legacy_report) -> list[Issue]:
     """Convert legacy GenerationError/Warning into structured render issues."""
@@ -233,17 +240,13 @@ def _translate_dbt_issues(legacy_report) -> list[Issue]:
             )
         )
     for warn in legacy_report.warnings:
-        # YML_001 ("SQL but no YAML") is the only legacy warning code worth
-        # surfacing; everything else maps to render.entity_skipped (info).
-        is_yaml_missing = warn.code == "YML_001"
+        # Legacy warnings worth surfacing as warnings have their own code;
+        # everything else maps to render.entity_skipped (info).
+        warning_code = _LEGACY_WARNING_CODE_MAP.get(warn.code)
         issues.append(
             make_issue(
-                severity="warning" if is_yaml_missing else "info",
-                code=(
-                    Code.RENDER_TEMPLATE_NOT_FOUND
-                    if is_yaml_missing
-                    else Code.RENDER_ENTITY_SKIPPED
-                ),
+                severity="warning" if warning_code else "info",
+                code=warning_code or Code.RENDER_ENTITY_SKIPPED,
                 stage="render",
                 message=warn.message,
                 entity=_entity_ref_or_none(warn.entity_type, warn.entity_name),

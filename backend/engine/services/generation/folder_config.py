@@ -24,12 +24,17 @@ class FolderConfig:
     # Base paths for each layer
     control_path: str = "models/00_control"
     source_path: str = "models/01_sources"
+    prestaging_path: str = "models/01_prestaging"
     staging_path: str = "models/02_staging"
     raw_vault_path: str = "models/03_raw_vault"
     business_vault_path: str = "models/04_business_vault"
 
     # Business vault subdirectories
     pits_subdir: str = "pits"
+
+    def prestaging_dir(self, source_system: str) -> PurePosixPath:
+        """Folder of a source system's pre-stages, relative to the project root."""
+        return PurePosixPath(self.prestaging_path) / self.sanitize_name(source_system)
 
     def source_file(self, source_system: str) -> PurePosixPath:
         """Path of a source system's sources YAML, relative to the project root."""

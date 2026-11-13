@@ -21,6 +21,8 @@ deep-link errors; the CLI groups them in summary tables.
 | `validate.stage.no_keys` | A stage has neither hashkeys nor hashdiffs to compute. | Confirm hubs / links / satellites reference this stage. |
 | `validate.stage.derived_column_no_datatype` | A derived column or column transformation computes an SQL expression but has no data type, and neither does its source column (warning). datavault4dbt needs it to build ghost records; dbt fails to compile the stage without it. | Set a data type on the derived column or transformation, or on the source column. |
 | `validate.stage.uses_load_column` | A hash key or satellite maps the column the stage's record source or load date is read from (warning). datavault4dbt turns that column into the stage's `rsrc`/`ldts` and doesn't pass it on, so the model fails. | Map another column, or set the datavault4dbt variable `copy_rsrc_ldts_input_columns` to keep it. |
+| `validate.prestage.ephemeral` | A pre-stage's SQL configures `materialized='ephemeral'`. Its stage reads the pre-stage's columns from the database, where an ephemeral model doesn't exist. | Materialize the pre-stage as a view or table. |
+| `validate.prestage.unknown_source` | A pre-stage reads a `source()` the project doesn't define (warning); dbt won't compile it. Not checked when the project doesn't generate its sources. | Fix the source or table name (dbt matches both exactly); the message suggests the spelling when only the case differs. |
 | `validate.hub.missing_hashkey` | A standard hub has no hashkey column name. | Set a hashkey naming pattern on the project or the hub. |
 | `validate.hub.no_business_keys` | A hub has no business-key columns. | Add at least one business-key column. |
 | `validate.hub.no_source_tables` | A hub has no source mappings (warning). | Map the hub's business keys to at least one source column. |
@@ -50,6 +52,7 @@ deep-link errors; the CLI groups them in summary tables.
 | Code | Cause | Suggestion |
 |------|-------|------------|
 | `render.template_not_found` | A required Jinja template could not be located. | Populate templates via `populate_templates` or check the custom template overrides. |
+| `render.template_outdated` | The stage template doesn't read a stage's pre-stage model, or doesn't prejoin a pre-stage model (warning). It predates pre-stages, e.g. a workspace's copy seeded before they existed; the stage would read the pre-stage as a dbt source, which doesn't exist. | Update the stage template: `python manage.py populate_templates --overwrite` refreshes the workspace's copies (and replaces their customizations). |
 | `render.template_render_failed` | A template raised during render (Jinja syntax, undefined variable). | Check the template for the listed entity. |
 | `render.entity_skipped` | Best-effort skipped an entity due to a render error (info). | See the preceding `render.template_*` error for the root cause. |
 | `render.invalid_global_vars` | The caller-supplied `global_vars` mapping could not be serialized into the `vars:` block. Nothing is generated, so an earlier run's output is left untouched rather than half-replaced. | Fix the reported key — `global_vars` must be a mapping with string keys and YAML-serializable values. |

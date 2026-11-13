@@ -35,6 +35,7 @@ from engine.services.export.models import (
     PrejoinCondition,
     PrejoinDefinitionExport,
     PrejoinExtractionColumn,
+    PrestageDefinition,
     ProjectExport,
     ReferenceTableDefinition,
     ReferenceTableSatelliteAssignment,
@@ -49,6 +50,11 @@ from engine.services.export.models import (
     StageDefinition,
     StageHashdiffDef,
     StageHashkeyDef,
+)
+from engine.services.prestage_sql import (
+    dbt_source_name,
+    referenced_models,
+    referenced_sources,
 )
 from engine.services.runtime_config import (
     EngineRuntimeConfig,
@@ -131,6 +137,18 @@ def _generation_config(entity: Model, label: str) -> GenerationConfigDef:
         ) from exc
 
 
+def stage_model_name(table: SourceTable) -> str:
+    """Name of a source table's stage model: ``stg__<system>__<table>``."""
+    system = dbt_source_name(table.source_system.name)
+    return f"stg__{system}__{table.physical_table_name.lower()}"
+
+
+def prestage_model_name(table: SourceTable) -> str:
+    """Name of a pre-stage's dbt model: ``pstg__<system>__<table>``."""
+    system = dbt_source_name(table.source_system.name)
+    return f"pstg__{system}__{table.physical_table_name.lower()}"
+
+
 class ModelBuilder:
     """
     Builds intermediate export models from Django ORM data.
@@ -206,6 +224,7 @@ class ModelBuilder:
             sources=self._build_sources() if export_sources else [],
             hubs=self._build_hubs(),
             links=self._build_links(),
+            prestages=self._build_prestages(),
             stages=self._build_stages(),
             satellites=self._build_satellites(),
             snapshot_controls=self._build_snapshot_controls(),
@@ -251,6 +270,8 @@ class ModelBuilder:
                 tables.append(
                     SourceTableDef(
                         table_name=table.physical_table_name,
+                        table_type=table.table_type,
+                        prestage_sql=table.prestage_sql or None,
                         alias=table.alias,
                         record_source=table.record_source_value,
                         static_part_of_record_source=(
@@ -396,9 +417,7 @@ class ModelBuilder:
                 table_key = table.physical_table_name
 
                 source_table_map[table_key]["source_system"] = table.source_system.name
-                source_table_map[table_key][
-                    "stage_name"
-                ] = f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}"
+                source_table_map[table_key]["stage_name"] = stage_model_name(table)
                 source_table_map[table_key]["rsrc_static"] = self._source_values(
                     table
                 ).static_part.value
@@ -424,9 +443,7 @@ class ModelBuilder:
                 table_key = table.physical_table_name
 
                 source_table_map[table_key]["source_system"] = table.source_system.name
-                source_table_map[table_key][
-                    "stage_name"
-                ] = f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}"
+                source_table_map[table_key]["stage_name"] = stage_model_name(table)
                 source_table_map[table_key]["rsrc_static"] = self._source_values(
                     table
                 ).static_part.value
@@ -475,19 +492,27 @@ class ModelBuilder:
         computed from hubs (and future: links) that use this source,
         plus hashdiffs from satellites.
 
+        A pre-stage's stage reads the pre-stage model with ``ref()``. Tables
+        that only pre-stages read get no stage (see
+        ``_tables_read_only_by_prestages``).
+
         Returns:
             List of stage definitions with hashkey and hashdiff calculations
         """
         from engine.models import SourceTable
 
-        source_tables = (
+        source_tables = list(
             SourceTable.objects.filter(project=self.project)
             .select_related("source_system")
             .prefetch_related("columns", "derived_columns")
         )
+        read_only_by_prestages = self._tables_read_only_by_prestages(source_tables)
 
         result = []
         for table in source_tables:
+            if table.pk in read_only_by_prestages:
+                continue
+
             # Get all hashkeys needed for this source table
             hashkeys = self._get_hashkeys_for_source_table(table)
 
@@ -515,15 +540,15 @@ class ModelBuilder:
 
             values = self._source_values(table)
 
-            # Generate stage name (stg__<system>__<table>)
-            stage_name = f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}"
-
             result.append(
                 StageDefinition(
-                    stage_name=stage_name,
+                    stage_name=stage_model_name(table),
                     source_table=table.physical_table_name,
                     source_schema=table.source_system.schema_name,
                     source_system=table.source_system.name,
+                    prestage_model=(
+                        prestage_model_name(table) if table.is_prestage else None
+                    ),
                     record_source=values.record_source.value,
                     load_date=values.load_date.value,
                     description=table.description or None,
@@ -538,6 +563,97 @@ class ModelBuilder:
             )
 
         return result
+
+    def _build_prestages(self) -> list[PrestageDefinition]:
+        """Build the pre-stage models: one per source table of type prestage.
+
+        A pre-stage without SQL is maintained outside TurboVault: it is listed
+        (its stage still reads it) with ``sql=None``, and generation writes no
+        model for it.
+        """
+        from engine.models import SourceTable
+
+        tables = (
+            SourceTable.objects.filter(
+                project=self.project, table_type=SourceTable.TableType.PRESTAGE
+            )
+            .select_related("source_system")
+            .prefetch_related("columns")
+        )
+        return [
+            PrestageDefinition(
+                model_name=prestage_model_name(table),
+                table_name=table.physical_table_name,
+                source_system=table.source_system.name,
+                sql=table.prestage_sql if (table.prestage_sql or "").strip() else None,
+                description=table.description or None,
+                columns=[
+                    SourceColumnDef(
+                        column_name=column.source_column_physical_name,
+                        datatype=column.source_column_datatype,
+                        description=column.description or None,
+                    )
+                    for column in table.columns.all()
+                ],
+            )
+            for table in tables
+        ]
+
+    def _tables_read_only_by_prestages(self, tables: list[SourceTable]) -> set:
+        """Primary keys of the tables only pre-stages read.
+
+        A table a pre-stage reads (a JSON landing table, say) needs no stage of
+        its own when nothing in the Raw Vault loads from it: the stage would
+        hash nothing. That holds for physical tables read with ``source()`` and
+        for pre-stages other pre-stages read with ``ref()``. A pre-stage's
+        reads come from scanning its SQL (``engine.services.prestage_sql``).
+        """
+        from engine.models import (
+            HubSourceMapping,
+            LinkHubSourceMapping,
+            LinkSourceMapping,
+            Satellite,
+        )
+
+        physical = {
+            (dbt_source_name(t.source_system.name), t.physical_table_name.lower()): t.pk
+            for t in tables
+            if not t.is_prestage
+        }
+        prestages = {prestage_model_name(t): t.pk for t in tables if t.is_prestage}
+
+        read: set = set()
+        for table in tables:
+            if not table.is_prestage or not table.prestage_sql:
+                continue
+            for source_name, table_name in referenced_sources(table.prestage_sql):
+                pk = physical.get((source_name.lower(), table_name.lower()))
+                if pk is not None:
+                    read.add(pk)
+            for model in referenced_models(table.prestage_sql):
+                pk = prestages.get(model.lower())
+                if pk is not None and pk != table.pk:
+                    read.add(pk)
+        if not read:
+            return set()
+
+        loading: set = set()
+        for mapping_model in (
+            HubSourceMapping,
+            LinkHubSourceMapping,
+            LinkSourceMapping,
+        ):
+            loading.update(
+                mapping_model.objects.filter(
+                    staging_column__source_table__in=read
+                ).values_list("staging_column__source_table", flat=True)
+            )
+        loading.update(
+            Satellite.objects.filter(source_table__in=read).values_list(
+                "source_table", flat=True
+            )
+        )
+        return read - loading
 
     def _get_hashdiffs_for_source_table(
         self, source_table: SourceTable
@@ -904,10 +1020,14 @@ class ModelBuilder:
                 for ext in prejoin.extraction_columns.all()
             ]
 
+            target = prejoin.prejoin_target_table
             result.append(
                 PrejoinDefinitionExport(
-                    target_table=prejoin.prejoin_target_table.physical_table_name,
-                    target_source_system=prejoin.prejoin_target_table.source_system.name,
+                    target_table=target.physical_table_name,
+                    target_source_system=target.source_system.name,
+                    target_model=(
+                        prestage_model_name(target) if target.is_prestage else None
+                    ),
                     join_conditions=join_conditions,
                     extraction_columns=extraction_columns,
                 )
@@ -1184,8 +1304,7 @@ class ModelBuilder:
                 # No valid parent
                 continue
 
-            # Generate stage name
-            stage_name = f"stg__{sat.source_table.source_system.name.lower().replace(' ', '_')}__{sat.source_table.physical_table_name.lower()}"
+            stage_name = stage_model_name(sat.source_table)
 
             # Generate hashdiff name using project pattern
             sat_name = sat.satellite_physical_name
@@ -1297,7 +1416,7 @@ class ModelBuilder:
                     if table_key not in source_table_map:
                         source_table_map[table_key] = {
                             "source_system": table.source_system.name,
-                            "stage_name": f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}",
+                            "stage_name": stage_model_name(table),
                             "rsrc_static": self._source_values(table).static_part.value,
                             "columns": [],
                             "hashkey_mappings": [],
@@ -1332,7 +1451,7 @@ class ModelBuilder:
                     if table_key not in source_table_map:
                         source_table_map[table_key] = {
                             "source_system": table.source_system.name,
-                            "stage_name": f"stg__{table.source_system.name.lower().replace(' ', '_')}__{table.physical_table_name.lower()}",
+                            "stage_name": stage_model_name(table),
                             "rsrc_static": self._source_values(table).static_part.value,
                             "columns": [],
                         }

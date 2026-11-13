@@ -191,6 +191,13 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                 load_date_value=written_value(table_def.load_date),
                 description=table_def.description,
             )
+            # Exports from before pre-stages existed don't carry these; the
+            # table then keeps its type and SQL.
+            if "table_type" in table_def.model_fields_set:
+                table.table_type = table_def.table_type
+                model.describes_prestages = True
+            if "prestage_sql" in table_def.model_fields_set:
+                table.prestage_sql = table_def.prestage_sql or ""
             for col in table_def.columns:
                 table.columns[col.column_name.lower()] = DSourceColumn(
                     name=col.column_name,

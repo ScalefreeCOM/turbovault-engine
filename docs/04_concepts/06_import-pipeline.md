@@ -80,6 +80,12 @@ in the file. Destructive — deletes any entity not present in the file and
 all of its child rows. The Studio frontend requires explicit confirmation
 for this mode.
 
+[Pre-stages](01_domain-model.md#35-pre-stages) are the exception: only JSON
+exports can describe them. A file in another format (Excel, SQLite, IRiS,
+`source_metadata`), or a JSON export from before pre-stages existed, never
+lists them, so `replace_all` keeps the project's pre-stages and the source
+systems holding them.
+
 **Choose `update_only`** for "just refresh the values" scenarios where
 you don't want any new entities created.
 

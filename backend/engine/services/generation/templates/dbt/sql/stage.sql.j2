@@ -21,8 +21,13 @@
 ) }}
 
 {%- set yaml_metadata -%}
-source_model: 
+[% if prestage_model %]
+[# A pre-stage is a dbt model: a string source_model is read with ref() #]
+source_model: '[[ prestage_model ]]'
+[% else %]
+source_model:
     [[ source_system | lower | replace(" ", "_") ]]: [[ source_table ]]
+[% endif %]
 ldts: [[ load_date | yaml_quote ]]
 rsrc: [[ record_source | yaml_quote ]]
 [% if hashkeys or hashdiffs %]
@@ -53,8 +58,12 @@ prejoined_columns:
       [% for extraction_col in prejoin.extraction_columns %]
         - [[ extraction_col.target_column_alias or extraction_col.source_column_name ]]
       [% endfor %]
+      [% if prejoin.target_model %]
+      ref_model: '[[ prejoin.target_model ]]'
+      [% else %]
       src_name: '[[ (prejoin.target_source_system or source_system) | lower | replace(" ", "_") ]]'
       src_table: '[[ prejoin.target_table ]]'
+      [% endif %]
       this_column_name: 
       [% for source_column in prejoin.join_conditions.source_columns %]
         - '[[ source_column ]]'

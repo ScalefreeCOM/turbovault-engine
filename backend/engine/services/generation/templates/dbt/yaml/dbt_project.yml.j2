@@ -27,6 +27,12 @@ clean-targets:
     00_control:
       +schema: [[ control_schema | default('control', true) | yaml_scalar ]]
       +materialized: [[ control_materialization | default('table', true) | yaml_scalar ]]
+[# Only when the project has pre-stage models, so dbt finds no unused path #]
+[% if prestaging_materialization %]
+    01_prestaging:
+      +schema: [[ stage_schema | default('stage', true) | yaml_scalar ]]
+      +materialized: [[ prestaging_materialization | yaml_scalar ]]
+[% endif %]
     02_staging:
       +schema: [[ stage_schema | default('stage', true) | yaml_scalar ]]
       +materialized: [[ staging_materialization | default('view', true) | yaml_scalar ]]

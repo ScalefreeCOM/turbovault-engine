@@ -102,6 +102,14 @@ other input (e.g. a `file_path` outside `models/` is rejected), reports changed
 ones as `generation_config` changes, and an export from before they existed
 leaves the project's attributes alone.
 
+Pre-stages round-trip as source tables with `table_type: "prestage"` and their
+SQL in `prestage_sql`. A `prestage_sql` of `null` clears a pre-stage's SQL (it
+is then maintained outside TurboVault). An export from before pre-stages existed
+has neither field, and importing it leaves the project's table types and SQL
+alone; a `replace_all` import of such a file doesn't delete pre-stages either.
+The export's `prestages` and `stages` lists are derived from the tables and are
+not read back.
+
 Snapshot controls embedded in the JSON export are restored as-is. The automatic creation of default snapshot controls (which happens for new empty projects) is skipped when the source type is `json`.
 
 ## What Is Not Preserved

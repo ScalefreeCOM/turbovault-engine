@@ -11,6 +11,11 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from engine.services.prestage_sql import (
+    configured_materialization,
+    dbt_source_name,
+    referenced_sources,
+)
 from engine.services.source_values import ValueKind, classify
 
 if TYPE_CHECKING:
@@ -140,6 +145,9 @@ def validate_export(
     for source in project_export.sources:
         result.merge(_validate_source(source))
 
+    # Validate pre-stages
+    result.merge(_validate_prestages(project_export))
+
     # Validate stages
     for stage in project_export.stages:
         result.merge(_validate_stage(stage))
@@ -188,6 +196,75 @@ def _validate_source(source: SourceDefinition) -> ValidationResult:
             message="Source has no tables defined",
             code="SRC_002",
         )
+
+    return result
+
+
+def _validate_prestages(project_export: ProjectExport) -> ValidationResult:
+    """Check a pre-stage's SQL for what fails in dbt before it runs.
+
+    - Its stage reads the pre-stage's columns from the database, so the model
+      can't be ephemeral (error).
+    - A source it reads must be one the project defines; dbt doesn't compile
+      the model otherwise (warning). Not checked when the project doesn't
+      generate its sources (``export_sources`` off): they're defined elsewhere.
+
+    A pre-stage without SQL is maintained outside TurboVault: nothing to check.
+    """
+    result = ValidationResult()
+
+    # dbt looks sources up by their exact names; the lowercased index finds
+    # the spelling to suggest.
+    defined: set[tuple[str, str]] = set()
+    by_lowercase: dict[tuple[str, str], tuple[str, str]] = {}
+    for system in project_export.sources:
+        for table in system.tables:
+            if table.table_type == "prestage":
+                continue
+            name = (dbt_source_name(system.name), table.table_name)
+            defined.add(name)
+            by_lowercase[(name[0].lower(), name[1].lower())] = name
+
+    for prestage in project_export.prestages:
+        if not prestage.sql:
+            continue
+
+        if configured_materialization(prestage.sql) == "ephemeral":
+            result.add_error(
+                entity_type="prestage",
+                entity_name=prestage.model_name,
+                field="sql",
+                message=(
+                    "The pre-stage is materialized as ephemeral, but its stage "
+                    "reads the pre-stage's columns from the database, where an "
+                    "ephemeral model doesn't exist. Materialize it as a view or "
+                    "table"
+                ),
+                code="PST_001",
+            )
+
+        if not project_export.export_sources:
+            continue
+        for source_name, table_name in referenced_sources(prestage.sql):
+            if (source_name, table_name) in defined:
+                continue
+            spelled = by_lowercase.get((source_name.lower(), table_name.lower()))
+            hint = (
+                f" Did you mean source('{spelled[0]}', '{spelled[1]}')?"
+                if spelled
+                else ""
+            )
+            result.add_warning(
+                entity_type="prestage",
+                entity_name=prestage.model_name,
+                field="sql",
+                message=(
+                    f"The pre-stage reads source('{source_name}', '{table_name}'), "
+                    "which the project doesn't define, so dbt won't compile it."
+                    f"{hint}"
+                ),
+                code="PST_002",
+            )
 
     return result
 

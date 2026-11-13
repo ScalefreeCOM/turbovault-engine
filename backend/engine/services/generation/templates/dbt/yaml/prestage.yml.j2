@@ -1,0 +1,21 @@
+[# Pre-Stage Model YAML Schema Template #]
+[# Documents the columns the pre-stage provides, as declared in the metadata. #]
+version: 2
+
+models:
+  - name: [[ model_name ]]
+    description: [[ (description or ("Pre-stage model for " ~ table_name ~ " from " ~ source_system)) | yaml_quote ]]
+    config:
+      tags: ['prestage', '[[ source_system | lower | replace(" ", "_") ]]']
+[% if columns %]
+    columns:
+[% for column in columns %]
+      - name: [[ column.column_name ]]
+[% if column.datatype %]
+        data_type: [[ column.datatype | yaml_scalar ]]
+[% endif %]
+[% if column.description %]
+        description: [[ column.description | yaml_quote ]]
+[% endif %]
+[% endfor %]
+[% endif %]

@@ -25,6 +25,8 @@ Unsupported entities produce warnings and are skipped:
   - Reference hubs, non-historized links, multi-active / non-historized /
     effectivity / record-tracking / reference satellites, reference tables,
     PITs, snapshot controls.
+  - Pre-stages, with the stages that read them and the entities loaded from
+    those stages (see ``sqlmesh_prestages``).
 """
 
 from __future__ import annotations
@@ -52,6 +54,10 @@ from engine.services.generation.renderers.sqlmesh_prejoins import (
     StagePrejoinGaps,
     plan_prejoin_skips,
     prejoin_dependent_warning,
+)
+from engine.services.generation.renderers.sqlmesh_prestages import (
+    plan_prestage_skips,
+    prestage_dependent_warning,
 )
 from engine.services.generation.sqlmesh_dialect import (
     dialect_not_set_warning,
@@ -164,6 +170,11 @@ def render_sqlmesh(
     prejoin_skips = plan_prejoin_skips(export)
     issues.extend(prejoin_skips.issues)
 
+    # Nor pre-stages: stages that read one, and the entities loaded from
+    # those stages, are left out.
+    prestage_skips = plan_prestage_skips(export)
+    issues.extend(prestage_skips.issues)
+
     # --- Hubs, links, satellites first ---
     # Collect the names of entities that were actually rendered so stages can
     # filter their hashed_columns to only include those with a consumer.
@@ -172,6 +183,14 @@ def render_sqlmesh(
     rendered_sat_names: set[str] = set()
 
     for hub in export.hubs:
+        prestage_stage = prestage_skips.stage_of("hub", hub.hub_name)
+        if prestage_stage:
+            issues.append(
+                prestage_dependent_warning(
+                    "hub", hub.hub_name, hub.group, prestage_stage
+                )
+            )
+            continue
         artifact = _try_render_hub(
             hub, runtime_config, issues, template_resolver, prejoin_skips
         )
@@ -180,6 +199,14 @@ def render_sqlmesh(
             rendered_hub_names.add(hub.hub_name)
 
     for link in export.links:
+        prestage_stage = prestage_skips.stage_of("link", link.link_name)
+        if prestage_stage:
+            issues.append(
+                prestage_dependent_warning(
+                    "link", link.link_name, link.group, prestage_stage
+                )
+            )
+            continue
         artifact = _try_render_link(
             link,
             runtime_config,
@@ -193,6 +220,14 @@ def render_sqlmesh(
             rendered_link_names.add(link.link_name)
 
     for sat in export.satellites:
+        prestage_stage = prestage_skips.stage_of("satellite", sat.satellite_name)
+        if prestage_stage:
+            issues.append(
+                prestage_dependent_warning(
+                    "satellite", sat.satellite_name, sat.group, prestage_stage
+                )
+            )
+            continue
         artifact = _try_render_sat(
             sat,
             runtime_config,
@@ -213,6 +248,8 @@ def render_sqlmesh(
     # --- Stage models (filtered by what was actually rendered above) ---
     hub_key_mappings = _hub_key_mappings_by_stage(export.hubs, rendered_hub_names)
     for stage in export.stages:
+        if stage.stage_name in prestage_skips.stages:
+            continue
         artifacts.append(
             _render_stage(
                 stage,

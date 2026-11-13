@@ -4,6 +4,7 @@ Django Admin configuration for TurboVault Engine.
 Register domain models here for data inspection and debugging via the admin UI.
 """
 
+from django import forms
 from django.contrib import admin
 
 from engine.models import (
@@ -82,8 +83,14 @@ class SourceTableAdmin(admin.ModelAdmin):
 
     inlines = [DerivedColumnInline]
 
-    list_display = ["physical_table_name", "alias", "source_system", "project"]
-    list_filter = ["source_system", "project"]
+    list_display = [
+        "physical_table_name",
+        "table_type",
+        "alias",
+        "source_system",
+        "project",
+    ]
+    list_filter = ["table_type", "source_system", "project"]
     search_fields = ["physical_table_name", "alias"]
     readonly_fields = ["source_table_id"]
     autocomplete_fields = ["project", "source_system"]
@@ -96,9 +103,22 @@ class SourceTableAdmin(admin.ModelAdmin):
                     "project",
                     "source_system",
                     "physical_table_name",
+                    "table_type",
                     "alias",
                     "description",
                 ]
+            },
+        ),
+        (
+            "Pre-stage",
+            {
+                "fields": ["prestage_sql"],
+                "description": (
+                    "Only for pre-stages: the dbt model, written to "
+                    "models/01_prestaging/ as it is. Leave it empty to maintain "
+                    "the model yourself; the stage reads "
+                    "pstg__&lt;system&gt;__&lt;table&gt; either way."
+                ),
             },
         ),
         (
@@ -113,6 +133,19 @@ class SourceTableAdmin(admin.ModelAdmin):
             },
         ),
     ]
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        """Edit a pre-stage's SQL in a large monospace text area."""
+        if db_field.name == "prestage_sql":
+            kwargs["widget"] = forms.Textarea(
+                attrs={
+                    "rows": 20,
+                    "cols": 100,
+                    "spellcheck": "false",
+                    "style": "font-family: monospace",
+                }
+            )
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
 
 
 @admin.register(SourceColumn)

@@ -172,6 +172,7 @@ SUPERSEDED_BUNDLED_HASHES: dict[tuple[str, str, str], frozenset[str]] = {
             "3f925271ff29146a6e9a171775d652a28c1cb3c5910a8a6ac2354a8f35949a24",
             "6f14debf23d74b301b6c07bac56549254d7025633b5b51991bfc3677c1062b04",
             "b4c72383181616aef8cc342e055cf87a0355370ccf45eaacfee1d2f6c171d36e",
+            "b9cfc1b490cd8a3cf71dda15169fdc03d58a03ff15c7463bc1d07a37e7aae5f6",
         }
     ),
     ("dbt", "stage", "sql"): frozenset(
@@ -182,6 +183,7 @@ SUPERSEDED_BUNDLED_HASHES: dict[tuple[str, str, str], frozenset[str]] = {
             "681f17ab959e97c66750fd2d77b11a006436c10420bf00d0c55c257c01734f37",
             "82c480178ca5bd2eddb7e0b56faa97ba91c7998bff0affaa82d62ef0e97124a9",
             "959911a64dbf7190ccd83d619c59b1b119bd45a8b63a260c01626ce34bde2e16",
+            "95f12a4b7f9625e12ab5668bbb5f0d8ff89761e87438f81607d2cb9bc0d14166",
             "a3ac52a4e898f7ce97646a05ec974aa5ad301d96ed815d32a472f8190b8fd0ef",
             "d9da79a9531b9523514cff1128792f299df983905bfad61bc7e98e205acd7df5",
             "efeda55672cc1c182489f2d32f1558b9d12b70e911111c3acf1d0a0a02c3b6fb",
@@ -272,6 +274,7 @@ SUPERSEDED_BUNDLED_HASHES: dict[tuple[str, str, str], frozenset[str]] = {
     ),
     ("dbt", "snapshot_control_v0", "yaml"): frozenset(
         {
+            "8c11ca7d304b78f114c3fd70bb290141a0daf2f864b5651b023bb9f23918e1be",
             "9e0d52bd03de29348fec29ce2390bbe66e40e087a588f2cc2cfd6429654f8ff4",
             "a80e12c36af24d0fd0f1528c4eab3bf14a872e6aeec4f55744e77f4f1d40e01d",
         }
@@ -279,6 +282,7 @@ SUPERSEDED_BUNDLED_HASHES: dict[tuple[str, str, str], frozenset[str]] = {
     ("dbt", "snapshot_control_v1", "yaml"): frozenset(
         {
             "6719d96ce2a1c7eb265cc1381b314e96e78d7d4a9c43a4915c31b75380540b45",
+            "ac29f41d5758d0b97f58c7d6e9de12e89ed6ca4dc06bfc057f38d56ad42f714b",
             "e3280d9fcb111786cfcca8472e343edb5760a6bb493cd3544fe28773c0ed7f51",
         }
     ),

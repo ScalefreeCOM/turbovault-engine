@@ -79,6 +79,7 @@ class GenerationReport:
     generated_at: datetime = field(default_factory=datetime.now)
 
     # Counts by entity type
+    prestages_generated: int = 0
     stages_generated: int = 0
     hubs_generated: int = 0
     links_generated: int = 0
@@ -107,7 +108,8 @@ class GenerationReport:
     def total_entities(self) -> int:
         """Total number of entities generated."""
         return (
-            self.stages_generated
+            self.prestages_generated
+            + self.stages_generated
             + self.hubs_generated
             + self.links_generated
             + self.satellites_generated

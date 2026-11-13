@@ -62,6 +62,12 @@ class DSourceTable:
     load_date_value: str | None = None
     alias: str | None = None
     description: str | None = None
+    # "physical" or "prestage". None when the format has no place for it: the
+    # table keeps its type (a new one is physical).
+    table_type: str | None = None
+    # A pre-stage's SQL. None: the format has no place for it, so the table
+    # keeps its SQL. "" : the source says the table has none.
+    prestage_sql: str | None = None
     columns: dict[str, DSourceColumn] = field(default_factory=dict)
     # Keyed by lowercased name. None when the format carries no derived
     # columns, so the table's existing ones are left alone.
@@ -370,6 +376,10 @@ class DomainModel:
     # Entities left out because something they need is missing, keyed by
     # (entity_type, physical name).
     skipped: dict[tuple[str, str], DSkipped] = field(default_factory=dict)
+    # Whether the source can describe pre-stages (JSON exports that know
+    # them). One that can't — Excel, SQLite, IRiS, a database's catalog —
+    # never lists them, so `replace_all` must not take that as a deletion.
+    describes_prestages: bool = False
 
     # ---------------- helpers ----------------
 

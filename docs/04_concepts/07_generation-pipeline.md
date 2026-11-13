@@ -57,8 +57,8 @@ renderer, and writer specialise per type.
 
 | `output_type` | Plan emits | Renderer | Writer behaviour |
 |---------------|------------|----------|------------------|
-| `dbt` | One SQL + one YAML file per entity, plus `dbt_project.yml`, `packages.yml`, `sources.yml`. Standard / multi-active satellites also get a `_v1` view when enabled. | `DbtProjectGenerator` (via a temp directory the writer then relocates). | Writes the tree under `output_path/`; optionally creates a sibling `.zip`. |
-| `sqlmesh` | One Python file per entity (stage, hub, link, satellite), plus `config.yaml`, `config.json`, `requirements.txt`, `README.md`, and `models/__init__.py`. Standard / multi-active satellites also get a `_v1` view when enabled. Unsupported entity types (PITs, reference tables, non-historized links, multi-active / effectivity / non-historized / reference satellites) are skipped with a `warning` issue rather than failing the run. **Prejoins** aren't supported yet either: hash keys, hash diffs and derived columns that read prejoined columns are left out of the stage, and the hubs, links and satellites that use them are skipped with a warning. | `render_sqlmesh()` — a pure function that builds artifacts in memory without touching the filesystem. | Writes the tree under `output_path/` (shares the dbt writer path). |
+| `dbt` | One SQL + one YAML file per entity, plus `dbt_project.yml`, `packages.yml`, `sources.yml`. Standard / multi-active satellites also get a `_v1` view when enabled. Each [pre-stage](01_domain-model.md#35-pre-stages) with SQL gets its model (the SQL as it is) and a YAML file under `models/01_prestaging/<source_system>/`; its stage reads it with `ref()`. | `DbtProjectGenerator` (via a temp directory the writer then relocates). | Writes the tree under `output_path/`; optionally creates a sibling `.zip`. |
+| `sqlmesh` | One Python file per entity (stage, hub, link, satellite), plus `config.yaml`, `config.json`, `requirements.txt`, `README.md`, and `models/__init__.py`. Standard / multi-active satellites also get a `_v1` view when enabled. Unsupported entity types (PITs, reference tables, non-historized links, multi-active / effectivity / non-historized / reference satellites) are skipped with a `warning` issue rather than failing the run. **Prejoins** aren't supported yet either: hash keys, hash diffs and derived columns that read prejoined columns are left out of the stage, and the hubs, links and satellites that use them are skipped with a warning. Nor are **pre-stages** (their SQL is a dbt model): each gets a `render.sqlmesh.unsupported.prestage` warning, and the stages reading them and the hubs, links and satellites loaded from those stages are skipped (`render.sqlmesh.prestage_dependent_skipped`). | `render_sqlmesh()` — a pure function that builds artifacts in memory without touching the filesystem. | Writes the tree under `output_path/` (shares the dbt writer path). |
 | `json` | One artifact, regardless of project size. | `JSONExporter`. | Writes a single `.json` file at `output_path`. |
 | `dbml` | One artifact, regardless of project size. | `DBMLExporter`. | Writes a single `.dbml` file at `output_path`. |
 
@@ -305,9 +305,15 @@ Anything else — including `None` — fails the run with
 
 Models with a group are written to a subfolder of their layer
 (`models/03_raw_vault/<group>/`), stages to one per source system
-(`models/02_staging/<source_system>/`). dbt applies a folder's settings to all
-of its subfolders, so these models follow their layer's materialization and
-schema.
+(`models/02_staging/<source_system>/`), pre-stages likewise
+(`models/01_prestaging/<source_system>/`). dbt applies a folder's settings to
+all of its subfolders, so these models follow their layer's materialization
+and schema.
+
+The `01_prestaging` layer is only configured when the project has pre-stage
+models. It takes the staging layer's schema and materialization, except that an
+`ephemeral` staging layer gives views: a stage reads its pre-stage's columns
+from the database. A pre-stage's own `{{ config() }}` takes precedence.
 
 The engine sets materializations per layer only; there is no setting per
 subfolder. dbt itself supports it — a more specific folder in
@@ -493,6 +499,7 @@ build.project_load_failed             build.export_inconsistent
 validate.source.no_schema             validate.source.no_tables
 validate.stage.no_source_table        validate.stage.no_keys             validate.stage.derived_column_no_datatype
 validate.stage.uses_load_column
+validate.prestage.ephemeral           validate.prestage.unknown_source
 validate.hub.missing_hashkey          validate.hub.no_business_keys      validate.hub.no_source_tables
 validate.link.missing_hashkey         validate.link.too_few_hubs         validate.link.no_sources
 validate.satellite.no_parent          validate.satellite.no_stage        validate.satellite.no_columns       validate.satellite.no_hashdiff
@@ -502,6 +509,7 @@ validate.snapshot.no_name             validate.snapshot.no_start_date    validat
 plan.unsupported_output_type          plan.empty_project
 
 render.template_not_found             render.template_render_failed      render.entity_skipped
+render.template_outdated
 
 write.io_error                        write.path_collision               write.zip_failed
 

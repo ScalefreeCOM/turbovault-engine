@@ -3,7 +3,8 @@ Source metadata models for TurboVault Engine.
 
 These models represent upstream source systems and their physical schemas:
 - SourceSystem: A source database/schema
-- SourceTable: A physical table within a source system
+- SourceTable: A table within a source system: a physical table, or a
+  pre-stage (a dbt model that prepares a table's data for its stage)
 - SourceColumn: A column within a source table
 """
 
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from engine.models.output_attributes import generation_config_field
@@ -102,11 +104,21 @@ class SourceSystem(models.Model):
 
 class SourceTable(models.Model):
     """
-    Represents a physical source table within a source system.
+    Represents a source table within a source system.
+
+    Most are physical tables of the source system, which the stage reads as a
+    dbt source. A pre-stage is a dbt model instead: SQL that prepares data the
+    stage can't load directly (parsing JSON, pivoting, ...). It reads the
+    system's physical tables, and its stage reads it with ``ref()``. Columns,
+    mappings, derived columns and prejoins work on both alike.
 
     Includes Data Vault-specific configuration such as record source values
     and load date expressions.
     """
+
+    class TableType(models.TextChoices):
+        PHYSICAL = "physical", "Physical table"
+        PRESTAGE = "prestage", "Pre-stage"
 
     source_table_id = models.UUIDField(
         primary_key=True,
@@ -131,7 +143,29 @@ class SourceTable(models.Model):
 
     physical_table_name = models.CharField(
         max_length=255,
-        help_text="Physical name of the table in the source system (e.g. CUSTOMER)",
+        help_text=(
+            "Physical name of the table in the source system (e.g. CUSTOMER). "
+            "For a pre-stage, the name its model and stage are named after"
+        ),
+    )
+
+    table_type = models.CharField(
+        max_length=20,
+        choices=TableType.choices,
+        default=TableType.PHYSICAL,
+        help_text=(
+            "physical: a table of the source system, read as a dbt source. "
+            "prestage: a dbt model that prepares data for the stage"
+        ),
+    )
+
+    prestage_sql = models.TextField(
+        blank=True,
+        null=True,
+        help_text=(
+            "The pre-stage's dbt model, written to the project as it is. "
+            "Empty: the model is maintained outside TurboVault"
+        ),
     )
 
     alias = models.CharField(
@@ -185,6 +219,24 @@ class SourceTable(models.Model):
         db_table = "source_table"
         unique_together = [["source_system", "physical_table_name"]]
         ordering = ["physical_table_name"]
+
+    @property
+    def is_prestage(self) -> bool:
+        """Whether this table is a pre-stage, i.e. a dbt model."""
+        return self.table_type == self.TableType.PRESTAGE
+
+    def clean(self) -> None:
+        """Only a pre-stage has SQL."""
+        super().clean()
+        if not self.is_prestage and (self.prestage_sql or "").strip():
+            raise ValidationError(
+                {
+                    "prestage_sql": (
+                        "Only a pre-stage has SQL. Set the table type to "
+                        "pre-stage, or clear the SQL."
+                    )
+                }
+            )
 
     def __str__(self) -> str:
         return self.physical_table_name
