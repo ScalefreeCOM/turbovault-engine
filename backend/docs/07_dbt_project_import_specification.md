@@ -45,6 +45,10 @@ package-specific part separate so an AutomateDV adapter can be added.
 | D13 | Also implemented (§9.6): `additional_columns`, `disable_hwm`, `source_is_single_batch` (as a delivery method, #468), `union_strategy` (written when set), snapshot control `end_date` / `sdts_alias`, effectivity Satellites on Links, PIT `snapshot_optimization` (stored; written only when set). Hash diff `exclude_columns`: lenient. | 2026-11-13 |
 | D14 | Output attributes store a model's **folder** only: the file name is the model name. | 2026-11-13 |
 | D15 | Phases 0–5 are one branch and one pull request. The GitHub issues aren't changed for now. | 2026-11-13 |
+| D16 | Tables only a pre-stage's model reads needn't be in TurboVault: they belong to the dbt project. Every table in TurboVault gets its stage; the import doesn't create tables only upstream models read. | 2026-11-13 |
+| D17 | **Generating into an existing dbt project** (§9.7). Generating into an empty folder always gives a complete project, also for an imported one. In an existing dbt project TurboVault doesn't write `dbt_project.yml` and `packages.yml` and reports what its models need. Sources and model YAML are written by default; an option (off by default) skips writing sources, and a final check reports models and sources the project defines twice. TurboVault records the files it generates; files it no longer generates are reported, and deleted only on request. | 2026-11-13 |
+| D18 | The configured dbt project folder (D11) is `dbt_project.path` in the project's `turbovault.yml`. `output.dbt_project_dir` stays for generating a separate project. | 2026-11-13 |
+| D19 | Custom models (Phase 6, #461) are postponed: the first release of the dbt import doesn't include them. Models downstream of the Data Vault stay in the dbt project and are reported. | 2026-11-13 |
 
 ---
 
@@ -400,6 +404,17 @@ whether the Satellite gets a v1 at all (default: the project's `generate_satelli
   switch (#468).
 - non-historized Link `union_strategy`, written only when set.
 
+### 9.7 Generating into an existing dbt project (D17)
+
+The way back for an imported project, and the only one when it has pre-stages (D9).
+
+| Output | Empty folder | Existing dbt project (a `dbt_project.yml` TurboVault didn't write) |
+|--------|--------------|---------------------------------------------------------------------|
+| `dbt_project.yml`, `packages.yml` | written | not written; the report lists what TurboVault's models need (package version, vars, layer settings) |
+| source definitions | written | written, unless the option to skip them is on (off by default) |
+| models and their YAML | written | written; a final check reports every model or source the project also defines elsewhere, so the user removes one of them |
+| files TurboVault no longer generates | — | reported from TurboVault's record of the files it generated; deleted only on request |
+
 ---
 
 ## 10. Support matrix
@@ -497,8 +512,8 @@ The report also lists node counts per resource type (seeds, tests, … not impor
 | 2 | Foundations: artifact reader, sandbox extraction, datavault4dbt adapter (normalization, signature table 1.x/2.x), notation tests | done (`DbtSource`, CLI and issue locations moved to Phase 4) |
 | 3 | Pre-stages kept in the dbt project (D9) and layer folders (D12): done. Metadata extensions (§9): output attributes and name resolution in generation, hash diff name/alias, stage options, derived column shadowing, Satellite v1 options, smaller additions (D13) | in progress |
 | 4 | `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, issue locations, warnings/skips for direct parsers; Raw Vault mapping (§7.1, 7.3–7.6), naming inference (§8), round-trip and corpus tests | |
-| 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models | |
-| 6 | Custom models for downstream models (#461), optional | |
+| 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models; generating into an existing dbt project (§9.7) | |
+| 6 | Custom models for downstream models (#461), optional | postponed (D19) |
 | 7 | Hardening: performance limits, docs, CLI polish | |
 
 Phases 0–5 are one pull request (D15); every phase comes with tests, Engine docs and its section in the
@@ -508,15 +523,9 @@ Studio integration notes.
 
 ## 14. Open questions for review
 
-Resolved (D7): output attributes in one table with explicit foreign keys; missing columns as source
-columns flagged `is_missing`; descriptions and tags imported by default, with an option to skip them.
+Resolved: output attributes in one table with explicit foreign keys; missing columns as source columns
+flagged `is_missing`; descriptions and tags imported by default, with an option to skip them (D7). Tables
+only pre-stages read (D16), generating into an existing dbt project (D17), the dbt project folder option
+(D18), custom models (D19).
 
-Open:
-
-1. **Tables only pre-stages read:** without the SQL, TurboVault can't tell that a pre-stage's model reads a
-   table, so every table gets a stage. Proposed: a per-table "generate stage" switch, which the import
-   turns off for sources only upstream models read.
-2. **Generating into an existing dbt project:** which project files TurboVault leaves to the dbt project
-   (`dbt_project.yml`, `packages.yml`), how to avoid defining the project's own sources twice (a per-system
-   "defined in the dbt project" flag), and how to report files TurboVault no longer generates.
-3. **The configured dbt project folder (D11):** option name and scope (workspace or project).
+None open.
