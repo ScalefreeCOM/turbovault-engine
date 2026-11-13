@@ -55,12 +55,12 @@ def create_default_snapshot_controls(project_or_name: "Project | str") -> None:
     )
 
     try:
-        # Create snapshot control table with default name
+        # Create snapshot control table with default name. No end date: the
+        # snapshot range runs up to the current date.
         snapshot_control = SnapshotControlTable.objects.create(
             project=project,
             name="control_snap_v0",  # Default name
             snapshot_start_date=datetime(2020, 1, 1).date(),
-            snapshot_end_date=datetime(2099, 12, 31).date(),
             daily_snapshot_time=time(23, 59, 59),  # End of day
         )
 

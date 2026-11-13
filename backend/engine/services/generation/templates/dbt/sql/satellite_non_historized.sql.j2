@@ -10,6 +10,10 @@ src_payload:
 [% for col in columns %]
     - [[ col.target_column_name if col.target_column_name else col.source_column ]]
 [% endfor %]
+[# source_is_single_batch: the stage delivers single batches (delivery method) #]
+[% if source_is_single_batch %]
+source_is_single_batch: true
+[% endif %]
 {%- endset -%}
 
 {{ datavault4dbt.nh_sat(yaml_metadata=yaml_metadata) }}

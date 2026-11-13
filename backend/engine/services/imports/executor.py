@@ -441,10 +441,10 @@ class _Executor:
         from datetime import date, time
 
         today = date.today()
+        # No end date: the snapshot range runs up to the current date
         control = SnapshotControlTable.objects.create(
             project=self.project,
             snapshot_start_date=date(today.year - 5, 1, 1),
-            snapshot_end_date=date(today.year + 5, 12, 31),
             daily_snapshot_time=time(8, 0, 0),
         )
         self._set("_default_snap_control", control)
@@ -542,11 +542,11 @@ class _Executor:
         from datetime import date, time
 
         today = date.today()
+        # No end date: the snapshot range runs up to the current date
         return SnapshotControlTable.objects.create(
             project=self.project,
             name=name,
             snapshot_start_date=date(today.year - 5, 1, 1),
-            snapshot_end_date=date(today.year + 5, 12, 31),
             daily_snapshot_time=time(8, 0, 0),
         )
 

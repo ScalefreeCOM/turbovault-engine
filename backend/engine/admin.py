@@ -192,6 +192,7 @@ class SourceTableAdmin(admin.ModelAdmin):
                     "include_source_columns",
                     "enable_ghost_records",
                     "sequence_column",
+                    "delivery_method",
                 ],
                 "classes": ["collapse"],
                 "description": (
@@ -293,7 +294,7 @@ class HubSourceMappingInline(admin.TabularInline):
 
     model = HubSourceMapping
     extra = 1
-    fields = ["staging_column", "is_primary_source"]
+    fields = ["staging_column", "is_primary_source", "stage_hashkey_name"]
     autocomplete_fields = ["staging_column"]
     verbose_name = "Input Mapping"
     verbose_name_plural = "Input Mappings"
@@ -349,9 +350,16 @@ class HubAdmin(admin.ModelAdmin):
                 "fields": [
                     "create_record_tracking_satellite",
                     "create_effectivity_satellite",
+                    "effectivity_is_active_alias",
+                    "effectivity_disable_hwm",
+                    "effectivity_additional_columns",
                 ],
                 "classes": ["collapse"],
             },
+        ),
+        (
+            "Loading",
+            {"fields": ["disable_hwm"], "classes": ["collapse"]},
         ),
         (
             "Timestamps",
@@ -463,7 +471,9 @@ class SnapshotControlTableAdmin(admin.ModelAdmin):
                     "snapshot_start_date",
                     "snapshot_end_date",
                     "daily_snapshot_time",
-                ]
+                    "sdts_alias",
+                ],
+                "description": "Without an end date the snapshots run up to today.",
             },
         ),
         (
@@ -633,6 +643,7 @@ class SatelliteAdmin(admin.ModelAdmin):
                     "v1_ledts_alias",
                     "v1_add_is_current_flag",
                     "v1_include_payload",
+                    "disable_hwm",
                 ],
                 "classes": ["collapse"],
                 "description": "Empty v1 view setting: the project's.",
@@ -826,9 +837,19 @@ class LinkAdmin(admin.ModelAdmin):
         (
             "Satellite Options",
             {
-                "fields": ["create_record_tracking_satellite"],
+                "fields": [
+                    "create_record_tracking_satellite",
+                    "create_effectivity_satellite",
+                    "effectivity_is_active_alias",
+                    "effectivity_disable_hwm",
+                    "effectivity_additional_columns",
+                ],
                 "classes": ["collapse"],
             },
+        ),
+        (
+            "Loading",
+            {"fields": ["disable_hwm", "union_strategy"], "classes": ["collapse"]},
         ),
         (
             "Timestamps",

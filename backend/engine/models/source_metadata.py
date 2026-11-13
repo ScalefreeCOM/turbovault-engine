@@ -17,6 +17,22 @@ from django.db import models
 from engine.models.project import Project
 
 
+class DeliveryMethod(models.TextChoices):
+    """How a source delivers its data, for datavault4dbt's source_is_single_batch."""
+
+    SINGLE_BATCH = "single_batch", "Single batch"
+    MULTI_BATCH = "multi_batch", "Multi batch"
+
+
+_DELIVERY_METHOD_HELP = (
+    "single_batch: each load holds at most one version per key; multi_batch: a "
+    "load may hold several (e.g. deltas over time). With the project's delivery "
+    "method switch on, models loading only single-batch data use "
+    "datavault4dbt's faster single-batch logic (source_is_single_batch). Empty "
+    "inherits"
+)
+
+
 class SourceSystem(models.Model):
     """
     Represents a physical source system (database/schema).
@@ -102,6 +118,14 @@ class SourceSystem(models.Model):
             "Whether the stages of this system's tables add ghost records. "
             "Empty: the project's setting"
         ),
+    )
+
+    delivery_method = models.CharField(
+        max_length=20,
+        choices=DeliveryMethod.choices,
+        blank=True,
+        null=True,
+        help_text=_DELIVERY_METHOD_HELP,
     )
 
     created_at = models.DateTimeField(
@@ -237,6 +261,14 @@ class SourceTable(models.Model):
             "Column holding a sequence number from the extraction "
             "(datavault4dbt's sequence)"
         ),
+    )
+
+    delivery_method = models.CharField(
+        max_length=20,
+        choices=DeliveryMethod.choices,
+        blank=True,
+        null=True,
+        help_text=_DELIVERY_METHOD_HELP,
     )
 
     description = models.TextField(

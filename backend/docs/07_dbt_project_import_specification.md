@@ -404,22 +404,29 @@ Per Satellite: `v1_ledts_alias` (default: the project's datavault4dbt `ledts_ali
 `create_v1_view` (default: the project's `generate_satellite_v1_views`). A reference table reading a
 Satellite without a v1 view gets a warning.
 
-### 9.6 Smaller additions
+### 9.6 Smaller additions — implemented
 
-- Effectivity Satellite `is_active_alias`.
-- **Effectivity Satellites on Links** (D13), next to those on Hubs.
+- Effectivity Satellite `is_active_alias`, `disable_hwm`, `additional_columns`: fields on the parent Hub or
+  Link (`effectivity_*`).
+- **Effectivity Satellites on Links** (D13), next to those on Hubs: `Link.create_effectivity_satellite`.
 - PIT `custom_rsrc`: generation writes the stored `custom_record_source`.
 - PIT `snapshot_optimization`: stored nullable, written only when set (D13). Existing PITs become unset.
-- Hub loaded from a differently named hash key column of a stage (`hk_column`): role-playing sources
-  (e.g. author / committer users from one stage). Data model designed in Phase 3.
-- Snapshot control: generation writes the stored `snapshot_end_date` (`end_date`) and an `sdts_alias`
-  when set.
-- `additional_columns` on Hubs, Links, non-historized Links and effectivity Satellites (the existing Hub
-  and Link additional columns get generated too).
+- Hub loaded from a differently named hash key column of a stage (`hk_column`): role-playing sources.
+  `HubSourceMapping.stage_hashkey_name`: mappings of one table with different stage hash keys are
+  separate `source_models` entries. (The corpus only uses `hk_column` equal to the hub's hash key, which
+  is the default.)
+- Snapshot control: `snapshot_end_date` is now optional and written as `end_date` when set; `sdts_alias`
+  when set. Existing end dates were never written and are cleared (writing the old default would add
+  future snapshots).
+- `additional_columns` on Hubs, Links and non-historized Links (the existing Hub and Link additional
+  columns are generated now) and on effectivity Satellites.
 - `disable_hwm` per Hub, Link, non-historized Link, effectivity Satellite and Satellite.
-- `source_is_single_batch` through a **delivery method** on source systems and tables with a project
-  switch (#468).
-- non-historized Link `union_strategy`, written only when set.
+- `source_is_single_batch` through a **delivery method** on source systems and tables
+  (`single_batch` / `multi_batch`, inherited from the project's `delivery_method`) with the project switch
+  `use_delivery_method` (#468).
+- Non-historized Link `union_strategy`, written only when set.
+- Snapshot-based reference tables are generated as `historized: 'snapshot'` with `snapshot_relation` and
+  `snapshot_trigger_column` (they were generated as `latest`).
 
 ### 9.7 Generating into an existing dbt project (D17)
 
@@ -527,7 +534,7 @@ The report also lists node counts per resource type (seeds, tests, … not impor
 | 0 | This specification, Studio integration notes | done |
 | 1 | Corpus analysis: `scripts/dbt_import/profile_manifest.py`, extraction prototype `capture_calls.py` | done |
 | 2 | Foundations: artifact reader, sandbox extraction, datavault4dbt adapter (normalization, signature table 1.x/2.x), notation tests | done (`DbtSource`, CLI and issue locations moved to Phase 4) |
-| 3 | Pre-stages kept in the dbt project (D9) and layer folders (D12): done. Metadata extensions (§9): output attributes and name resolution in generation, hash diff name/alias, stage options, derived column shadowing, Satellite v1 options, smaller additions (D13) | in progress |
+| 3 | Pre-stages kept in the dbt project (D9), layer folders (D12), metadata extensions (§9.1–9.6): output attributes and name resolution, hash diff name/alias, stage options, derived column shadowing, Satellite v1 options, smaller additions (D13) | done |
 | 4 | `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, issue locations, warnings/skips for direct parsers; Raw Vault mapping (§7.1, 7.3–7.6), naming inference (§8), round-trip and corpus tests | |
 | 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models; generating into an existing dbt project (§9.7) | |
 | 6 | Custom models for downstream models (#461), optional | postponed (D19) |

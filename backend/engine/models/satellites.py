@@ -147,6 +147,14 @@ class Satellite(models.Model):
         ),
     )
 
+    disable_hwm = models.BooleanField(
+        default=False,
+        help_text=(
+            "Load without the high-water mark: every run reads all of the stage "
+            "(datavault4dbt disable_hwm; not for non-historized satellites)"
+        ),
+    )
+
     description = models.TextField(
         blank=True,
         null=True,

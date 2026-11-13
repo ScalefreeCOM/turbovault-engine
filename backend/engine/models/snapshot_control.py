@@ -31,7 +31,10 @@ def default_snapshot_start_date() -> date:
 def default_snapshot_end_date() -> date:
     """
     Return the end of the year 5 years from now.
-    Default end date for snapshot control.
+
+    The former default end date. Kept for the migrations that reference it: a
+    snapshot control has no end date unless one is set (the range then runs up
+    to the current date).
     """
     today = date.today()
     five_years_ahead = today + relativedelta(years=5)
@@ -72,12 +75,27 @@ class SnapshotControlTable(models.Model):
     )
 
     snapshot_end_date = models.DateField(
-        default=default_snapshot_end_date,
-        help_text="End date for snapshot range (default: end of current year + 5)",
+        blank=True,
+        null=True,
+        default=None,
+        help_text=(
+            "Last date of the snapshot range (datavault4dbt end_date). Empty: the "
+            "range runs up to the current date"
+        ),
     )
 
     daily_snapshot_time = models.TimeField(
         default=time(8, 0, 0), help_text="Daily snapshot time (default: 08:00:00)"
+    )
+
+    sdts_alias = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=(
+            "Name of the snapshot date column (datavault4dbt sdts_alias). Empty: "
+            "the sdts_alias variable"
+        ),
     )
 
     created_at = models.DateTimeField(
@@ -96,7 +114,8 @@ class SnapshotControlTable(models.Model):
 
     def __str__(self) -> str:
         return (
-            f"Snapshot Control ({self.snapshot_start_date} to {self.snapshot_end_date})"
+            f"Snapshot Control ({self.snapshot_start_date} to "
+            f"{self.snapshot_end_date or 'today'})"
         )
 
 

@@ -81,6 +81,35 @@ class Hub(models.Model):
         help_text="If true, an effectivity satellite should be generated for this hub",
     )
 
+    disable_hwm = models.BooleanField(
+        default=False,
+        help_text=(
+            "Load without the high-water mark: every run reads all of the stage "
+            "(datavault4dbt disable_hwm)"
+        ),
+    )
+
+    effectivity_is_active_alias = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=(
+            "Name of the effectivity satellite's is_active column. Empty: "
+            "datavault4dbt's default"
+        ),
+    )
+
+    effectivity_disable_hwm = models.BooleanField(
+        default=False,
+        help_text="The effectivity satellite loads without the high-water mark",
+    )
+
+    effectivity_additional_columns = models.JSONField(
+        blank=True,
+        null=True,
+        help_text="Further stage columns the effectivity satellite carries (a list)",
+    )
+
     description = models.TextField(
         blank=True,
         null=True,
@@ -246,6 +275,18 @@ class HubSourceMapping(models.Model):
     is_primary_source = models.BooleanField(
         default=False,
         help_text="Indicates if this mapping is the primary source for the hub",
+    )
+
+    stage_hashkey_name = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=(
+            "The stage's hash key column this mapping loads, when it differs from "
+            "the hub's hash key. Lets one stage load the hub more than once "
+            "(role-playing, e.g. a commit's author and committer): mappings of "
+            "one table with different hash keys are separate sources"
+        ),
     )
 
     created_at = models.DateTimeField(

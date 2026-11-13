@@ -210,13 +210,19 @@ def _count_dbt(
     if rts_count:
         counts["record_tracking_satellite"] = rts_count * 2
 
-    # Effectivity satellites: one sql + one yml per flagged hub.
+    # Effectivity satellites: one sql + one yml per flagged hub and link.
     efs_count = sum(
         1
         for h in project_export.hubs
         if getattr(h, "create_effectivity_satellite", False)
         and h.hashkey
-        and h.source_tables
+        and any(not s.hk_column for s in h.source_tables)
+    ) + sum(
+        1
+        for link in project_export.links
+        if getattr(link, "create_effectivity_satellite", False)
+        and link.hashkey
+        and link.source_tables
     )
     if efs_count:
         counts["effectivity_satellite"] = efs_count * 2

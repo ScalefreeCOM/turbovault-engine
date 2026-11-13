@@ -120,11 +120,17 @@ class PIT(models.Model):
         max_length=255,
         blank=True,
         null=True,
-        help_text="Optional custom record source value",
+        help_text="Optional custom record source value (written as the PIT's custom_rsrc)",
     )
 
     use_snapshot_optimization = models.BooleanField(
-        default=True, help_text="Whether to apply snapshot optimization techniques"
+        blank=True,
+        null=True,
+        default=None,
+        help_text=(
+            "datavault4dbt's snapshot_optimization, written only when set. "
+            "Empty: datavault4dbt's default (off)"
+        ),
     )
 
     include_business_objects_before_appearance = models.BooleanField(

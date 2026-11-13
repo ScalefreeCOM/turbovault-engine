@@ -22,6 +22,13 @@ src_payload:
 [% for col in columns if not col.is_multi_active_key%]
     - [[ col.target_column_name if col.target_column_name else col.source_column ]]
 [% endfor %]
+[% if disable_hwm %]
+disable_hwm: true
+[% endif %]
+[# source_is_single_batch: the stage delivers single batches (delivery method) #]
+[% if source_is_single_batch %]
+source_is_single_batch: true
+[% endif %]
 {%- endset -%}
 
 {{ datavault4dbt.ma_sat_v0(yaml_metadata=yaml_metadata) }}

@@ -23,6 +23,15 @@ foreign_hashkeys:
 [% for fk in foreign_hashkeys %]
     - [[ fk ]]
 [% endfor %]
+[% if additional_columns %]
+additional_columns:
+[% for col in additional_columns %]
+    - [[ col ]]
+[% endfor %]
+[% endif %]
+[% if disable_hwm %]
+disable_hwm: true
+[% endif %]
 {%- endset -%}
 
 {{ datavault4dbt.link(yaml_metadata=yaml_metadata) }}

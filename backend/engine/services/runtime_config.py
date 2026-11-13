@@ -53,6 +53,13 @@ class EngineRuntimeConfig:
     include_source_columns: bool = True
     enable_ghost_records: bool = True
 
+    # Delivery method (issue #468): with the switch on, models loading only
+    # single-batch sources use datavault4dbt's single-batch logic
+    # (source_is_single_batch). Tables and systems that set no delivery
+    # method use the project's.
+    use_delivery_method: bool = False
+    delivery_method: str = "multi_batch"
+
     dbt_project_name: str | None = None
     create_zip: bool = False
     export_sources: bool = True
@@ -176,6 +183,8 @@ class EngineRuntimeConfig:
             default_load_date_value=config.configuration.default_load_date_value,
             include_source_columns=config.configuration.include_source_columns,
             enable_ghost_records=config.configuration.enable_ghost_records,
+            use_delivery_method=config.configuration.use_delivery_method,
+            delivery_method=config.configuration.delivery_method,
             profile_name=config.configuration.profile_name,
             control_schema=config.configuration.control_schema,
             control_materialization=config.configuration.control_materialization,

@@ -143,12 +143,14 @@ class ModelOutputs:
         )
         return self._output("satellite_v1", satellite.pk, derived)
 
-    def effectivity_satellite(self, hub: Hub) -> ModelOutputDef:
+    def effectivity_satellite(
+        self, parent: Hub | Link, physical_name: str
+    ) -> ModelOutputDef:
         derived = satellite_pattern(
             self.config.effectivity_satellite_naming,
-            entity_base_name(hub.hub_physical_name),
+            entity_base_name(physical_name),
         )
-        return self._output("effectivity_satellite", hub.pk, derived)
+        return self._output("effectivity_satellite", parent.pk, derived)
 
     def record_tracking_satellite(
         self, parent: Hub | Link, physical_name: str

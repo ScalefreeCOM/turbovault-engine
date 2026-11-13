@@ -21,6 +21,12 @@ ref_keys:
 [% for rk in reference_key_columns %]
     - [[ rk ]]
 [% endfor %]
+[% if additional_columns %]
+additional_columns:
+[% for col in additional_columns %]
+    - [[ col ]]
+[% endfor %]
+[% endif %]
 {%- endset -%}
 
 {{ datavault4dbt.ref_hub(yaml_metadata=yaml_metadata) }}

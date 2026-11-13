@@ -113,7 +113,7 @@ class ModelOutput(models.Model):
         Kind.LINK: ("link",),
         Kind.SATELLITE_V0: ("satellite",),
         Kind.SATELLITE_V1: ("satellite",),
-        Kind.EFFECTIVITY_SATELLITE: ("hub",),
+        Kind.EFFECTIVITY_SATELLITE: ("hub", "link"),
         Kind.RECORD_TRACKING_SATELLITE: ("hub", "link"),
         Kind.PIT: ("pit",),
         Kind.REFERENCE_TABLE: ("reference_table",),
@@ -166,7 +166,7 @@ class ModelOutput(models.Model):
         related_name="model_outputs",
         null=True,
         blank=True,
-        help_text="Link of a link or record-tracking satellite model",
+        help_text="Link of a link, effectivity or record-tracking satellite model",
     )
     satellite = models.ForeignKey(
         "engine.Satellite",

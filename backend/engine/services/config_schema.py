@@ -409,6 +409,18 @@ class ProjectConfiguration(BaseModel):
             "set nothing"
         ),
     )
+    use_delivery_method: bool = Field(
+        False,
+        description=(
+            "Use the delivery method of source tables: models loading only "
+            "single-batch sources use datavault4dbt's single-batch logic "
+            "(source_is_single_batch)"
+        ),
+    )
+    delivery_method: Literal["single_batch", "multi_batch"] = Field(
+        "multi_batch",
+        description="Delivery method of source tables and systems that set none",
+    )
 
     # dbt project settings (dbt_project.yml). Defaults match the project the
     # engine has always generated.

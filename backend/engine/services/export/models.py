@@ -120,6 +120,7 @@ class SourceTableDef(BaseModel):
     include_source_columns: bool | None = None
     enable_ghost_records: bool | None = None
     sequence_column: str | None = None
+    delivery_method: Literal["single_batch", "multi_batch"] | None = None
     description: str | None = None
     columns: list[SourceColumnDef] = Field(default_factory=list)
     derived_columns: list[SourceDerivedColumnDef] = Field(
@@ -141,6 +142,7 @@ class SourceSystemDef(BaseModel):
     load_date: str | None = None
     include_source_columns: bool | None = None
     enable_ghost_records: bool | None = None
+    delivery_method: Literal["single_batch", "multi_batch"] | None = None
     tables: list[SourceTableDef] = Field(default_factory=list)
 
 
@@ -221,6 +223,33 @@ class HubSourceInfo(BaseModel):
         default_factory=list,
         description="Explicit hub column → source column mappings for round-trip import",
     )
+    hk_column: str | None = Field(
+        default=None,
+        description=(
+            "The stage's hash key column this source loads, when it differs from "
+            "the hub's hash key (role-playing: one stage loading the hub twice)"
+        ),
+    )
+    source_is_single_batch: bool = Field(
+        default=False,
+        description="Whether the stage delivers single batches (delivery method)",
+    )
+
+
+class EffectivitySatelliteOptions(BaseModel):
+    """Options of a hub's or link's effectivity satellite."""
+
+    is_active_alias: str | None = Field(
+        default=None, description="Name of its is_active column (None: the default)"
+    )
+    disable_hwm: bool = False
+    additional_columns: list[str] = Field(
+        default_factory=list, description="Further stage columns it carries"
+    )
+    source_is_single_batch: bool = Field(
+        default=False,
+        description="Whether its stage delivers single batches (delivery method)",
+    )
 
 
 class HubDefinition(BaseModel):
@@ -249,6 +278,11 @@ class HubDefinition(BaseModel):
     )
     create_record_tracking_satellite: bool = False
     create_effectivity_satellite: bool = True
+    disable_hwm: bool = False
+    effectivity_options: EffectivitySatelliteOptions = Field(
+        default_factory=EffectivitySatelliteOptions,
+        description="Options of the effectivity satellite, when the hub has one",
+    )
     description: str | None = None
     column_descriptions: dict[str, ColumnDescriptionDef] = Field(
         default_factory=dict,
@@ -404,6 +438,10 @@ class LinkSourceInfo(BaseModel):
         default_factory=list,
         description="Mappings from link foreign hashkeys to stage hashkeys",
     )
+    source_is_single_batch: bool = Field(
+        default=False,
+        description="Whether the stage delivers single batches (delivery method)",
+    )
 
 
 class LinkHubReferenceDefinition(BaseModel):
@@ -445,9 +483,29 @@ class LinkDefinition(BaseModel):
         description="Source tables that feed this link with column mappings",
     )
     create_record_tracking_satellite: bool = False
+    create_effectivity_satellite: bool = False
+    disable_hwm: bool = False
+    union_strategy: Literal["all", "distinct"] | None = Field(
+        default=None,
+        description="Non-historized links: how sources are unioned (None: all)",
+    )
+    source_is_single_batch: bool = Field(
+        default=False,
+        description=(
+            "Non-historized links: whether every source stage delivers single "
+            "batches (delivery method)"
+        ),
+    )
+    effectivity_options: EffectivitySatelliteOptions = Field(
+        default_factory=EffectivitySatelliteOptions,
+        description="Options of the effectivity satellite, when the link has one",
+    )
     description: str | None = None
     output: ModelOutputDef | None = Field(
         None, description="The link's dbt model (None: named link_name, defaults)"
+    )
+    effectivity_satellite_output: ModelOutputDef | None = Field(
+        None, description="The effectivity satellite's model, when the link has one"
     )
     record_tracking_satellite_output: ModelOutputDef | None = Field(
         None,
@@ -738,6 +796,12 @@ class SatelliteDefinition(BaseModel):
     v1_include_payload: bool = Field(
         True, description="Whether the v1 view includes the payload"
     )
+    disable_hwm: bool = Field(
+        False, description="Whether it loads without the high-water mark"
+    )
+    source_is_single_batch: bool = Field(
+        False, description="Whether its stage delivers single batches"
+    )
 
     @property
     def hashdiff_column(self) -> str:
@@ -832,8 +896,15 @@ class PITDefinition(BaseModel):
         None, description="Optional dimension key column name"
     )
     pit_type: str | None = Field(None, description="Optional PIT type classification")
-    use_snapshot_optimization: bool = Field(
-        default=True, description="Whether snapshot optimization is enabled"
+    use_snapshot_optimization: bool | None = Field(
+        default=None,
+        description=(
+            "datavault4dbt's snapshot_optimization, written only when set "
+            "(None: datavault4dbt's default, off)"
+        ),
+    )
+    custom_record_source: str | None = Field(
+        default=None, description="Written as the PIT's custom_rsrc, when set"
     )
     include_business_objects_before_appearance: bool = Field(
         default=False,
@@ -881,8 +952,17 @@ class SnapshotControlDefinition(BaseModel):
         )
     )
     start_date: str = Field(description="Overall snapshot start date (YYYY-MM-DD)")
-    end_date: str = Field(description="Overall snapshot end date (YYYY-MM-DD)")
+    end_date: str | None = Field(
+        default=None,
+        description=(
+            "Last snapshot date (YYYY-MM-DD). None: the range runs up to the "
+            "current date"
+        ),
+    )
     daily_time: str = Field(description="Daily snapshot execution time (HH:MM:SS)")
+    sdts_alias: str | None = Field(
+        default=None, description="Name of the snapshot date column, when set"
+    )
     logic_patterns: list[SnapshotLogicPattern] = Field(
         default_factory=list, description="List of snapshot logic patterns"
     )

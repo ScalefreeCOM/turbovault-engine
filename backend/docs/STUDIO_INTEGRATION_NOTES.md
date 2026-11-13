@@ -20,7 +20,7 @@ section is completed when the Engine change lands).
 | 7 | [Stage options and missing columns](#7-stage-options-and-missing-columns) | In progress | Project defaults, source system and table overrides; flag a column as missing |
 | 8 | [Derived columns that shadow a source column](#8-derived-columns-that-shadow-a-source-column) | In progress | Allow a derived column with a source column's name |
 | 9 | [Satellite v1 options](#9-satellite-v1-options) | In progress | Satellite fields for its v1 view |
-| 10 | [Smaller additions](#10-smaller-additions) | Planned | A few fields on Hubs, PITs and snapshot controls |
+| 10 | [Hub, Link, PIT and snapshot control options; delivery method](#10-hub-link-pit-and-snapshot-control-options-delivery-method) | In progress | Fields on Hubs, Links, mappings, Satellites, source systems/tables, PITs and snapshot controls; two project settings |
 | 11 | [Custom models](#11-custom-models) | Planned | List, view and edit custom models |
 | 12 | [Layer folders renumbered](#12-layer-folders-renumbered) | In progress | Use the new folder names wherever Studio shows or builds model paths |
 
@@ -432,17 +432,63 @@ domain model §7.1.
 
 ---
 
-## 10. Smaller additions
+## 10. Hub, Link, PIT and snapshot control options; delivery method
 
-**Status:** Planned (spec §9.6).
+**Status:** In progress (dbt import branch), migration `0023_hub_link_pit_snapshot_options`. Engine docs:
+domain model §3.1–3.2 (delivery method), §4.1, §4.3, §5.1, §8.1, §8.3, §9.1; project schema.
 
-- **Hub:** the effectivity Satellite's `is_active` column name.
-- **Hub sources:** load a Hub from a differently named hash key column of a stage (role-playing sources,
-  e.g. author and committer from one stage). The data model is designed in Phase 3.
-- **PIT:** the stored `custom_record_source` is written to the generated PIT (`custom_rsrc`). Show the
-  field if Studio hides it today.
-- **Snapshot control:** the stored end date is written to the generated model (`end_date`), plus an optional
-  snapshot date column name (`sdts_alias`).
+### New fields
+
+| Model / field | Type | Default | Notes |
+|---------------|------|---------|-------|
+| `Hub.disable_hwm`, `Link.disable_hwm`, `Satellite.disable_hwm` | bool | `false` | Load without the high-water mark (every run reads all of the stage). Not for non-historized Satellites. |
+| `Hub.effectivity_is_active_alias`, `Link.effectivity_is_active_alias` | text, nullable | empty | Name of the effectivity Satellite's `is_active` column. |
+| `Hub.effectivity_disable_hwm`, `Link.effectivity_disable_hwm` | bool | `false` | For the effectivity Satellite. |
+| `Hub.effectivity_additional_columns`, `Link.effectivity_additional_columns` | JSON list, nullable | empty | Further stage columns the effectivity Satellite carries. |
+| `Link.create_effectivity_satellite` | bool | `false` | **New: effectivity Satellites on Links.** Tracks the Link's hash key in its first source's stage; named by `effectivity_satellite_naming` (`order_customer_es`); `ModelOutput` kind `effectivity_satellite` now also on Links. |
+| `Link.union_strategy` | choice `all` / `distinct`, nullable | empty | Non-historized Links only (datavault4dbt default `all`). |
+| `HubSourceMapping.stage_hashkey_name` | text, nullable | empty | **Role-playing:** the stage's hash key this mapping loads, when it isn't the Hub's. Mappings of one table with different hash keys become separate sources of the Hub (`source_models` entries with `hk_column`); the stage computes each hash key. Example: the user Hub loaded from a commits stage twice, as `hk_author_h` (author_id) and `hk_committer_h` (committer_id). |
+| `SourceSystem.delivery_method`, `SourceTable.delivery_method` | choice `single_batch` / `multi_batch`, nullable | empty | Inherits table → system → project. See below. |
+| `PIT.use_snapshot_optimization` | **now nullable** | empty (was `true`) | Written only when set (datavault4dbt `snapshot_optimization`, default off). **Migration 0023 empties all existing values**: they were never written, so generation stays the same. |
+| `PIT.custom_record_source` | text | — | Existing field, **now written** as `custom_rsrc`. |
+| `SnapshotControlTable.snapshot_end_date` | **now nullable** | empty (was end of current year + 5) | Empty: the snapshot range runs up to the current date (datavault4dbt's default). When set, written as `end_date`: the snapshot table then holds dates up to that day, including future ones. **Migration 0023 empties all existing values**: they were never written, and writing the old default would add five years of future snapshots to every PIT. New snapshot controls (CLI defaults, import defaults) get none. |
+| `SnapshotControlTable.sdts_alias` | text, nullable | empty | Name of the snapshot date column. |
+
+### Generation changes
+
+- Hub and Link **additional columns** (`HubColumn` / `LinkColumn` of type `additional_column`, which existed
+  but were never generated) are now written as `additional_columns`. The stage provides them under the
+  column's name: a mapping from a differently named stage column becomes a renaming derived column.
+  datavault4dbt needs each additional column in every source stage of the Hub/Link.
+- **Snapshot-based reference tables** were generated as `historized: 'latest'` (a bug); they now write
+  `historized: 'snapshot'`, `snapshot_relation` (the snapshot control's v1 model) and
+  `snapshot_trigger_column` (the logic column).
+- Everything else is written only when set; projects that set nothing generate exactly as before.
+
+### Delivery method (issue #468)
+
+| Setting | Where | Default |
+|---------|-------|---------|
+| `use_delivery_method` | `EngineRuntimeConfig` / CLI `configuration` | `false` |
+| `delivery_method` | `EngineRuntimeConfig` / CLI `configuration` (project default) | `multi_batch` |
+| `delivery_method` | source system, source table | inherit |
+
+With the switch on, models loading only single-batch data write `source_is_single_batch: true`: standard,
+multi-active, non-historized and reference Satellites (from their stage), non-historized Links (only when every
+source stage is single-batch), effectivity Satellites (from the stage they read; they always write the
+parameter, `false` otherwise). With the switch off nothing changes.
+
+### Suggested UI
+
+- Hub/Link forms: "Loading" section (`disable_hwm`; Links: union strategy for non-historized Links) and an
+  "Effectivity satellite" section (create, `is_active` column name, high-water mark, additional columns).
+- Hub source mappings: an optional "stage hash key" per mapping, shown as a role ("loads the Hub as
+  hk_author_h").
+- Satellite form: `disable_hwm` (hidden for non-historized).
+- Source system/table forms: delivery method (inherit / single batch / multi batch); project settings: the
+  switch and the default.
+- PIT form: snapshot optimization as tri-state (default / on / off); custom record source.
+- Snapshot control form: optional end date ("empty: up to today"), snapshot date column name.
 
 ---
 

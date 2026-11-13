@@ -10,6 +10,10 @@ source_models:
 [% if source.rsrc_static %]
       rsrc_static: [[ source.rsrc_static | yaml_quote ]]
 [% endif %]
+[# hk_column: the stage hash key this source loads, when it isn't the hub's (role-playing) #]
+[% if source.hk_column and source.hk_column != hashkey.hashkey_name %]
+      hk_column: [[ source.hk_column ]]
+[% endif %]
 [% if source.business_key_columns %]
       bk_columns:
 [% for bk in source.business_key_columns %]
@@ -22,6 +26,15 @@ business_keys:
 [% for bk in business_key_columns %]
     - [[ bk ]]
 [% endfor %]
+[% if additional_columns %]
+additional_columns:
+[% for col in additional_columns %]
+    - [[ col ]]
+[% endfor %]
+[% endif %]
+[% if disable_hwm %]
+disable_hwm: true
+[% endif %]
 {%- endset -%}
 
 {{ datavault4dbt.hub(yaml_metadata=yaml_metadata) }}

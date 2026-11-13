@@ -210,9 +210,15 @@ def _project_models(
     for link in project_export.links:
         if link.output:
             models.append(("link", link.link_name, link.output, link.output.model_name))
-        output = link.record_tracking_satellite_output
-        if link.create_record_tracking_satellite and output:
-            models.append(("link", link.link_name, output, output.model_name))
+        for flag, output in (
+            (link.create_effectivity_satellite, link.effectivity_satellite_output),
+            (
+                link.create_record_tracking_satellite,
+                link.record_tracking_satellite_output,
+            ),
+        ):
+            if flag and output:
+                models.append(("link", link.link_name, output, output.model_name))
     for sat in project_export.satellites:
         if sat.v0_output:
             models.append(

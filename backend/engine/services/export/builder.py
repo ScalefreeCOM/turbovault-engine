@@ -19,6 +19,7 @@ from engine.services.export.model_outputs import (  # noqa: F401 (re-exported)
 from engine.services.export.models import (
     ColumnDescriptionDef,
     DerivedColumnDef,
+    EffectivitySatelliteOptions,
     HashkeyDefinition,
     HubColumnMapping,
     HubDefinition,
@@ -245,6 +246,7 @@ class ModelBuilder:
                         include_source_columns=table.include_source_columns,
                         enable_ghost_records=table.enable_ghost_records,
                         sequence_column=table.sequence_column or None,
+                        delivery_method=table.delivery_method or None,
                         description=table.description or None,
                         columns=columns,
                         derived_columns=derived_columns,
@@ -264,6 +266,7 @@ class ModelBuilder:
                     load_date=source_system.load_date_value,
                     include_source_columns=source_system.include_source_columns,
                     enable_ghost_records=source_system.enable_ghost_records,
+                    delivery_method=source_system.delivery_method or None,
                     tables=tables,
                 )
             )
@@ -351,11 +354,29 @@ class ModelBuilder:
                     source_tables=source_info,
                     create_record_tracking_satellite=hub.create_record_tracking_satellite,
                     create_effectivity_satellite=hub.create_effectivity_satellite,
+                    disable_hwm=hub.disable_hwm,
+                    effectivity_options=EffectivitySatelliteOptions(
+                        is_active_alias=hub.effectivity_is_active_alias or None,
+                        disable_hwm=hub.effectivity_disable_hwm,
+                        additional_columns=list(
+                            hub.effectivity_additional_columns or []
+                        ),
+                        # It reads the stage of the hub's first source that
+                        # loads the hub's own hash key
+                        source_is_single_batch=next(
+                            (
+                                source.source_is_single_batch
+                                for source in source_info
+                                if not source.hk_column
+                            ),
+                            False,
+                        ),
+                    ),
                     description=hub.description or None,
                     column_descriptions=column_descriptions,
                     output=self.outputs.hub(hub),
                     effectivity_satellite_output=(
-                        self.outputs.effectivity_satellite(hub)
+                        self.outputs.effectivity_satellite(hub, hub.hub_physical_name)
                         if hub.create_effectivity_satellite
                         else None
                     ),
@@ -380,8 +401,10 @@ class ModelBuilder:
         """
         from engine.models import HubColumn
 
-        # Group mappings by source table
-        source_table_map: dict[str, dict] = defaultdict(
+        # Group mappings by source table and the stage hash key they load: a
+        # table loading the hub under another hash key (role-playing) is a
+        # source of its own.
+        source_table_map: dict[tuple[str, str], dict] = defaultdict(
             lambda: {
                 "source_system": "",
                 "stage_name": "",
@@ -389,14 +412,23 @@ class ModelBuilder:
                 "columns": [],
                 "mappings": [],
                 "is_primary_source": False,
+                "single_batch": False,
             }
         )
+
+        def source_key(mapping) -> tuple[str, str]:
+            table = mapping.staging_column.source_table
+            role = mapping.stage_hashkey_name or ""
+            if role == (hub.hub_hashkey_name or ""):
+                role = ""
+            return (table.physical_table_name, role)
 
         for column in hub.columns.filter(column_type=HubColumn.ColumnType.BUSINESS_KEY):
             for mapping in column.source_mappings.all():
                 table = mapping.staging_column.source_table
-                table_key = table.physical_table_name
+                table_key = source_key(mapping)
 
+                source_table_map[table_key]["single_batch"] = self._single_batch(table)
                 source_table_map[table_key]["source_system"] = table.source_system.name
                 source_table_map[table_key]["stage_name"] = self.outputs.stage(
                     table
@@ -423,8 +455,9 @@ class ModelBuilder:
         ):
             for mapping in column.source_mappings.all():
                 table = mapping.staging_column.source_table
-                table_key = table.physical_table_name
+                table_key = source_key(mapping)
 
+                source_table_map[table_key]["single_batch"] = self._single_batch(table)
                 source_table_map[table_key]["source_system"] = table.source_system.name
                 source_table_map[table_key]["stage_name"] = self.outputs.stage(
                     table
@@ -465,8 +498,10 @@ class ModelBuilder:
                     )
                     for m in info["mappings"]
                 ],
+                hk_column=role or None,
+                source_is_single_batch=info["single_batch"],
             )
-            for table_name, info in source_table_map.items()
+            for (table_name, role), info in source_table_map.items()
         ]
 
     def _build_stages(self) -> list[StageDefinition]:
@@ -639,6 +674,22 @@ class ModelBuilder:
                 return value
         return getattr(self.runtime_config, field)
 
+    def _single_batch(self, table: SourceTable | None) -> bool:
+        """Whether models may load *table* with datavault4dbt's single-batch logic.
+
+        Only with the project's delivery method switch on, for a table whose
+        delivery method (its own, else its system's, else the project's) is
+        single_batch.
+        """
+        if table is None or not self.runtime_config.use_delivery_method:
+            return False
+        method = (
+            table.delivery_method
+            or table.source_system.delivery_method
+            or self.runtime_config.delivery_method
+        )
+        return method == "single_batch"
+
     def _get_multi_active_config_for_source_table(
         self, source_table: SourceTable
     ) -> MultiActiveConfig | None:
@@ -747,7 +798,9 @@ class ModelBuilder:
         """
         from engine.models import (
             DerivedColumn,
+            HubColumn,
             HubSourceMapping,
+            LinkColumn,
             LinkHubSourceMapping,
             LinkSourceMapping,
             Satellite,
@@ -870,6 +923,16 @@ class ModelBuilder:
 
         for mapping in hub_mappings:
             transformation = mapping.hub_column.target_column_transformation
+            if mapping.hub_column.column_type == HubColumn.ColumnType.ADDITIONAL_COLUMN:
+                # datavault4dbt takes additional columns from the stage as they
+                # are: the stage provides them under the hub column's name.
+                add(
+                    mapping.hub_column.column_name,
+                    mapping.staging_column,
+                    transformation,
+                    mapping.hub_column.target_column_datatype,
+                )
+                continue
             if not transformation:
                 continue
             add(
@@ -905,6 +968,15 @@ class ModelBuilder:
 
         for link_mapping in link_source_mappings:
             link_column = link_mapping.link_column
+            if link_column.column_type == LinkColumn.ColumnType.ADDITIONAL_COLUMN:
+                # Taken from the stage as they are, like a hub's
+                add(
+                    link_column.column_name,
+                    link_mapping.staging_column,
+                    link_column.target_column_transformation,
+                    link_column.target_column_datatype,
+                )
+                continue
             if not link_column.target_column_transformation:
                 continue
             add(
@@ -1024,14 +1096,15 @@ class ModelBuilder:
             staging_column__source_table=source_table
         ).select_related("hub_column__hub", "staging_column")
 
-        # Group by hub to build hashkey definitions
-        hub_columns_map: dict[str, dict] = defaultdict(
+        # Group by hub and the stage hash key the mappings load: the hub's own,
+        # or another one when this table loads the hub in another role.
+        hub_columns_map: dict[tuple[str, str], dict] = defaultdict(
             lambda: {"hub": None, "source_columns": []}
         )
 
         for mapping in hub_mappings:
             hub = mapping.hub_column.hub
-            hub_key = str(hub.hub_id)
+            hub_key = (str(hub.hub_id), mapping.stage_hashkey_name or "")
 
             hub_columns_map[hub_key]["hub"] = hub
 
@@ -1044,7 +1117,7 @@ class ModelBuilder:
                     }
                 )
 
-        for _hub_key, info in hub_columns_map.items():
+        for (_hub_id, role), info in hub_columns_map.items():
             hub = info["hub"]
 
             # Skip if not a standard hub (no hashkey needed)
@@ -1058,7 +1131,10 @@ class ModelBuilder:
             source_column_names = [c["source_column"] for c in sorted_columns]
 
             if source_column_names:  # Only add if we have business key columns
-                hashkey_name = hub.hub_hashkey_name
+                hashkey_name = role or hub.hub_hashkey_name
+                # A role's hash key once per stage, even if two roles name it alike
+                if role and hashkey_name in generated_hashkeys:
+                    continue
                 result.append(
                     StageHashkeyDef(
                         target_entity=hub.hub_physical_name,
@@ -1304,6 +1380,8 @@ class ModelBuilder:
                     v1_ledts_alias=sat.v1_ledts_alias or None,
                     v1_add_is_current_flag=sat.v1_add_is_current_flag,
                     v1_include_payload=sat.v1_include_payload,
+                    disable_hwm=sat.disable_hwm,
+                    source_is_single_batch=self._single_batch(sat.source_table),
                 )
             )
 
@@ -1378,6 +1456,7 @@ class ModelBuilder:
                             "source_system": table.source_system.name,
                             "stage_name": self.outputs.stage(table).model_name,
                             "rsrc_static": self._source_values(table).static_part.value,
+                            "single_batch": self._single_batch(table),
                             "columns": [],
                             "hashkey_mappings": [],
                         }
@@ -1413,6 +1492,7 @@ class ModelBuilder:
                             "source_system": table.source_system.name,
                             "stage_name": self.outputs.stage(table).model_name,
                             "rsrc_static": self._source_values(table).static_part.value,
+                            "single_batch": self._single_batch(table),
                             "columns": [],
                         }
 
@@ -1483,6 +1563,7 @@ class ModelBuilder:
                     rsrc_static=info.get("rsrc_static"),
                     columns=info["columns"],
                     hashkey_mappings=info.get("hashkey_mappings", []),
+                    source_is_single_batch=info.get("single_batch", False),
                 )
                 for table_name, info in source_table_map.items()
             ]
@@ -1521,7 +1602,31 @@ class ModelBuilder:
                     create_record_tracking_satellite=link.create_record_tracking_satellite,
                     description=link.description or None,
                     column_descriptions=column_descriptions,
+                    disable_hwm=link.disable_hwm,
+                    union_strategy=link.union_strategy or None,
+                    # Single-batch logic only when every source delivers so
+                    source_is_single_batch=bool(source_tables)
+                    and all(source.source_is_single_batch for source in source_tables),
+                    create_effectivity_satellite=link.create_effectivity_satellite,
+                    effectivity_options=EffectivitySatelliteOptions(
+                        is_active_alias=link.effectivity_is_active_alias or None,
+                        disable_hwm=link.effectivity_disable_hwm,
+                        additional_columns=list(
+                            link.effectivity_additional_columns or []
+                        ),
+                        # It reads the link's first source's stage
+                        source_is_single_batch=bool(
+                            source_tables and source_tables[0].source_is_single_batch
+                        ),
+                    ),
                     output=self.outputs.link(link),
+                    effectivity_satellite_output=(
+                        self.outputs.effectivity_satellite(
+                            link, link.link_physical_name
+                        )
+                        if link.create_effectivity_satellite
+                        else None
+                    ),
                     record_tracking_satellite_output=(
                         self.outputs.record_tracking_satellite(
                             link, link.link_physical_name
@@ -1568,8 +1673,13 @@ class ModelBuilder:
                 SnapshotControlDefinition(
                     name=control.name,
                     start_date=control.snapshot_start_date.isoformat(),
-                    end_date=control.snapshot_end_date.isoformat(),
+                    end_date=(
+                        control.snapshot_end_date.isoformat()
+                        if control.snapshot_end_date
+                        else None
+                    ),
                     daily_time=control.daily_snapshot_time.isoformat(),
+                    sdts_alias=control.sdts_alias or None,
                     logic_patterns=logic_patterns,
                     v0_output=self.outputs.snapshot_control_v0(control),
                     v1_output=self.outputs.snapshot_control_v1(control),
@@ -1650,17 +1760,24 @@ class ModelBuilder:
                     for s in ref_sats
                 ]
 
-            # Determine snapshot info
+            # Snapshot-based: the snapshot control's logic model (v1) and the
+            # column that triggers a snapshot, as for PITs
             snapshot_table_name = None
             snapshot_logic_column = None
             if (
                 ref_table.historization_type
                 == ReferenceTable.HistorizationType.SNAPSHOT_BASED
             ):
-                if ref_table.snapshot_control_logic:
-                    snapshot_logic_column = (
-                        ref_table.snapshot_control_logic.snapshot_control_logic_column_name
-                    )
+                logic = ref_table.snapshot_control_logic
+                control = ref_table.snapshot_control_table or (
+                    logic.snapshot_control_table if logic else None
+                )
+                if control is not None:
+                    snapshot_table_name = self.outputs.snapshot_control_v1(
+                        control
+                    ).model_name
+                if logic:
+                    snapshot_logic_column = logic.snapshot_control_logic_column_name
 
             result.append(
                 ReferenceTableDefinition(
@@ -1743,6 +1860,7 @@ class ModelBuilder:
                     dimension_key_column=pit.dimension_key_column_name,
                     pit_type=pit.pit_type,
                     use_snapshot_optimization=pit.use_snapshot_optimization,
+                    custom_record_source=pit.custom_record_source or None,
                     include_business_objects_before_appearance=pit.include_business_objects_before_appearance,
                     output=self.outputs.pit(pit),
                 )

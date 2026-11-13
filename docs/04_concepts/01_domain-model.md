@@ -89,6 +89,7 @@ Describes a physical source system (database/schema) and a human-readable name.
 | load_date_value  | string     |          | Load date of the system's tables that set none. |
 | include_source_columns | boolean |       | Stage option of the system's tables that set none (see [Stage options](#stage-options)). Empty: the project's. |
 | enable_ghost_records | boolean |         | Stage option of the system's tables that set none. Empty: the project's. |
+| delivery_method  | string     |          | `single_batch` or `multi_batch`, for the system's tables that set none (see [Delivery method](#delivery-method)). Empty: the project's. |
 | created_at       | datetime   | ✓       | Timestamp when the record was created.        |
 | updated_at       | datetime   | ✓       | Timestamp when the record was last updated.   |
 
@@ -118,6 +119,7 @@ prepares data for its stage (see [Pre-stages](#35-pre-stages)).
 | include_source_columns       | boolean    |          | Whether the stage passes all source columns on (datavault4dbt `include_source_columns`). Empty inherits (see [Stage options](#stage-options)). |
 | enable_ghost_records         | boolean    |          | Whether the stage adds ghost records. Empty inherits. |
 | sequence_column              | string     |          | Column holding a sequence number from the extraction (datavault4dbt `sequence`). |
+| delivery_method              | string     |          | `single_batch` or `multi_batch`. Empty inherits (see [Delivery method](#delivery-method)). |
 | description                  | string     |          | Optional description; written to `sources.yml` and the stage's model YAML. |
 | created_at                   | datetime   | ✓       | Timestamp when the record was created.                              |
 | updated_at                   | datetime   | ✓       | Timestamp when the record was last updated.                         |
@@ -150,6 +152,18 @@ and `enable_ghost_records` in `config.yml`, both `true` by default). The stage
 writes an option only where it differs from datavault4dbt's default (`true`),
 so projects that set nothing generate as before. `sequence_column` is per table
 only.
+
+**Delivery method**
+
+`single_batch`: each load of the table holds at most one version per key (a
+full extract per run, for example); `multi_batch`: a load may hold several.
+The value inherits like the stage options (table, source system, project's
+`delivery_method`, default `multi_batch`). It takes effect only with the
+project's `use_delivery_method` switch (default off): then models loading only
+single-batch data use datavault4dbt's faster single-batch logic
+(`source_is_single_batch: true`): standard, multi-active, non-historized and
+reference satellites from their stage; non-historized links when every source
+is single-batch; effectivity satellites from the stage they read.
 
 - `source_table` **has many** `source_column`.
 - `prejoin_definition` references `source_table` as source and target.
@@ -310,6 +324,10 @@ Defines a Data Vault hub entity.
 | hub_hashkey_name                 | string     |          | Name of the hub hashkey column (used only if `hub_type = standard`). |
 | create_record_tracking_satellite | boolean    | ✓       | If true, a record-tracking satellite should be generated for this hub. |
 | create_effectivity_satellite     | boolean    | ✓       | If true, an effectivity satellite should be generated for this hub.    |
+| disable_hwm                      | boolean    | ✓       | Load without the high-water mark: every run reads all of the stage (datavault4dbt `disable_hwm`; default `false`). |
+| effectivity_is_active_alias      | string     |          | Name of the effectivity satellite's `is_active` column. Empty: datavault4dbt's default. |
+| effectivity_disable_hwm          | boolean    | ✓       | The effectivity satellite loads without the high-water mark (default `false`). |
+| effectivity_additional_columns   | list       |          | Further stage columns the effectivity satellite carries. |
 | description                      | string     |          | Optional description, written to the hub's model YAML.                 |
 | created_at                       | datetime   | ✓       | Timestamp when the record was created.                                 |
 | updated_at                       | datetime   | ✓       | Timestamp when the record was last updated.                            |
@@ -361,6 +379,7 @@ Maps hub columns to source columns.
 | hub_column_id         | identifier | ✓ (FK)  | FK to `hub_column.hub_column_id`.                                                     |
 | source_column_id      | identifier | ✓ (FK)  | FK to `source_column.source_column_id`.                                               |
 | is_primary_source     | boolean    | ✓       | Indicates if this mapping is the primary source for the hub (only one per hub allowed). |
+| stage_hashkey_name    | string     |          | The stage's hash key column this mapping loads, when it differs from the hub's hash key. Role-playing: one stage loads the hub twice (a commit's author and committer); mappings of one table with different hash keys become separate `source_models` entries with `hk_column`, and the stage computes each hash key. |
 | created_at            | datetime   | ✓       | Timestamp when the record was created.                                                  |
 | updated_at            | datetime   | ✓       | Timestamp when the record was last updated.                                             |
 
@@ -389,6 +408,11 @@ Defines a Data Vault link entity.
 | link_hashkey_name  | string     | ✓       | Name of the link hashkey column (e.g.`lk_customer_order`). |
 | link_type          | string     | ✓       | `standard` or `non-historized`.                          |
 | description        | string     |          | Optional description, written to the link's model YAML.      |
+| create_record_tracking_satellite | boolean | ✓ | If true, a record-tracking satellite is generated for this link. |
+| create_effectivity_satellite | boolean | ✓ | If true, an effectivity satellite is generated for this link (default `false`). It tracks the link's hash key in its first source's stage. |
+| disable_hwm        | boolean    | ✓        | Load without the high-water mark (default `false`). |
+| union_strategy     | string     |          | Non-historized links: `all` or `distinct`, how their sources are unioned. Empty: datavault4dbt's default (`all`). |
+| effectivity_is_active_alias, effectivity_disable_hwm, effectivity_additional_columns | | | As on `hub`, for the link's effectivity satellite. |
 | created_at         | datetime   | ✓       | Timestamp when the record was created.                       |
 | updated_at         | datetime   | ✓       | Timestamp when the record was last updated.                  |
 
@@ -624,8 +648,9 @@ Stores global snapshot configuration.
 | snapshot_control_table_id | identifier | PK       | Unique identifier of the snapshot control table.                                                       |
 | project_id                | identifier | ✓ (FK)  | FK to `Project`.                                                                                     |
 | snapshot_start_date       | date       | ✓       | Start date of snapshot range (default: beginning of (year of today - 5 years); format `YYYY-MM-DD`). |
-| snapshot_end_date         | date       | ✓       | End date of snapshot range (default: end of (year of today + 5 years); format `YYYY-MM-DD`).         |
+| snapshot_end_date         | date       |          | Last date of the snapshot range (datavault4dbt `end_date`; format `YYYY-MM-DD`). Empty (the default): the range runs up to the current date. |
 | daily_snapshot_time       | time       | ✓       | Daily snapshot time (default:`08:00:00`; format `hh:mm:ss`).                                       |
+| sdts_alias                | string     |          | Name of the snapshot date column. Empty: datavault4dbt's `sdts_alias` variable. |
 | created_at                | datetime   | ✓       | Timestamp when the record was created.                                                                 |
 | updated_at                | datetime   | ✓       | Timestamp when the record was last updated.                                                            |
 
@@ -666,7 +691,7 @@ Represents a reference table based on a reference hub.
 | project_id                    | identifier | ✓ (FK)  | FK to `Project`.                                                                                                 |
 | reference_table_physical_name | string     | ✓       | Physical name of the reference table.                                                                              |
 | reference_hub_id              | identifier | ✓ (FK)  | FK to `hub.hub_id`; must refer to a hub with `hub_type = reference`.                                           |
-| historization_type            | string     | ✓       | Historization strategy:`latest`, `full`, or `snapshot_based`.                                                |
+| historization_type            | string     | ✓       | Historization strategy:`latest`, `full`, or `snapshot_based` (generated as `historized: 'snapshot'` with the snapshot control's logic model as `snapshot_relation` and its logic column as `snapshot_trigger_column`). |
 | snapshot_table_id             | identifier |          | FK to `snapshot_control_table.snapshot_control_table_id` when `historization_type` requires snapshot handling. |
 | snapshot_control_logic_id     | identifier |          | FK to `snapshot_control_logic.snapshot_control_logic_id` when snapshot-based logic is used.                      |
 | description                   | string     |          | Optional description, written to the reference table's model YAML. |
@@ -725,8 +750,8 @@ Defines Point-in-Time structures over satellites for a tracked hub or link.
 | snapshot_control_logic_id                  | identifier |          | FK to `snapshot_control_logic.snapshot_control_logic_id`.                                        |
 | dimension_key_column_name                  | string     |          | Optional name of the dimension key column generated in the PIT.                                    |
 | pit_type                                   | string     |          | Optional PIT type (implementation-specific classification).                                        |
-| custom_record_source                       | string     |          | Optional custom record source value for the PIT.                                                   |
-| use_snapshot_optimization                  | boolean    | ✓       | If `true`, snapshot optimization techniques are applied (default: `true`).                     |
+| custom_record_source                       | string     |          | Optional custom record source value for the PIT, written as `custom_rsrc`.                       |
+| use_snapshot_optimization                  | boolean    |          | datavault4dbt `snapshot_optimization`, written only when set. Empty (the default): datavault4dbt's default (off). |
 | include_business_objects_before_appearance | boolean    | ✓       | If `true`, includes business keys before their first appearance in the PIT (default: `false`). |
 | satellite_ids                              | list[id]   | ✓       | List of `satellite.satellite_id` entries included in the PIT structure.                          |
 | created_at                                 | datetime   | ✓       | Timestamp when the record was created.                                                             |

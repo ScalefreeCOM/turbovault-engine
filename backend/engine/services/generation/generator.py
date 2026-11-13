@@ -121,7 +121,14 @@ def _model_outputs(project_export: ProjectExport) -> Iterable[ModelOutputDef]:
             ),
         )
     for link in project_export.links:
-        yield from filter(None, (link.output, link.record_tracking_satellite_output))
+        yield from filter(
+            None,
+            (
+                link.output,
+                link.effectivity_satellite_output,
+                link.record_tracking_satellite_output,
+            ),
+        )
     for satellite in project_export.satellites:
         yield from filter(None, (satellite.v0_output, satellite.v1_output))
     for pit in project_export.pits:
@@ -283,8 +290,10 @@ class DbtProjectGenerator:
                 project_export.hubs, project_export.links
             )
 
-            # 7c. Generate effectivity satellites for flagged hubs
-            self._generate_effectivity_satellites(project_export.hubs)
+            # 7c. Generate effectivity satellites for flagged hubs and links
+            self._generate_effectivity_satellites(
+                project_export.hubs, project_export.links
+            )
 
             # 8. Generate PIT models
             self._generate_pits(project_export.pits)
@@ -1062,60 +1071,114 @@ class DbtProjectGenerator:
                     code="RTS_001",
                 )
 
-    def _generate_effectivity_satellites(self, hubs: list[HubDefinition]) -> None:
-        """Generate an effectivity satellite for each flagged hub.
+    def _generate_effectivity_satellites(
+        self,
+        hubs: list[HubDefinition],
+        links: list[LinkDefinition] | None = None,
+    ) -> None:
+        """Generate an effectivity satellite for each flagged hub and link.
 
-        Without a folder of its own, the satellite goes where its hub goes.
+        It tracks its parent's hash key in the stage of the parent's first
+        source (for a hub, the first that loads the hub's own hash key).
+        Without a folder of its own, the satellite goes where its parent goes.
         """
-        flagged = [
-            hub for hub in hubs if getattr(hub, "create_effectivity_satellite", False)
-        ]
-        if not flagged:
+        parents: list[
+            tuple[str, str, str | None, str | None, str | None, Any, Any, Any]
+        ] = []
+        for hub in hubs:
+            if not getattr(hub, "create_effectivity_satellite", False):
+                continue
+            stage = next(
+                (s.stage_name for s in hub.source_tables if not s.hk_column), None
+            )
+            parents.append(
+                (
+                    "hub",
+                    hub.hub_name,
+                    hub.group,
+                    hub.hashkey.hashkey_name if hub.hashkey else None,
+                    stage,
+                    hub.effectivity_satellite_output,
+                    hub.output,
+                    hub.effectivity_options,
+                )
+            )
+        for link in links or []:
+            if not getattr(link, "create_effectivity_satellite", False):
+                continue
+            parents.append(
+                (
+                    "link",
+                    link.link_name,
+                    link.group,
+                    link.hashkey.hashkey_name if link.hashkey else None,
+                    link.source_tables[0].stage_name if link.source_tables else None,
+                    link.effectivity_satellite_output,
+                    link.output,
+                    link.effectivity_options,
+                )
+            )
+        if not parents:
             return
 
         sql_template, yaml_template = self.template_resolver.get_templates(
             "satellite_effectivity"
         )
         if not sql_template:
-            for hub in flagged:
+            for _kind, parent_name, *_ in parents:
                 self.report.add_skipped(
                     entity_type="satellite_effectivity",
-                    entity_name=hub.hub_name,
+                    entity_name=parent_name,
                     reason="No template found for satellite_effectivity",
                 )
             return
 
         naming = self.config.effectivity_satellite_naming
 
-        for hub in flagged:
-            hashkey_name = hub.hashkey.hashkey_name if hub.hashkey else None
-            stage_name = hub.source_tables[0].stage_name if hub.source_tables else None
+        for (
+            kind,
+            parent_name,
+            group,
+            hashkey_name,
+            stage_name,
+            own_output,
+            parent_output,
+            options,
+        ) in parents:
             if not hashkey_name or not stage_name:
                 self.report.add_skipped(
                     entity_type="satellite_effectivity",
-                    entity_name=hub.hub_name,
-                    reason="Hub has no hashkey or source stage; cannot track effectivity",
+                    entity_name=parent_name,
+                    reason=(
+                        f"{kind.capitalize()} has no hashkey or source stage; "
+                        "cannot track effectivity"
+                    ),
                 )
                 continue
 
             try:
-                output = _in_folder_of(hub.effectivity_satellite_output, hub.output)
+                output = _in_folder_of(own_output, parent_output)
                 es_name = (
                     output.model_name
                     if output
-                    else satellite_pattern(naming, entity_base_name(hub.hub_name))
+                    else satellite_pattern(naming, entity_base_name(parent_name))
                 )
                 context = {
                     "satellite_name": es_name,
-                    "parent_entity": hub.hub_name,
+                    "parent_entity": parent_name,
+                    "parent_entity_type": kind,
                     "parent_hashkey": hashkey_name,
                     "stage_name": stage_name,
-                    "group": hub.group,
+                    "group": group,
+                    "is_active_alias": options.is_active_alias,
+                    "disable_hwm": options.disable_hwm,
+                    "additional_columns": options.additional_columns,
+                    "source_is_single_batch": options.source_is_single_batch,
                 }
 
                 directory, model_config = self._placement(
                     output,
-                    self.folder_config.get_raw_vault_path(hub.group, self.output_path),
+                    self.folder_config.get_raw_vault_path(group, self.output_path),
                     "raw_vault",
                 )
                 self._write_model(
@@ -1132,11 +1195,11 @@ class DbtProjectGenerator:
 
             except Exception as e:
                 logger.warning(
-                    f"Failed to generate effectivity satellite for {hub.hub_name}: {e}"
+                    f"Failed to generate effectivity satellite for {parent_name}: {e}"
                 )
                 self.report.add_error(
                     entity_type="satellite_effectivity",
-                    entity_name=hub.hub_name,
+                    entity_name=parent_name,
                     message=str(e),
                     code="EFS_001",
                 )
@@ -1238,7 +1301,12 @@ class DbtProjectGenerator:
                         )
                     },
                     references=[
-                        sat.model_name for sat in ref_table.satellites if sat.model_name
+                        *(
+                            sat.model_name
+                            for sat in ref_table.satellites
+                            if sat.model_name
+                        ),
+                        *filter(None, (ref_table.snapshot_control_table,)),
                     ],
                 )
 
