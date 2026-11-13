@@ -1112,10 +1112,21 @@ class ModelBuilder:
         # 1. Process Hub Hashkeys
         # ========================================================================
 
-        # Find all hub source mappings where source column is from this table
-        hub_mappings = HubSourceMapping.objects.filter(
-            staging_column__source_table=source_table
-        ).select_related("hub_column__hub", "staging_column")
+        # Find all hub source mappings where source column is from this table.
+        # Ordered by name: the keys are UUIDs, so the database's own order
+        # changes from one import to the next, and the stage with it.
+        hub_mappings = (
+            HubSourceMapping.objects.filter(staging_column__source_table=source_table)
+            .select_related("hub_column__hub", "staging_column")
+            .order_by(
+                "hub_column__hub__hub_physical_name",
+                "stage_hashkey_name",
+                "hub_column__sort_order",
+                "hub_column__column_name",
+                "staging_column__source_column__source_column_physical_name",
+                "staging_column__derived_column__column_name",
+            )
+        )
 
         # Group by hub and the stage hash key the mappings load: the hub's own,
         # or another one when this table loads the hub in another role.
@@ -1171,13 +1182,26 @@ class ModelBuilder:
         # ========================================================================
 
         # Find all link hub source mappings where source column is from this table
-        link_hub_mappings = LinkHubSourceMapping.objects.filter(
-            staging_column__source_table=source_table
-        ).select_related(
-            "link_hub_reference__link",
-            "link_hub_reference__hub",
-            "standard_hub_column",
-            "staging_column",
+        link_hub_mappings = (
+            LinkHubSourceMapping.objects.filter(
+                staging_column__source_table=source_table
+            )
+            .select_related(
+                "link_hub_reference__link",
+                "link_hub_reference__hub",
+                "standard_hub_column",
+                "staging_column",
+            )
+            .order_by(
+                "link_hub_reference__link__link_physical_name",
+                "link_hub_reference__sort_order",
+                "link_hub_reference__hub__hub_physical_name",
+                "link_hub_reference__hub_hashkey_alias_in_link",
+                "standard_hub_column__sort_order",
+                "standard_hub_column__column_name",
+                "staging_column__source_column__source_column_physical_name",
+                "staging_column__derived_column__column_name",
+            )
         )
 
         # Group by link to build link hashkey definitions
@@ -1218,10 +1242,18 @@ class ModelBuilder:
             )
 
         # Now find dependent child keys for each link from this source table
-        link_source_mappings = LinkSourceMapping.objects.filter(
-            staging_column__source_table=source_table,
-            link_column__column_type=LinkColumn.ColumnType.DEPENDENT_CHILD_KEY,
-        ).select_related("link_column__link", "staging_column")
+        link_source_mappings = (
+            LinkSourceMapping.objects.filter(
+                staging_column__source_table=source_table,
+                link_column__column_type=LinkColumn.ColumnType.DEPENDENT_CHILD_KEY,
+            )
+            .select_related("link_column__link", "staging_column")
+            .order_by(
+                "link_column__link__link_physical_name",
+                "link_column__sort_order",
+                "link_column__column_name",
+            )
+        )
 
         for mapping in link_source_mappings:
             link = mapping.link_column.link
