@@ -513,6 +513,14 @@ class LinkDefinition(BaseModel):
     payload_columns: list[str] = Field(
         default_factory=list, description="Payload columns in the link"
     )
+    dependent_child_keys: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Dependent child key columns, in order. The link hash key hashes "
+            "them after the hubs' keys, and the link selects them: datavault4dbt "
+            "lists them in foreign_hashkeys after the hub hash keys"
+        ),
+    )
     additional_columns: list[str] = Field(
         default_factory=list, description="Additional non-payload columns"
     )

@@ -25,6 +25,10 @@ foreign_hashkeys:
 [% for fk in foreign_hashkeys %]
     - [[ fk ]]
 [% endfor %]
+[# Dependent child keys: selected into the link after the hub hash keys #]
+[% for dck in dependent_child_keys %]
+    - [[ dck ]]
+[% endfor %]
 [% if payload_columns %]
 payload:
 [% for col in payload_columns %]

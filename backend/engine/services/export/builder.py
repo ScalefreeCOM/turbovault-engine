@@ -970,6 +970,25 @@ class ModelBuilder:
 
         for link_mapping in link_source_mappings:
             link_column = link_mapping.link_column
+            if link_column.column_type == LinkColumn.ColumnType.DEPENDENT_CHILD_KEY:
+                staging_name = link_mapping.staging_column.physical_name
+                if link_column.target_column_transformation:
+                    # In place: the link hash key hashes the transformed value
+                    add(
+                        staging_name,
+                        link_mapping.staging_column,
+                        link_column.target_column_transformation,
+                        link_column.target_column_datatype,
+                    )
+                if link_column.column_name != staging_name:
+                    # The link selects it by its own name (foreign_hashkeys)
+                    add(
+                        link_column.column_name,
+                        link_mapping.staging_column,
+                        link_column.target_column_transformation,
+                        link_column.target_column_datatype,
+                    )
+                continue
             if link_column.column_type == LinkColumn.ColumnType.ADDITIONAL_COLUMN:
                 # Taken from the stage as they are, like a hub's
                 add(
@@ -1443,6 +1462,14 @@ class ModelBuilder:
                 column_type=LinkColumn.ColumnType.ADDITIONAL_COLUMN
             ).values_list("column_name", flat=True)
 
+            dependent_child_keys = list(
+                link.columns.filter(
+                    column_type=LinkColumn.ColumnType.DEPENDENT_CHILD_KEY
+                )
+                .order_by("sort_order", "column_name")
+                .values_list("column_name", flat=True)
+            )
+
             # Build source table map with column mappings
             source_table_map: dict[str, dict] = {}
 
@@ -1600,6 +1627,7 @@ class ModelBuilder:
                     foreign_hashkeys=foreign_hashkeys,
                     business_key_columns=business_key_column_names,
                     payload_columns=list(payload_cols),
+                    dependent_child_keys=dependent_child_keys,
                     additional_columns=list(additional_cols),
                     source_tables=source_tables,
                     create_record_tracking_satellite=link.create_record_tracking_satellite,

@@ -773,7 +773,8 @@ def test_invert_pattern():
 
 
 def test_a_key_column_among_the_foreign_hash_keys_is_a_child_key(tmp_path):
-    """Transactional links list their transaction id with the hubs' keys."""
+    """datavault4dbt lists a dependent child key (a transactional link's
+    transaction id) among the foreign hash keys, as TurboVault generates it."""
     lines = model(
         "order_line_tl",
         dv(
@@ -793,15 +794,29 @@ def test_a_key_column_among_the_foreign_hash_keys_is_a_child_key(tmp_path):
         "order_h",
         "customer_h",
     ]
-    assert ("LINE_NO", "dependent_child_key") in [
-        (c.name, c.column_type) for c in link.columns
-    ]
-    (warning,) = [
+    key = next(c for c in link.columns if c.column_type == "dependent_child_key")
+    assert key.name == "LINE_NO"
+    assert [m.source_column_name for m in key.source_mappings] == ["LINE_NO"]
+    assert not [
         i
         for i in issues
-        if i.code == "dbt.parameter_unsupported" and "LINE_NO" in i.message
+        if i.location and i.location.node_id == "model.shop.order_line_tl"
     ]
-    assert warning.location.parameter == "foreign_hashkeys"
+
+
+def test_a_child_key_only_the_link_hash_key_hashes_is_noted(tmp_path):
+    """order_customer_l hashes LINE_NO without listing it: the generated link
+    will select it."""
+    domain, issues = map_manifest(shop(tmp_path))
+
+    assert [c.name for c in domain.links["order_customer_l"].columns] == ["LINE_NO"]
+    (note,) = [
+        i
+        for i in issues
+        if i.location and i.location.node_id == "model.shop.order_customer_l"
+    ]
+    assert note.severity == "info"
+    assert "'LINE_NO'" in note.message
 
 
 def test_several_stages_may_read_one_prestage(tmp_path):

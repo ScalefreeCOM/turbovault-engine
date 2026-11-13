@@ -18,6 +18,11 @@ models:
         data_tests:
           - not_null
 [% endfor %]
+[% for dck in dependent_child_keys %]
+      - name: [[ dck ]]
+[% set docs = column_descriptions.get(dck) %]
+        description: [[ (((docs.description or docs.source_description) if docs else none) or "Dependent child key") | yaml_quote ]]
+[% endfor %]
 [% for payload in payload_columns %]
       - name: [[ payload ]]
 [% set docs = column_descriptions.get(payload) %]

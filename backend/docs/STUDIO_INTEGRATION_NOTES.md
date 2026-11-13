@@ -24,6 +24,7 @@ section is completed when the Engine change lands).
 | 11 | [Custom models](#11-custom-models) | Planned | List, view and edit custom models |
 | 12 | [Layer folders renumbered](#12-layer-folders-renumbered) | In progress | Use the new folder names wherever Studio shows or builds model paths |
 | 13 | [JSON export and import of the new settings; snapshot controls](#13-json-export-and-import-of-the-new-settings-snapshot-controls) | In progress | Show the new `snapshot_control` plan entities; keep `model_outputs` when Studio builds or edits exports |
+| 14 | [Links select their dependent child keys](#14-links-select-their-dependent-child-keys) | In progress | Template editor: new variable `dependent_child_keys`; tell users their links gain columns |
 
 Background for items 4–11: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
 
@@ -648,3 +649,26 @@ changes nothing.
 
 - If Studio shows the import plan by entity type, add `snapshot_control` ("Snapshot control").
 - If Studio builds or edits JSON exports itself, carry `model_outputs` through unchanged.
+
+---
+
+## 14. Links select their dependent child keys
+
+**Status:** In progress (dbt import branch). Spec D23. Changes generated output.
+
+datavault4dbt has no dependent child key concept: a link lists such keys in `foreign_hashkeys` after the hub
+hash keys, as plain columns, and the link hash key hashes them. TurboVault hashed a link's dependent child keys
+into the link hash key but didn't select them, so the link table lacked the columns.
+
+- Generated links (`link`, `nh_link`) now write each dependent child key into `foreign_hashkeys` after the hub
+  hash keys, and their YAML describes it ("Dependent child key" unless the column has a description). The link
+  hash key is unchanged.
+- A dependent child key named differently from its stage column (e.g. link column `DCK_COMMENT` mapped from
+  `O_COMMENT`) gets a renaming derived column in the stage, so the link can select it by its name.
+- The export's `LinkDefinition` gained `dependent_child_keys` (names, in order); `foreign_hashkeys` still holds
+  the hub hash keys only (the SQLMesh output is unchanged).
+- A workspace's copy of a link template from before this change doesn't write them: generation warns with
+  `TPL_003` for links that have dependent child keys.
+- **Studio:** if the template editor lists variables, add `dependent_child_keys`. Projects with dependent child
+  keys get new link columns on their next generation (the TPC-H sample: `LINEITEM_NL`, `ORDERS_CUSTOMERS_L`);
+  incremental links need a full refresh or a schema change to add them.

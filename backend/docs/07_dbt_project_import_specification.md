@@ -52,6 +52,7 @@ package-specific part separate so an AutomateDV adapter can be added.
 | D20 | **Minimal model settings.** With `dbt_project.yml` available, an imported model stores only the settings that differ from what the project's folder-level configuration (its `models:` block) gives it. That folder-level configuration becomes a project setting (`dbt_project_models`: runtime config, CLI `config.yml`), which generation writes into `dbt_project.yml` next to TurboVault's layer settings; in Studio it can go into the manual `dbt_project.yml` instead. Without `dbt_project.yml`, a model stores its effective settings (`unrendered_config`). | 2026-11-13 |
 | D21 | **Missing artifacts in a local dbt project folder.** Without a manifest, the CLI offers to run `dbt parse` (opt-in: it needs dbt-core, the project's adapter and its installed packages, and doesn't connect to the warehouse). The catalog comes from `dbt docs generate`, which queries the warehouse with the user's credentials: the Engine never runs it, and without a catalog the import warns and takes column types from the YAML. Round-trip tests use dbt-core and dbt-postgres as optional dev dependencies (`dbt parse` only). | 2026-11-13 |
 | D22 | **Inferred naming patterns.** The import reports the naming patterns it infers (§8) and doesn't change the project's settings itself. The CLI shows them after a dry run and asks whether to write them into `config.yml` before importing; Studio applies them to its own settings. The import takes the project's settings (runtime config) as input and stores a model's name only where it differs from what the patterns in effect give, so the result is right whether or not the patterns are applied. | 2026-11-13 |
+| D23 | **Dependent child keys are link columns.** Generated links list a link's dependent child keys in `foreign_hashkeys` after the hub hash keys, so the link table holds them, as datavault4dbt projects do (it has no dependent child key concept); the link hash key hashes them as before. A dependent child key named differently from its stage column gets a renaming derived column in the stage. Changes the generated links of existing projects with dependent child keys. | 2026-11-13 |
 
 ---
 
@@ -318,10 +319,11 @@ warning).
   hashes into the key, the Hub a stage of the link loads under that key (role-playing), else the Hub whose
   name the key contains (the longest), else the one Hub the link already references. An alias no stage
   computes isn't recognized.
-- **Key columns among `foreign_hashkeys`:** a plain column the link hash key hashes (a transactional link's
-  transaction id) is imported as a dependent child key, with a warning: TurboVault's generated link hashes it
-  but doesn't select it.
-- **Dependent child keys:** the columns the link hash key hashes beyond the Hubs' business keys.
+- **Dependent child keys (D23):** datavault4dbt has no such concept: a link lists them in `foreign_hashkeys`
+  after the hub hash keys, as plain columns, and its hash key hashes them. A plain column among the foreign
+  hash keys that the link hash key hashes (e.g. a transactional link's transaction id) is therefore a dependent
+  child key, loaded per stage from the source's `fk_columns`. A column the link hash key hashes beyond the
+  Hubs' keys without being listed becomes one too, with a note: TurboVault's generated link selects it.
 - **Satellite → parent:** `parent_hashkey` and the Satellite's stage identify the Hub or Link.
 - **v1 → v0:** `sat_v0` names the v0 model; the pair confirms the Satellite's v0/v1 names.
 - **PIT:** `tracked_entity`, `sat_names` (v1 names) and `snapshot_relation` resolve to the Hub/Link,

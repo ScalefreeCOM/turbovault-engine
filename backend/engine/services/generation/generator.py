@@ -812,6 +812,8 @@ class DbtProjectGenerator:
                     yaml_template=yaml_template,
                     context=link.model_dump(),
                     model_config=model_config,
+                    # A template copy from before they were selected misses them
+                    references=link.dependent_child_keys,
                 )
 
                 self.report.links_generated += 1

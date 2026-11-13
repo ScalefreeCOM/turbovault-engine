@@ -1011,21 +1011,14 @@ class _Mapper:
         )
         stages = [stage for _source, stage in sources]
         hubs: list[_HubInfo] = []
-        # Positions in foreign_hashkeys that reference a Hub; the others are
-        # plain columns of the link hash key (dependent child keys).
+        # Positions in foreign_hashkeys that reference a Hub. The others are
+        # plain columns the link hash key hashes: dependent child keys, which
+        # datavault4dbt lists among the foreign hash keys.
         hub_positions: list[int] = []
+        key_columns: list[tuple[int, str]] = []
         for position, fk in enumerate(foreign):
             if self._is_key_column(fk, stages, link_hashkey):
-                self._issue(
-                    model,
-                    "warning",
-                    Code.DBT_PARAMETER_UNSUPPORTED,
-                    f"Link '{model.name}': '{fk}' in foreign_hashkeys is a column "
-                    "the link hash key hashes, not a Hub's hash key. TurboVault "
-                    "keeps it as a dependent child key: the generated link hashes "
-                    "it but doesn't select it",
-                    parameter="foreign_hashkeys",
-                )
+                key_columns.append((position, fk))
                 continue
             match = self._link_hub(model, fk, stages, hubs)
             if match is None:
@@ -1047,21 +1040,27 @@ class _Mapper:
                 )
             )
 
-        dependent_keys: list[str] = []
+        # Dependent child keys by lowercased name: (name, stage -> stage column)
+        dependent: dict[str, tuple[str, dict[str, str]]] = {
+            name.lower(): (name, {}) for _position, name in key_columns
+        }
+        hashed_only: list[str] = []
         for source, stage in sources:
-            fk_columns = [str(c) for c in as_list(source.get("fk_columns"))] or foreign
-            if len(fk_columns) != len(foreign):
+            all_fk_columns = [
+                str(c) for c in as_list(source.get("fk_columns"))
+            ] or foreign
+            if len(all_fk_columns) != len(foreign):
                 self._issue(
                     model,
                     "error",
                     Code.DBT_VALUE_INVALID,
                     f"Link '{model.name}': '{source['name']}' names "
-                    f"{len(fk_columns)} foreign hash keys for {len(foreign)}; that "
-                    "source is left out",
+                    f"{len(all_fk_columns)} foreign hash keys for {len(foreign)}; "
+                    "that source is left out",
                     parameter="source_models",
                 )
                 continue
-            fk_columns = [fk_columns[position] for position in hub_positions]
+            fk_columns = [all_fk_columns[position] for position in hub_positions]
             hub_columns: list[str] = []
             for index, (hub_info, fk_column) in enumerate(
                 zip(hubs, fk_columns, strict=True)
@@ -1107,19 +1106,38 @@ class _Mapper:
                     "source",
                     parameter="source_models",
                 )
-            # Columns the link hash key adds to the hubs' keys: dependent
-            # child keys.
-            hashed_link = stage.hashkey(link_hk) or []
+            # The dependent child keys this stage loads: those foreign_hashkeys
+            # lists, by its own column names, and any other column the link
+            # hash key hashes beyond the hubs' keys.
             used = [c.lower() for c in hub_columns]
-            for column in hashed_link:
+            for position, name in key_columns:
+                column = self._stage_column(stage, all_fk_columns[position])
+                dependent[name.lower()][1][stage.model.name] = column
+                used.append(column.lower())
+            for column in stage.hashkey(link_hk) or []:
                 if column.lower() in used:
                     used.remove(column.lower())
                     continue
-                if column.lower() not in [k.lower() for k in dependent_keys]:
-                    dependent_keys.append(column)
+                if column.lower() not in dependent:
+                    dependent[column.lower()] = (column, {})
+                    hashed_only.append(column)
+                dependent[column.lower()][1][stage.model.name] = self._stage_column(
+                    stage, column
+                )
             self._static_part(model, stage, source)
 
-        self._link_columns(model, link, sources, dependent_keys, payload)
+        if hashed_only:
+            self._issue(
+                model,
+                "info",
+                Code.DBT_PARAMETER_UNSUPPORTED,
+                f"Link '{model.name}': its hash key also hashes "
+                + ", ".join(f"'{c}'" for c in hashed_only)
+                + ", which foreign_hashkeys doesn't list. TurboVault imports them "
+                "as dependent child keys, which its generated link also selects",
+                parameter="foreign_hashkeys",
+            )
+        self._link_columns(model, link, sources, list(dependent.values()), payload)
         self.links[model.name] = _LinkInfo(
             link=link, model=model, stages=[stage.model.name for stage in stages]
         )
@@ -1133,16 +1151,32 @@ class _Mapper:
         model: DbtModel,
         link: DLink,
         sources: list[tuple[dict[str, Any], _Stage]],
-        dependent_keys: list[str],
+        dependent: list[tuple[str, dict[str, str]]],
         payload: list[str],
     ) -> None:
         """Dependent child keys, payload and additional columns of a link."""
+        order = 0
+        for name, by_stage in dependent:
+            order += 1
+            link.columns.append(
+                DLinkColumn(
+                    name=name,
+                    column_type="dependent_child_key",
+                    sort_order=order,
+                    source_mappings=[
+                        DLinkSourceMapping(
+                            source_table_identifier=stage.identifier,
+                            source_column_name=by_stage[stage.model.name],
+                        )
+                        for _source, stage in sources
+                        if stage.model.name in by_stage
+                    ],
+                )
+            )
         additional = [
             str(c) for c in as_list(model.call.params.get("additional_columns"))
         ]
-        order = 0
         for kind, names in (
-            ("dependent_child_key", dependent_keys),
             ("payload", payload),
             ("additional_column", additional),
         ):

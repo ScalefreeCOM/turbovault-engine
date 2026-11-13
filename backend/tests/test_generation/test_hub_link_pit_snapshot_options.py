@@ -514,3 +514,37 @@ def test_a_snapshot_based_reference_table_reads_its_snapshot_control(project, tm
     assert reference_table["historized"] == "snapshot"
     assert reference_table["snapshot_relation"] == "control_snap_v1"
     assert reference_table["snapshot_trigger_column"] == "is_daily"
+
+
+# ---------------------------------------------------------------------------
+# Dependent child keys
+# ---------------------------------------------------------------------------
+
+
+def test_a_link_selects_its_dependent_child_keys(project, tmp_path):
+    """datavault4dbt has no dependent child keys: the link lists them in
+    foreign_hashkeys after the hub hash keys, and its hash key hashes them."""
+    from engine.models import LinkColumn, LinkSourceMapping, StagingColumn
+
+    seller = StagingColumn.objects.get(
+        source_column__source_column_physical_name="O_SELLER"
+    )
+    column = LinkColumn.objects.create(
+        link=_get("Link", link_physical_name="ORDER_CUSTOMER_L"),
+        column_name="SELLER_ID",
+        column_type=LinkColumn.ColumnType.DEPENDENT_CHILD_KEY,
+        sort_order=1,
+    )
+    LinkSourceMapping.objects.create(link_column=column, staging_column=seller)
+
+    _generate(project, tmp_path)
+
+    link = _raw_vault(tmp_path, "ORDER_CUSTOMER_L")
+    assert link["foreign_hashkeys"][-1] == "SELLER_ID"
+    assert set(link["foreign_hashkeys"][:2]) == {"hk_order_h", "hk_customer_h"}
+    stage = _stage(tmp_path, "orders")
+    assert stage["hashed_columns"]["hk_order_customer_l"][-1] == "O_SELLER"
+    # The stage provides it under the link's name
+    assert stage["derived_columns"]["SELLER_ID"]["value"] == "O_SELLER"
+    yml = tmp_path / "dbt" / "models" / "30_raw_vault" / "ORDER_CUSTOMER_L.yml"
+    assert "- name: SELLER_ID" in yml.read_text(encoding="utf-8")
