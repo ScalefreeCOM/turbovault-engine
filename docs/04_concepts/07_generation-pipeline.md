@@ -320,6 +320,49 @@ settings unless `model_specific_materializations` is off.
 > refreshed with `python manage.py populate_templates --overwrite` — which
 > also replaces any customised templates.
 
+### Model names, folders and settings
+
+Every model is named by the project's naming patterns (`stage_naming`,
+`prestage_naming`, `satellite_v0_naming`, ...; hubs, links, PITs and reference
+tables by their physical name) unless a
+[model output](01_domain-model.md#101-model_output) stores a name. The builder
+resolves every name once, and every reference follows it: a stage in its hubs,
+links and satellites, a v0 table in its v1 view, satellites and the snapshot
+control in a PIT, v1 views in a reference table. The export carries the
+resolved names and settings as `output` (`v0_output`/`v1_output` for
+satellites and snapshot controls, `effectivity_satellite_output` and
+`record_tracking_satellite_output` for hubs and links).
+
+**Folders.** A model with a stored folder is written there, relative to the dbt
+project; otherwise it goes to its layer's folder. A satellite's v1 view without
+a folder of its own follows its v0 table, an effectivity or record-tracking
+satellite its parent, a snapshot control's logic its table. `dbt_project.yml`
+configures schema and materialization for the layer folders only, so a model
+stored in a folder outside its layer's gets them in its own `config()` block
+(unless its settings say otherwise). A folder outside `models/` adds its top
+folder to `model-paths`. `GenerationOptions.use_model_folders=False` writes
+every model to its layer folder again; names and settings stay.
+
+**`config()` settings.** Templates write the block with
+`[[ model_config(materialized=..., tags=[...]) ]]`, YAML templates the tags with
+`[[ model_tags([...]) ]]`. The arguments are the template's defaults; stored
+settings override them: `materialized`, `alias`, `schema`, `database`, `tags`
+(which replace the default tags), then further keys as they are stored. With
+nothing stored, the block is exactly the one written before model outputs
+existed.
+
+> **Templates copied before model outputs** write a fixed `config()` block and
+> append `_v0`/`_v1` to satellite names. They keep working for models without
+> stored settings. When a model has stored settings or names they ignore,
+> generation reports `render.template_outdated` on it; refresh the copies with
+> `python manage.py populate_templates --overwrite` (which replaces their
+> customizations).
+
+Validation rejects two models of one name (`validate.model.duplicate_name`;
+pre-stages count, being models of the dbt project) and names or folders that
+would leave the project (`validate.model.invalid_name`,
+`validate.model.invalid_folder`). Generation never writes such a file.
+
 ### Optional profiles.yml
 
 Set `generate_profiles_yml=True` and pass a `profiles` mapping to also
@@ -472,6 +515,7 @@ build.project_load_failed             build.export_inconsistent
 validate.source.no_schema             validate.source.no_tables
 validate.stage.no_source_table        validate.stage.no_keys             validate.stage.derived_column_no_datatype
 validate.stage.uses_load_column
+validate.model.duplicate_name         validate.model.invalid_name        validate.model.invalid_folder
 validate.hub.missing_hashkey          validate.hub.no_business_keys      validate.hub.no_source_tables
 validate.link.missing_hashkey         validate.link.too_few_hubs         validate.link.no_sources
 validate.satellite.no_parent          validate.satellite.no_stage        validate.satellite.no_columns       validate.satellite.no_hashdiff

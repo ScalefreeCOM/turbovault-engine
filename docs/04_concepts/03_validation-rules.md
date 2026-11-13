@@ -64,12 +64,22 @@ turbovault generate --project my_project --skip-validation
 
 ---
 
+### Model Name Rules
+
+| Code | Entity | Rule | How to Fix |
+|------|--------|------|------------|
+| `MDL_001` | Any model | No two models of the project share a name, compared case-insensitively; pre-stages count (`validate.model.duplicate_name`) | Rename one: its model output's name, or the entity |
+| `MDL_002` | Any model | A model name must name a file inside the project: no slashes or `..` (`validate.model.invalid_name`) | Rename the model or the entity |
+| `MDL_003` | Any model | A stored folder must be relative to the dbt project and stay inside it (`validate.model.invalid_folder`) | Use a folder such as `models/raw_vault/hubs` |
+
+---
+
 ### Generation Output Rules
 
 | Code | Entity | Rule | How to Fix |
 |------|--------|------|------------|
 | `YML_001` | Model | SQL model was generated but YAML schema is missing | Check that the corresponding YAML template exists in Django Admin → Model Templates |
-| `TPL_003` | Stage | The stage template doesn't read a pre-stage model or prejoin one: it predates pre-stages (warning, `render.template_outdated`) | Update the stage template; `python manage.py populate_templates --overwrite` refreshes the workspace's copies (and replaces their customizations) |
+| `TPL_003` | Any model | The template predates something the model needs (warning, `render.template_outdated`): a stage template that doesn't read a pre-stage model or prejoin one; a template that doesn't write the model's stored `config()` settings, its stored tags, or the stored names of the models it references (e.g. a v1 view's v0 table) | Update the template; `python manage.py populate_templates --overwrite` refreshes the workspace's copies (and replaces their customizations) |
 | `PST_001` | Pre-stage | Each dbt generation reminds that the pre-stage's model belongs to the dbt project: TurboVault doesn't generate it, and its stage reads it with `ref()` (warning, `render.prestage.maintained_in_dbt`) | Nothing to fix: generate into the dbt project that contains the model |
 
 ---

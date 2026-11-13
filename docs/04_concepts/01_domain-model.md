@@ -710,5 +710,53 @@ Defines Point-in-Time structures over satellites for a tracked hub or link.
 
 ---
 
+## 10. Model Outputs
+
+### 10.1 `model_output`
+
+How one dbt model of an entity is generated. Every entity becomes one or more
+dbt models; a `model_output` stores what differs from TurboVault's defaults for
+one of them: its name, the folder its files go to, and the settings of its
+`config()` block. An imported dbt project keeps its models' names, folders and
+settings this way. Without a row, or with empty fields, a model is generated as
+TurboVault derives it.
+
+| Entity           | Kinds of model (`kind`)                                     | Derived name |
+| ---------------- | ----------------------------------------------------------- | ------------ |
+| source table     | `stage`, `prestage` (the dbt project's model the stage reads) | `stage_naming` / `prestage_naming` patterns |
+| hub              | `hub`, `effectivity_satellite`, `record_tracking_satellite` | the physical name; the satellite naming patterns |
+| link             | `link`, `record_tracking_satellite`                         | the physical name; the record-tracking pattern |
+| satellite        | `satellite_v0`, `satellite_v1`                              | `satellite_v0_naming` / `satellite_v1_naming` |
+| PIT              | `pit`                                                       | the physical name |
+| reference table  | `reference_table`                                           | the physical name |
+| snapshot control | `snapshot_control_v0`, `snapshot_control_v1`                | `<name>_v0` / `<name>_v1` |
+
+| Field             | Type       | Required | Description |
+| ----------------- | ---------- | -------- | ----------- |
+| model_output_id   | identifier | PK       | Unique identifier. |
+| project_id        | identifier | ✓ (FK)   | Set from the entity. |
+| kind              | string     | ✓        | Which of the entity's models (table above). |
+| source_table_id, hub_id, link_id, satellite_id, pit_id, reference_table_id, snapshot_control_id | identifier | exactly one | The entity. |
+| model_name        | string     |          | The model's name, and its file's. Not for hubs, links, PITs and reference tables: their physical name is their model name. No spaces, dots or slashes; unique in the project. |
+| folder            | string     |          | Folder of the model's files, relative to the dbt project (e.g. `models/raw_vault/hubs`). Must stay inside the project. Empty: TurboVault's layer folder. |
+| alias             | string     |          | `config(alias=...)`. |
+| schema_name       | string     |          | `config(schema=...)`. |
+| database_name     | string     |          | `config(database=...)`. |
+| materialized      | string     |          | `config(materialized=...)`; empty: the layer's (or the model kind's own, e.g. views for satellite v1). |
+| tags              | list       |          | The model's tags, replacing TurboVault's default tags (`['hub', 'raw_vault', <group>]`, ...). |
+| config            | mapping    |          | Further `config()` keys, written as they are (`unique_key`, `post_hook`, `on_schema_change`, ...). Not the keys above. |
+| created_at, updated_at | datetime | ✓     | Timestamps. |
+
+A pre-stage's model belongs to the dbt project: only its `model_name` is
+stored. Every reference between models follows the resolved names: a stage in
+its hubs, links and satellites, a v0 table in its v1 view, satellites and the
+snapshot control in a PIT, v1 views in a reference table. A satellite's v1 view
+without a folder of its own goes to its v0 table's folder, an effectivity or
+record-tracking satellite to its parent's, a snapshot control's logic to its
+table's. See the [generation pipeline](07_generation-pipeline.md#model-names-folders-and-settings)
+for how generation writes them.
+
+---
+
 This domain model specification is the reference for implementing the Django models in the TurboVault Engine.
 Any structural changes (new tables, renamed fields, changed semantics) should be reflected here first and then applied consistently in the code.

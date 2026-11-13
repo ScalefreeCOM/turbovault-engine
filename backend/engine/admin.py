@@ -10,6 +10,7 @@ from engine.models import (
     PIT,
     DerivedColumn,
     Group,
+    ModelOutput,
     PrejoinDefinition,
     PrejoinExtractionColumn,
     Project,
@@ -20,6 +21,71 @@ from engine.models import (
     SourceTable,
     StagingColumn,
 )
+
+_MODEL_OUTPUT_FIELDS = [
+    "kind",
+    "model_name",
+    "folder",
+    "alias",
+    "schema_name",
+    "database_name",
+    "materialized",
+    "tags",
+    "config",
+]
+
+
+def _model_output_inline(entity_field: str) -> type[admin.TabularInline]:
+    """Inline admin for the dbt models of one kind of entity."""
+
+    class ModelOutputInline(admin.TabularInline):
+        model = ModelOutput
+        fk_name = entity_field
+        extra = 0
+        fields = _MODEL_OUTPUT_FIELDS
+        verbose_name = "dbt model"
+        verbose_name_plural = (
+            "dbt models (name, folder and config() settings; empty keeps the "
+            "defaults)"
+        )
+
+    ModelOutputInline.__name__ = f"{entity_field.title().replace('_', '')}OutputInline"
+    return ModelOutputInline
+
+
+@admin.register(ModelOutput)
+class ModelOutputAdmin(admin.ModelAdmin):
+    """Admin configuration for ModelOutput: how an entity's dbt models are generated."""
+
+    list_display = ["kind", "model_name", "folder", "materialized", "project"]
+    list_filter = ["kind", "project"]
+    search_fields = ["model_name", "folder", "alias"]
+    readonly_fields = ["model_output_id", "project", "created_at", "updated_at"]
+    fieldsets = [
+        (
+            None,
+            {
+                "fields": [
+                    "model_output_id",
+                    "project",
+                    "kind",
+                    "source_table",
+                    "hub",
+                    "link",
+                    "satellite",
+                    "pit",
+                    "reference_table",
+                    "snapshot_control",
+                ],
+                "description": "Set exactly one entity; the project follows from it.",
+            },
+        ),
+        ("dbt model", {"fields": _MODEL_OUTPUT_FIELDS[1:]}),
+        (
+            "Timestamps",
+            {"fields": ["created_at", "updated_at"], "classes": ["collapse"]},
+        ),
+    ]
 
 
 @admin.register(Project)
@@ -80,7 +146,7 @@ class DerivedColumnInline(admin.TabularInline):
 class SourceTableAdmin(admin.ModelAdmin):
     """Admin configuration for SourceTable model."""
 
-    inlines = [DerivedColumnInline]
+    inlines = [DerivedColumnInline, _model_output_inline("source_table")]
 
     list_display = [
         "physical_table_name",
@@ -246,7 +312,7 @@ class HubAdmin(admin.ModelAdmin):
     search_fields = ["hub_physical_name", "hub_hashkey_name"]
     readonly_fields = ["hub_id", "created_at", "updated_at"]
     autocomplete_fields = ["project", "group"]
-    inlines = [HubColumnInline]
+    inlines = [HubColumnInline, _model_output_inline("hub")]
 
     fieldsets = [
         (
@@ -371,7 +437,7 @@ class SnapshotControlTableAdmin(admin.ModelAdmin):
     search_fields = ["name", "project__name"]
     readonly_fields = ["snapshot_control_table_id", "created_at", "updated_at"]
     autocomplete_fields = ["project"]
-    inlines = [SnapshotControlLogicInline]
+    inlines = [SnapshotControlLogicInline, _model_output_inline("snapshot_control")]
 
     fieldsets = [
         (None, {"fields": ["snapshot_control_table_id", "project", "name"]}),
@@ -504,7 +570,7 @@ class SatelliteAdmin(admin.ModelAdmin):
         "parent_link",
         "source_table",
     ]
-    inlines = [SatelliteColumnInline]
+    inlines = [SatelliteColumnInline, _model_output_inline("satellite")]
 
     fieldsets = [
         (
@@ -697,7 +763,11 @@ class LinkAdmin(admin.ModelAdmin):
     search_fields = ["link_physical_name", "link_hashkey_name"]
     readonly_fields = ["link_id", "created_at", "updated_at"]
     autocomplete_fields = ["project", "group"]
-    inlines = [LinkHubReferenceInline, LinkColumnInline]
+    inlines = [
+        LinkHubReferenceInline,
+        LinkColumnInline,
+        _model_output_inline("link"),
+    ]
 
     fieldsets = [
         (
@@ -867,7 +937,10 @@ class ReferenceTableAdmin(admin.ModelAdmin):
         "snapshot_control_table",
         "snapshot_control_logic",
     ]
-    inlines = [ReferenceTableSatelliteAssignmentInline]
+    inlines = [
+        ReferenceTableSatelliteAssignmentInline,
+        _model_output_inline("reference_table"),
+    ]
 
     fieldsets = [
         (
@@ -960,6 +1033,7 @@ class PITAdmin(admin.ModelAdmin):
         "snapshot_control_logic",
     ]
     filter_horizontal = ["satellites"]
+    inlines = [_model_output_inline("pit")]
 
     fieldsets = [
         (None, {"fields": ["pit_id", "project", "pit_physical_name"]}),

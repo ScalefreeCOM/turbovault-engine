@@ -9,22 +9,33 @@ from __future__ import annotations
 import logging
 import os
 import re
-from pathlib import Path
-from typing import TYPE_CHECKING
+from collections.abc import Iterable
+from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING, Any
 
+from engine.models.model_output import folder_error, normalize_folder
 from engine.services.config_schema import MODEL_MATERIALIZATION_DEFAULTS
+from engine.services.export.model_outputs import (
+    V1_SATELLITE_TYPES,
+    entity_base_name,
+    satellite_pattern,
+)
 
 from .file_writer import write_sql_file, write_yaml_file
 from .folder_config import GenerationConfig, get_model_filename
+from .model_config import LayerDefaults, ModelConfig
 from .profiles_yml import LiteralSecretError, render_profiles_yml
 from .report import GenerationReport
 from .template_resolver import TemplateResolver
 from .vars_block import render_vars_block
 
 if TYPE_CHECKING:
+    from jinja2 import Template
+
     from engine.services.export.models import (
         HubDefinition,
         LinkDefinition,
+        ModelOutputDef,
         PITDefinition,
         ProjectExport,
         ReferenceTableDefinition,
@@ -70,21 +81,59 @@ _MODEL_LAYERS = {
     "snapshot_control_v1": "control",
 }
 
-# DV type suffixes stripped when deriving a satellite base name (longest first).
-_DV_TYPE_SUFFIXES = ("_rh", "_nl", "_h", "_l")
+_OUTDATED_TEMPLATE_HINT = (
+    "`python manage.py populate_templates --overwrite` refreshes the workspace's "
+    "copies (and replaces their customizations)."
+)
 
 
-def _entity_base_name(parent_physical_name: str) -> str:
-    """Derive a base name: lowercase and strip a trailing DV type suffix.
+def _file_name_error(model_name: str) -> str | None:
+    """Why *model_name* can't name a file inside the project, or None."""
+    if (
+        not model_name
+        or model_name in (".", "..")
+        or any(char in model_name for char in "/\\\x00")
+    ):
+        return f"'{model_name}' can't name a model file: no slashes or '..'"
+    return None
 
-    e.g. CUSTOMER_H -> customer, ORDERS_CUSTOMERS_L -> orders_customers,
-    nation_rh -> nation, LINEITEM_NL -> lineitem.
+
+def _in_folder_of(
+    output: ModelOutputDef | None, other: ModelOutputDef | None
+) -> ModelOutputDef | None:
+    """*output*, placed in *other*'s folder when it has no folder of its own.
+
+    A satellite v1 view follows its v0 table, an effectivity or
+    record-tracking satellite its parent, a snapshot control's logic its table.
     """
-    lowered = parent_physical_name.lower()
-    for suffix in _DV_TYPE_SUFFIXES:
-        if lowered.endswith(suffix):
-            return lowered[: -len(suffix)]
-    return lowered
+    if output is None or output.folder or other is None or not other.folder:
+        return output
+    return output.model_copy(update={"folder": other.folder})
+
+
+def _model_outputs(project_export: ProjectExport) -> Iterable[ModelOutputDef]:
+    """Every resolved model output the export carries."""
+    for stage in project_export.stages:
+        yield from filter(None, (stage.output,))
+    for hub in project_export.hubs:
+        yield from filter(
+            None,
+            (
+                hub.output,
+                hub.effectivity_satellite_output,
+                hub.record_tracking_satellite_output,
+            ),
+        )
+    for link in project_export.links:
+        yield from filter(None, (link.output, link.record_tracking_satellite_output))
+    for satellite in project_export.satellites:
+        yield from filter(None, (satellite.v0_output, satellite.v1_output))
+    for pit in project_export.pits:
+        yield from filter(None, (pit.output,))
+    for table in project_export.reference_tables:
+        yield from filter(None, (table.output,))
+    for control in project_export.snapshot_controls:
+        yield from filter(None, (control.v0_output, control.v1_output))
 
 
 class DbtProjectGenerator:
@@ -213,6 +262,7 @@ class DbtProjectGenerator:
                 vars_block,
                 profiles_content,
                 has_prestages=bool(project_export.prestages),
+                model_paths=self._model_paths(project_export),
             )
 
             # 3. Generate sources.yml
@@ -319,11 +369,161 @@ class DbtProjectGenerator:
         materialization = self.config.staging_materialization
         return "view" if materialization == "ephemeral" else materialization
 
+    # -- model outputs -----------------------------------------------------
+
+    def _layer_folder(self, layer: str) -> str:
+        """A layer's folder, relative to the project (e.g. models/30_raw_vault)."""
+        folders = self.folder_config
+        return {
+            "staging": folders.staging_path,
+            "raw_vault": folders.raw_vault_path,
+            "business_vault": folders.business_vault_path,
+            "control": folders.control_path,
+        }[layer]
+
+    def _layer_defaults(self, layer: str) -> LayerDefaults:
+        """The schema and materialization dbt_project.yml gives a layer's folder."""
+        schemas = {
+            "staging": self.config.stage_schema,
+            "raw_vault": self.config.rdv_schema,
+            "business_vault": self.config.bdv_schema,
+            "control": self.config.control_schema,
+        }
+        return LayerDefaults(
+            materialized=getattr(self.config, f"{layer}_materialization"),
+            schema=schemas[layer],
+        )
+
+    def _stored_folder(self, output: ModelOutputDef | None) -> str | None:
+        """The folder stored for a model, or None for its layer's folder."""
+        if not self.config.use_model_folders or output is None or not output.folder:
+            return None
+        if error := folder_error(output.folder):
+            raise ValueError(error)
+        return normalize_folder(output.folder) or None
+
+    def _placement(
+        self, output: ModelOutputDef | None, default_dir: Path, layer: str
+    ) -> tuple[Path, ModelConfig]:
+        """Where a model's files go, and the settings of its config() block.
+
+        A model stored in a folder outside its layer's folder misses the
+        layer's settings in dbt_project.yml, so its config() gets them.
+        """
+        folder = self._stored_folder(output)
+        if folder is None:
+            return default_dir, ModelConfig(output)
+        layer_folder = self._layer_folder(layer)
+        inside = folder == layer_folder or folder.startswith(f"{layer_folder}/")
+        layer_defaults = None if inside else self._layer_defaults(layer)
+        return self.output_path / folder, ModelConfig(output, layer_defaults)
+
+    def _model_paths(self, project_export: ProjectExport) -> list[str]:
+        """dbt_project.yml's model-paths: models, plus stored folders' tops."""
+        paths = ["models"]
+        if not self.config.use_model_folders:
+            return paths
+        for output in _model_outputs(project_export):
+            if output.folder and not folder_error(output.folder):
+                parts = PurePosixPath(normalize_folder(output.folder)).parts
+                if parts and parts[0] not in paths:
+                    paths.append(parts[0])
+        return paths
+
+    def _write_model(
+        self,
+        *,
+        entity_type: str,
+        model_name: str,
+        directory: Path,
+        sql_template: Template | None,
+        yaml_template: Template | None,
+        context: dict[str, Any],
+        model_config: ModelConfig,
+        sql_context: dict[str, Any] | None = None,
+        references: Iterable[str] = (),
+    ) -> str | None:
+        """Render and write a model's SQL and YAML files; return the SQL.
+
+        *references* are the models the SQL must name (a v1 view's v0 table,
+        a PIT's satellites, ...): a template that doesn't is outdated.
+        """
+        if error := _file_name_error(model_name):
+            raise ValueError(error)
+        context = {**context, **model_config.context()}
+        sql_content = yaml_content = None
+        if sql_template is not None:
+            sql_content = sql_template.render(**{**context, **(sql_context or {})})
+            path = directory / get_model_filename(model_name, extension="sql")
+            write_sql_file(path, sql_content)
+            self.report.add_file(path, entity_type, model_name, "sql")
+        if yaml_template is not None:
+            yaml_content = yaml_template.render(**context)
+            path = directory / get_model_filename(model_name, extension="yml")
+            write_yaml_file(path, yaml_content)
+            self.report.add_file(path, entity_type, model_name, "yaml")
+        self._check_model_templates(
+            entity_type, model_name, model_config, sql_content, yaml_content, references
+        )
+        return sql_content
+
+    def _check_model_templates(
+        self,
+        entity_type: str,
+        model_name: str,
+        model_config: ModelConfig,
+        sql_content: str | None,
+        yaml_content: str | None,
+        references: Iterable[str],
+    ) -> None:
+        """Warn when a template ignores the model's stored names or settings.
+
+        A workspace's copies of the templates take precedence over the bundled
+        ones. Copies made before model outputs existed write fixed config()
+        blocks and append _v0/_v1 to satellite names.
+        """
+        problems = []
+        if (
+            sql_content is not None
+            and model_config.needs_config
+            and not model_config.config_used
+        ):
+            problems.append(
+                "write the model's stored dbt settings (alias, schema, tags, ... "
+                "or its folder's layer settings)"
+            )
+        if (
+            yaml_content is not None
+            and model_config.needs_tags
+            and not model_config.tags_used
+        ):
+            problems.append("write the model's stored tags into its YAML")
+        if sql_content is not None:
+            missing = [name for name in references if name and name not in sql_content]
+            if missing:
+                problems.append(
+                    "reference " + ", ".join(f"'{name}'" for name in missing)
+                )
+        if yaml_content is not None and model_name not in yaml_content:
+            problems.append(f"name the model '{model_name}' in its YAML")
+        if problems:
+            self.report.add_warning(
+                entity_type=entity_type,
+                entity_name=model_name,
+                message=(
+                    f"The {entity_type} template doesn't {' or '.join(problems)}: "
+                    "it predates stored model names and settings. Update the "
+                    f"template: {_OUTDATED_TEMPLATE_HINT}"
+                ),
+                code="TPL_003",
+            )
+
     def _generate_project_files(
         self,
         vars_block: str = "",
         profiles_content: str | None = None,
         has_prestages: bool = False,
+        model_paths: list[str] | None = None,
     ) -> None:
         """Generate dbt_project.yml, packages.yml and the optional profiles.yml.
 
@@ -333,6 +533,7 @@ class DbtProjectGenerator:
         value fails before any file is written). The pre-stage layer is only
         configured when the project `has_prestages`: the dbt project's
         pre-stage models placed there get the staging layer's settings.
+        `model_paths` are the project's `model-paths` (default: models).
         """
         # Generate dbt_project.yml
         template = self.template_resolver.get_project_template("dbt_project.yml")
@@ -353,6 +554,7 @@ class DbtProjectGenerator:
                 prestaging_materialization=(
                     self._prestaging_materialization() if has_prestages else None
                 ),
+                model_paths=model_paths or ["models"],
                 vars_block=vars_block,
             )
             path = self.output_path / "dbt_project.yml"
@@ -489,27 +691,25 @@ class DbtProjectGenerator:
 
         for stage in stages:
             try:
-                # Get output directory based on source system
-                output_dir = self.folder_config.get_staging_path(
-                    stage.source_system, self.output_path
+                # Standard folder: one per source system
+                directory, model_config = self._placement(
+                    stage.output,
+                    self.folder_config.get_staging_path(
+                        stage.source_system, self.output_path
+                    ),
+                    "staging",
                 )
-
-                # Generate SQL file
-                if sql_template:
-                    content = sql_template.render(**stage.model_dump())
+                content = self._write_model(
+                    entity_type="stage",
+                    model_name=stage.stage_name,
+                    directory=directory,
+                    sql_template=sql_template,
+                    yaml_template=yaml_template,
+                    context=stage.model_dump(),
+                    model_config=model_config,
+                )
+                if content is not None:
                     self._check_prestage_support(stage, content)
-                    filename = get_model_filename(stage.stage_name, extension="sql")
-                    path = output_dir / filename
-                    write_sql_file(path, content)
-                    self.report.add_file(path, "stage", stage.stage_name, "sql")
-
-                # Generate YAML file
-                if yaml_template:
-                    content = yaml_template.render(**stage.model_dump())
-                    filename = get_model_filename(stage.stage_name, extension="yml")
-                    path = output_dir / filename
-                    write_yaml_file(path, content)
-                    self.report.add_file(path, "stage", stage.stage_name, "yaml")
 
                 self.report.stages_generated += 1
 
@@ -544,25 +744,21 @@ class DbtProjectGenerator:
                     )
                     continue
 
-                # Get output directory based on group
-                output_dir = self.folder_config.get_raw_vault_path(
-                    hub.group, self.output_path
+                # Standard folder: the raw vault layer's, per group
+                directory, model_config = self._placement(
+                    hub.output,
+                    self.folder_config.get_raw_vault_path(hub.group, self.output_path),
+                    "raw_vault",
                 )
-
-                # Generate SQL file
-                content = sql_template.render(**hub.model_dump())
-                filename = get_model_filename(hub.hub_name, extension="sql")
-                path = output_dir / filename
-                write_sql_file(path, content)
-                self.report.add_file(path, entity_type, hub.hub_name, "sql")
-
-                # Generate YAML file
-                if yaml_template:
-                    content = yaml_template.render(**hub.model_dump())
-                    filename = get_model_filename(hub.hub_name, extension="yml")
-                    path = output_dir / filename
-                    write_yaml_file(path, content)
-                    self.report.add_file(path, entity_type, hub.hub_name, "yaml")
+                self._write_model(
+                    entity_type=entity_type,
+                    model_name=hub.hub_name,
+                    directory=directory,
+                    sql_template=sql_template,
+                    yaml_template=yaml_template,
+                    context=hub.model_dump(),
+                    model_config=model_config,
+                )
 
                 self.report.hubs_generated += 1
 
@@ -597,25 +793,21 @@ class DbtProjectGenerator:
                     )
                     continue
 
-                # Get output directory based on group
-                output_dir = self.folder_config.get_raw_vault_path(
-                    link.group, self.output_path
+                # Standard folder: the raw vault layer's, per group
+                directory, model_config = self._placement(
+                    link.output,
+                    self.folder_config.get_raw_vault_path(link.group, self.output_path),
+                    "raw_vault",
                 )
-
-                # Generate SQL file
-                content = sql_template.render(**link.model_dump())
-                filename = get_model_filename(link.link_name, extension="sql")
-                path = output_dir / filename
-                write_sql_file(path, content)
-                self.report.add_file(path, entity_type, link.link_name, "sql")
-
-                # Generate YAML file
-                if yaml_template:
-                    content = yaml_template.render(**link.model_dump())
-                    filename = get_model_filename(link.link_name, extension="yml")
-                    path = output_dir / filename
-                    write_yaml_file(path, content)
-                    self.report.add_file(path, entity_type, link.link_name, "yaml")
+                self._write_model(
+                    entity_type=entity_type,
+                    model_name=link.link_name,
+                    directory=directory,
+                    sql_template=sql_template,
+                    yaml_template=yaml_template,
+                    context=link.model_dump(),
+                    model_config=model_config,
+                )
 
                 self.report.links_generated += 1
 
@@ -634,12 +826,7 @@ class DbtProjectGenerator:
             logger.debug("No satellites to generate")
             return
 
-        v0_naming = self.config.satellite_v0_naming
-        v1_naming = self.config.satellite_v1_naming
         generate_v1 = self.config.generate_satellite_v1_views
-
-        # V1-capable types (standard, effectivity, multi_active, reference)
-        v1_types = {"standard", "effectivity", "multi_active", "reference"}
 
         for satellite in satellites:
             try:
@@ -657,40 +844,40 @@ class DbtProjectGenerator:
                     )
                     continue
 
-                # Get output directory based on group
-                output_dir = self.folder_config.get_raw_vault_path(
+                # The v0 model: its stored name, else the v0 naming pattern
+                v0_name = (
+                    satellite.v0_output.model_name
+                    if satellite.v0_output
+                    else satellite_pattern(
+                        self.config.satellite_v0_naming, satellite.satellite_name
+                    )
+                )
+                # Standard folder: the raw vault layer's, per group
+                default_dir = self.folder_config.get_raw_vault_path(
                     satellite.group, self.output_path
                 )
-
-                # Generate v0 model name
-                v0_name = self.config.resolve_entity_name(
-                    v0_naming, satellite.satellite_name
+                directory, model_config = self._placement(
+                    satellite.v0_output, default_dir, "raw_vault"
                 )
 
-                # Generate SQL file (v0)
+                # Templates name the v0 model satellite_name
                 context = satellite.model_dump()
-                context["satellite_name"] = v0_name  # Override with v0 suffix
-                content = sql_template.render(**context)
-                filename = get_model_filename(v0_name, extension="sql")
-                path = output_dir / filename
-                write_sql_file(path, content)
-                self.report.add_file(path, entity_type, v0_name, "sql")
-
-                # Generate YAML file (v0)
-                if yaml_template:
-                    content = yaml_template.render(**context)
-                    filename = get_model_filename(v0_name, extension="yml")
-                    path = output_dir / filename
-                    write_yaml_file(path, content)
-                    self.report.add_file(path, entity_type, v0_name, "yaml")
+                context["satellite_name"] = v0_name
+                self._write_model(
+                    entity_type=entity_type,
+                    model_name=v0_name,
+                    directory=directory,
+                    sql_template=sql_template,
+                    yaml_template=yaml_template,
+                    context=context,
+                    model_config=model_config,
+                )
 
                 self.report.satellites_generated += 1
 
                 # Generate v1 view if enabled and satellite type supports it
-                if generate_v1 and satellite.satellite_type in v1_types:
-                    self._generate_satellite_v1(
-                        satellite, output_dir, v0_name, v1_naming
-                    )
+                if generate_v1 and satellite.satellite_type in V1_SATELLITE_TYPES:
+                    self._generate_satellite_v1(satellite, default_dir, v0_name)
 
             except Exception as e:
                 logger.warning(
@@ -706,11 +893,13 @@ class DbtProjectGenerator:
     def _generate_satellite_v1(
         self,
         satellite: SatelliteDefinition,
-        output_dir: Path,
+        default_dir: Path,
         v0_name: str,
-        v1_suffix_or_pattern: str,
     ) -> None:
-        """Generate satellite v1 view (load_end_date view)."""
+        """Generate satellite v1 view (load_end_date view).
+
+        Without a folder of its own, the view goes where its v0 table goes.
+        """
         sql_template, yaml_template = self.template_resolver.get_templates(
             "satellite_v1"
         )
@@ -724,33 +913,37 @@ class DbtProjectGenerator:
             )
             return
 
-        # Generate v1 model name
+        # The view's model: its stored name, else the v1 naming pattern
         base_name = satellite.satellite_name
-        v1_name = self.config.resolve_entity_name(v1_suffix_or_pattern, base_name)
+        output = satellite.v1_output
+        v1_name = (
+            output.model_name
+            if output
+            else satellite_pattern(self.config.satellite_v1_naming, base_name)
+        )
+        output = _in_folder_of(output, satellite.v0_output)
 
         # Build context for v1 template
         context = satellite.model_dump()
         context["satellite_name"] = base_name  # Original name for template logic
         context["v0_name"] = v0_name
+        context["v1_name"] = v1_name
 
         try:
-            # Generate SQL file (v1)
-            content = sql_template.render(
-                **context,
-                materialization=self._specific_materialization("satellite_v1"),
+            directory, model_config = self._placement(output, default_dir, "raw_vault")
+            self._write_model(
+                entity_type="satellite_v1",
+                model_name=v1_name,
+                directory=directory,
+                sql_template=sql_template,
+                yaml_template=yaml_template,
+                context=context,
+                model_config=model_config,
+                sql_context={
+                    "materialization": self._specific_materialization("satellite_v1")
+                },
+                references=[v0_name],
             )
-            filename = get_model_filename(v1_name, extension="sql")
-            path = output_dir / filename
-            write_sql_file(path, content)
-            self.report.add_file(path, "satellite_v1", v1_name, "sql")
-
-            # Generate YAML file (v1)
-            if yaml_template:
-                content = yaml_template.render(**context)
-                filename = get_model_filename(v1_name, extension="yml")
-                path = output_dir / filename
-                write_yaml_file(path, content)
-                self.report.add_file(path, "satellite_v1", v1_name, "yaml")
 
             self.report.satellite_views_generated += 1
 
@@ -768,20 +961,40 @@ class DbtProjectGenerator:
         hubs: list[HubDefinition],
         links: list[LinkDefinition],
     ) -> None:
-        """Generate a record-tracking satellite for each flagged hub and link."""
-        # Collect flagged parents as (name, group, hashkey_name, source_tables).
-        parents: list[tuple[str, str | None, str | None, list]] = []
+        """Generate a record-tracking satellite for each flagged hub and link.
+
+        Without a folder of its own, the satellite goes where its parent goes.
+        """
+        # Collect flagged parents as (name, group, hashkey_name, source_tables,
+        # the satellite's output, in its parent's folder unless it has one).
+        parents: list[
+            tuple[str, str | None, str | None, list, ModelOutputDef | None]
+        ] = []
         for hub in hubs:
             if getattr(hub, "create_record_tracking_satellite", False):
                 hashkey_name = hub.hashkey.hashkey_name if hub.hashkey else None
                 parents.append(
-                    (hub.hub_name, hub.group, hashkey_name, hub.source_tables)
+                    (
+                        hub.hub_name,
+                        hub.group,
+                        hashkey_name,
+                        hub.source_tables,
+                        _in_folder_of(hub.record_tracking_satellite_output, hub.output),
+                    )
                 )
         for link in links:
             if getattr(link, "create_record_tracking_satellite", False):
                 hashkey_name = link.hashkey.hashkey_name if link.hashkey else None
                 parents.append(
-                    (link.link_name, link.group, hashkey_name, link.source_tables)
+                    (
+                        link.link_name,
+                        link.group,
+                        hashkey_name,
+                        link.source_tables,
+                        _in_folder_of(
+                            link.record_tracking_satellite_output, link.output
+                        ),
+                    )
                 )
 
         if not parents:
@@ -801,7 +1014,7 @@ class DbtProjectGenerator:
 
         naming = self.config.record_tracking_satellite_naming
 
-        for parent_name, group, hashkey_name, source_tables in parents:
+        for parent_name, group, hashkey_name, source_tables, output in parents:
             if not hashkey_name:
                 self.report.add_skipped(
                     entity_type="satellite_record_tracking",
@@ -811,8 +1024,10 @@ class DbtProjectGenerator:
                 continue
 
             try:
-                rts_name = self.config.resolve_entity_name(
-                    naming, _entity_base_name(parent_name)
+                rts_name = (
+                    output.model_name
+                    if output
+                    else satellite_pattern(naming, entity_base_name(parent_name))
                 )
                 context = {
                     "satellite_name": rts_name,
@@ -822,24 +1037,20 @@ class DbtProjectGenerator:
                     "source_tables": [st.model_dump() for st in source_tables],
                 }
 
-                output_dir = self.folder_config.get_raw_vault_path(
-                    group, self.output_path
+                directory, model_config = self._placement(
+                    output,
+                    self.folder_config.get_raw_vault_path(group, self.output_path),
+                    "raw_vault",
                 )
-
-                content = sql_template.render(**context)
-                filename = get_model_filename(rts_name, extension="sql")
-                path = output_dir / filename
-                write_sql_file(path, content)
-                self.report.add_file(path, "satellite_record_tracking", rts_name, "sql")
-
-                if yaml_template:
-                    content = yaml_template.render(**context)
-                    filename = get_model_filename(rts_name, extension="yml")
-                    path = output_dir / filename
-                    write_yaml_file(path, content)
-                    self.report.add_file(
-                        path, "satellite_record_tracking", rts_name, "yaml"
-                    )
+                self._write_model(
+                    entity_type="satellite_record_tracking",
+                    model_name=rts_name,
+                    directory=directory,
+                    sql_template=sql_template,
+                    yaml_template=yaml_template,
+                    context=context,
+                    model_config=model_config,
+                )
 
                 self.report.record_tracking_satellites_generated += 1
 
@@ -856,7 +1067,10 @@ class DbtProjectGenerator:
                 )
 
     def _generate_effectivity_satellites(self, hubs: list[HubDefinition]) -> None:
-        """Generate an effectivity satellite for each flagged hub."""
+        """Generate an effectivity satellite for each flagged hub.
+
+        Without a folder of its own, the satellite goes where its hub goes.
+        """
         flagged = [
             hub for hub in hubs if getattr(hub, "create_effectivity_satellite", False)
         ]
@@ -889,8 +1103,11 @@ class DbtProjectGenerator:
                 continue
 
             try:
-                es_name = self.config.resolve_entity_name(
-                    naming, _entity_base_name(hub.hub_name)
+                output = _in_folder_of(hub.effectivity_satellite_output, hub.output)
+                es_name = (
+                    output.model_name
+                    if output
+                    else satellite_pattern(naming, entity_base_name(hub.hub_name))
                 )
                 context = {
                     "satellite_name": es_name,
@@ -900,22 +1117,20 @@ class DbtProjectGenerator:
                     "group": hub.group,
                 }
 
-                output_dir = self.folder_config.get_raw_vault_path(
-                    hub.group, self.output_path
+                directory, model_config = self._placement(
+                    output,
+                    self.folder_config.get_raw_vault_path(hub.group, self.output_path),
+                    "raw_vault",
                 )
-
-                content = sql_template.render(**context)
-                filename = get_model_filename(es_name, extension="sql")
-                path = output_dir / filename
-                write_sql_file(path, content)
-                self.report.add_file(path, "satellite_effectivity", es_name, "sql")
-
-                if yaml_template:
-                    content = yaml_template.render(**context)
-                    filename = get_model_filename(es_name, extension="yml")
-                    path = output_dir / filename
-                    write_yaml_file(path, content)
-                    self.report.add_file(path, "satellite_effectivity", es_name, "yaml")
+                self._write_model(
+                    entity_type="satellite_effectivity",
+                    model_name=es_name,
+                    directory=directory,
+                    sql_template=sql_template,
+                    yaml_template=yaml_template,
+                    context=context,
+                    model_config=model_config,
+                )
 
                 self.report.effectivity_satellites_generated += 1
 
@@ -949,27 +1164,27 @@ class DbtProjectGenerator:
 
         for pit in pits:
             try:
-                output_dir = self.folder_config.get_business_vault_pits_path(
-                    pit.group, self.output_path
+                # Standard folder: the business vault's pits folder, per group
+                directory, model_config = self._placement(
+                    pit.output,
+                    self.folder_config.get_business_vault_pits_path(
+                        pit.group, self.output_path
+                    ),
+                    "business_vault",
                 )
-
-                # Generate SQL file
-                content = sql_template.render(
-                    **pit.model_dump(),
-                    materialization=self._specific_materialization("pit"),
+                self._write_model(
+                    entity_type="pit",
+                    model_name=pit.pit_name,
+                    directory=directory,
+                    sql_template=sql_template,
+                    yaml_template=yaml_template,
+                    context=pit.model_dump(),
+                    model_config=model_config,
+                    sql_context={
+                        "materialization": self._specific_materialization("pit")
+                    },
+                    references=[*pit.satellite_models, pit.snapshot_control_name],
                 )
-                filename = get_model_filename(pit.pit_name, extension="sql")
-                path = output_dir / filename
-                write_sql_file(path, content)
-                self.report.add_file(path, "pit", pit.pit_name, "sql")
-
-                # Generate YAML file
-                if yaml_template:
-                    content = yaml_template.render(**pit.model_dump())
-                    filename = get_model_filename(pit.pit_name, extension="yml")
-                    path = output_dir / filename
-                    write_yaml_file(path, content)
-                    self.report.add_file(path, "pit", pit.pit_name, "yaml")
 
                 self.report.pits_generated += 1
 
@@ -1005,31 +1220,31 @@ class DbtProjectGenerator:
 
         for ref_table in ref_tables:
             try:
-                output_dir = self.folder_config.get_raw_vault_path(
-                    ref_table.group, self.output_path
+                # Standard folder: the raw vault layer's, per group
+                directory, model_config = self._placement(
+                    ref_table.output,
+                    self.folder_config.get_raw_vault_path(
+                        ref_table.group, self.output_path
+                    ),
+                    "raw_vault",
                 )
-
-                # Generate SQL file
-                content = sql_template.render(
-                    **ref_table.model_dump(),
-                    materialization=self._specific_materialization("reference_table"),
+                self._write_model(
+                    entity_type="reference_table",
+                    model_name=ref_table.table_name,
+                    directory=directory,
+                    sql_template=sql_template,
+                    yaml_template=yaml_template,
+                    context=ref_table.model_dump(),
+                    model_config=model_config,
+                    sql_context={
+                        "materialization": self._specific_materialization(
+                            "reference_table"
+                        )
+                    },
+                    references=[
+                        sat.model_name for sat in ref_table.satellites if sat.model_name
+                    ],
                 )
-                filename = get_model_filename(ref_table.table_name, extension="sql")
-                path = output_dir / filename
-                write_sql_file(path, content)
-                self.report.add_file(
-                    path, "reference_table", ref_table.table_name, "sql"
-                )
-
-                # Generate YAML file
-                if yaml_template:
-                    content = yaml_template.render(**ref_table.model_dump())
-                    filename = get_model_filename(ref_table.table_name, extension="yml")
-                    path = output_dir / filename
-                    write_yaml_file(path, content)
-                    self.report.add_file(
-                        path, "reference_table", ref_table.table_name, "yaml"
-                    )
 
                 self.report.reference_tables_generated += 1
 
@@ -1062,7 +1277,7 @@ class DbtProjectGenerator:
 
         for snap_ctrl in snapshot_controls:
             try:
-                output_dir = self.folder_config.get_control_path(self.output_path)
+                control_dir = self.folder_config.get_control_path(self.output_path)
                 # Templates append _v0/_v1 to `name`, so they get the base name:
                 # a control stored as 'control_snap_v0' must not name its models
                 # 'control_snap_v0_v0'. The model names are passed as they are.
@@ -1075,55 +1290,46 @@ class DbtProjectGenerator:
 
                 # Generate v0 model (control table)
                 if v0_sql_template:
-                    content = v0_sql_template.render(
-                        **context,
-                        materialization=self._specific_materialization(
-                            "snapshot_control_v0"
-                        ),
+                    directory, model_config = self._placement(
+                        snap_ctrl.v0_output, control_dir, "control"
                     )
-                    filename = get_model_filename(snap_ctrl.v0_name, extension="sql")
-                    path = output_dir / filename
-                    write_sql_file(path, content)
-                    self.report.add_file(
-                        path, "snapshot_control_v0", snap_ctrl.v0_name, "sql"
+                    self._write_model(
+                        entity_type="snapshot_control_v0",
+                        model_name=snap_ctrl.v0_name,
+                        directory=directory,
+                        sql_template=v0_sql_template,
+                        yaml_template=v0_yaml_template,
+                        context=context,
+                        model_config=model_config,
+                        sql_context={
+                            "materialization": self._specific_materialization(
+                                "snapshot_control_v0"
+                            )
+                        },
                     )
 
-                    if v0_yaml_template:
-                        content = v0_yaml_template.render(**context)
-                        filename = get_model_filename(
-                            snap_ctrl.v0_name, extension="yml"
-                        )
-                        path = output_dir / filename
-                        write_yaml_file(path, content)
-                        self.report.add_file(
-                            path, "snapshot_control_v0", snap_ctrl.v0_name, "yaml"
-                        )
-
-                # Generate v1 model (control logic)
+                # Generate v1 model (control logic), next to the table by default
                 if v1_sql_template:
-                    content = v1_sql_template.render(
-                        **context,
-                        materialization=self._specific_materialization(
-                            "snapshot_control_v1"
-                        ),
+                    directory, model_config = self._placement(
+                        _in_folder_of(snap_ctrl.v1_output, snap_ctrl.v0_output),
+                        control_dir,
+                        "control",
                     )
-                    filename = get_model_filename(snap_ctrl.v1_name, extension="sql")
-                    path = output_dir / filename
-                    write_sql_file(path, content)
-                    self.report.add_file(
-                        path, "snapshot_control_v1", snap_ctrl.v1_name, "sql"
+                    self._write_model(
+                        entity_type="snapshot_control_v1",
+                        model_name=snap_ctrl.v1_name,
+                        directory=directory,
+                        sql_template=v1_sql_template,
+                        yaml_template=v1_yaml_template,
+                        context=context,
+                        model_config=model_config,
+                        sql_context={
+                            "materialization": self._specific_materialization(
+                                "snapshot_control_v1"
+                            )
+                        },
+                        references=[snap_ctrl.v0_name],
                     )
-
-                    if v1_yaml_template:
-                        content = v1_yaml_template.render(**context)
-                        filename = get_model_filename(
-                            snap_ctrl.v1_name, extension="yml"
-                        )
-                        path = output_dir / filename
-                        write_yaml_file(path, content)
-                        self.report.add_file(
-                            path, "snapshot_control_v1", snap_ctrl.v1_name, "yaml"
-                        )
 
                 self.report.snapshot_controls_generated += 1
 

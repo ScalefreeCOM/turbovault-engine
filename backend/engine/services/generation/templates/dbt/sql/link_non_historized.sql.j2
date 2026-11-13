@@ -1,11 +1,7 @@
 [# Non-Historized Link Template #]
 [# Generates a non-historized link model using datavault4dbt.nh_link() macro #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-    tags=['link', 'non_historized', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
-) }}
+[# model_config: the config() block; the link's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['link', 'non_historized', 'raw_vault', group]) ]]
 
 {%- set yaml_metadata -%}
 source_models:

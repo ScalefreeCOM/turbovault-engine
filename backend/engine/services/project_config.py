@@ -137,6 +137,14 @@ def write_project_config(config_path: Path, config) -> None:
         config_dict["configuration"][
             "satellite_v1_naming"
         ] = config.configuration.satellite_v1_naming
+    for pattern_key in (
+        "record_tracking_satellite_naming",
+        "effectivity_satellite_naming",
+        "stage_naming",
+        "prestage_naming",
+    ):
+        if value := getattr(config.configuration, pattern_key):
+            config_dict["configuration"][pattern_key] = value
 
     # Add source if present
     if config.source:

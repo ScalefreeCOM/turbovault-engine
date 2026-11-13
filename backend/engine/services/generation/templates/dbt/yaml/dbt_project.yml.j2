@@ -11,7 +11,8 @@ config-version: 2
 
 profile: [[ profile_name | default('default', true) | yaml_single_quote ]]
 
-model-paths: ["models"]
+[# model_paths: "models", plus the top folders of models stored elsewhere #]
+model-paths: [[ (model_paths or ['models']) | tojson ]]
 analysis-paths: ["analyses"]
 test-paths: ["tests"]
 seed-paths: ["seeds"]

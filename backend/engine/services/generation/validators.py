@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from engine.services.export.models import (
         HubDefinition,
         LinkDefinition,
+        ModelOutputDef,
         PITDefinition,
         ProjectExport,
         SatelliteDefinition,
@@ -117,7 +118,10 @@ _PLAIN_COLUMN = re.compile(r'[A-Za-z_][A-Za-z0-9_$]*|"[^"]+"')
 
 
 def validate_export(
-    project_export: ProjectExport, *, keeps_load_columns: bool = False
+    project_export: ProjectExport,
+    *,
+    keeps_load_columns: bool = False,
+    generate_satellite_v1_views: bool = True,
 ) -> ValidationResult:
     """
     Validate a project export before generation.
@@ -127,6 +131,8 @@ def validate_export(
         keeps_load_columns: Whether the stages keep the columns their record
             source and load date are read from (datavault4dbt's
             ``copy_rsrc_ldts_input_columns``); by default they drop them.
+        generate_satellite_v1_views: Whether satellites get their v1 views,
+            whose names then count among the project's model names.
 
     Returns:
         ValidationResult with any errors and warnings found.
@@ -135,6 +141,9 @@ def validate_export(
 
     if not keeps_load_columns:
         result.merge(_validate_load_columns_unused(project_export))
+
+    # Model names and folders: one model per name, files inside the project
+    result.merge(_validate_models(project_export, generate_satellite_v1_views))
 
     # Validate sources
     for source in project_export.sources:
@@ -164,6 +173,136 @@ def validate_export(
     for snap_ctrl in project_export.snapshot_controls:
         result.merge(_validate_snapshot_control(snap_ctrl))
 
+    return result
+
+
+def _project_models(
+    project_export: ProjectExport, generate_satellite_v1_views: bool
+) -> list[tuple[str, str, ModelOutputDef | None, str]]:
+    """Every dbt model of the project: (entity type, entity, output, name).
+
+    Pre-stages count too: they are models of the dbt project. Entities whose
+    export carries no resolved output (older exports) are left out.
+    """
+    models: list[tuple[str, str, ModelOutputDef | None, str]] = []
+    for stage in project_export.stages:
+        models.append(("stage", stage.stage_name, stage.output, stage.stage_name))
+    for prestage in project_export.prestages:
+        models.append(("prestage", prestage.model_name, None, prestage.model_name))
+    for hub in project_export.hubs:
+        if hub.output:
+            models.append(("hub", hub.hub_name, hub.output, hub.output.model_name))
+        for flag, output in (
+            (hub.create_effectivity_satellite, hub.effectivity_satellite_output),
+            (
+                hub.create_record_tracking_satellite,
+                hub.record_tracking_satellite_output,
+            ),
+        ):
+            if flag and output:
+                models.append(("hub", hub.hub_name, output, output.model_name))
+    for link in project_export.links:
+        if link.output:
+            models.append(("link", link.link_name, link.output, link.output.model_name))
+        output = link.record_tracking_satellite_output
+        if link.create_record_tracking_satellite and output:
+            models.append(("link", link.link_name, output, output.model_name))
+    for sat in project_export.satellites:
+        if sat.v0_output:
+            models.append(
+                (
+                    "satellite",
+                    sat.satellite_name,
+                    sat.v0_output,
+                    sat.v0_output.model_name,
+                )
+            )
+        if generate_satellite_v1_views and sat.v1_output:
+            models.append(
+                (
+                    "satellite",
+                    sat.satellite_name,
+                    sat.v1_output,
+                    sat.v1_output.model_name,
+                )
+            )
+    for pit in project_export.pits:
+        if pit.output:
+            models.append(("pit", pit.pit_name, pit.output, pit.output.model_name))
+    for table in project_export.reference_tables:
+        if table.output:
+            models.append(
+                (
+                    "reference_table",
+                    table.table_name,
+                    table.output,
+                    table.output.model_name,
+                )
+            )
+    for control in project_export.snapshot_controls:
+        for output in (control.v0_output, control.v1_output):
+            if output:
+                models.append(
+                    ("snapshot_control", control.name, output, output.model_name)
+                )
+    return models
+
+
+def _validate_models(
+    project_export: ProjectExport, generate_satellite_v1_views: bool
+) -> ValidationResult:
+    """Each model name names one model, and every file stays in the project.
+
+    dbt refuses two models of one name. A name or folder that leaves the
+    project (slashes, '..', absolute paths) would write outside it.
+    """
+    from engine.models.model_output import folder_error
+
+    result = ValidationResult()
+    seen: dict[str, tuple[str, str]] = {}
+    for entity_type, entity_name, output, model_name in _project_models(
+        project_export, generate_satellite_v1_views
+    ):
+        if (
+            not model_name
+            or model_name in (".", "..")
+            or any(char in model_name for char in "/\\\x00")
+        ):
+            result.add_error(
+                entity_type=entity_type,
+                entity_name=entity_name,
+                field="model_name",
+                message=(
+                    f"'{model_name}' can't name a dbt model file: no slashes " "or '..'"
+                ),
+                code="MDL_002",
+            )
+            continue
+        if output is not None and output.folder:
+            if error := folder_error(output.folder):
+                result.add_error(
+                    entity_type=entity_type,
+                    entity_name=entity_name,
+                    field="folder",
+                    message=f"{error} (model '{model_name}')",
+                    code="MDL_003",
+                )
+        key = model_name.lower()
+        if key in seen:
+            other_type, other_name = seen[key]
+            result.add_error(
+                entity_type=entity_type,
+                entity_name=entity_name,
+                field="model_name",
+                message=(
+                    f"Model '{model_name}' of {entity_type} '{entity_name}' has "
+                    f"the name of a model of {other_type} '{other_name}': dbt "
+                    "needs a name per model. Rename one of them."
+                ),
+                code="MDL_001",
+            )
+        else:
+            seen[key] = (entity_type, entity_name)
     return result
 
 

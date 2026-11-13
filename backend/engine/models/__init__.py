@@ -16,6 +16,7 @@ from engine.models.links import (
     LinkHubSourceMapping,
     LinkSourceMapping,
 )
+from engine.models.model_output import ModelOutput
 from engine.models.pit import PIT
 from engine.models.prejoin import PrejoinDefinition, PrejoinExtractionColumn
 from engine.models.project import Project
@@ -58,4 +59,5 @@ __all__ = [
     "DerivedColumn",
     "TemplateCategory",
     "ModelTemplate",
+    "ModelOutput",
 ]

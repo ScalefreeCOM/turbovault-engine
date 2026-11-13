@@ -331,29 +331,38 @@ What the import needs and TurboVault lacks today. Each lands with its Studio not
 
 ### 9.1 Model output attributes (#442)
 
-One record per generated dbt model, keyed by entity and output kind:
+**Implemented** as `ModelOutput` (domain model §10): one row per entity and kind of model, only where
+something differs from the defaults.
 
-| Entity | Output kinds |
-|--------|--------------|
+| Entity | Kinds |
+|--------|-------|
 | source table | `stage`, `prestage` |
 | Hub | `hub`, `effectivity_satellite`, `record_tracking_satellite` |
 | Link | `link`, `record_tracking_satellite` |
-| Satellite | `v0`, `v1` |
+| Satellite | `satellite_v0`, `satellite_v1` |
 | PIT, reference table | `pit`, `reference_table` |
-| snapshot control | `v0`, `v1` |
+| snapshot control | `snapshot_control_v0`, `snapshot_control_v1` |
 
-Fields (all optional; empty means "derived as today"): `model_name`, `alias`, `folder` (relative to the
-dbt project root, e.g. `models/raw_vault/hubs`; the file name is the model name, D14), `schema`,
-`database`, `materialized`, `tags`, `config` (other config keys verbatim: hooks, `unique_key`, …). Proposed storage: one table with explicit nullable foreign keys to the entities (as
-`StagingColumn` does), unique per entity and output kind, and per project by model name.
+Fields (all optional; empty means "derived as today"): `model_name` (not for hubs, links, PITs and
+reference tables, whose physical name is their model name), `folder` (relative to the dbt project root,
+e.g. `models/raw_vault/hubs`; the file name is the model name, D14), `alias`, `schema_name`,
+`database_name`, `materialized`, `tags` (replacing the default tags), `config` (other config keys
+verbatim: hooks, `unique_key`, …). One table with explicit nullable foreign keys to the entities, unique
+per entity and kind; stored names are unique per project.
 
-Generation resolves every model name through one service, so file names **and every reference**
-(stage names in `source_models`, v0 in v1, v1 in PITs and reference tables, snapshot controls in PITs,
-pre-stages in stages and prejoins) follow the stored names. That also fixes the hard-coded `_v0` / `_v1`
-references #442 lists. New project patterns for stage and pre-stage names replace the hard-coded
-`stg__…` / `pstg__…`. A generation option (`use_original_paths`, default on) switches back to the
-standard structure. Folders outside the standard layer folders get their schema and materialization from
-the attributes.
+The export builder resolves every model name once (`engine/services/export/model_outputs.py`), so file
+names **and every reference** (stage names in `source_models`, v0 in v1, v0 in PITs, v1 in reference
+tables, snapshot controls in PITs, pre-stages in stages and prejoins) follow the stored names. That also
+fixes the hard-coded `_v0` / `_v1` references #442 lists. New project patterns `stage_naming` and
+`prestage_naming` replace the hard-coded `stg__…` / `pstg__…`. `GenerationOptions.use_model_folders`
+(default on) switches back to the standard folders. A model in a folder outside its layer's folder gets the
+layer's schema and materialization in its `config()`, unless its attributes set them. Templates write the
+`config()` block through `model_config(...)`; validation rejects duplicate names and names or folders that
+leave the project.
+
+For the import (Phase 4): the manifest can't tell a model's own config from folder-level settings
+(`config_call_dict` isn't serialized; `unrendered_config` merges both), so the import stores the effective
+`schema`/`materialized`/`tags`/... of each model unless `dbt_project.yml` is available to tell them apart.
 
 ### 9.2 Hash diff name and alias (Satellite)
 

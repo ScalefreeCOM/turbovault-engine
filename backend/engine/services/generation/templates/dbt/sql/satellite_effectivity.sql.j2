@@ -1,11 +1,7 @@
 [# Effectivity Satellite Template #]
 [# Tracks the effectivity (active/inactive status) of relationships #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-    tags=['satellite', 'effectivity', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
-) }}
+[# model_config: the config() block; the satellite's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['satellite', 'effectivity', 'raw_vault', group]) ]]
 
 {%- set yaml_metadata -%}
 source_model: [[ stage_name ]]

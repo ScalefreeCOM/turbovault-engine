@@ -1,11 +1,7 @@
 [# Standard Satellite Template #]
 [# Generates a satellite model using datavault4dbt.sat_v0() macro #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-    tags=['satellite', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
-) }}
+[# model_config: the config() block; the satellite's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['satellite', 'raw_vault', group]) ]]
 
 {%- set yaml_metadata -%}
 source_model: [[ stage_name ]]

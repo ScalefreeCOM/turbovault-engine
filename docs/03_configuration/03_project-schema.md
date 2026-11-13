@@ -248,6 +248,10 @@ Project-level Data Vault configuration. If not provided, defaults are used.
 | `hashkey_naming` | string | No | `"hk_[[ entity_name ]]"` | Naming pattern for hub/link hashkey columns |
 | `satellite_v0_naming` | string | No | `"[[ satellite_name ]]_v0"` | Naming pattern for v0 satellite models |
 | `satellite_v1_naming` | string | No | `"[[ satellite_name ]]_v1"` | Naming pattern for v1 satellite models |
+| `record_tracking_satellite_naming` | string | No | `"[[ satellite_name ]]_ts"` | Naming pattern for record-tracking satellite models; `[[ satellite_name ]]` is the parent's name in lowercase, without its `_h`/`_l`/`_rh`/`_nl` suffix |
+| `effectivity_satellite_naming` | string | No | `"[[ satellite_name ]]_es"` | Naming pattern for effectivity satellite models, like the record-tracking one |
+| `stage_naming` | string | No | `"stg__[[ source_system ]]__[[ source_table ]]"` | Naming pattern for stage models: `[[ source_system ]]` is the source system's dbt name (lowercase, spaces as `_`), `[[ source_table ]]` the table's physical name in lowercase |
+| `prestage_naming` | string | No | `"pstg__[[ source_system ]]__[[ source_table ]]"` | Naming pattern for the [pre-stage](../04_concepts/01_domain-model.md#35-pre-stages) models stages read, with the same placeholders |
 | `default_record_source_value` | string | No | `null` | Record source of source systems and tables that set none: a column, SQL, or fixed text after a `!`. With none, a table uses its source system's name as fixed text |
 | `default_static_part_of_record_source` | string | No | `null` | Static part of the record source (an SQL `LIKE` pattern) of tables that set none |
 | `default_load_date_value` | string | No | `null` | Load date of source systems and tables that set none: a column or SQL. With none, `sysdate()` |

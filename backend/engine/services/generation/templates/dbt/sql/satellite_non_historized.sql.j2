@@ -1,11 +1,7 @@
 [# Non-Historized Satellite Template #]
 [# Generates a satellite model that only keeps the latest record (no history) #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-    tags=['satellite', 'non_historized', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
-) }}
+[# model_config: the config() block; the satellite's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['satellite', 'non_historized', 'raw_vault', group]) ]]
 
 {%- set yaml_metadata -%}
 source_model: [[ stage_name ]]

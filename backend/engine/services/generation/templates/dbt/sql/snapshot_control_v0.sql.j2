@@ -1,11 +1,7 @@
 [# Snapshot Control V0 Template #]
 [# Generates the snapshot control table with date ranges #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-    tags=['snapshot_control', 'control']
-) }}
+[# model_config: the config() block; the model's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['snapshot_control', 'control']) ]]
 
 {%- set yaml_metadata -%}
 start_date: '[[ start_date ]]'

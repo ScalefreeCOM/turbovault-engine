@@ -3,12 +3,8 @@
 
 [# v0_name: the snapshot control table model this logic reads #]
 
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-    tags=['snapshot_control', 'control']
-) }}
+[# model_config: the config() block; the model's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['snapshot_control', 'control']) ]]
 
 {%- set yaml_metadata -%}
 control_snap_v0: [[ v0_name ]]

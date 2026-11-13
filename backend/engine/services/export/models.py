@@ -8,9 +8,53 @@ that can be serialized to various output formats (JSON, dbt, DBML, etc.).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+# =============================================================================
+# Generated dbt models
+# =============================================================================
+
+
+class ModelOutputDef(BaseModel):
+    """A generated dbt model: its name and the settings it's generated with.
+
+    ``model_name`` is always set: the stored name, else the one TurboVault
+    derives. The other fields are the model's stored settings (see
+    ``engine.models.ModelOutput``); None keeps TurboVault's defaults. Derived
+    from the project: the JSON import doesn't read it back.
+    """
+
+    model_name: str
+    folder: str | None = Field(
+        None, description="Folder of the model's files, relative to the dbt project"
+    )
+    alias: str | None = None
+    schema_name: str | None = None
+    database_name: str | None = None
+    materialized: str | None = None
+    tags: list[str] | None = Field(
+        None, description="Tags replacing TurboVault's default tags"
+    )
+    config: dict[str, Any] | None = Field(
+        None, description="Further config() keys, written as they are"
+    )
+
+    def settings(self) -> dict[str, Any]:
+        """The stored config() settings, without empty values."""
+        values = {
+            "materialized": self.materialized,
+            "alias": self.alias,
+            "schema": self.schema_name,
+            "database": self.database_name,
+        }
+        settings: dict[str, Any] = {k: v for k, v in values.items() if v}
+        if self.tags is not None:
+            settings["tags"] = list(self.tags)
+        settings.update(self.config or {})
+        return settings
+
 
 # =============================================================================
 # Source Layer Models
@@ -192,6 +236,15 @@ class HubDefinition(BaseModel):
     column_descriptions: dict[str, ColumnDescriptionDef] = Field(
         default_factory=dict,
         description="Descriptions by hub column name, for columns that have one",
+    )
+    output: ModelOutputDef | None = Field(
+        None, description="The hub's dbt model (None: named hub_name, defaults)"
+    )
+    effectivity_satellite_output: ModelOutputDef | None = Field(
+        None, description="The effectivity satellite's model, when the hub has one"
+    )
+    record_tracking_satellite_output: ModelOutputDef | None = Field(
+        None, description="The record-tracking satellite's model, when the hub has one"
     )
 
 
@@ -376,6 +429,13 @@ class LinkDefinition(BaseModel):
     )
     create_record_tracking_satellite: bool = False
     description: str | None = None
+    output: ModelOutputDef | None = Field(
+        None, description="The link's dbt model (None: named link_name, defaults)"
+    )
+    record_tracking_satellite_output: ModelOutputDef | None = Field(
+        None,
+        description="The record-tracking satellite's model, when the link has one",
+    )
     column_descriptions: dict[str, ColumnDescriptionDef] = Field(
         default_factory=dict,
         description="Descriptions by link column name, for columns that have one",
@@ -509,6 +569,9 @@ class StageDefinition(BaseModel):
     )
     record_source: str | None = None
     load_date: str | None = None
+    output: ModelOutputDef | None = Field(
+        None, description="The stage's dbt model (None: named stage_name, defaults)"
+    )
     description: str | None = Field(
         default=None, description="Description of the source table"
     )
@@ -612,6 +675,16 @@ class SatelliteDefinition(BaseModel):
         default_factory=list, description="Satellite columns"
     )
     description: str | None = None
+    v0_output: ModelOutputDef | None = Field(
+        None, description="The satellite's v0 model (None: the v0 naming pattern)"
+    )
+    v1_output: ModelOutputDef | None = Field(
+        None,
+        description=(
+            "The satellite's v1 view, for the types that have one (generated "
+            "when v1 views are on)"
+        ),
+    )
 
 
 # =============================================================================
@@ -628,6 +701,9 @@ class ReferenceTableSatelliteAssignment(BaseModel):
     """Satellite assignment for a reference table."""
 
     satellite_name: str = Field(description="Name of the reference satellite")
+    model_name: str | None = Field(
+        None, description="The satellite's v1 model, which the reference table reads"
+    )
     include_columns: list[str] = Field(
         default_factory=list,
         description="Specific columns to include (if empty, includes all except excluded)",
@@ -659,6 +735,9 @@ class ReferenceTableDefinition(BaseModel):
         default_factory=list, description="Reference satellite assignments"
     )
     description: str | None = None
+    output: ModelOutputDef | None = Field(
+        None, description="The reference table's dbt model (None: named table_name)"
+    )
 
 
 class PITDefinition(BaseModel):
@@ -671,6 +750,10 @@ class PITDefinition(BaseModel):
     tracked_hashkey: str = Field(description="Hashkey name of the tracked hub or link")
     satellites: list[str] = Field(
         default_factory=list, description="List of satellite names included in the PIT"
+    )
+    satellite_models: list[str] = Field(
+        default_factory=list,
+        description="The v0 models of those satellites, which the PIT reads",
     )
     snapshot_control_name: str = Field(
         description="Name of the snapshot control table (v1)"
@@ -686,6 +769,9 @@ class PITDefinition(BaseModel):
     include_business_objects_before_appearance: bool = Field(
         default=False,
         description="Whether to include business keys before first appearance",
+    )
+    output: ModelOutputDef | None = Field(
+        None, description="The PIT's dbt model (None: named pit_name, defaults)"
     )
 
 
@@ -731,6 +817,12 @@ class SnapshotControlDefinition(BaseModel):
     logic_patterns: list[SnapshotLogicPattern] = Field(
         default_factory=list, description="List of snapshot logic patterns"
     )
+    v0_output: ModelOutputDef | None = Field(
+        None, description="The control table's model (None: named <base>_v0)"
+    )
+    v1_output: ModelOutputDef | None = Field(
+        None, description="The control logic's model (None: named <base>_v1)"
+    )
 
     @property
     def base_name(self) -> str:
@@ -740,21 +832,27 @@ class SnapshotControlDefinition(BaseModel):
     @property
     def v0_name(self) -> str:
         """
-        Model name for the snapshot control table (_v0 suffix).
+        Model name of the snapshot control table: its stored name, else
+        ``<base>_v0``.
 
         Used for the base snapshot control model that contains
         start_date, end_date, and daily_time configuration.
         """
+        if self.v0_output is not None:
+            return self.v0_output.model_name
         return f"{self.base_name}_v0"
 
     @property
     def v1_name(self) -> str:
         """
-        Model name for the snapshot control logic (_v1 suffix).
+        Model name of the snapshot control logic: its stored name, else
+        ``<base>_v1``.
 
         Used for the model that implements the logic patterns
         (daily, weekly, monthly, etc. snapshot windows).
         """
+        if self.v1_output is not None:
+            return self.v1_output.model_name
         return f"{self.base_name}_v1"
 
 

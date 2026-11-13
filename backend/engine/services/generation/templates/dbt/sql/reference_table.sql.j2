@@ -1,17 +1,14 @@
 [# Reference Table Template #]
 [# Generates a reference table that combines a reference hub with its satellites #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-    tags=['reference_table', 'raw_vault']
-) }}
+[# model_config: the config() block; the reference table's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['reference_table', 'raw_vault']) ]]
 
 {%- set yaml_metadata -%}
 ref_hub: [[ reference_hub_name ]]
+[# sat.model_name: the satellite's v1 model #]
 ref_satellites:
 [% for sat in satellites %]
-    [[ sat.satellite_name ]]_v1:
+    [[ sat.model_name ]]:
     [% if sat.include_columns %]
       include:
         [% for col in sat.include_columns %]

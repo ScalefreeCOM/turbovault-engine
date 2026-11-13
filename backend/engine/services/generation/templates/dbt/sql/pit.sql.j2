@@ -1,12 +1,11 @@
 [# PIT (Point-In-Time) Template #]
 [# Generates a PIT structure for dimensional views #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
+[# model_config: the config() block; the PIT's stored settings override these defaults #]
+[[ model_config(
+    materialized=materialization,
     tags=['pit', 'business_vault'],
-    post_hook="{{ datavault4dbt.clean_up_pit('[[ snapshot_control_name ]]') }}"
-) }}
+    post_hook="{{ datavault4dbt.clean_up_pit('" ~ snapshot_control_name ~ "') }}"
+) ]]
 
 {%- set yaml_metadata -%}
 [% if pit_type %]
@@ -14,9 +13,10 @@ pit_type: '[[ pit_type ]]'
 [% endif %]
 tracked_entity: [[ tracked_entity_name ]]
 hashkey: [[ tracked_hashkey ]]
+[# satellite_models: the v0 models of the PIT's satellites #]
 sat_names:
-[% for sat in satellites %]
-    - [[ sat ]]_v0
+[% for sat in satellite_models %]
+    - [[ sat ]]
 [% endfor %]
 snapshot_relation: [[ snapshot_control_name ]]
 snapshot_trigger_column: [[ snapshot_logic_column ]]

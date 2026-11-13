@@ -6,7 +6,7 @@ models:
   - name: [[ v1_name ]]
     description: "Snapshot control logic (retention patterns)"
     config:
-      tags: ['snapshot_control', 'control']
+      tags: [[ model_tags(['snapshot_control', 'control']) ]]
     columns:
       - name: sdts
         description: "Snapshot date timestamp"

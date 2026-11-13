@@ -18,12 +18,24 @@ import yaml
 from jinja2 import Environment, FileSystemLoader, Template, select_autoescape
 from markupsafe import Markup
 
+from engine.services.generation.model_config import ModelConfig
 from engine.services.generation.python_literals import (
     py_dict_filter,
     py_hashed_columns_filter,
     py_literal,
     py_source_models_filter,
 )
+
+
+def _default_model_config(**defaults) -> Markup:
+    """``model_config`` of a model without stored settings: the defaults."""
+    return ModelConfig()(**defaults)
+
+
+def _default_model_tags(defaults=None) -> Markup:
+    """``model_tags`` of a model without stored settings: the defaults."""
+    return ModelConfig().tags(defaults)
+
 
 if TYPE_CHECKING:
     from jinja2 import BaseLoader
@@ -193,6 +205,12 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     for writing user text into YAML, and the ``py``, ``py_dict``,
     ``py_hashed_columns`` and ``py_source_models`` filters for writing Python
     literals into SQLMesh model files.
+
+    The globals ``model_config`` and ``model_tags`` write a dbt model's
+    ``config()`` block and YAML tags from the template's defaults. Generation
+    passes each model's own in the render context, with its stored settings
+    (see ``engine.services.generation.model_config``); anyone else rendering
+    a template gets the defaults.
     """
     environment = Environment(
         loader=loader,
@@ -214,6 +232,8 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     environment.filters["py_dict"] = py_dict_filter
     environment.filters["py_hashed_columns"] = py_hashed_columns_filter
     environment.filters["py_source_models"] = py_source_models_filter
+    environment.globals["model_config"] = _default_model_config
+    environment.globals["model_tags"] = _default_model_tags
     return environment
 
 

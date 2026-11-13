@@ -124,6 +124,7 @@ def _build_dbt_config(
         project_name=(project_name or "turbovault_project").lower().replace(" ", "_"),
         profile_name=runtime_config.profile_name,
         generate_satellite_v1_views=options.generate_satellite_v1_views,
+        use_model_folders=options.use_model_folders,
         satellite_v0_naming=runtime_config.satellite_v0_naming,
         satellite_v1_naming=runtime_config.satellite_v1_naming,
         record_tracking_satellite_naming=runtime_config.record_tracking_satellite_naming,

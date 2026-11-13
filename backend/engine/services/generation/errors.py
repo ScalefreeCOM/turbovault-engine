@@ -70,7 +70,10 @@ class Code:
     VALIDATE_STAGE_NO_SOURCE_TABLE = "validate.stage.no_source_table"
     VALIDATE_STAGE_NO_KEYS = "validate.stage.no_keys"
 
-    # Validate stage — pre-stages
+    # Validate stage — model names and folders
+    VALIDATE_MODEL_DUPLICATE_NAME = "validate.model.duplicate_name"
+    VALIDATE_MODEL_INVALID_NAME = "validate.model.invalid_name"
+    VALIDATE_MODEL_INVALID_FOLDER = "validate.model.invalid_folder"
 
     # Validate stage — hubs
     VALIDATE_HUB_MISSING_HASHKEY = "validate.hub.missing_hashkey"

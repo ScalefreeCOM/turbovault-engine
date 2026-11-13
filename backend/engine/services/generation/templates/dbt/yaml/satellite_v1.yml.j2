@@ -1,11 +1,12 @@
 [# Satellite V1 (Load End Date View) YAML Schema Template #]
+[# v1_name: the view's model name, as its SQL file is named #]
 version: 2
 
 models:
-  - name: [[ satellite_name ]]_v1
+  - name: [[ v1_name ]]
     description: [[ (description or ((satellite_type | title) ~ " satellite v1 (with load_end_date) for " ~ parent_entity)) | yaml_quote ]]
     config:
-      tags: ['satellite', 'v1', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+      tags: [[ model_tags(['satellite', 'v1', 'raw_vault', group]) ]]
     columns:
 [% if parent_hashkey %]
       - name: [[ parent_hashkey ]]

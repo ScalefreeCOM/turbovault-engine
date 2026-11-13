@@ -136,7 +136,11 @@ class GenerationConfig:
     # Folder structure configuration
     folder_config: FolderConfig = field(default_factory=FolderConfig)
 
-    # Satellite v0/v1 generation
+    # Models go to the folders stored for them; off: TurboVault's layer folders
+    use_model_folders: bool = True
+
+    # Satellite v0/v1 generation. The naming patterns only apply to exports
+    # that carry no resolved model names (see ModelOutputDef).
     generate_satellite_v1_views: bool = True
     satellite_v0_naming: str = "[[ satellite_name ]]_v0"
     satellite_v1_naming: str = "[[ satellite_name ]]_v1"

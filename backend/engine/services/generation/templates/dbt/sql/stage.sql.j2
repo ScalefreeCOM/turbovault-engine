@@ -1,12 +1,8 @@
 [# Stage Model Template #]
 [# Generates a staging model that prepares source data for Data Vault loading #]
 [# Uses datavault4dbt.stage() macro with yaml_metadata format #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-    tags=['staging', '[[ source_system | lower | replace(" ", "_") ]]']
-) }}
+[# model_config: the config() block; the stage's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['staging', source_system | lower | replace(" ", "_")]) ]]
 
 {%- set yaml_metadata -%}
 [% if prestage_model %]

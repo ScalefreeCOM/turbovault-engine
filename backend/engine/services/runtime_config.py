@@ -36,6 +36,11 @@ class EngineRuntimeConfig:
     satellite_v1_naming: str = "[[ satellite_name ]]_v1"
     record_tracking_satellite_naming: str = "[[ satellite_name ]]_ts"
     effectivity_satellite_naming: str = "[[ satellite_name ]]_es"
+    # Stage and pre-stage model names. [[ source_system ]] is the source
+    # system's dbt name (lowercase, spaces as _), [[ source_table ]] the
+    # table's physical name in lowercase.
+    stage_naming: str = "stg__[[ source_system ]]__[[ source_table ]]"
+    prestage_naming: str = "pstg__[[ source_system ]]__[[ source_table ]]"
 
     # Record source / load date of source tables that set none and whose
     # source system sets none either (see engine.services.source_values).
@@ -153,6 +158,10 @@ class EngineRuntimeConfig:
                 config.configuration.effectivity_satellite_naming
                 or cls.effectivity_satellite_naming
             ),
+            stage_naming=config.configuration.stage_naming or cls.stage_naming,
+            prestage_naming=(
+                config.configuration.prestage_naming or cls.prestage_naming
+            ),
             default_record_source_value=(
                 config.configuration.default_record_source_value
             ),
@@ -227,6 +236,8 @@ class EngineRuntimeConfig:
             "satellite_v1_naming": self.satellite_v1_naming,
             "record_tracking_satellite_naming": self.record_tracking_satellite_naming,
             "effectivity_satellite_naming": self.effectivity_satellite_naming,
+            "stage_naming": self.stage_naming,
+            "prestage_naming": self.prestage_naming,
             "hashkey_naming": self.hashkey_naming,
             "hashdiff_naming": self.hashdiff_naming,
         }

@@ -366,6 +366,20 @@ class ProjectConfiguration(BaseModel):
     effectivity_satellite_naming: str | None = Field(
         None, description="Naming pattern for effectivity satellite models"
     )
+    stage_naming: str | None = Field(
+        None,
+        description=(
+            "Naming pattern for stage models; placeholders [[ source_system ]] "
+            "and [[ source_table ]] (default: stg__[[ source_system ]]__[[ source_table ]])"
+        ),
+    )
+    prestage_naming: str | None = Field(
+        None,
+        description=(
+            "Naming pattern for the pre-stage models stages read (default: "
+            "pstg__[[ source_system ]]__[[ source_table ]])"
+        ),
+    )
     default_record_source_value: str | None = Field(
         None,
         description=(

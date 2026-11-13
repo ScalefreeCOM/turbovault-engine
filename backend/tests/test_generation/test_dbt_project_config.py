@@ -434,15 +434,20 @@ class TestSpecificMaterializations:
             assert generator._specific_materialization(kind) is None, kind
 
     def test_templates_write_the_value_only_when_given(self, django_setup):
-        """Each specific model's template carries the conditional line."""
+        """Each specific model's template passes its materialization to
+        model_config(), which writes it only when it is set."""
+        from engine.services.generation.model_config import ModelConfig
         from engine.services.generation.template_resolver import TEMPLATES_DIR
 
         for kind in self.EXPECTED:
             source = (TEMPLATES_DIR / "dbt" / "sql" / f"{kind}.sql.j2").read_text(
                 encoding="utf-8"
             )
-            assert "[% if materialization %]" in source, kind
-            assert "materialized='[[ materialization ]]'," in source, kind
+            assert "materialized=materialization" in source, kind
+
+        config = ModelConfig()
+        assert "materialized" not in config.settings(materialized=None, tags=["x"])
+        assert config.settings(materialized="view")["materialized"] == "view"
 
 
 class TestCustomModelMaterializations:

@@ -11,6 +11,11 @@ from collections import defaultdict
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from engine.services.export.model_outputs import (  # noqa: F401 (re-exported)
+    V1_SATELLITE_TYPES,
+    ModelOutputs,
+    dbt_source_name,
+)
 from engine.services.export.models import (
     ColumnDescriptionDef,
     DerivedColumnDef,
@@ -99,27 +104,6 @@ def _prejoin_origin(staging_column: StagingColumn) -> tuple[str | None, str | No
     return target.physical_table_name, target.source_system.name
 
 
-def dbt_source_name(source_system_name: str) -> str:
-    """The name a source system has in generated dbt code.
-
-    It names the system's source in ``sources.yml`` and is the middle part of
-    its stage and pre-stage names (``stg__crm__customer``).
-    """
-    return source_system_name.lower().replace(" ", "_")
-
-
-def stage_model_name(table: SourceTable) -> str:
-    """Name of a source table's stage model: ``stg__<system>__<table>``."""
-    system = dbt_source_name(table.source_system.name)
-    return f"stg__{system}__{table.physical_table_name.lower()}"
-
-
-def prestage_model_name(table: SourceTable) -> str:
-    """Name of a pre-stage's dbt model: ``pstg__<system>__<table>``."""
-    system = dbt_source_name(table.source_system.name)
-    return f"pstg__{system}__{table.physical_table_name.lower()}"
-
-
 class ModelBuilder:
     """
     Builds intermediate export models from Django ORM data.
@@ -152,6 +136,14 @@ class ModelBuilder:
         """
         self.project = project
         self.runtime_config = resolve_runtime_config(project, runtime_config)
+        self._outputs: ModelOutputs | None = None
+
+    @property
+    def outputs(self) -> ModelOutputs:
+        """Names and settings of the project's dbt models."""
+        if self._outputs is None:
+            self._outputs = ModelOutputs(self.project, self.runtime_config)
+        return self._outputs
 
     def _source_values(self, table: SourceTable) -> ResolvedSourceValues:
         """The record source, static part and load date the table's stage uses."""
@@ -178,6 +170,7 @@ class ModelBuilder:
         config = runtime_config or self.runtime_config
         if runtime_config is not None:
             self.runtime_config = runtime_config
+            self._outputs = None  # names follow the new config's patterns
         stage_schema = config.stage_schema
         rdv_schema = config.rdv_schema
         bdv_schema = config.bdv_schema
@@ -354,6 +347,19 @@ class ModelBuilder:
                     create_effectivity_satellite=hub.create_effectivity_satellite,
                     description=hub.description or None,
                     column_descriptions=column_descriptions,
+                    output=self.outputs.hub(hub),
+                    effectivity_satellite_output=(
+                        self.outputs.effectivity_satellite(hub)
+                        if hub.create_effectivity_satellite
+                        else None
+                    ),
+                    record_tracking_satellite_output=(
+                        self.outputs.record_tracking_satellite(
+                            hub, hub.hub_physical_name
+                        )
+                        if hub.create_record_tracking_satellite
+                        else None
+                    ),
                 )
             )
 
@@ -386,7 +392,9 @@ class ModelBuilder:
                 table_key = table.physical_table_name
 
                 source_table_map[table_key]["source_system"] = table.source_system.name
-                source_table_map[table_key]["stage_name"] = stage_model_name(table)
+                source_table_map[table_key]["stage_name"] = self.outputs.stage(
+                    table
+                ).model_name
                 source_table_map[table_key]["rsrc_static"] = self._source_values(
                     table
                 ).static_part.value
@@ -412,7 +420,9 @@ class ModelBuilder:
                 table_key = table.physical_table_name
 
                 source_table_map[table_key]["source_system"] = table.source_system.name
-                source_table_map[table_key]["stage_name"] = stage_model_name(table)
+                source_table_map[table_key]["stage_name"] = self.outputs.stage(
+                    table
+                ).model_name
                 source_table_map[table_key]["rsrc_static"] = self._source_values(
                     table
                 ).static_part.value
@@ -502,18 +512,20 @@ class ModelBuilder:
             ]
 
             values = self._source_values(table)
+            output = self.outputs.stage(table)
 
             result.append(
                 StageDefinition(
-                    stage_name=stage_model_name(table),
+                    stage_name=output.model_name,
                     source_table=table.physical_table_name,
                     source_schema=table.source_system.schema_name,
                     source_system=table.source_system.name,
                     prestage_model=(
-                        prestage_model_name(table) if table.is_prestage else None
+                        self.outputs.prestage_name(table) if table.is_prestage else None
                     ),
                     record_source=values.record_source.value,
                     load_date=values.load_date.value,
+                    output=output,
                     description=table.description or None,
                     hashkeys=hashkeys,
                     hashdiffs=hashdiffs,
@@ -543,7 +555,7 @@ class ModelBuilder:
         )
         return [
             PrestageDefinition(
-                model_name=prestage_model_name(table),
+                model_name=self.outputs.prestage_name(table),
                 table_name=table.physical_table_name,
                 source_system=table.source_system.name,
                 description=table.description or None,
@@ -930,7 +942,9 @@ class ModelBuilder:
                     target_table=target.physical_table_name,
                     target_source_system=target.source_system.name,
                     target_model=(
-                        prestage_model_name(target) if target.is_prestage else None
+                        self.outputs.prestage_name(target)
+                        if target.is_prestage
+                        else None
                     ),
                     join_conditions=join_conditions,
                     extraction_columns=extraction_columns,
@@ -1208,7 +1222,7 @@ class ModelBuilder:
                 # No valid parent
                 continue
 
-            stage_name = stage_model_name(sat.source_table)
+            stage_name = self.outputs.stage(sat.source_table).model_name
 
             # Generate hashdiff name using project pattern
             sat_name = sat.satellite_physical_name
@@ -1247,6 +1261,12 @@ class ModelBuilder:
                     hashdiff_name=hashdiff_name,
                     columns=columns,
                     description=sat.description or None,
+                    v0_output=self.outputs.satellite_v0(sat),
+                    v1_output=(
+                        self.outputs.satellite_v1(sat)
+                        if sat.satellite_type in V1_SATELLITE_TYPES
+                        else None
+                    ),
                 )
             )
 
@@ -1319,7 +1339,7 @@ class ModelBuilder:
                     if table_key not in source_table_map:
                         source_table_map[table_key] = {
                             "source_system": table.source_system.name,
-                            "stage_name": stage_model_name(table),
+                            "stage_name": self.outputs.stage(table).model_name,
                             "rsrc_static": self._source_values(table).static_part.value,
                             "columns": [],
                             "hashkey_mappings": [],
@@ -1354,7 +1374,7 @@ class ModelBuilder:
                     if table_key not in source_table_map:
                         source_table_map[table_key] = {
                             "source_system": table.source_system.name,
-                            "stage_name": stage_model_name(table),
+                            "stage_name": self.outputs.stage(table).model_name,
                             "rsrc_static": self._source_values(table).static_part.value,
                             "columns": [],
                         }
@@ -1464,6 +1484,14 @@ class ModelBuilder:
                     create_record_tracking_satellite=link.create_record_tracking_satellite,
                     description=link.description or None,
                     column_descriptions=column_descriptions,
+                    output=self.outputs.link(link),
+                    record_tracking_satellite_output=(
+                        self.outputs.record_tracking_satellite(
+                            link, link.link_physical_name
+                        )
+                        if link.create_record_tracking_satellite
+                        else None
+                    ),
                 )
             )
 
@@ -1506,6 +1534,8 @@ class ModelBuilder:
                     end_date=control.snapshot_end_date.isoformat(),
                     daily_time=control.daily_snapshot_time.isoformat(),
                     logic_patterns=logic_patterns,
+                    v0_output=self.outputs.snapshot_control_v0(control),
+                    v1_output=self.outputs.snapshot_control_v1(control),
                 )
             )
 
@@ -1555,6 +1585,9 @@ class ModelBuilder:
                 satellite_assignments.append(
                     ReferenceTableSatelliteAssignment(
                         satellite_name=assignment.reference_satellite.satellite_physical_name,
+                        model_name=self.outputs.satellite_v1(
+                            assignment.reference_satellite
+                        ).model_name,
                         include_columns=include_cols,
                         exclude_columns=exclude_cols,
                     )
@@ -1573,6 +1606,7 @@ class ModelBuilder:
                 satellite_assignments = [
                     ReferenceTableSatelliteAssignment(
                         satellite_name=s.satellite_physical_name,
+                        model_name=self.outputs.satellite_v1(s).model_name,
                         include_columns=[],
                         exclude_columns=[],
                     )
@@ -1601,6 +1635,7 @@ class ModelBuilder:
                     snapshot_logic_column=snapshot_logic_column,
                     satellites=satellite_assignments,
                     description=ref_table.description or None,
+                    output=self.outputs.reference_table(ref_table),
                 )
             )
 
@@ -1640,22 +1675,22 @@ class ModelBuilder:
                 tracked_entity_name = pit.tracked_link.link_physical_name
                 tracked_hashkey = pit.tracked_link.link_hashkey_name or ""
 
-            # Get satellite names
-            satellite_names = [
-                sat.satellite_physical_name for sat in pit.satellites.all()
+            # The satellites, and the v0 models the PIT reads
+            satellites = list(pit.satellites.all())
+            satellite_names = [sat.satellite_physical_name for sat in satellites]
+            satellite_models = [
+                self.outputs.satellite_v0(sat).model_name for sat in satellites
             ]
 
-            # Get snapshot control name (v1)
+            # The snapshot control's logic model (v1), which the PIT reads
             snapshot_control_name = ""
             if (
                 pit.snapshot_control_logic
                 and pit.snapshot_control_logic.snapshot_control_table
             ):
-                base_name = pit.snapshot_control_logic.snapshot_control_table.name
-                # Ensure we get the v1 name
-                snapshot_control_name = (
-                    base_name.removesuffix("_v0").removesuffix("_v1") + "_v1"
-                )
+                snapshot_control_name = self.outputs.snapshot_control_v1(
+                    pit.snapshot_control_logic.snapshot_control_table
+                ).model_name
 
             result.append(
                 PITDefinition(
@@ -1665,12 +1700,14 @@ class ModelBuilder:
                     tracked_entity_name=tracked_entity_name,
                     tracked_hashkey=tracked_hashkey,
                     satellites=satellite_names,
+                    satellite_models=satellite_models,
                     snapshot_control_name=snapshot_control_name,
                     snapshot_logic_column=pit.snapshot_control_logic.snapshot_control_logic_column_name,
                     dimension_key_column=pit.dimension_key_column_name,
                     pit_type=pit.pit_type,
                     use_snapshot_optimization=pit.use_snapshot_optimization,
                     include_business_objects_before_appearance=pit.include_business_objects_before_appearance,
+                    output=self.outputs.pit(pit),
                 )
             )
 

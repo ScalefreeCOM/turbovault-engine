@@ -15,7 +15,7 @@ section is completed when the Engine change lands).
 | 2 | [Snapshot control model names](#2-snapshot-control-model-names) | Merged (Engine PR #232, unreleased) | Template editor: new template variables |
 | 3 | [Outdated stage template warning](#3-outdated-stage-template-warning) | Merged (Engine PR #232, unreleased) | Show the warning; keep Studio-stored stage templates current |
 | 4 | [dbt project import](#4-dbt-project-import) | Planned | Upload artifacts, options, review the report |
-| 5 | [Model names, paths and configs](#5-model-names-paths-and-configs) | Planned | Edit a generated model's name, path, schema, materialization, tags, config |
+| 5 | [Model names, paths and configs](#5-model-names-paths-and-configs) | In progress | Edit a generated model's name, folder, schema, materialization, tags, config; stage/pre-stage naming patterns |
 | 6 | [Hash diff name and alias](#6-hash-diff-name-and-alias) | Planned | Two Satellite fields |
 | 7 | [Stage options and missing columns](#7-stage-options-and-missing-columns) | Planned | Project defaults and source table overrides; flag a column as missing |
 | 8 | [Derived columns that shadow a source column](#8-derived-columns-that-shadow-a-source-column) | Planned | Allow a derived column with a source column's name |
@@ -75,7 +75,8 @@ models, and SQLMesh or future output types couldn't run dbt models anyway.)
 | `dbt_project.yml` | A `15_prestaging` block whenever the project has pre-stages: the staging layer's schema and materialization (`ephemeral` becomes `view`). The dbt project's models placed in `models/15_prestaging/` get these settings. |
 
 Nothing is generated for the pre-stage itself. `<system>` and `<table>` are lowercased, spaces become `_`.
-These names become configurable with item 5.
+These are the default naming patterns: projects can change them (`stage_naming`, `prestage_naming`), and a
+pre-stage or stage can store its own model name (item 5).
 
 Behaviour to explain in the UI:
 
@@ -147,9 +148,10 @@ has no `prestage` entry. The single-file outputs (JSON, DBML) still count pre-st
 - JSON export: `prestages[].sql` and `sources[].tables[].prestage_sql` are gone.
 - The layer folders are renumbered (`10_sources`, `15_prestaging`, `20_staging`, …): see item 12.
 
-### Planned changes affecting pre-stages
+### Related
 
-- Item 5: the model name becomes configurable, so imported pre-stages keep their original names.
+- Item 5 (in progress): a pre-stage stores its model's name as a `ModelOutput` of kind `prestage` (name
+  only), so imported pre-stages keep their original names.
 
 ---
 
@@ -217,24 +219,123 @@ warehouse.
 
 ## 5. Model names, paths and configs
 
-**Status:** Planned (spec §9.1, Phase 3).
+**Status:** In progress (dbt import branch). Engine docs: domain model §10, generation pipeline ("Model
+names, folders and settings"), validation rules, project schema (naming patterns).
 
-Every generated dbt model can keep its own name, alias, path, schema, database, materialization, tags and
-other config keys. The import fills them from the original project; empty means "derived as today".
+Every generated dbt model can keep its own name, folder, alias, schema, database, materialization, tags and
+further `config()` keys. The dbt import (item 4) fills them from the original project; Studio users can edit
+them. Empty means "as TurboVault derives it", and a project without stored values generates exactly as
+before (verified byte for byte on the TPC-H sample).
 
-- One record per entity and output kind:
-  - source table: stage / pre-stage
-  - Hub: hub / effectivity Satellite / record-tracking Satellite
-  - Link: link / record-tracking Satellite
-  - Satellite: v0 / v1
-  - PIT, reference table
-  - snapshot control: v0 / v1
-- Every reference between models follows the stored names.
-- New project naming patterns for stages and pre-stages replace the fixed `stg__…` / `pstg__…`.
-- A generation option switches back to TurboVault's standard structure.
-- **Studio:** a "dbt model" section on each entity, with fields per output (model name, file path, schema,
-  materialization, tags, extra config); naming pattern fields for stages and pre-stages in the project
-  settings.
+### Data model: `ModelOutput` (new table `model_output`, migration `0021_model_outputs`)
+
+One row per entity and kind of model, only where something differs from the defaults.
+
+| `kind` | Entity field | Name derived from (when `model_name` is empty) |
+|--------|--------------|------------------------------------------------|
+| `stage` | `source_table` | project pattern `stage_naming` (new) |
+| `prestage` | `source_table` | project pattern `prestage_naming` (new); the name of the dbt project's model the stage reads |
+| `hub` | `hub` | the hub's physical name (`model_name` not allowed) |
+| `effectivity_satellite` | `hub` | `effectivity_satellite_naming` |
+| `record_tracking_satellite` | `hub` or `link` | `record_tracking_satellite_naming` |
+| `link` | `link` | the link's physical name (`model_name` not allowed) |
+| `satellite_v0`, `satellite_v1` | `satellite` | `satellite_v0_naming`, `satellite_v1_naming` |
+| `pit` | `pit` | the PIT's physical name (`model_name` not allowed) |
+| `reference_table` | `reference_table` | its physical name (`model_name` not allowed) |
+| `snapshot_control_v0`, `snapshot_control_v1` | `snapshot_control` | `<name>_v0`, `<name>_v1` |
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `project` | FK | Set from the entity on save; read-only in forms. |
+| `kind` | choice | Labels: "Stage", "Pre-stage", "Hub", "Link", "Satellite (v0)", "Satellite (v1 view)", "Effectivity satellite", "Record-tracking satellite", "PIT", "Reference table", "Snapshot control table (v0)", "Snapshot control logic (v1)". |
+| `source_table` / `hub` / `link` / `satellite` / `pit` / `reference_table` / `snapshot_control` | FK, nullable | Exactly one is set (database check constraint `model_output_one_entity`); unique per entity and `kind`. |
+| `model_name` | text, nullable | The model's (and file's) name. |
+| `folder` | text, nullable | Relative to the dbt project, e.g. `models/raw_vault/hubs`; stored with `/` and without outer slashes. |
+| `alias`, `schema_name`, `database_name`, `materialized` | text, nullable | `config(alias=…, schema=…, database=…, materialized=…)`. |
+| `tags` | JSON list of strings, nullable | Replace the default tags (an empty list means "no tags"; null means "defaults"). |
+| `config` | JSON object, nullable | Further `config()` keys written as they are, e.g. `unique_key`, `post_hook`, `on_schema_change`. |
+
+`ModelOutput.clean()` messages (show them on the field):
+
+- `kind`: "A Satellite (v0) model belongs to a satellite, not a hub." · "A pre-stage's model belongs to the dbt
+  project: only its name is stored."
+- `model_name`: "A Hub model is named by its physical name: rename the entity instead." · "'stg customer'
+  can't name a dbt model: use letters, digits and underscores, without spaces, dots or slashes" · "Another
+  model of the project is named 'x'."
+- `folder`: "Folder '/models' must be relative to the dbt project" · "Folder '../x' must stay inside the dbt
+  project (no '..' or '.')"
+- `tags`: "Tags are a list of strings." · `config`: "Set 'schema' in its own field (schema_name), not in
+  config." (also for `materialized`, `alias`, `database`, `tags`).
+
+Helpers: `engine.models.model_output.model_name_error(name)`, `folder_error(folder)`,
+`normalize_folder(folder)` return the same checks for live form validation.
+
+### Generation
+
+- **Names everywhere.** Every reference follows the resolved names: stages in hubs, links and satellites, a
+  v0 table in its v1 view, satellites and the snapshot control in a PIT, v1 views in a reference table, a
+  pre-stage in its stage. This also fixes custom `satellite_v0_naming`/`satellite_v1_naming` patterns, which
+  the templates ignored before (they appended `_v0`/`_v1`).
+- **Folders.** A model goes to its stored folder, else its layer folder. A satellite's v1 view without a
+  folder follows its v0 table, effectivity and record-tracking satellites their parent, a snapshot control's
+  v1 its v0. A model whose folder lies outside its layer's folder gets the layer's `materialized` and `schema`
+  in its own `config()` (dbt_project.yml only configures the layer folders). A folder outside `models/` adds
+  its top folder to `model-paths`.
+- **`config()`.** Stored settings override the template defaults: `materialized`, `alias`, `schema`,
+  `database`, `tags`, then the further keys. Example with `alias`, `schema_name`, `tags`, `config` stored:
+
+  ```
+  {{ config(
+      alias='customer_hub',
+      schema='raw',
+      tags=['crm', 'core'],
+      unique_key='hk_customer_h'
+  ) }}
+  ```
+- **Option** `GenerationOptions.use_model_folders` (default `true`): `false` writes every model to its layer
+  folder (names and settings stay). Suggested as a toggle "Use the stored folders" in the generate dialog.
+- **New runtime config** (`EngineRuntimeConfig`, CLI `config.yml`): `stage_naming` (default
+  `stg__[[ source_system ]]__[[ source_table ]]`) and `prestage_naming` (default
+  `pstg__[[ source_system ]]__[[ source_table ]]`). `[[ source_system ]]` is the source system's dbt name
+  (lowercase, spaces as `_`), `[[ source_table ]]` the physical table name in lowercase.
+- **Export (JSON):** definitions carry the resolved models (derived, not read back by the JSON import):
+  `stages[].output`, `hubs[].output` / `effectivity_satellite_output` / `record_tracking_satellite_output`,
+  `links[].output` / `record_tracking_satellite_output`, `satellites[].v0_output` / `v1_output`,
+  `pits[].output` and `satellite_models`, `reference_tables[].output` and `satellites[].model_name`,
+  `snapshot_controls[].v0_output` / `v1_output`. Each output: `model_name`, `folder`, `alias`, `schema_name`,
+  `database_name`, `materialized`, `tags`, `config`. (Round-tripping the stored rows through the JSON format
+  comes with the dbt import's domain model, Phase 4.)
+
+### Templates
+
+- SQL templates write the block with `[[ model_config(materialized=materialization, tags=[...]) ]]`, YAML
+  templates the tags with `[[ model_tags([...]) ]]`. The bundled `satellite_v1` templates use `v0_name` /
+  `v1_name`, `pit` uses `satellite_models`, `reference_table` uses `sat.model_name`.
+- `model_config` and `model_tags` are also globals of the template environment that write the defaults, so
+  rendering a template outside generation still works. **If Studio renders templates itself** (previews,
+  editors), pass `**ModelConfig(output, layer).context()` from `engine.services.generation.model_config` to
+  apply a model's stored settings.
+- Workspace copies of the templates made before this change keep working while nothing is stored. When a
+  model has stored settings or names they ignore, generation reports `render.template_outdated` (warning)
+  on the model. **Studio:** if Studio keeps its own template copies, update them from the bundled ones.
+
+### Issues to show
+
+| Code | Severity | Meaning | Suggested UI |
+|------|----------|---------|--------------|
+| `validate.model.duplicate_name` | error | Two models share a name (case-insensitive; pre-stages count). The message names both entities. | Show on the model name field |
+| `validate.model.invalid_name` | error | A name would leave the project folder (slashes, `..`); nothing is written for it | Show on the name |
+| `validate.model.invalid_folder` | error | A folder leaves the project; nothing is written for it | Show on the folder field |
+| `render.template_outdated` | warning | See above and item 3 | Link to the template editor |
+
+### Suggested UI
+
+- A "dbt models" section on the source table, Hub, Link, Satellite, PIT, reference table and snapshot control
+  forms: one row per kind of model the entity has, showing the resolved name (placeholder: the derived one)
+  and editable name, folder, alias, schema, database, materialization, tags and extra config (key/value).
+- Project settings: naming pattern fields for stages and pre-stages, with a preview of a resulting name.
+- A pre-stage shows only the model name.
+- The Django admin of the Engine has the same inlines, for reference.
 
 ---
 

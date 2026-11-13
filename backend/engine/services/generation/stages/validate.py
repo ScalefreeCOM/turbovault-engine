@@ -59,6 +59,9 @@ _LEGACY_CODE_MAP: dict[str, str] = {
     "SNAP_001": "validate.snapshot.no_name",
     "SNAP_002": "validate.snapshot.no_start_date",
     "SNAP_003": "validate.snapshot.no_logic_patterns",
+    "MDL_001": "validate.model.duplicate_name",
+    "MDL_002": "validate.model.invalid_name",
+    "MDL_003": "validate.model.invalid_folder",
 }
 
 
@@ -90,6 +93,7 @@ def validate(
     result: ValidationResult = validate_export(
         project_export,
         keeps_load_columns=keeps is True or str(keeps).lower() == "true",
+        generate_satellite_v1_views=options.generate_satellite_v1_views,
     )
     group_lookup = _build_group_lookup(project_export)
 
