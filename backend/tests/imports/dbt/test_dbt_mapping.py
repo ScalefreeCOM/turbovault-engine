@@ -286,6 +286,15 @@ def codes(issues) -> list[str]:
     return [issue.code for issue in issues]
 
 
+def names(outputs) -> dict[str, str]:
+    """The model names stored in an entity's outputs, by kind."""
+    return {
+        kind: output.model_name
+        for kind, output in (outputs or {}).items()
+        if output.model_name
+    }
+
+
 @pytest.fixture
 def project(django_setup, db):
     from engine.models import Project
@@ -326,7 +335,7 @@ def test_a_stage_becomes_its_source_table(tmp_path):
     assert customer.columns["legacy_code"].is_missing is True
     assert customer.columns["email"].is_missing is False
     # stg__crm__customer is what the default stage pattern gives
-    assert customer.outputs == {}
+    assert names(customer.outputs) == {}
 
 
 def test_a_stage_name_off_the_pattern_is_stored(tmp_path):
@@ -366,7 +375,7 @@ def test_a_stage_reading_a_model_gets_a_prestage(tmp_path):
 
     table = domain.source_systems["crm"].tables["crm|address"]
     assert table.table_type == "prestage"
-    assert table.outputs == {}
+    assert names(table.outputs) == {}
     assert "dbt.prestage_maintained_in_dbt" in codes(issues)
 
 
@@ -539,7 +548,7 @@ def test_a_satellite_maps_its_payload_and_v1_view(tmp_path):
     assert sat.v1_add_is_current_flag is False
     # Named like the default v0/v1 patterns, with a v1 view as by default
     assert sat.create_v1_view is CLEAR
-    assert sat.outputs == {}
+    assert names(sat.outputs) == {}
 
 
 def test_satellite_models_off_the_patterns_keep_their_names(tmp_path):
@@ -629,8 +638,7 @@ def test_effectivity_and_record_tracking_satellites_belong_to_their_hub(tmp_path
     assert hub.effectivity_is_active_alias == "is_live"
     assert hub.create_record_tracking_satellite is True
     # customer_es follows the pattern; customer_tracking doesn't
-    assert set(hub.outputs) == {"record_tracking_satellite"}
-    assert hub.outputs["record_tracking_satellite"].model_name == "customer_tracking"
+    assert names(hub.outputs) == {"record_tracking_satellite": "customer_tracking"}
     table = domain.source_systems["crm"].tables["crm|customer"]
     assert table.delivery_method == "single_batch"
     assert "dbt.project_setting" in codes(issues)
@@ -969,7 +977,7 @@ def test_snapshot_controls_keep_their_dates_and_logic(tmp_path):
         ("is_active", "daily", 3, "MONTH", False),
         ("is_active", "beginning_of_year", None, None, True),
     ]
-    assert control.outputs == {}
+    assert names(control.outputs) == {}
 
 
 def test_a_list_of_logic_columns_names_each(tmp_path):
@@ -1203,3 +1211,213 @@ def test_groups_come_from_turbovaults_folders_and_tags(tmp_path):
     assert domain.satellites["customer_s"].group_name == "Customers"
     assert domain.pits["customer_pit"].group_name == "Customers"
     assert domain.groups == {"Customers"}
+
+
+# ---------------------------------------------------------------------------
+# Model settings, dbt_project.yml and naming (D20, D22, D25)
+# ---------------------------------------------------------------------------
+
+
+def _with_settings(entry, *, tags=None, unrendered=None, folder=None, fqn=None):
+    unique_id, node = entry
+    node = dict(node)
+    if folder is not None:
+        node["original_file_path"] = f"{folder}/{node['name']}.sql"
+    node["config"] = {"tags": list(tags or [])}
+    node["unrendered_config"] = dict(unrendered or {})
+    if fqn is not None:
+        node["fqn"] = fqn
+    return unique_id, node
+
+
+def test_a_model_off_turbovaults_folders_keeps_its_folder(tmp_path):
+    # unrendered_config has the folder's settings too (no dbt_project.yml here)
+    layer = {"schema": "rdv", "materialized": "incremental"}
+    hub = _with_settings(
+        CUSTOMER_H,
+        tags=["hub", "raw_vault"],
+        folder="models/30_raw_vault",
+        unrendered=layer,
+    )
+    v0 = _with_settings(
+        CUSTOMER_S_V0,
+        tags=["satellite", "standard", "raw_vault"],
+        folder="models/vault/satellites",
+        unrendered=layer,
+    )
+    v1 = _with_settings(
+        CUSTOMER_S_V1,
+        tags=["satellite", "v1", "raw_vault"],
+        folder="models/vault/satellites",
+        unrendered={**layer, "materialized": "view"},
+    )
+    path = write_manifest(
+        tmp_path, [STG_CUSTOMER, STG_ORDERS, hub, v0, v1], [CUSTOMER, ORDERS]
+    )
+
+    domain, _ = map_manifest(path)
+
+    # In TurboVault's folder, with its tags: nothing stored
+    assert "hub" not in domain.hubs["customer_h"].outputs
+    outputs = domain.satellites["customer_s"].outputs
+    assert outputs["satellite_v0"].folder == "models/vault/satellites"
+    assert outputs["satellite_v0"].tags is None
+    # The v1 view sits next to its v0 and is a view, as TurboVault makes it
+    assert "satellite_v1" not in outputs
+
+
+def test_tags_and_settings_turbovault_doesnt_give_are_kept(tmp_path):
+    hub = _with_settings(
+        CUSTOMER_H,
+        tags=["pii"],
+        folder="models/30_raw_vault",
+        unrendered={
+            "schema": "rdv",
+            "materialized": "table",
+            "alias": "hub_customer",
+            "unique_key": "hk",
+        },
+    )
+    path = write_manifest(tmp_path, [STG_CUSTOMER, STG_ORDERS, hub], [CUSTOMER, ORDERS])
+
+    domain, _ = map_manifest(path)
+
+    output = domain.hubs["customer_h"].outputs["hub"]
+    assert output.tags == ["pii"]
+    assert (output.materialized, output.alias) == ("table", "hub_customer")
+    assert output.config == {"unique_key": "hk"}
+    assert output.folder is None
+
+
+def test_folder_level_settings_stay_in_the_project_settings(tmp_path):
+    (tmp_path / "dbt_project.yml").write_text(
+        textwrap.dedent(
+            """
+            name: shop
+            profile: shop_warehouse
+            version: '3.1.0'
+            vars:
+              datavault4dbt.hash: SHA2
+            models:
+              shop:
+                vault:
+                  +schema: rdv
+                  +materialized: incremental
+                  +tags: [vault]
+              elementary:
+                +schema: elementary
+            seeds:
+              shop:
+                +schema: seeds
+            """
+        ),
+        encoding="utf-8",
+    )
+    hub = _with_settings(
+        CUSTOMER_H,
+        tags=["vault", "hub", "raw_vault", "pii"],
+        folder="models/vault",
+        fqn=["shop", "vault", "customer_h"],
+        unrendered={
+            "schema": "rdv",
+            "materialized": "incremental",
+            "tags": ["vault", "pii"],
+        },
+    )
+    path = write_manifest(tmp_path, [STG_CUSTOMER, STG_ORDERS, hub], [CUSTOMER, ORDERS])
+
+    domain, _ = map_manifest(path)
+
+    output = domain.hubs["customer_h"].outputs["hub"]
+    # The folder's schema and materialization aren't the model's own
+    assert (output.schema_name, output.materialized) == (None, None)
+    assert output.folder == "models/vault"
+    # Its tags add up with the folder's: it keeps its own
+    assert output.tags == ["hub", "raw_vault", "pii"]
+    settings = domain.project_settings
+    assert (settings.dbt_project_name, settings.profile_name) == (
+        "shop",
+        "shop_warehouse",
+    )
+    assert settings.global_vars == {"datavault4dbt.hash": "SHA2"}
+    assert settings.dbt_project_models == {
+        "vault": {"+schema": "rdv", "+materialized": "incremental", "+tags": ["vault"]}
+    }
+    assert settings.dbt_project_settings == {
+        "version": "3.1.0",
+        "seeds": {"shop": {"+schema": "seeds"}},
+        "models": {"elementary": {"+schema": "elementary"}},
+    }
+
+
+def test_naming_patterns_the_project_follows_are_suggested(tmp_path):
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    path = shop(tmp_path)
+
+    domain, issues = map_manifest(
+        path, EngineRuntimeConfig(stage_naming="stage_[[ source_table ]]")
+    )
+
+    suggestion = domain.project_settings.naming["stage_naming"]
+    assert suggestion.pattern == "stg__[[ source_system ]]__[[ source_table ]]"
+    assert (suggestion.matching, suggestion.total) == (2, 2)
+    (note,) = [i for i in issues if i.code == "dbt.naming_inferred"]
+    assert "stage_naming" in note.suggestion
+    # Patterns the project already uses aren't suggested
+    assert "hashkey_naming" not in domain.project_settings.naming
+
+
+def test_the_report_carries_the_suggested_settings(tmp_path, project):
+    from engine.services.imports import DbtSource, ImportOptions, import_metadata
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    report = import_metadata(
+        project=project,
+        source=DbtSource(path=shop(tmp_path)),
+        options=ImportOptions(skip_snapshots=True, dry_run=True),
+        runtime_config=EngineRuntimeConfig(stage_naming="stage_[[ source_table ]]"),
+    )
+
+    assert report.project_settings is not None
+    assert "stage_naming" in report.project_settings.naming
+
+
+def test_the_cli_writes_the_suggested_settings_before_importing(tmp_path, project):
+    from engine.cli.commands import import_cmd
+    from engine.services.config_schema import TurboVaultConfig
+    from engine.services.imports import DbtSource, ImportOptions
+    from engine.services.project_config import write_project_config
+
+    folder = tmp_path / "project"
+    folder.mkdir()
+    write_project_config(
+        folder / "config.yml",
+        TurboVaultConfig(
+            project={"name": "shop"},
+            configuration={"stage_naming": "stage_[[ source_table ]]"},
+        ),
+    )
+    project.project_directory = str(folder)
+    project.save()
+    dbt = tmp_path / "dbt"
+    dbt.mkdir()
+    (dbt / "dbt_project.yml").write_text(
+        "name: shop_dv\nprofile: shop_wh\nvars:\n  datavault4dbt.hash: SHA2\n",
+        encoding="utf-8",
+    )
+
+    import_cmd._offer_project_settings(
+        project,
+        DbtSource(path=shop(dbt)),
+        ImportOptions(skip_snapshots=True),
+        True,
+    )
+
+    config = project.load_config()
+    assert config.configuration.stage_naming == (
+        "stg__[[ source_system ]]__[[ source_table ]]"
+    )
+    assert config.configuration.profile_name == "shop_wh"
+    assert config.output.dbt_project_name == "shop_dv"
+    assert config.dbt_project.vars == {"datavault4dbt.hash": "SHA2"}

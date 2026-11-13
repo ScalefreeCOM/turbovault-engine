@@ -68,6 +68,16 @@ def model_tags(node: dict) -> list[str]:
     return [str(tag) for tag in tags or []]
 
 
+def in_layer_folder(path: str) -> bool:
+    """Whether a model sits in TurboVault's folder structure (a layer folder)."""
+    parts = PurePosixPath(path).parent.parts
+    return (
+        len(parts) >= 2
+        and parts[0] == "models"
+        and bool(_LAYER_FOLDER.fullmatch(parts[1]))
+    )
+
+
 def group_folder(path: str) -> str | None:
     """The group folder of a model in TurboVault's folder structure, if any.
 

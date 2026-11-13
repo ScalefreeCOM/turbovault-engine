@@ -470,6 +470,9 @@ class DomainModel:
     # them). One that can't — Excel, SQLite, IRiS, a database's catalog —
     # never lists them, so `replace_all` must not take that as a deletion.
     describes_prestages: bool = False
+    # Settings the source suggests for the project (types.ProjectSettings),
+    # reported, not applied
+    project_settings: Any = None
 
     # ---------------- helpers ----------------
 

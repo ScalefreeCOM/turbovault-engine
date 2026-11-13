@@ -22,7 +22,7 @@ deep-link errors; the CLI groups them in summary tables.
 | `dbt.artifact_too_large` | error (abort) | An artifact is larger than 512 MB. | — |
 | `dbt.artifacts_located` | info | Which artifacts the import found (manifest, catalog, `dbt_project.yml`, package files). | — |
 | `dbt.catalog_missing` | warning | No `catalog.json`: column data types come from the YAML properties only. | Run `dbt docs generate` (it queries the warehouse) and import again. |
-| `dbt.project_file_missing` | warning | No `dbt_project.yml`: `var()` calls fall back to their defaults, and folder-level settings can't be told apart from a model's own. | Pass the project's `dbt_project.yml`. |
+| `dbt.project_file_missing` | warning | No `dbt_project.yml`: `var()` calls fall back to their defaults, its settings can't come back into the generated `dbt_project.yml`, and folder-level settings can't be told apart from a model's own (models store what differs from TurboVault's layer settings). | Pass the project's `dbt_project.yml`. |
 | `dbt.packages_missing` | info | No package file: the datavault4dbt version is unknown, both argument formats are read. | — |
 | `dbt.resource_not_imported` | info | Resources the import doesn't read, with their count (seeds, tests, dbt snapshots, analyses, exposures, ...). | — |
 | `dbt.nothing_to_import` | error (abort) | No datavault4dbt model maps to TurboVault: nothing is planned (a `replace_all` never deletes everything because of an empty project). | Check that the project uses datavault4dbt macros. |
@@ -45,6 +45,7 @@ left out is planned as a skip, so `replace_all` keeps the project's copy.
 | `dbt.hash_inputs_differ` | warning | A stage computes a hash key from other columns than the business keys the Hub or Link maps; TurboVault computes it from the mapped keys. | Check the stage's `hashed_columns`. |
 | `dbt.column_unknown` | warning | Columns a model uses that neither the catalog nor the YAML describe: created without a data type (one issue per table). | Provide `catalog.json`, or describe the columns in YAML. |
 | `dbt.prestage_maintained_in_dbt` | warning | A stage reads a model, seed or snapshot: it becomes a pre-stage whose model stays in the dbt project, so the project must be generated into that dbt project. | — |
+| `dbt.naming_inferred` | info | The project's names follow a naming pattern that differs from the project setting (e.g. `stage_naming`), with how many names follow it. Also in the report's `project_settings.naming`. | Apply it (CLI: `--apply-settings`) so new entities follow it; importing again stores fewer names. |
 | `dbt.project_setting` | info | A project setting the imported models need, e.g. `use_delivery_method` for models that load single-batch data. | Apply the setting to the project. |
 | `dbt.model_not_mapped` | info | A model without a Data Vault call TurboVault maps (marts, Business Vault, unrelated models), or a v1 view of a satellite that isn't imported. It stays in the dbt project. | — |
 | `entity.depends_on_skipped` | warning | An entity needs a stage, Hub or Link that is left out (its error is reported there). | Fix the first error. |

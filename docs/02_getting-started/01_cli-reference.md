@@ -296,6 +296,7 @@ neither.
 | `--dbt-parse` | | dbt: run `dbt parse` first when the project folder has no manifest | `false` |
 | `--no-descriptions` | | dbt: don't import descriptions | `false` |
 | `--no-tags` | | dbt: don't import the models' tags | `false` |
+| `--apply-settings` / `--keep-settings` | | dbt: before importing, write the settings the dbt project suggests into the project's `config.yml` (the naming patterns its models follow, its `dbt_project.yml`: name, profile, vars, `models:` block, other settings), or keep the project's. A dry run finds them first. With them applied, names that follow the patterns aren't stored on the models | ask (keep when not interactive) |
 | `--project NAME` | `-p` | Target project name (must exist) | prompted |
 | `--mode STR` | | Conflict strategy: `merge`, `replace-all`, or `update-only` | `merge` |
 | `--on-error STR` | | Error strategy: `best-effort` or `fail-fast` | `best-effort` |

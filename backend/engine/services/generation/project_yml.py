@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Mapping
+from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 from typing import Any
 
 import yaml
@@ -167,3 +169,96 @@ def extra_block(settings: Mapping[str, Any] | None) -> str:
     return "\n" + yaml.safe_dump(
         extra, sort_keys=False, default_flow_style=False, allow_unicode=True
     )
+
+
+# ---------------------------------------------------------------------------
+# Resolving the models: block
+# ---------------------------------------------------------------------------
+
+# Settings whose value is a mapping (not a subfolder) in the models: block.
+_MAPPING_SETTINGS = frozenset(
+    {
+        "persist_docs",
+        "docs",
+        "grants",
+        "contract",
+        "meta",
+        "labels",
+        "partition_by",
+        "column_types",
+        "quoting",
+        "access",
+        "snowflake_warehouse",
+        "query_tag",
+        "cluster_by",
+    }
+)
+# Settings a model's config has that aren't stored (they decide whether it
+# exists or are dbt's own bookkeeping).
+IGNORED_SETTINGS = frozenset({"enabled", "packages"})
+
+
+def settings_key(name: str) -> str:
+    """A settings key as dbt reads it: without '+', hooks with '-'."""
+    key = str(name).lstrip("+")
+    return {"pre_hook": "pre-hook", "post_hook": "post-hook"}.get(key, key)
+
+
+def tag_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [str(tag) for tag in value]
+
+
+@dataclass
+class Settings:
+    """Settings with tags kept apart (they add up instead of replacing)."""
+
+    values: dict[str, Any] = field(default_factory=dict)
+    tags: list[str] = field(default_factory=list)
+
+
+def folder_settings(models_block: Mapping[str, Any] | None, fqn: list[str]) -> Settings:
+    """The settings a project's models: block gives a model at ``fqn``.
+
+    ``models_block`` is the project's entry (without its name). Walks the
+    model's folders (``fqn`` between the project and the model's name); the
+    most specific value wins, tags accumulate.
+    """
+    result = Settings()
+    if not models_block:
+        return result
+    level: Any = models_block
+    folders = list(fqn[1:-1]) if len(fqn) > 2 else []
+    for depth in range(len(folders) + 1):
+        if not isinstance(level, Mapping):
+            break
+        for name, value in level.items():
+            name = str(name)
+            is_setting = name.startswith("+") or (
+                not isinstance(value, Mapping)
+                or settings_key(name) in _MAPPING_SETTINGS
+            )
+            if not is_setting:
+                continue
+            key = settings_key(name)
+            if key == "tags":
+                result.tags.extend(t for t in tag_list(value) if t not in result.tags)
+            else:
+                result.values[key] = value
+        if depth < len(folders):
+            level = level.get(folders[depth]) if isinstance(level, Mapping) else None
+    return result
+
+
+def covers(models_block: Mapping[str, Any] | None, folder: str) -> bool:
+    """Whether the models: block gives a model in ``folder`` any settings.
+
+    ``folder`` is relative to the dbt project (``models/raw_vault/hubs``):
+    its first part is the model path, the rest the folders dbt walks.
+    """
+    parts = list(PurePosixPath(folder).parts[1:])
+    found = folder_settings(models_block, ["project", *parts, "model"])
+    return bool(found.values or found.tags)

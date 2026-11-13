@@ -366,6 +366,12 @@ entities follow the project's style:
 - A pattern is set only when most entities of a kind follow it (threshold to be tuned on the corpus); the
   report shows each inferred pattern with how many names match, and the names that don't keep their own
   name (per-model output attribute or per-entity field).
+- As implemented (D22): for each pattern the import finds what its placeholders stand for in each name (a
+  hub's name in its hash key, a satellite's in its models, the source system and table in a stage's name);
+  the pattern at least half the names follow (and two, unless there is one) is suggested when it differs
+  from the project's, with `dbt.naming_inferred` and in the report's `project_settings.naming`. The import
+  stores names relative to the project's current patterns; the CLI offers to apply the suggestions to
+  `config.yml` after a dry run, before the real import (`--apply-settings` / `--keep-settings`).
 
 ---
 
@@ -411,6 +417,15 @@ and plain config keys) and stores only what differs (D20). The folder-level conf
 the project setting `dbt_project_models`, written into the generated `dbt_project.yml`. Without
 `dbt_project.yml`, each model stores its effective `schema`/`materialized`/`tags`/... from
 `unrendered_config`.
+
+As implemented (4b-2b): a model output stores its folder when it differs from the folder TurboVault
+generates the model in (a v1 view, an effectivity or record-tracking satellite and a snapshot control's
+logic follow their v0, entity or table), and each setting whose value differs from what the regenerated
+model gets: its template's default (e.g. the v1 view's `view`, the PIT's `clean_up_pit` post-hook), else its
+folder's (the imported `models:` block where it covers the folder, else TurboVault's layer settings). An unset
+materialization counts as dbt's `view`. Tags add up in dbt, so a model stores its own tags whenever the
+folder's and its template's tags (with its group) don't make its effective ones, `[]` included. Generation
+doesn't add TurboVault's layer settings to a model in a folder the imported `models:` block covers.
 
 ### 9.2 Hash diff name and alias (Satellite) — implemented
 
@@ -582,7 +597,7 @@ The report also lists node counts per resource type (seeds, tests, … not impor
 | 1 | Corpus analysis: `scripts/dbt_import/profile_manifest.py`, extraction prototype `capture_calls.py` | done |
 | 2 | Foundations: artifact reader, sandbox extraction, datavault4dbt adapter (normalization, signature table 1.x/2.x), notation tests | done (`DbtSource`, CLI and issue locations moved to Phase 4) |
 | 3 | Pre-stages kept in the dbt project (D9), layer folders (D12), metadata extensions (§9.1–9.6): output attributes and name resolution, hash diff name/alias, stage options, derived column shadowing, Satellite v1 options, smaller additions (D13) | done |
-| 4 | 4a: `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, opt-in `dbt parse` (D21), issue locations; the import (executor and JSON round trip) stores every §9 setting and the JSON import its snapshot controls. 4b-1: sources, stages, pre-stages, Hubs, Links, Satellites (§7.1–7.5), warnings/skips for direct parsers, the project's settings as import input (D22). 4b-2a: PITs, reference tables, snapshot controls, groups (§7.6), dependent child keys selected by generated links (D23). 4b-2b: model settings (D20), naming inference (§8). 4c: round-trip and corpus tests | 4a, 4b-1, 4b-2a done |
+| 4 | 4a: `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, opt-in `dbt parse` (D21), issue locations; the import (executor and JSON round trip) stores every §9 setting and the JSON import its snapshot controls. 4b-1: sources, stages, pre-stages, Hubs, Links, Satellites (§7.1–7.5), warnings/skips for direct parsers, the project's settings as import input (D22). 4b-2a: PITs, reference tables, snapshot controls, groups (§7.6), dependent child keys selected by generated links (D23). 4b-2b: model settings (D20), the dbt_project.yml (D25), naming inference (§8, D22), snapshot logic generation (D24). 4c: round-trip and corpus tests | 4a, 4b done |
 | 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models; generating into an existing dbt project (§9.7) | |
 | 6 | Custom models for downstream models (#461), optional | postponed (D19) |
 | 7 | Hardening: performance limits, docs, CLI polish | |

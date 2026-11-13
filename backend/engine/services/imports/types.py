@@ -340,6 +340,52 @@ ImportStatus = Literal[
 ]
 
 
+class NamingSuggestion(BaseModel):
+    """A naming pattern a source's names follow (spec §8)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pattern: str
+    # How many of the source's names follow it, out of how many
+    matching: int
+    total: int
+
+
+class ProjectSettings(BaseModel):
+    """Project settings a source suggests (a dbt project import, D22/D25).
+
+    The import doesn't apply them: the caller decides (the CLI asks and
+    writes config.yml, Studio offers them). Empty fields suggest nothing.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Naming patterns by runtime config field (hashkey_naming, stage_naming,
+    # ...), only those that differ from the project's
+    naming: dict[str, NamingSuggestion] = Field(default_factory=dict)
+    # From dbt_project.yml
+    dbt_project_name: str | None = None
+    profile_name: str | None = None
+    global_vars: dict[str, Any] = Field(default_factory=dict)
+    dbt_project_models: dict[str, Any] = Field(default_factory=dict)
+    dbt_project_settings: dict[str, Any] = Field(default_factory=dict)
+    # Models load single-batch data (source_is_single_batch)
+    use_delivery_method: bool | None = None
+
+    def is_empty(self) -> bool:
+        return not any(
+            (
+                self.naming,
+                self.dbt_project_name,
+                self.profile_name,
+                self.global_vars,
+                self.dbt_project_models,
+                self.dbt_project_settings,
+                self.use_delivery_method,
+            )
+        )
+
+
 class ImportReport(BaseModel):
     """The single artifact returned by `import_metadata()`."""
 
@@ -357,6 +403,8 @@ class ImportReport(BaseModel):
     source_name: str
     plan: ImportPlan
     issues: list[Issue] = Field(default_factory=list)
+    # Settings the source suggests for the project (dbt project imports)
+    project_settings: ProjectSettings | None = None
 
     @property
     def error_count(self) -> int:

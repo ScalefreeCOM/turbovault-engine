@@ -106,6 +106,11 @@ def write_project_config(config_path: Path, config) -> None:
             "export_sources": config.output.export_sources,
         },
     }
+    # The dbt project's name, when it isn't the project's (an imported one's)
+    if config.output.dbt_project_name and (
+        config.output.dbt_project_name != config.project.name
+    ):
+        config_dict["output"]["dbt_project_name"] = config.output.dbt_project_name
 
     if config.configuration.model_materializations:
         config_dict["configuration"]["model_materializations"] = dict(

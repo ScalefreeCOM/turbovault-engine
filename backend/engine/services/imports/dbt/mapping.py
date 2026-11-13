@@ -35,6 +35,7 @@ from engine.services.imports.dbt.conventions import (
     GROUP_TAGGED,
     group_candidates,
     group_folder,
+    in_layer_folder,
     model_tags,
 )
 from engine.services.imports.dbt.datavault4dbt import (
@@ -50,6 +51,7 @@ from engine.services.imports.dbt.datavault4dbt import (
 )
 from engine.services.imports.dbt.extract import is_unresolved
 from engine.services.imports.dbt.index import DbtModel, ProjectIndex
+from engine.services.imports.dbt.project_settings import ProjectSettingsMapping
 from engine.services.imports.domain import (
     CLEAR,
     DDerivedColumn,
@@ -180,7 +182,7 @@ class _LinkInfo:
 # ---------------------------------------------------------------------------
 
 
-class _Mapper(BusinessVaultMapping):
+class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
     def __init__(
         self,
         artifacts: DbtArtifacts,
@@ -215,6 +217,8 @@ class _Mapper(BusinessVaultMapping):
         self._controls_by_model: dict[str, str] = {}
         # The models of each entity, by (entity type, name): groups, settings.
         self._models_of: dict[tuple[str, str], list[DbtModel]] = {}
+        # Every mapped model whose output the import fills (project_settings)
+        self._tracked_outputs: list = []
 
     # -- entry --------------------------------------------------------------
 
@@ -241,7 +245,9 @@ class _Mapper(BusinessVaultMapping):
         for model in self.index.models_with("ref_table"):
             self._map_reference_table(model)
         self._assign_groups()
+        self._apply_model_settings()
         self._finish_tables()
+        self.domain.project_settings = self._project_settings()
         self._report_unmapped()
         return self.domain, self.issues
 
@@ -597,6 +603,7 @@ class _Mapper(BusinessVaultMapping):
         )
         if derived != model.name:
             table.outputs["stage"] = DModelOutput(kind="stage", model_name=model.name)
+        self._track(table.outputs, "stage", model, system=system.name)
 
     def _plain_value(self, model: DbtModel, parameter: str) -> str | None:
         """A text parameter of the model's call, or None (reported if unresolved)."""
@@ -950,6 +957,7 @@ class _Mapper(BusinessVaultMapping):
         self.hubs[model.name] = info
         self.domain.hubs[model.name] = info.hub
         self._models_of[("hub", model.name)] = [model]
+        self._track(info.hub.outputs, "hub", model, entity=("hub", model.name))
         self._mapped.add(model.unique_id)
 
     def _check_hash_inputs(
@@ -1163,6 +1171,7 @@ class _Mapper(BusinessVaultMapping):
         )
         self.domain.links[model.name] = link
         self._models_of[("link", model.name)] = [model]
+        self._track(link.outputs, "link", model, entity=("link", model.name))
         self._mapped.add(model.unique_id)
         if as_bool(params.get("source_is_single_batch"), False):
             self._single_batch_tables.update(stage.identifier for stage in stages)
@@ -1553,9 +1562,19 @@ class _Mapper(BusinessVaultMapping):
         self.domain.satellites[name] = satellite
         self._sats_by_model[model.name] = name
         self._models_of[("satellite", name)] = [model]
+        self._track(
+            satellite.outputs, "satellite_v0", model, entity=("satellite", name)
+        )
         if v1 is not None:
             self._sats_by_model[v1.name] = name
             self._models_of[("satellite", name)].append(v1)
+            self._track(
+                satellite.outputs,
+                "satellite_v1",
+                v1,
+                entity=("satellite", name),
+                follows=model,
+            )
         self._mapped.add(model.unique_id)
         if as_bool(params.get("source_is_single_batch"), False):
             self._single_batch_tables.add(stage.identifier)
@@ -1692,6 +1711,16 @@ class _Mapper(BusinessVaultMapping):
         stage = self.stages.get(str(stage_name))
         if stage is not None and as_bool(params.get("source_is_single_batch"), False):
             self._single_batch_tables.add(stage.identifier)
+        self._track(
+            entity.outputs,
+            "effectivity_satellite",
+            model,
+            entity=(
+                "hub" if isinstance(parent, _HubInfo) else "link",
+                entity.physical_name,
+            ),
+            follows=parent.model,
+        )
         self._mapped.add(model.unique_id)
 
     def _map_record_tracking_satellite(self, model: DbtModel) -> None:
@@ -1721,6 +1750,16 @@ class _Mapper(BusinessVaultMapping):
                 f"'{entity.physical_name}' loads from: {sorted(loaded)}",
                 parameter="source_models",
             )
+        self._track(
+            entity.outputs,
+            "record_tracking_satellite",
+            model,
+            entity=(
+                "hub" if isinstance(parent, _HubInfo) else "link",
+                entity.physical_name,
+            ),
+            follows=parent.model,
+        )
         self._mapped.add(model.unique_id)
 
     # -- groups -----------------------------------------------------------------
@@ -1751,6 +1790,8 @@ class _Mapper(BusinessVaultMapping):
                         tagged[key] = spelled
                         break
                     folders.setdefault(key, folder)
+                elif in_layer_folder(model.path):
+                    continue  # TurboVault's layer folder itself: no group
                 elif len(candidates) == 1:
                     tagged.setdefault(key, candidates[0])
         spellings = {group.lower(): group for group in tagged.values()}

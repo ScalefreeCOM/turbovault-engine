@@ -194,8 +194,8 @@ dbt source; for a pre-stage, dbt would fail to find that source.
 
 **Status:** In progress (dbt import branch). Built: artifact reading, call extraction, the `DbtSource` in the
 import pipeline with artifact detection and its issues, the CLI, and the mapping of stages, pre-stages, Hubs,
-Links, Satellites, snapshot controls, PITs, reference tables and groups (spec Phases 4b-1, 4b-2a). The models'
-folders and config settings, and naming pattern inference follow (4b-2b).
+Links, Satellites, snapshot controls, PITs, reference tables and groups (spec Phases 4b-1, 4b-2a), the models'
+folders and settings, the project's dbt_project.yml and naming pattern inference (4b-2b).
 
 ### API
 
@@ -257,7 +257,20 @@ report = import_metadata(
   - Snapshot controls come with their logic rules (one per logic column and component), PITs and reference
     tables with their snapshot control and trigger column. The plan lists `snapshot_control` entities (item 13).
   - Groups come from TurboVault's folder structure and the models' tags (spec §7.6).
-  - A model's name is stored as a `ModelOutput` only where it differs from the naming patterns.
+  - A model's name is stored as a `ModelOutput` only where it differs from the naming patterns; so are its
+    folder and settings (materialization, schema, alias, tags, further config keys), only where they differ
+    from what TurboVault generates (spec §9.1, as implemented).
+- **Suggested project settings (new, `ImportReport.project_settings`, `ProjectSettings`):** the import reports,
+  without applying them:
+  - `naming`: naming patterns the project's names follow that differ from the project's, by runtime config
+    field (`stage_naming`, `hashkey_naming`, ...), each with `pattern`, `matching` and `total` (also a
+    `dbt.naming_inferred` info each);
+  - from `dbt_project.yml`: `dbt_project_name`, `profile_name`, `global_vars`, `dbt_project_models`,
+    `dbt_project_settings` (item 16);
+  - `use_delivery_method: true` when models load single-batch data.
+  Suggested flow (the CLI's, spec D22): run a dry run, show the suggestions, let the user accept them, save them
+  in the project's settings, then run the import with the new runtime config. With the naming patterns applied,
+  names that follow them aren't stored on the models.
 
 Imports an existing datavault4dbt project from its dbt artifacts. The Engine never runs dbt or connects to the
 warehouse.
@@ -712,8 +725,8 @@ control without a daily rule produced an invalid model.
 
 ## 16. An imported dbt_project.yml comes back
 
-**Status:** In progress (dbt import branch). Spec D20, D25. The import side (reporting the settings) lands with
-spec Phase 4b-2b.
+**Status:** In progress (dbt import branch). Spec D20, D25. The import reports the settings in
+`ImportReport.project_settings` (item 4); the CLI writes them into `config.yml` on request.
 
 A project imported from a dbt project keeps that project's `dbt_project.yml`, and generation writes it back, so
 the generated file matches the original in content (comments and formatting aside).

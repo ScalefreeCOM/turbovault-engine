@@ -101,6 +101,17 @@ def import_metadata_cmd(
         bool,
         typer.Option("--no-tags", help="dbt: don't import the models' tags"),
     ] = False,
+    apply_settings: Annotated[
+        bool | None,
+        typer.Option(
+            "--apply-settings/--keep-settings",
+            help=(
+                "dbt: write the settings the dbt project suggests (naming "
+                "patterns, its dbt_project.yml) into the project's config.yml "
+                "before importing, or keep the project's (default: ask)"
+            ),
+        ),
+    ] = None,
     project_name: Annotated[
         str | None,
         typer.Option("--project", "-p", help="Target project name"),
@@ -195,6 +206,7 @@ def import_metadata_cmd(
         dbt_parse=dbt_parse,
         import_descriptions=not no_descriptions,
         import_tags=not no_tags,
+        apply_settings=apply_settings,
     )
 
 
@@ -212,6 +224,7 @@ def _run_import(
     dbt_parse: bool = False,
     import_descriptions: bool = True,
     import_tags: bool = True,
+    apply_settings: bool | None = None,
 ) -> None:
     """Shared execution path used by both flag-driven and interactive modes."""
     # Deferred: requires Django setup.
@@ -261,14 +274,125 @@ def _run_import(
             f"(mode={options.conflict_strategy}, on_error={options.error_strategy})."
         )
 
+    if isinstance(src, DbtSource) and not dry_run:
+        _offer_project_settings(project, src, options, apply_settings)
+
     report = import_metadata(project=project, source=src, options=options)
     _render_report(report)
+    if dry_run and report.project_settings and not report.project_settings.is_empty():
+        _show_project_settings(report.project_settings)
 
     if report.status == "success":
         raise typer.Exit(0)
     if report.status == "partial_success":
         raise typer.Exit(1)
     raise typer.Exit(2)
+
+
+def _offer_project_settings(
+    project: Any, source: Any, options: Any, apply_settings: bool | None
+) -> None:
+    """Show the settings a dbt project suggests; write them into config.yml.
+
+    A dry run finds them (spec D22): the naming patterns its models follow
+    and its dbt_project.yml. Applied before the import, names that follow
+    the patterns aren't stored on the models.
+    """
+    from engine.services.imports import import_metadata
+
+    if not project.project_directory:
+        return
+    preview = import_metadata(
+        project=project,
+        source=source,
+        options=options.model_copy(update={"dry_run": True}),
+    )
+    settings = preview.project_settings
+    if settings is None or settings.is_empty():
+        return
+    _show_project_settings(settings)
+    if apply_settings is None:
+        if not console.is_terminal:
+            print_info(
+                "Keeping the project's settings (--apply-settings writes these "
+                "into config.yml)."
+            )
+            return
+        apply_settings = questionary.confirm(
+            "Write these settings into the project's config.yml before importing?",
+            default=True,
+        ).ask()
+    if not apply_settings:
+        return
+    try:
+        path = _apply_project_settings(project, settings)
+    except Exception as exc:  # an invalid config.yml stays as it is
+        print_warning(f"config.yml wasn't updated: {exc}")
+        return
+    print_success(f"Settings written to {path}")
+
+
+def _show_project_settings(settings: Any) -> None:
+    table = Table(
+        title="Settings the dbt project suggests",
+        show_header=True,
+        header_style="bold cyan",
+    )
+    table.add_column("Setting", style="bold")
+    table.add_column("Suggested")
+    for key, suggestion in settings.naming.items():
+        table.add_row(
+            key,
+            f"{suggestion.pattern}  [dim]({suggestion.matching} of "
+            f"{suggestion.total} names)[/dim]",
+        )
+    if settings.dbt_project_name:
+        table.add_row("dbt project name", settings.dbt_project_name)
+    if settings.profile_name:
+        table.add_row("profile", settings.profile_name)
+    if settings.global_vars:
+        table.add_row("vars", f"{len(settings.global_vars)} variables")
+    if settings.dbt_project_models:
+        table.add_row(
+            "models: block",
+            ", ".join(str(key) for key in list(settings.dbt_project_models)[:6]),
+        )
+    if settings.dbt_project_settings:
+        table.add_row(
+            "other dbt_project.yml settings",
+            ", ".join(str(key) for key in list(settings.dbt_project_settings)[:6]),
+        )
+    if settings.use_delivery_method:
+        table.add_row("use_delivery_method", "true")
+    console.print(table)
+
+
+def _apply_project_settings(project: Any, settings: Any) -> Path:
+    """Write suggested settings into the project's config.yml; return its path."""
+    from engine.services.config_schema import DbtProjectConfig
+    from engine.services.project_config import write_project_config
+
+    config = project.load_config()
+    configuration = config.configuration
+    for key, suggestion in settings.naming.items():
+        setattr(configuration, key, suggestion.pattern)
+    if settings.profile_name:
+        configuration.profile_name = settings.profile_name
+    if settings.use_delivery_method:
+        configuration.use_delivery_method = True
+    if settings.dbt_project_name:
+        config.output.dbt_project_name = settings.dbt_project_name
+    dbt_project = config.dbt_project or DbtProjectConfig()
+    if settings.global_vars:
+        dbt_project.vars = dict(settings.global_vars)
+    if settings.dbt_project_models:
+        dbt_project.models = dict(settings.dbt_project_models)
+    if settings.dbt_project_settings:
+        dbt_project.settings = dict(settings.dbt_project_settings)
+    config.dbt_project = dbt_project
+    path = project.get_config_path()
+    write_project_config(path, config)
+    return path
 
 
 def _run_interactive_import() -> dict | None:

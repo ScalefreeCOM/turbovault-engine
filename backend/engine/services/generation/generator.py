@@ -429,14 +429,16 @@ class DbtProjectGenerator:
         """Where a model's files go, and the settings of its config() block.
 
         A model stored in a folder outside its layer's folder misses the
-        layer's settings in dbt_project.yml, so its config() gets them.
+        layer's settings in dbt_project.yml, so its config() gets them, unless
+        an imported dbt project's models: block gives that folder settings.
         """
         folder = self._stored_folder(output)
         if folder is None:
             return default_dir, ModelConfig(output)
         layer_folder = self._layer_folder(layer)
         inside = folder == layer_folder or folder.startswith(f"{layer_folder}/")
-        layer_defaults = None if inside else self._layer_defaults(layer)
+        imported = project_yml.covers(self.config.dbt_project_models, folder)
+        layer_defaults = None if inside or imported else self._layer_defaults(layer)
         return self.output_path / folder, ModelConfig(output, layer_defaults)
 
     def _model_paths(self, project_export: ProjectExport) -> list[str]:

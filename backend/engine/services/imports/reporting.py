@@ -12,6 +12,7 @@ from engine.services.imports.types import (
     ImportReport,
     ImportStatus,
     Issue,
+    ProjectSettings,
     SourceInput,
 )
 
@@ -93,6 +94,7 @@ def build_report(
     finished_at: datetime,
     timings_ms: dict[str, int],
     executor_committed: bool,
+    project_settings: ProjectSettings | None = None,
 ) -> ImportReport:
     status = determine_status(
         is_dry_run=options.dry_run,
@@ -114,6 +116,7 @@ def build_report(
         source_name=source_name,
         plan=plan,
         issues=issues,
+        project_settings=project_settings,
     )
 
 

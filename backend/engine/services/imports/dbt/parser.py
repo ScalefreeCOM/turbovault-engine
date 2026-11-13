@@ -108,8 +108,11 @@ def located_issues(paths: DbtArtifactPaths) -> list[Issue]:
                 stage="parse",
                 message=(
                     "No dbt_project.yml: var() calls fall back to their "
-                    "defaults, and models keep all their settings (folder-level "
-                    "settings can't be told apart)"
+                    "defaults, the project's dbt_project.yml settings can't come "
+                    "back, and folder-level settings can't be told apart from a "
+                    "model's own: models store what differs from TurboVault's "
+                    "layer settings (a model without a custom schema gets the "
+                    "layer's)"
                 ),
                 suggestion="Pass the project's dbt_project.yml.",
             )

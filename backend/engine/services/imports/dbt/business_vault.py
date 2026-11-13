@@ -118,6 +118,7 @@ class BusinessVaultMapping:
         self.domain.snapshot_controls[base] = control
         self._controls_by_model[name] = base
         self._models_of[("snapshot_control", base)] = [model]
+        self._track(control.outputs, "snapshot_control_v0", model)
         self._mapped.add(model.unique_id)
 
     def _map_control_logic(self, model: DbtModel) -> None:
@@ -163,6 +164,12 @@ class BusinessVaultMapping:
             control.sdts_alias = sdts
         self._controls_by_model[model.name] = base
         self._models_of[("snapshot_control", base)].append(model)
+        self._track(
+            control.outputs,
+            "snapshot_control_v1",
+            model,
+            follows=self._models_of[("snapshot_control", base)][0],
+        )
         self._mapped.add(model.unique_id)
 
     def _trigger_column(self) -> str:
@@ -413,6 +420,7 @@ class BusinessVaultMapping:
         )
         self.domain.pits[model.name] = pit
         self._models_of[("pit", model.name)] = [model]
+        self._track(pit.outputs, "pit", model, entity=("pit", model.name), control=base)
         self._mapped.add(model.unique_id)
 
     # -- reference tables ----------------------------------------------------
@@ -492,4 +500,10 @@ class BusinessVaultMapping:
             outputs={},
         )
         self._models_of[("reference_table", model.name)] = [model]
+        self._track(
+            self.domain.reference_tables[model.name].outputs,
+            "reference_table",
+            model,
+            entity=("reference_table", model.name),
+        )
         self._mapped.add(model.unique_id)

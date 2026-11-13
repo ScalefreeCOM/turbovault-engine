@@ -62,7 +62,9 @@ from engine.services.imports.types import (
     Issue,
     IssueLocation,
     JsonSource,
+    NamingSuggestion,
     ProgressEvent,
+    ProjectSettings,
     SourceInput,
     SourceMetadataSource,
     SqliteSource,
@@ -83,6 +85,8 @@ __all__ = [
     "SourceInput",
     "ImportOptions",
     "ImportReport",
+    "NamingSuggestion",
+    "ProjectSettings",
     "ImportPlan",
     "Issue",
     "IssueLocation",
@@ -132,6 +136,7 @@ def import_metadata(
     `internal.bug` issues in the report.
     """
     options = options or ImportOptions()
+    project_settings: ProjectSettings | None = None
     started_at = now_utc()
     timings: dict[str, int] = {}
     issues: list[Issue] = []
@@ -173,6 +178,7 @@ def import_metadata(
                 runtime_config = runtime_config or _project_settings(project)
                 domain, parse_issues = parse_dbt(source, runtime_config=runtime_config)
                 issues.extend(parse_issues)
+                project_settings = domain.project_settings
                 if options.error_strategy == "fail_fast" and any(
                     issue.severity == "error" for issue in parse_issues
                 ):
@@ -188,6 +194,7 @@ def import_metadata(
                         run_id=run_id,
                         executor_committed=False,
                         progress=progress,
+                        project_settings=project_settings,
                     )
                 if domain.is_empty():
                     # Nothing to plan: above all, replace_all must not read an
@@ -378,6 +385,7 @@ def import_metadata(
         run_id=run_id,
         executor_committed=executor_committed,
         progress=progress,
+        project_settings=project_settings,
     )
     if rejection is not None:
         raise rejection
@@ -404,6 +412,7 @@ def _finalize(
     run_id,
     executor_committed: bool,
     progress: ProgressCallback | None,
+    project_settings: ProjectSettings | None = None,
 ) -> ImportReport:
     finished_at = now_utc()
     report = build_report(
@@ -417,6 +426,7 @@ def _finalize(
         finished_at=finished_at,
         timings_ms=timings,
         executor_committed=executor_committed,
+        project_settings=project_settings,
     )
 
     try:
