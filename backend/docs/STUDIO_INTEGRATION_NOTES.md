@@ -27,6 +27,7 @@ section is completed when the Engine change lands).
 | 14 | [Links select their dependent child keys](#14-links-select-their-dependent-child-keys) | In progress | Template editor: new variable `dependent_child_keys`; tell users their links gain columns |
 | 15 | [Snapshot control logic as datavault4dbt reads it](#15-snapshot-control-logic-as-datavault4dbt-reads-it) | In progress | Offer the components datavault4dbt computes; show `SNAP_002`; template editor variables |
 | 16 | [An imported dbt_project.yml comes back](#16-an-imported-dbt_projectyml-comes-back) | In progress | Store two new project settings and pass them to generation; reconcile with the manual dbt_project.yml |
+| 17 | [Default tags setting](#17-default-tags-setting) | In progress | A project switch; the tag field of a model's settings now adds tags |
 
 Background for items 4–11: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
 
@@ -339,7 +340,7 @@ One row per entity and kind of model, only where something differs from the defa
 | `model_name` | text, nullable | The model's (and file's) name. |
 | `folder` | text, nullable | Relative to the dbt project, e.g. `models/raw_vault/hubs`; stored with `/` and without outer slashes. |
 | `alias`, `schema_name`, `database_name`, `materialized` | text, nullable | `config(alias=…, schema=…, database=…, materialized=…)`. |
-| `tags` | JSON list of strings, nullable | Replace the default tags (an empty list means "no tags"; null means "defaults"). |
+| `tags` | JSON list of strings, nullable | The model's own tags, **added** to TurboVault's default tags (spec D26; was "replace"). The project setting `add_default_tags` (item 17) turns the default tags off. |
 | `config` | JSON object, nullable | Further `config()` keys written as they are, e.g. `unique_key`, `post_hook`, `on_schema_change`. |
 
 `ModelOutput.clean()` messages (show them on the field):
@@ -752,3 +753,21 @@ the generated file matches the original in content (comments and formatting asid
 - **Studio:** store the two new settings with the project and pass them in the runtime config. Studio's manual
   `dbt_project.yml` overrides the generated file anyway; when a project has imported settings, consider
   prefilling the manual file from a generation with them, or showing them read-only.
+
+---
+
+## 17. Default tags setting
+
+**Status:** In progress (dbt import branch). Spec D26.
+
+- **New project setting `add_default_tags`** (runtime config, `config.yml` `configuration.add_default_tags`),
+  default `true`: generated models carry TurboVault's default tags (`hub`, `raw_vault`, the group, ...). Off:
+  they carry only their own tags (`ModelOutput.tags`), and a model without any has no tags.
+- **`ModelOutput.tags` now adds** to the default tags instead of replacing them. A single model can no longer drop
+  the default tags; the setting turns them off for every model. An empty list means the same as null.
+- **dbt imports** store only the tags a model has beyond its folder's (imported `dbt_project.yml`) and, with the
+  setting on, TurboVault's defaults. The import suggests turning the setting off (item 4, suggested project
+  settings), so an imported project keeps exactly its models' tags; users can turn it on later.
+- Workspace template copies that write fixed tags get `TPL_003` while the setting is off.
+- **Studio:** a switch in the project settings ("Add TurboVault's default tags"); the tag field of a model's
+  settings reads "Additional tags".

@@ -156,6 +156,8 @@ def write_project_config(config_path: Path, config) -> None:
         config_dict["configuration"]["include_source_columns"] = False
     if not config.configuration.enable_ghost_records:
         config_dict["configuration"]["enable_ghost_records"] = False
+    if not config.configuration.add_default_tags:
+        config_dict["configuration"]["add_default_tags"] = False
     if config.configuration.use_delivery_method:
         config_dict["configuration"]["use_delivery_method"] = True
     if config.configuration.delivery_method != "multi_batch":

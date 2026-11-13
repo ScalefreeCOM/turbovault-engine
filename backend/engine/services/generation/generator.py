@@ -432,14 +432,17 @@ class DbtProjectGenerator:
         layer's settings in dbt_project.yml, so its config() gets them, unless
         an imported dbt project's models: block gives that folder settings.
         """
+        default_tags = self.config.add_default_tags
         folder = self._stored_folder(output)
         if folder is None:
-            return default_dir, ModelConfig(output)
+            return default_dir, ModelConfig(output, default_tags=default_tags)
         layer_folder = self._layer_folder(layer)
         inside = folder == layer_folder or folder.startswith(f"{layer_folder}/")
         imported = project_yml.covers(self.config.dbt_project_models, folder)
         layer_defaults = None if inside or imported else self._layer_defaults(layer)
-        return self.output_path / folder, ModelConfig(output, layer_defaults)
+        return self.output_path / folder, ModelConfig(
+            output, layer_defaults, default_tags=default_tags
+        )
 
     def _model_paths(self, project_export: ProjectExport) -> list[str]:
         """dbt_project.yml's model-paths: models, plus stored folders' tops."""

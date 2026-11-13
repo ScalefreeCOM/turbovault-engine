@@ -257,6 +257,7 @@ Project-level Data Vault configuration. If not provided, defaults are used.
 | `default_load_date_value` | string | No | `null` | Load date of source systems and tables that set none: a column or SQL. With none, `sysdate()` |
 | `include_source_columns` | boolean | No | `true` | Whether stages pass all source columns on (datavault4dbt `include_source_columns`), for source systems and tables that set nothing |
 | `enable_ghost_records` | boolean | No | `true` | Whether stages add ghost records, for source systems and tables that set nothing |
+| `add_default_tags` | boolean | No | `true` | Give generated models TurboVault's default tags (`hub`, `raw_vault`, the group, ...). A model's own tags are added either way. A dbt project import suggests turning it off, so its models keep exactly their own tags |
 | `use_delivery_method` | boolean | No | `false` | Use the delivery method of source tables: models loading only single-batch data use datavault4dbt's single-batch logic (`source_is_single_batch`) |
 | `delivery_method` | string | No | `"multi_batch"` | Delivery method (`single_batch` / `multi_batch`) of source systems and tables that set none |
 

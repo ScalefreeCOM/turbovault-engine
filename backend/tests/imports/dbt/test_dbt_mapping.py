@@ -1332,8 +1332,8 @@ def test_folder_level_settings_stay_in_the_project_settings(tmp_path):
     # The folder's schema and materialization aren't the model's own
     assert (output.schema_name, output.materialized) == (None, None)
     assert output.folder == "models/vault"
-    # Its tags add up with the folder's: it keeps its own
-    assert output.tags == ["hub", "raw_vault", "pii"]
+    # Tags add up (folder, TurboVault's defaults, its own): it keeps its own
+    assert output.tags == ["pii"]
     settings = domain.project_settings
     assert (settings.dbt_project_name, settings.profile_name) == (
         "shop",
@@ -1421,3 +1421,29 @@ def test_the_cli_writes_the_suggested_settings_before_importing(tmp_path, projec
     assert config.configuration.profile_name == "shop_wh"
     assert config.output.dbt_project_name == "shop_dv"
     assert config.dbt_project.vars == {"datavault4dbt.hash": "SHA2"}
+
+
+def test_without_default_tags_a_model_keeps_all_its_own_tags(tmp_path):
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    hub = _with_settings(
+        CUSTOMER_H,
+        tags=["hub", "pii"],
+        folder="models/30_raw_vault",
+        unrendered={"schema": "rdv", "materialized": "incremental"},
+    )
+    plain = _with_settings(
+        ORDER_H,
+        tags=[],
+        folder="models/30_raw_vault",
+        unrendered={"schema": "rdv", "materialized": "incremental"},
+    )
+    path = write_manifest(
+        tmp_path, [STG_CUSTOMER, STG_ORDERS, hub, plain], [CUSTOMER, ORDERS]
+    )
+
+    domain, _ = map_manifest(path, EngineRuntimeConfig(add_default_tags=False))
+
+    assert domain.hubs["customer_h"].outputs["hub"].tags == ["hub", "pii"]
+    # Nothing to store for a model without tags
+    assert "hub" not in domain.hubs["order_h"].outputs

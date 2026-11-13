@@ -139,6 +139,9 @@ class GenerationConfig:
     # Models go to the folders stored for them; off: TurboVault's layer folders
     use_model_folders: bool = True
 
+    # Models carry TurboVault's default tags (their stored tags either way)
+    add_default_tags: bool = True
+
     # Satellite v0/v1 generation. The naming patterns only apply to exports
     # that carry no resolved model names (see ModelOutputDef).
     generate_satellite_v1_views: bool = True

@@ -110,7 +110,7 @@ class Migration(migrations.Migration):
                     "tags",
                     models.JSONField(
                         blank=True,
-                        help_text="Tags of the model, replacing TurboVault's default tags",
+                        help_text="The model's own tags, added to TurboVault's default tags (which the project setting add_default_tags turns off)",
                         null=True,
                     ),
                 ),

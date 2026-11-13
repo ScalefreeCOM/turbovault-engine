@@ -10,8 +10,9 @@ into the generated ``dbt_project.yml`` again.
 
 A model stores only what TurboVault wouldn't generate by itself: a setting
 equal to its template's default (or, unset there, to what its folder gives
-it) isn't stored. Tags add up in dbt (folder and model), so a model stores
-its own tags when its folder's and its template's tags don't make them.
+it) isn't stored. Tags add up (folder, template, model), so a model stores the
+tags its folder and its template (with the project's default tags) don't give
+it.
 """
 
 from __future__ import annotations
@@ -106,8 +107,13 @@ def stored_settings(
     if extra:
         result["config"] = extra
 
-    own_tags = list(dict.fromkeys(t for t in effective.tags if t not in folder.tags))
-    generated = {tag.lower() for tag in [*regenerated.tags, *template_tags] if tag}
-    if {tag.lower() for tag in effective.tags} != generated:
+    # Tags add up: the regenerated folder's, the template's (when the project
+    # adds TurboVault's default tags) and the stored ones (spec D26). The
+    # model stores the tags the others don't give it.
+    given = {tag.lower() for tag in [*regenerated.tags, *template_tags] if tag}
+    own_tags = list(
+        dict.fromkeys(t for t in effective.tags if t.lower() not in given)
+    )
+    if own_tags:
         result["tags"] = own_tags
     return result

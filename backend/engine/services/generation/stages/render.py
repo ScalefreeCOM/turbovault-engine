@@ -125,6 +125,7 @@ def _build_dbt_config(
         profile_name=runtime_config.profile_name,
         generate_satellite_v1_views=options.generate_satellite_v1_views,
         use_model_folders=options.use_model_folders,
+        add_default_tags=runtime_config.add_default_tags,
         satellite_v0_naming=runtime_config.satellite_v0_naming,
         satellite_v1_naming=runtime_config.satellite_v1_naming,
         record_tracking_satellite_naming=runtime_config.record_tracking_satellite_naming,

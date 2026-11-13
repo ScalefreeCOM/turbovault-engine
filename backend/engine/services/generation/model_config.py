@@ -5,7 +5,9 @@ SQL templates write it with ``[[ model_config(materialized=..., tags=[...]) ]]``
 and YAML templates write the model's tags with ``[[ model_tags([...]) ]]``.
 The arguments are the template's defaults; a model's stored settings (see
 ``engine.models.ModelOutput``) override them: materialization, alias, schema,
-database and tags, plus further ``config()`` keys added as they are.
+database, plus further ``config()`` keys added as they are. Stored tags add to
+the template's tags, which the project setting ``add_default_tags`` turns off
+(spec D26).
 
 ``dbt_project.yml`` sets each layer's schema and materialization for the
 layer's folder only. A model stored in a folder outside its layer's folder
@@ -93,21 +95,38 @@ class ModelConfig:
         self,
         output: ModelOutputDef | None = None,
         layer: LayerDefaults | None = None,
+        *,
+        default_tags: bool = True,
     ) -> None:
         self.output = output
         self.layer = layer
+        # Whether the template's own tags are written (add_default_tags)
+        self.default_tags = default_tags
         self.config_used = False
         self.tags_used = False
 
     @property
     def needs_config(self) -> bool:
         """Whether the SQL needs more than an old template's ``config()``."""
-        return bool(self.layer) or bool(self.output and self.output.settings())
+        return (
+            bool(self.layer)
+            or not self.default_tags
+            or bool(self.output and self.output.settings())
+        )
 
     @property
     def needs_tags(self) -> bool:
         """Whether the YAML needs other tags than an old template's defaults."""
-        return bool(self.output and self.output.tags is not None)
+        return not self.default_tags or bool(self.output and self.output.tags)
+
+    def _tags(self, defaults: Sequence[Any] | None) -> list[str]:
+        """The template's tags (unless turned off), then the stored ones."""
+        tags = _clean_tags(defaults) if self.default_tags else []
+        stored = self.output.tags if self.output else None
+        for tag in stored or []:
+            if tag not in tags:
+                tags.append(tag)
+        return tags
 
     def settings(self, **defaults: Any) -> dict[str, Any]:
         """The model's ``config()`` settings: stored over template defaults."""
@@ -123,10 +142,9 @@ class ModelConfig:
             "database": stored.get("database") or defaults.get("database"),
         }
         result = {key: value for key, value in leading.items() if value}
-        if "tags" in stored:
-            result["tags"] = list(stored["tags"])
-        elif "tags" in defaults:
-            result["tags"] = _clean_tags(defaults["tags"])
+        tags = self._tags(defaults.get("tags"))
+        if tags:
+            result["tags"] = tags
 
         for key, value in defaults.items():
             if key not in _LEADING_KEYS and value is not None:
@@ -141,11 +159,10 @@ class ModelConfig:
         return Markup(config_block(self.settings(**defaults)))
 
     def tags(self, defaults: Sequence[Any] | None = None) -> Markup:
-        """The model's tags as a YAML flow sequence: stored, else *defaults*."""
+        """The model's tags as a YAML flow sequence: the template's (unless
+        turned off) and the stored ones."""
         self.tags_used = True
-        stored = self.output.tags if self.output else None
-        tags = list(stored) if stored is not None else _clean_tags(defaults)
-        return Markup(yaml_tags_literal(tags))
+        return Markup(yaml_tags_literal(self._tags(defaults)))
 
     def context(self) -> dict[str, Any]:
         """Template variables: ``model_config`` and ``model_tags``."""

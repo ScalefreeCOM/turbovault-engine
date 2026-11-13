@@ -409,6 +409,14 @@ class ProjectConfiguration(BaseModel):
             "set nothing"
         ),
     )
+    add_default_tags: bool = Field(
+        True,
+        description=(
+            "Give generated models TurboVault's default tags (hub, raw_vault, "
+            "the group, ...); a model's own tags are added either way. A dbt "
+            "project import suggests turning it off"
+        ),
+    )
     use_delivery_method: bool = Field(
         False,
         description=(

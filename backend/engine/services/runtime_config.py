@@ -53,6 +53,11 @@ class EngineRuntimeConfig:
     include_source_columns: bool = True
     enable_ghost_records: bool = True
 
+    # Whether generated models carry TurboVault's default tags (hub,
+    # raw_vault, the group, ...). A model's stored tags are added either way
+    # (spec D26); dbt project imports suggest turning it off.
+    add_default_tags: bool = True
+
     # Delivery method (issue #468): with the switch on, models loading only
     # single-batch sources use datavault4dbt's single-batch logic
     # (source_is_single_batch). Tables and systems that set no delivery
@@ -192,6 +197,7 @@ class EngineRuntimeConfig:
             default_load_date_value=config.configuration.default_load_date_value,
             include_source_columns=config.configuration.include_source_columns,
             enable_ghost_records=config.configuration.enable_ghost_records,
+            add_default_tags=config.configuration.add_default_tags,
             use_delivery_method=config.configuration.use_delivery_method,
             delivery_method=config.configuration.delivery_method,
             profile_name=config.configuration.profile_name,

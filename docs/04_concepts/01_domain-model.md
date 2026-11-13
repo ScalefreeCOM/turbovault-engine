@@ -808,7 +808,7 @@ TurboVault derives it.
 | schema_name       | string     |          | `config(schema=...)`. |
 | database_name     | string     |          | `config(database=...)`. |
 | materialized      | string     |          | `config(materialized=...)`; empty: the layer's (or the model kind's own, e.g. views for satellite v1). |
-| tags              | list       |          | The model's tags, replacing TurboVault's default tags (`['hub', 'raw_vault', <group>]`, ...). |
+| tags              | list       |          | The model's own tags, added to TurboVault's default tags (`['hub', 'raw_vault', <group>]`, ...). The project setting `add_default_tags` turns the default tags off. |
 | config            | mapping    |          | Further `config()` keys, written as they are (`unique_key`, `post_hook`, `on_schema_change`, ...). Not the keys above. |
 | created_at, updated_at | datetime | ✓     | Timestamps. |
 

@@ -247,7 +247,10 @@ class ModelOutput(models.Model):
     tags = models.JSONField(
         blank=True,
         null=True,
-        help_text="Tags of the model, replacing TurboVault's default tags",
+        help_text=(
+            "The model's own tags, added to TurboVault's default tags (which the "
+            "project setting add_default_tags turns off)"
+        ),
     )
     config = models.JSONField(
         blank=True,
@@ -320,8 +323,7 @@ class ModelOutput(models.Model):
             "database": self.database_name,
         }
         settings: dict[str, Any] = {k: v for k, v in values.items() if v}
-        # An empty list is a model without tags; None keeps the default tags.
-        if self.tags is not None:
+        if self.tags:
             settings["tags"] = list(self.tags)
         settings.update(self.config or {})
         return settings

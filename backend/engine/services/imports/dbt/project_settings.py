@@ -171,6 +171,9 @@ class ProjectSettingsMapping:
         )
 
     def _template_tags(self, item: _Output, group: str | None) -> list[str]:
+        """The tags the model's templates give it (none without default tags)."""
+        if not self.config.add_default_tags:
+            return []
         macro = item.model.macro or ""
         tags = list(DEFAULT_TAGS.get(macro, ()))
         if item.kind == "stage" and item.system:

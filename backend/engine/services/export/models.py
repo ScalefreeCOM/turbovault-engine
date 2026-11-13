@@ -39,7 +39,11 @@ class ModelOutputDef(BaseModel):
     database_name: str | None = None
     materialized: str | None = None
     tags: list[str] | None = Field(
-        None, description="Tags replacing TurboVault's default tags"
+        None,
+        description=(
+            "The model's own tags, added to TurboVault's default tags (which "
+            "the project setting add_default_tags turns off)"
+        ),
     )
     config: dict[str, Any] | None = Field(
         None, description="Further config() keys, written as they are"
@@ -54,7 +58,7 @@ class ModelOutputDef(BaseModel):
             "database": self.database_name,
         }
         settings: dict[str, Any] = {k: v for k, v in values.items() if v}
-        if self.tags is not None:
+        if self.tags:
             settings["tags"] = list(self.tags)
         settings.update(self.config or {})
         return settings
@@ -77,7 +81,7 @@ class StoredModelOutputDef(BaseModel):
     database_name: str | None = None
     materialized: str | None = None
     tags: list[str] | None = Field(
-        None, description="Tags replacing the default tags ([]: no tags)"
+        None, description="The model's own tags, added to the default tags"
     )
     config: dict[str, Any] | None = None
 

@@ -368,17 +368,38 @@ def test_stored_settings_override_the_template_defaults(project, tmp_path):
     assert report.status == "success", report.issues
 
     folder = tmp_path / "dbt" / "models" / "30_raw_vault"
+    # Stored tags add to the template's
     assert _read(folder / "CUSTOMER_H.sql").startswith(
         "{{ config(\n"
         "    alias='customer_hub',\n"
         "    schema='raw',\n"
-        "    tags=['crm', 'core'],\n"
+        "    tags=['hub', 'raw_vault', 'crm', 'core'],\n"
         "    unique_key='hk_customer_h',\n"
         "    post_hook='grant select on {{ this }} to role reporting'\n"
         ") }}\n"
     )
     schema = yaml.safe_load(_read(folder / "CUSTOMER_H.yml"))
-    assert schema["models"][0]["config"]["tags"] == ["crm", "core"]
+    assert schema["models"][0]["config"]["tags"] == ["hub", "raw_vault", "crm", "core"]
+
+
+def test_without_default_tags_models_carry_their_own(project, tmp_path):
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    hub = _get("Hub", hub_physical_name="CUSTOMER_H")
+    _store("hub", hub, tags=["crm"])
+
+    report = _generate(
+        project, tmp_path, runtime_config=EngineRuntimeConfig(add_default_tags=False)
+    )
+
+    assert report.status == "success", report.issues
+    folder = tmp_path / "dbt" / "models" / "30_raw_vault"
+    assert "tags=['crm']" in _read(folder / "CUSTOMER_H.sql")
+    schema = yaml.safe_load(_read(folder / "CUSTOMER_H.yml"))
+    assert schema["models"][0]["config"]["tags"] == ["crm"]
+    # A model without tags of its own has none
+    nation = _read(folder / "NATION_RH.sql")
+    assert "tags=" not in nation.split("{%- set yaml_metadata")[0]
 
 
 def test_a_stored_materialization_replaces_the_specific_one(project, tmp_path):
