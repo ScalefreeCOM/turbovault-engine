@@ -64,6 +64,23 @@ class Code:
     SOURCE_EMPTY = "source.empty"
     SOURCE_INVALID_JSON = "source.invalid_json"
 
+    # dbt project import
+    DBT_UNSUPPORTED_MANIFEST_VERSION = "dbt.unsupported_manifest_version"
+    DBT_ARTIFACT_TOO_LARGE = "dbt.artifact_too_large"
+    DBT_CATALOG_MISSING = "dbt.catalog_missing"
+    DBT_MODEL_NOT_MAPPED = "dbt.model_not_mapped"
+    DBT_MODEL_RENDER_FAILED = "dbt.model_render_failed"
+    DBT_MACRO_UNSUPPORTED = "dbt.macro_unsupported"
+    DBT_PARAMETER_UNSUPPORTED = "dbt.parameter_unsupported"
+    DBT_PARAMETER_IGNORED = "dbt.parameter_ignored"
+    DBT_PARAMETER_GIVEN_TWICE = "dbt.parameter_given_twice"
+    DBT_VALUE_UNRESOLVED = "dbt.value_unresolved"
+    DBT_VALUE_INVALID = "dbt.value_invalid"
+    DBT_REFERENCE_UNRESOLVED = "dbt.reference_unresolved"
+    DBT_LINK_HUB_AMBIGUOUS = "dbt.link_hub_ambiguous"
+    DBT_NAMING_INFERRED = "dbt.naming_inferred"
+    DBT_RESOURCE_NOT_IMPORTED = "dbt.resource_not_imported"
+
     # Schema validation
     SCHEMA_MISSING_SHEET = "schema.missing_sheet"
     SCHEMA_MISSING_COLUMN = "schema.missing_column"

@@ -18,6 +18,7 @@ packages = [
     "engine.services.generation.renderers",
     "engine.services.generation.stages",
     "engine.services.imports",
+    "engine.services.imports.dbt",
     "engine.services.imports.parsers",
     "engine.services.imports.validation",
     "engine.utils",
