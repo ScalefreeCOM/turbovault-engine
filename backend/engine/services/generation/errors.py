@@ -131,6 +131,7 @@ class Code:
     WRITE_STALE_FILE_REMOVED = "write.stale_file_removed"
     WRITE_STALE_FILE_CHANGED = "write.stale_file_changed"
     WRITE_FILES_REPLACED = "write.files_replaced"
+    WRITE_SOURCES_KEPT = "write.sources_kept"
     WRITE_MODEL_DEFINED_TWICE = "write.model_defined_twice"
     WRITE_SOURCE_DEFINED_TWICE = "write.source_defined_twice"
 

@@ -118,7 +118,8 @@ turbovault generate --project shop --type dbt --output ../shop_dbt
 The folder holds a dbt project whose `dbt_project.yml` TurboVault didn't write, so TurboVault:
 
 - **writes its models, their YAML and the source definitions.** The first time, the report notes the project's
-  own files it replaced.
+  own files it replaced. Source tables only the project's own models read, such as a pre-stage's source, are
+  kept in `<file>__kept.yml` next to the sources file TurboVault replaced.
 - **keeps `dbt_project.yml`, `packages.yml` and `profiles.yml`.** The project's folder settings apply. A model
   carries its layer's schema and materialization in `config()` where those give it none. The report lists any
   package or variable the models need that the project lacks.

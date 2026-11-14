@@ -210,3 +210,39 @@ def test_replacing_the_projects_own_files_is_reported(project, tmp_path):
     assert "models/30_raw_vault/CUSTOMER_H.sql" in replaced.message
     # TurboVault's file now, recorded: not reported again
     assert not _issues(_generate(project, tmp_path), "write.files_replaced")
+
+
+def test_source_tables_only_the_project_reads_are_kept(project, tmp_path):
+    root = _existing_project(tmp_path)
+    sources = root / "models" / "10_sources"
+    sources.mkdir(parents=True)
+    (sources / "source__crm.yml").write_text(
+        textwrap.dedent("""
+            version: 2
+            sources:
+              - name: crm
+                schema: crm_raw
+                tables:
+                  - name: CUSTOMER
+                  - name: LEGACY_ORDERS
+              - name: erp
+                tables:
+                  - name: ITEMS
+            """),
+        encoding="utf-8",
+    )
+
+    report = _generate(project, tmp_path)
+
+    # TurboVault's file declares its tables; the project's others are kept
+    (kept,) = _issues(report, "write.sources_kept")
+    assert "crm.LEGACY_ORDERS, erp.ITEMS" in kept.message
+    data = yaml.safe_load(_read(sources / "source__crm__kept.yml"))
+    assert [(s["name"], [t["name"] for t in s["tables"]]) for s in data["sources"]] == [
+        ("crm", ["LEGACY_ORDERS"]),
+        ("erp", ["ITEMS"]),
+    ]
+    assert data["sources"][0]["schema"] == "crm_raw"
+    assert not _issues(report, "write.source_defined_twice")
+    # TurboVault's file now: nothing more to keep
+    assert not _issues(_generate(project, tmp_path), "write.sources_kept")

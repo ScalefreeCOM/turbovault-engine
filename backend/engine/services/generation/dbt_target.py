@@ -194,6 +194,38 @@ def _files(folders: list[Path], *suffixes: str) -> list[Path]:
     return sorted(found)
 
 
+def kept_sources(old_text: str, new_text: str) -> dict[str, Any] | None:
+    """What a dbt project's sources file declares that TurboVault's
+    replacement doesn't: the source tables only the project's own models
+    read (a pre-stage's, spec D16). None when there are none.
+
+    dbt reads a source's tables from any number of files, so they can stay
+    in a file of their own.
+    """
+    try:
+        old = yaml.safe_load(old_text)
+        new = yaml.safe_load(new_text)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return None
+    generated = {
+        (str(source.get("name")), str(table.get("name")))
+        for source in _entries(new, "sources")
+        for table in _entries(source, "tables")
+    }
+    kept = []
+    for source in _entries(old, "sources"):
+        tables = [
+            table
+            for table in _entries(source, "tables")
+            if (str(source.get("name")), str(table.get("name"))) not in generated
+        ]
+        if tables:
+            kept.append({**source, "tables": tables})
+    return {"version": 2, "sources": kept} if kept else None
+
+
 def defined_twice(root: Path, written: set[str]) -> list[tuple[str, str, str]]:
     """Models and sources TurboVault wrote that the project defines elsewhere.
 

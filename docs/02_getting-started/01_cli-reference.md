@@ -456,6 +456,9 @@ files:
   lacks.
 - It also reports models, model YAML and source tables the project defines a
   second time. dbt needs one of each: remove the other.
+- When TurboVault replaces a sources file of the project, the source tables it
+  doesn't generate are kept in `<file>__kept.yml`. Those are tables only the
+  project's own models read, such as a pre-stage's source.
 
 This is the way back for a project imported from a dbt project, and the only
 one when its stages read the project's own models (pre-stages). The dbt project

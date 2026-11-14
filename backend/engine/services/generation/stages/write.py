@@ -25,9 +25,12 @@ import logging
 import zipfile
 from pathlib import Path
 
+import yaml
+
 from engine.services.generation.dbt_target import checksum as file_checksum
 from engine.services.generation.dbt_target import (
     defined_twice,
+    kept_sources,
     read_record,
     write_record,
 )
@@ -144,6 +147,7 @@ def _write_project(
             and file_checksum(full.read_bytes()) != record[relative]
         ):
             replaced.append(relative)
+            issues.extend(_keep_project_sources(full, a.content, output_path))
 
         if full in seen_paths:
             issues.append(
@@ -232,6 +236,47 @@ def _write_project(
             written.append(zip_artifact)
 
     return written, issues
+
+
+def _keep_project_sources(full: Path, content: str, output_path: Path) -> list[Issue]:
+    """Before TurboVault replaces a dbt project's own sources file, keep the
+    source tables it doesn't generate in a file next to it."""
+    if full.suffix not in (".yml", ".yaml"):
+        return []
+    kept = kept_sources(full.read_text(encoding="utf-8", errors="replace"), content)
+    if kept is None:
+        return []
+    candidates = [full.with_name(f"{full.stem}__kept{full.suffix}")] + [
+        full.with_name(f"{full.stem}__kept_{n}{full.suffix}") for n in range(2, 100)
+    ]
+    target = next(path for path in candidates if not path.exists())
+    target.write_text(
+        f"# Source tables of the dbt project that TurboVault doesn't generate,\n"
+        f"# kept when it replaced {full.name}. The project's own file.\n"
+        + yaml.safe_dump(
+            kept, sort_keys=False, default_flow_style=False, allow_unicode=True
+        ),
+        encoding="utf-8",
+    )
+    tables = [
+        f"{source['name']}.{table.get('name')}"
+        for source in kept["sources"]
+        for table in source["tables"]
+    ]
+    return [
+        make_issue(
+            severity="info",
+            code=Code.WRITE_SOURCES_KEPT,
+            stage="write",
+            message=(
+                f"{full.relative_to(output_path).as_posix()} was the dbt project's: "
+                "the source tables TurboVault doesn't generate ("
+                + ", ".join(tables[:5])
+                + (", ..." if len(tables) > 5 else "")
+                + f") are kept in {target.relative_to(output_path).as_posix()}"
+            ),
+        )
+    ]
 
 
 def _stale_files(

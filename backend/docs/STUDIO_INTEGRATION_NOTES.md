@@ -976,6 +976,7 @@ project's models (pre-stages).
   | `write.stale_file_removed` | info |
   | `write.stale_file_changed` | warning |
   | `write.files_replaced` | info |
+  | `write.sources_kept` | info |
   | `write.model_defined_twice` | warning |
   | `write.source_defined_twice` | warning |
 

@@ -567,6 +567,8 @@ As implemented:
   - `write.stale_file`, `write.stale_file_removed` and `write.stale_file_changed`. A stale file is deleted
     only while unchanged; a changed one becomes the project's own;
   - `write.files_replaced`, for the project's files TurboVault replaced the first time;
+  - `write.sources_kept`, when a replaced sources file declared tables TurboVault doesn't generate. Those are
+    tables only the project's own models read (D16), and they stay in `<file>__kept.yml`;
   - `write.model_defined_twice` and `write.source_defined_twice`, for model files, model YAML and source
     tables found elsewhere under the model paths.
 - **CLI default:** `turbovault generate --type dbt` writes into config.yml's `dbt_project.path` when it is set
