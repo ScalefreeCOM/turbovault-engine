@@ -332,6 +332,9 @@ class GenerationConfig:
     write_project_files: bool = True
     existing_variables: dict[str, Any] = field(default_factory=dict)
     existing_packages: list[dict[str, Any]] = field(default_factory=list)
+    # Its models', seeds' and snapshots' names (what pre-stages read); None:
+    # not generating into an existing dbt project
+    existing_resources: frozenset[str] | None = None
 
     # Per-layer settings of the dbt_project.yml models: block
     control_schema: str | None = "control"

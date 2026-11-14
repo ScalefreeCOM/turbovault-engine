@@ -102,7 +102,7 @@ Behaviour to explain in the UI:
 
 | Code | Severity | Meaning | Suggested UI |
 |------|----------|---------|--------------|
-| `render.prestage.maintained_in_dbt` | warning | dbt output only, once per pre-stage (`entity.type` `prestage`, `entity.name` the model name): the model belongs to the dbt project; generate into the dbt project that contains it. The message names the stage that reads it. | Show prominently around generation, e.g. "This project needs N models from your dbt project", listing them |
+| `render.prestage.maintained_in_dbt` | warning | dbt output only, once per pre-stage (`entity.type` `prestage`, `entity.name` the model name): the model belongs to the dbt project; generate into the dbt project that contains it. The message names the stage that reads it. When generating into an existing dbt project (item 21), only the pre-stages it lacks are reported. | Show prominently around generation, e.g. "This project needs N models from your dbt project", listing them |
 | `render.sqlmesh.unsupported.prestage` | warning | SQLMesh output can't read the dbt model; it skips the pre-stage's stage | Note that pre-stages are dbt-only |
 | `render.sqlmesh.prestage_dependent_skipped` | warning | SQLMesh output skipped a Hub, Link or Satellite loaded from a pre-stage's stage | List under the entity |
 | `render.template_outdated` | warning | See item 3 | — |

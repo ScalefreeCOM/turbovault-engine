@@ -167,6 +167,7 @@ def _build_dbt_config(
         write_project_files=not keeps,
         existing_variables=target.variables() if keeps else {},
         existing_packages=list(target.packages) if keeps else [],
+        existing_resources=target.resources() if keeps else None,
         control_schema=runtime_config.control_schema,
         control_materialization=runtime_config.control_materialization,
         staging_materialization=runtime_config.staging_materialization,

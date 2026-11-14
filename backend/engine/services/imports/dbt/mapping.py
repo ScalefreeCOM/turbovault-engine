@@ -98,10 +98,12 @@ def map_project(
     artifacts: DbtArtifacts,
     source: DbtSource,
     runtime_config: EngineRuntimeConfig | None = None,
-) -> tuple[DomainModel, list[Issue]]:
-    """Map the project's models; returns the domain model and its issues."""
+) -> tuple[DomainModel, list[Issue], set[str]]:
+    """Map the project's models; returns the domain model, its issues and the
+    nodes it read (models, and seeds or snapshots read as pre-stages)."""
     mapper = _Mapper(artifacts, source, runtime_config or EngineRuntimeConfig())
-    return mapper.run()
+    domain, issues = mapper.run()
+    return domain, issues, set(mapper._mapped)
 
 
 def invert_pattern(pattern: str, name: str) -> dict[str, str] | None:
@@ -438,6 +440,13 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         )
         key = (schema.lower(), database.lower() if database else None)
         system = self._systems_by_location.get(key)
+        named = self._system_named(system_name) if system is None else None
+        if named is not None and named not in self._systems_by_location.values():
+            # The pre-stages' system of that name (found by name): it is where
+            # this source lives
+            named.schema_name, named.database_name = schema, database
+            self._systems_by_location[key] = named
+            return named
         if system is None:
             system = DSourceSystem(
                 name=system_name,
@@ -472,11 +481,17 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         return system
 
     def _columns(
-        self, unique_id: str, yaml_columns: dict[str, Any]
+        self,
+        unique_id: str,
+        yaml_columns: dict[str, Any],
+        *,
+        types: Any = None,
     ) -> dict[str, DSourceColumn]:
         """A node's columns: the YAML's names and types, the catalog's for the rest.
 
         Ordered like the catalog (the warehouse's order) when there is one.
+        ``types``: more column types by name (a seed's ``column_types``), for
+        the columns neither gives one; columns only they name are added.
         """
         catalog = self.artifacts.catalog_columns(unique_id) or {}
         described: list[DSourceColumn] = []
@@ -511,6 +526,17 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         result: dict[str, DSourceColumn] = {}
         for column in [*ordered, *described]:
             _add_column(result, column)
+        for name, datatype in types.items() if isinstance(types, dict) else []:
+            column = _find_column(result, str(name))
+            if column is None:
+                _add_column(
+                    result,
+                    DSourceColumn(
+                        name=str(name), datatype=str(datatype) or None, is_missing=False
+                    ),
+                )
+            elif column.datatype is None:
+                column.datatype = str(datatype) or None
         return result
 
     def _source_table(self, node: dict[str, Any]) -> tuple[DSourceSystem, DSourceTable]:
@@ -542,6 +568,58 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                 )
         return system, table
 
+    def _kept_in_dbt(self, node: dict[str, Any]) -> str:
+        """What of a pre-stage stays in the dbt project, for the report."""
+        package = node.get("package_name")
+        if package and package != self.artifacts.project_name:
+            return f"the model of the package '{package}'"
+        return {
+            "seed": "the seed",
+            "snapshot": "the dbt snapshot",
+        }.get(str(node.get("resource_type")), "its model")
+
+    def _prestage_system(self, model: DbtModel, node: dict[str, Any]) -> DSourceSystem:
+        """The source system of a pre-stage.
+
+        That of the sources it reads (lineage). Without any (a seed, a model
+        reading none): the one its stage's name gives (``stg__crm__x``: crm),
+        else one named after its folder. Such a system is found by name: a
+        dbt source of that name joins it later (``_system_for``).
+        """
+        upstream = self.index.upstream_sources(node["unique_id"])
+        if upstream:
+            return self._system_for(upstream[0])
+        named = (invert_pattern(self.config.stage_naming, model.name) or {}).get(
+            "source_system"
+        )
+        folder = self.index.folder_of(node).rstrip("/").split("/")[-1]
+        name = named or folder or str(node.get("schema") or "")
+        system = self._system_named(name)
+        if system is None:
+            schema, database = self._location(node)
+            system = DSourceSystem(
+                name=name,
+                schema_name=schema,
+                database_name=database,
+                include_source_columns=CLEAR,
+                enable_ghost_records=CLEAR,
+                delivery_method=CLEAR,
+            )
+            self.domain.source_systems[system.name] = system
+        return system
+
+    def _system_named(self, name: str) -> DSourceSystem | None:
+        """The source system of that name, as dbt names it (any case)."""
+        wanted = dbt_source_name(name)
+        return next(
+            (
+                system
+                for system in self.domain.source_systems.values()
+                if dbt_source_name(system.name) == wanted
+            ),
+            None,
+        )
+
     def _stage_order(self, model: DbtModel) -> tuple[int, str]:
         """Stages in the order they get their tables.
 
@@ -561,20 +639,17 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
     def _prestage_table(
         self, model: DbtModel, node: dict[str, Any], *, own_table: bool = False
     ) -> tuple[DSourceSystem, DSourceTable]:
-        """The pre-stage a stage reads: a model, seed or snapshot of the project.
+        """The pre-stage a stage reads: a model, seed or snapshot of the project
+        or a package.
 
-        It belongs to the source system of the sources it reads, else to one
-        named after its folder. Its model stays in the dbt project (D9).
+        It belongs to the source system of the sources it reads, else to the
+        one its stage's name gives (``_prestage_system``). Its model stays in
+        the dbt project (D9).
         ``own_table``: another stage reads the model too, and TurboVault has
         one stage per table, so this stage gets a pre-stage of its own, named
         after the stage, reading the same model.
         """
-        upstream = self.index.upstream_sources(node["unique_id"])
-        if upstream:
-            system = self._system_for(upstream[0])
-        else:
-            folder = self.index.folder_of(node).rstrip("/").split("/")[-1]
-            system = self._system_for(node, name=folder or str(node.get("schema")))
+        system = self._prestage_system(model, node)
         model_name = str(node.get("name") or "")
         # The table's name: what the pre-stage pattern makes of the model's
         # name, if it fits, else the model's name.
@@ -603,7 +678,14 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                 physical_name=physical,
                 description=self._description(node.get("description")),
                 table_type="prestage",
-                columns=self._columns(node["unique_id"], node.get("columns") or {}),
+                columns=self._columns(
+                    node["unique_id"],
+                    node.get("columns") or {},
+                    # A seed's column types are its config's (dbt loads it so)
+                    types=(node.get("config") or {}).get("column_types")
+                    if node.get("resource_type") == "seed"
+                    else None,
+                ),
                 outputs={},
             )
             derived = apply_pattern(
@@ -622,8 +704,8 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                 "warning",
                 Code.DBT_PRESTAGE_MAINTAINED_IN_DBT,
                 f"Stage '{model.name}' reads '{model_name}', which becomes a "
-                "pre-stage: its model stays in the dbt project, so generate the "
-                "project into this dbt project",
+                f"pre-stage: {self._kept_in_dbt(node)} stays in the dbt project, so "
+                "generate the project into this dbt project",
                 parameter="source_model",
                 entity=EntityRef(type="source_table", name=physical),
             )

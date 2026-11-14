@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -94,6 +95,28 @@ class DbtTarget:
         block = models.get(name) if isinstance(models, dict) and name else None
         return dict(block) if isinstance(block, dict) else {}
 
+    def resources(self) -> frozenset[str]:
+        """The names of the project's models, seeds and snapshots (what a
+        pre-stage's ref() may read), from its files."""
+        if self.root is None:
+            return frozenset()
+        names: set[str] = set()
+        project = self.project_yml or {}
+
+        def paths(key: str, default: str) -> list[Path]:
+            value = project.get(key) or [default]
+            value = [value] if isinstance(value, str) else value
+            return [self.root / str(p) for p in value if (self.root / str(p)).is_dir()]
+
+        names.update(
+            p.stem for p in _files(paths("model-paths", "models"), ".sql", ".py")
+        )
+        names.update(p.stem for p in _files(paths("seed-paths", "seeds"), ".csv"))
+        for path in _files(paths("snapshot-paths", "snapshots"), ".sql"):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            names.update(_SNAPSHOT_BLOCK.findall(text) or [path.stem])
+        return frozenset(names)
+
     def variables(self) -> dict[str, Any]:
         """The project's vars: global ones and its own scope's."""
         raw = (self.project_yml or {}).get("vars")
@@ -142,6 +165,7 @@ def inspect_target(root: Path | None, *, write_project_files: bool | None) -> Db
 # ---------------------------------------------------------------------------
 
 _IGNORED_FOLDERS = frozenset({"target", "dbt_packages", "logs", ".turbovault"})
+_SNAPSHOT_BLOCK = re.compile(r"\{%-?\s*snapshot\s+(\w+)\s*-?%\}")
 
 
 def _entries(data: dict[str, Any], key: str) -> list[dict[str, Any]]:

@@ -262,6 +262,25 @@ def test_each_prestage_is_reported_as_part_of_the_dbt_project(
     assert "Generate into the dbt project that contains this model" in address.message
 
 
+def test_the_dbt_project_generated_into_has_the_prestage_models(
+    prestage_project, tmp_path
+):
+    """Into an existing dbt project (spec D17) only the pre-stages it lacks
+    are reported."""
+    root = tmp_path / "dbt"
+    (root / "models" / "upstream").mkdir(parents=True)
+    (root / "dbt_project.yml").write_text("name: shop\n", encoding="utf-8")
+    (root / "models" / "upstream" / "pstg__crm__order_items.sql").write_text(
+        "select 1\n", encoding="utf-8"
+    )
+
+    report = _generate(prestage_project, tmp_path)
+
+    (missing,) = _issues(report, MAINTAINED_IN_DBT)
+    assert missing.entity.name == "pstg__crm__customer_address"
+    assert "has no model, seed or snapshot of that name" in missing.message
+
+
 @pytest.mark.parametrize("output_type", ["json", "dbml"])
 def test_other_outputs_dont_report_the_prestages(
     prestage_project, tmp_path, output_type

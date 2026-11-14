@@ -997,7 +997,10 @@ class DbtProjectGenerator:
             for stage in project_export.stages
             if stage.prestage_model
         }
+        existing = self.config.existing_resources
         for prestage in project_export.prestages:
+            if existing is not None and prestage.model_name in existing:
+                continue  # generated into the dbt project that has it
             stage = stage_of.get(prestage.model_name)
             reader = f"stage '{stage}' reads" if stage else "its stage reads"
             self.report.add_warning(
@@ -1006,8 +1009,13 @@ class DbtProjectGenerator:
                 message=(
                     f"Pre-stage '{prestage.model_name}' isn't generated: it is a "
                     f"model of your dbt project, and {reader} it with ref(). "
-                    "Generate into the dbt project that contains this model; "
-                    "anywhere else dbt won't find it."
+                    + (
+                        "The dbt project in the output folder has no model, seed "
+                        "or snapshot of that name: add it there."
+                        if existing is not None
+                        else "Generate into the dbt project that contains this "
+                        "model; anywhere else dbt won't find it."
+                    )
                 ),
                 code="PST_001",
             )

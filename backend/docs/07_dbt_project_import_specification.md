@@ -279,6 +279,19 @@ As implemented (4b-1):
   its own, named after the stage, whose stored `prestage` name is that model. The stage named like the model
   keeps the plain pre-stage. A dbt source read by two stages can't be expressed (TurboVault has one stage per
   source table): the second stage is skipped with a suggestion to read the source through a pre-stage.
+- As implemented (Phase 5):
+  - A pre-stage that reads no sources (a seed, or a model reading none) has no lineage to name its system.
+    It belongs to the system its stage's name gives (`stg__crm__countries` under the stage naming pattern:
+    `crm`), else to one named after its folder. That system is found by name, so a dbt source of the name
+    joins it.
+  - A seed's columns take their types from its `column_types` config when the catalog and YAML give none;
+    columns only that config names are added.
+  - `dbt.prestage_maintained_in_dbt` says what stays in the dbt project: its model, the seed, the dbt
+    snapshot, or the model of another package.
+  - `dbt.resource_not_imported` counts seeds and snapshots read as pre-stages apart ("2 seeds (11 more read
+    as pre-stages)").
+  - Generating into an existing dbt project (§9.7) reports only the pre-stages it has no model, seed or
+    snapshot for.
 
 ### 7.3 Stages
 
@@ -682,7 +695,7 @@ As implemented (Phase 4c):
 | 2 | Foundations: artifact reader, sandbox extraction, datavault4dbt adapter (normalization, signature table 1.x/2.x), notation tests | done (`DbtSource`, CLI and issue locations moved to Phase 4) |
 | 3 | Pre-stages kept in the dbt project (D9), layer folders (D12), metadata extensions (§9.1–9.6): output attributes and name resolution, hash diff name/alias, stage options, derived column shadowing, Satellite v1 options, smaller additions (D13) | done |
 | 4 | 4a: `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, opt-in `dbt parse` (D21), issue locations; the import (executor and JSON round trip) stores every §9 setting and the JSON import its snapshot controls. 4b-1: sources, stages, pre-stages, Hubs, Links, Satellites (§7.1–7.5), warnings/skips for direct parsers, the project's settings as import input (D22). 4b-2a: PITs, reference tables, snapshot controls, groups (§7.6), dependent child keys selected by generated links (D23). 4b-2b: model settings (D20), the dbt_project.yml (D25), naming inference (§8, D22), snapshot logic generation (D24), default tags (D26), folder patterns (D27), inferred project settings (§8.1, D28). 4c: round-trip and corpus tests (§12), stable stage hash key order | done |
-| 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models; generating into an existing dbt project (§9.7) | §9.7 done |
+| 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models (§7.2); generating into an existing dbt project (§9.7) | done |
 | 6 | Custom models for downstream models (#461), optional | postponed (D19) |
 | 7 | Hardening: performance limits, docs, CLI polish | |
 

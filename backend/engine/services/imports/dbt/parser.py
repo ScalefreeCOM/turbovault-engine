@@ -133,19 +133,37 @@ def located_issues(paths: DbtArtifactPaths) -> list[Issue]:
     return issues
 
 
-def resource_issues(artifacts: DbtArtifacts) -> list[Issue]:
-    """One note per resource type the import doesn't read, with its count."""
+def resource_issues(
+    artifacts: DbtArtifacts, read: frozenset[str] | set[str] = frozenset()
+) -> list[Issue]:
+    """One note per resource type the import doesn't read, with its count.
+
+    ``read``: the nodes the mapping read, e.g. seeds and snapshots stages
+    read as pre-stages; those are named apart.
+    """
+    pre_stages: dict[str, int] = {}
+    for unique_id in read:
+        node = artifacts.nodes.get(unique_id) or {}
+        resource_type = str(node.get("resource_type") or "")
+        if resource_type and resource_type not in _IMPORTED_RESOURCES:
+            pre_stages[resource_type] = pre_stages.get(resource_type, 0) + 1
     issues = []
     for resource_type, count in sorted(artifacts.resource_counts().items()):
         if resource_type in _IMPORTED_RESOURCES or not count:
             continue
         label = _RESOURCE_LABELS.get(resource_type, f"{resource_type} nodes")
+        used = pre_stages.get(resource_type, 0)
+        if used == count:
+            continue  # all read as pre-stages
+        message = f"Not imported: {count - used} {label}"
+        if used:
+            message += f" ({used} more read as pre-stages)"
         issues.append(
             make_issue(
                 severity="info",
                 code=Code.DBT_RESOURCE_NOT_IMPORTED,
                 stage="parse",
-                message=f"Not imported: {count} {label}",
+                message=message,
             )
         )
     return issues
@@ -164,10 +182,10 @@ def parse_dbt(
     paths = locate(source)
     issues = located_issues(paths)
     artifacts = load_artifacts(paths)
-    issues.extend(resource_issues(artifacts))
 
     from engine.services.imports.dbt.mapping import map_project
 
-    domain, mapping_issues = map_project(artifacts, source, runtime_config)
+    domain, mapping_issues, read = map_project(artifacts, source, runtime_config)
+    issues.extend(resource_issues(artifacts, read))
     issues.extend(mapping_issues)
     return domain, issues
