@@ -488,7 +488,12 @@ def _run_interactive_import() -> dict | None:
         return None
 
     skip_snapshots = questionary.confirm(
-        "Skip creating a default snapshot control table?",
+        # For a dbt project it leaves out the project's own controls and PITs
+        (
+            "Leave the dbt project's snapshot controls and PITs out?"
+            if source_format == "dbt"
+            else "Skip creating a default snapshot control table?"
+        ),
         default=False,
     ).ask()
     if skip_snapshots is None:
