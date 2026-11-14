@@ -66,6 +66,7 @@ TurboVault Engine is a **CLI-first, Django-based automation engine** that accele
 - **Dry-run** - See exactly what an import would change in your project, without keeping anything
 - **Audit trail** - Every run (including dry-runs) is recorded; browse with `turbovault import-history`
 - **Structured issues** - Stable machine-readable codes (`schema.missing_column`, `entity.missing_parent`, ...) for CI and tooling
+- **dbt projects** - Import an existing datavault4dbt project from its dbt artifacts and generate it back into the same dbt project ([guide](02_getting-started/06_dbt-project-import.md))
 
 ### 📤 Generation Pipeline
 - **Unified pipeline** - Same six-stage flow (build → validate → plan → render → write → report) for `dbt`, `json`, and `dbml` outputs

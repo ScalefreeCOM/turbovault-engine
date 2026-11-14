@@ -240,7 +240,8 @@ catalog comes from `dbt docs generate`, which queries the warehouse: run it
 yourself when you want column types from the warehouse.
 
 A project with `dbt_project.path` in its `config.yml` imports from that folder
-when no `--source` is given.
+when no `--source` is given. [Importing a dbt Project](06_dbt-project-import.md)
+walks through the whole loop: import, suggested settings, generating back.
 
 #### Non-Interactive Mode (Flags)
 
