@@ -481,9 +481,12 @@ while `use_model_folders` is on.
 
 ### `dbt_project` (Optional)
 
-The dbt project this TurboVault project belongs to: `turbovault import` reads
+The dbt project this TurboVault project belongs to. `turbovault import` reads
 its artifacts when no `--source` is given (see the
 [CLI reference](../02_getting-started/01_cli-reference.md#turbovault-import)).
+`turbovault generate --type dbt` writes into it when no `--output` is given. It
+keeps the project's own `dbt_project.yml` and `packages.yml` (see
+[Generate into an Existing dbt Project](../02_getting-started/01_cli-reference.md#generate-into-an-existing-dbt-project)).
 
 It also keeps the `dbt_project.yml` settings of an imported dbt project, which
 generation writes back into the generated `dbt_project.yml`.

@@ -468,7 +468,13 @@ class DbtProjectGenerator:
 
     @property
     def _layer_roots(self) -> dict[str, tuple[str, ...]]:
-        """Where dbt_project.yml configures each layer (key path per layer)."""
+        """Where dbt_project.yml configures each layer (key path per layer).
+
+        None in an existing dbt project, whose dbt_project.yml isn't written
+        (spec D17): its own folder settings apply.
+        """
+        if not self.config.write_project_files:
+            return {}
         return project_yml.layer_roots(
             {layer: self._layer_folder(layer) for layer in project_yml.BLOCK_LAYERS},
             prestaging=self._has_prestages,
@@ -711,6 +717,69 @@ class DbtProjectGenerator:
                 code="TPL_003",
             )
 
+    def _report_project_needs(self) -> None:
+        """What the models need from an existing dbt project's own files."""
+        self.report.add_warning(
+            entity_type="project",
+            entity_name="dbt_project.yml",
+            message=(
+                "dbt_project.yml and packages.yml aren't written: the folder "
+                "holds a dbt project whose files TurboVault didn't write. Its "
+                "folder settings apply; a model carries its layer's schema and "
+                "materialization in its config() where they give it none. "
+                "Generate with --write-project-files to replace them."
+            ),
+            code="PRJ_001",
+        )
+        existing = {
+            project_yml.package_source(entry).lower()
+            for entry in self.config.existing_packages
+        }
+        needed = [
+            project_yml.DATAVAULT4DBT_PACKAGE,
+            *self.config.dbt_packages,
+        ]
+        missing = [
+            entry
+            for entry in needed
+            if project_yml.package_source(entry).lower() not in existing
+            and not (
+                "datavault4dbt" in project_yml.package_source(entry).lower()
+                and any("datavault4dbt" in source for source in existing)
+            )
+        ]
+        if missing:
+            self.report.add_warning(
+                entity_type="project",
+                entity_name="packages.yml",
+                message=(
+                    "The dbt project's packages don't include "
+                    + ", ".join(project_yml.package_source(e) for e in missing)
+                    + ", which the generated models need: add "
+                    + "; ".join(
+                        ", ".join(f"{k}: {v}" for k, v in e.items()) for e in missing
+                    )
+                    + " to packages.yml"
+                ),
+                code="PRJ_002",
+            )
+        variables = (
+            self.config.global_vars if isinstance(self.config.global_vars, dict) else {}
+        )
+        unset = sorted(set(variables) - set(self.config.existing_variables))
+        if unset:
+            self.report.add_warning(
+                entity_type="project",
+                entity_name="dbt_project.yml",
+                message=(
+                    "The dbt project's dbt_project.yml doesn't set the variables "
+                    "the project's settings have: "
+                    + ", ".join(f"{name}: {variables[name]}" for name in unset)
+                    + ". Add them to its vars:"
+                ),
+                code="PRJ_003",
+            )
+
     def _check_packages_template(self, content: str) -> None:
         """Warn when the packages.yml template drops imported packages (a
         workspace's copy from before they existed writes its fixed list)."""
@@ -777,7 +846,13 @@ class DbtProjectGenerator:
         configured when the project `has_prestages`: the dbt project's
         pre-stage models placed there get the staging layer's settings.
         `model_paths` are the project's `model-paths` (default: models).
+
+        In an existing dbt project (spec D17) none of them is written; the
+        report lists what the models need from the project's own.
         """
+        if not self.config.write_project_files:
+            self._report_project_needs()
+            return
         # Generate dbt_project.yml
         template = self.template_resolver.get_project_template("dbt_project.yml")
         if template:

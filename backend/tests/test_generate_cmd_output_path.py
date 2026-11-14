@@ -85,3 +85,31 @@ def test_sqlmesh_output_dir_does_not_affect_dbt(workspace_root):
         _resolve(project, output_type="dbt")
         == workspace_root / "projects/demo/exports/dbt_project"
     )
+
+
+def _dbt_project(path: str | None):
+    """Fake Project whose config.yml names a dbt project folder."""
+    from engine.services.config_schema import TurboVaultConfig
+
+    def load_config() -> TurboVaultConfig:
+        return TurboVaultConfig.model_validate(
+            {"project": {"name": "demo"}, "dbt_project": {"path": path}}
+        )
+
+    return SimpleNamespace(
+        name="Demo", project_directory="projects/demo", load_config=load_config
+    )
+
+
+def test_dbt_output_goes_to_the_configured_dbt_project(workspace_root, tmp_path):
+    folder = tmp_path / "analytics_dbt"
+
+    # The dbt project the project belongs to (spec D11): generated into
+    assert _resolve(_dbt_project(str(folder)), "dbt") == folder
+    # --output wins
+    other = tmp_path / "elsewhere"
+    assert _resolve(_dbt_project(str(folder)), "dbt", output=other) == other
+    # Without one: the workspace's exports folder
+    assert _resolve(_dbt_project(None), "dbt") == (
+        workspace_root / "projects/demo/exports/dbt_project"
+    )

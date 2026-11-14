@@ -119,11 +119,20 @@ class Code:
     RENDER_LITERAL_SECRET_IN_PROFILE = "render.literal_secret_in_profile"
     RENDER_INVALID_MATERIALIZATION = "render.invalid_materialization"
     RENDER_PRESTAGE_MAINTAINED_IN_DBT = "render.prestage.maintained_in_dbt"
+    RENDER_PROJECT_FILES_KEPT = "render.project_files_kept"
+    RENDER_PROJECT_NEEDS_PACKAGE = "render.project_needs_package"
+    RENDER_PROJECT_NEEDS_VARS = "render.project_needs_vars"
 
     # Write stage
     WRITE_IO_ERROR = "write.io_error"
     WRITE_PATH_COLLISION = "write.path_collision"
     WRITE_ZIP_FAILED = "write.zip_failed"
+    WRITE_STALE_FILE = "write.stale_file"
+    WRITE_STALE_FILE_REMOVED = "write.stale_file_removed"
+    WRITE_STALE_FILE_CHANGED = "write.stale_file_changed"
+    WRITE_FILES_REPLACED = "write.files_replaced"
+    WRITE_MODEL_DEFINED_TWICE = "write.model_defined_twice"
+    WRITE_SOURCE_DEFINED_TWICE = "write.source_defined_twice"
 
     # SQLMesh render stage — unsupported entity types
     SQLMESH_UNSUPPORTED_REFERENCE_HUB = "render.sqlmesh.unsupported.reference_hub"

@@ -325,6 +325,14 @@ class GenerationConfig:
     # Its packages (spec D28), written into packages.yml with datavault4dbt
     dbt_packages: list[dict[str, Any]] = field(default_factory=list)
 
+    # Generating into an existing dbt project (spec D17): its dbt_project.yml
+    # and packages.yml aren't written, and stand in for TurboVault's layer
+    # blocks (dbt_project_models is then the project's models: block). Its
+    # vars and packages, to report what the models need.
+    write_project_files: bool = True
+    existing_variables: dict[str, Any] = field(default_factory=dict)
+    existing_packages: list[dict[str, Any]] = field(default_factory=list)
+
     # Per-layer settings of the dbt_project.yml models: block
     control_schema: str | None = "control"
     control_materialization: str = "table"

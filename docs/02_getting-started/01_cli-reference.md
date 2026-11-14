@@ -423,7 +423,7 @@ turbovault generate --project sales_datavault --type dbt
 
 | Output type | Default path |
 |-------------|--------------|
-| `dbt` | `<workspace>/projects/<project>/exports/dbt_project/` |
+| `dbt` | the dbt project of config.yml's `dbt_project.path`, else `<workspace>/projects/<project>/exports/dbt_project/` |
 | `sqlmesh` | `<workspace>/projects/<project>/exports/sqlmesh/` |
 | `json` | `<workspace>/projects/<project>/exports/<project_slug>.json` |
 | `dbml` | `<workspace>/projects/<project>/exports/<project_slug>.dbml` |
@@ -439,6 +439,38 @@ for `iris`) under the current directory.
 ```bash
 turbovault generate --project sales_datavault --output ./my_dbt_projects/sales
 ```
+
+#### Generate into an Existing dbt Project
+
+An empty folder gets a complete dbt project. A folder that already holds a
+dbt project, whose `dbt_project.yml` TurboVault didn't write, keeps its own
+files:
+
+- TurboVault writes its models, their YAML and the source definitions into the
+  project. It doesn't write `dbt_project.yml`, `packages.yml` or `profiles.yml`.
+- The project's folder settings apply. A model carries its layer's schema and
+  materialization in its `config()` where those settings give it none.
+- The report lists packages and variables the models need and the project
+  lacks.
+- It also reports models, model YAML and source tables the project defines a
+  second time. dbt needs one of each: remove the other.
+
+This is the way back for a project imported from a dbt project, and the only
+one when its stages read the project's own models (pre-stages). The dbt project
+of config.yml's `dbt_project.path` is the default output folder.
+
+```bash
+turbovault generate --project shop --output ../shop_dbt
+turbovault generate --project shop --output ../shop_dbt --write-project-files
+turbovault generate --project shop --remove-stale-files
+```
+
+TurboVault records the files it writes in `.turbovault/generated.json`. That
+record tells its own `dbt_project.yml` from a project's. It also reports the
+files TurboVault generated before and no longer generates (e.g. after renaming
+an entity). They are deleted only with `--remove-stale-files`, and only while
+unchanged since TurboVault wrote them. Skip the source definitions with
+`output.export_sources: false` in config.yml.
 
 #### Generate with ZIP Archive
 
@@ -495,6 +527,8 @@ turbovault generate --project sales_datavault --dry-run
 | `--zip` | `-z` | Create ZIP archive after dbt or SQLMesh generation | `false` |
 | `--no-v1-satellites` | | Skip generating satellite `_v1` views (dbt and sqlmesh) | `false` |
 | `--model-folders` / `--standard-folders` | | dbt: generate models in the folders stored for them (an imported dbt project's), or in the project's folder patterns, each model keeping the settings its original folder gave it | the project's `use_model_folders` |
+| `--write-project-files` / `--keep-project-files` | | dbt: write `dbt_project.yml` and `packages.yml`, or keep the output folder's | keep them in a dbt project whose files TurboVault didn't write |
+| `--remove-stale-files` | | Delete the files TurboVault generated before and no longer generates, if unchanged since; without it they are reported | `false` |
 | `--json-output PATH` | | Alias for `--output` when `--type json` | — |
 | `--dbml-output PATH` | | Alias for `--output` when `--type dbml` | — |
 | `--iris-output PATH` | | Output directory for the IRiS Excel files when `--type iris` | — |

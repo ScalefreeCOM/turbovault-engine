@@ -31,8 +31,9 @@ section is completed when the Engine change lands).
 | 18 | [Folder structure; model folders setting; layers without schema](#18-folder-structure-model-folders-setting-layers-without-schema) | In progress | Folder pattern settings with placeholders; the model folders switch; "no custom schema" per layer |
 | 19 | [Project settings a dbt project suggests; packages](#19-project-settings-a-dbt-project-suggests-packages) | In progress | Show the suggestions after a dry run, apply the accepted ones to the project's settings; store the packages |
 | 20 | [Round trip: what a dbt import reads back; generation fixes](#20-round-trip-what-a-dbt-import-reads-back-generation-fixes) | In progress | None required; generated output changes in two places (stage hash key order, models without settings) |
+| 21 | [Generating into an existing dbt project](#21-generating-into-an-existing-dbt-project) | In progress | Nothing for zip downloads; new generation options and issue codes; the record file in generated output |
 
-Background for items 4–20: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
+Background for items 4–21: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
 
 ---
 
@@ -920,4 +921,50 @@ dbt and imported, generates the same files again.
 - **A model with no settings gets no `config()` block.** dbt rejects an empty `{{ config() }}`, which such a
   model got with default tags off. `model_config()` now renders nothing for it.
 - `[[ source_system ]]` / `[[ source_system_name ]]` work in every folder pattern (item 18).
+
+---
+
+## 21. Generating into an existing dbt project
+
+**Status:** In progress (dbt import branch). Spec D17, §9.7.
+
+Generating into an empty folder writes a complete dbt project, as before; Studio's generation into a temporary
+folder for a ZIP download is unchanged. Generating into a folder that holds a dbt project whose
+`dbt_project.yml` TurboVault didn't write behaves differently:
+
+- **Kept project files:** TurboVault writes models, their YAML and source definitions, but not
+  `dbt_project.yml`, `packages.yml` or `profiles.yml`.
+- **Folder settings:** the project's folder settings apply. A model carries its layer's schema and
+  materialization in `config()` where they give it none.
+- **The report** lists what the models need from the project's files.
+
+This is the way back for a project imported from a dbt project, and the only one when its stages read that
+project's models (pre-stages).
+
+- **The record:** every generated folder gets `.turbovault/generated.json`, listing the files TurboVault wrote
+  and their checksums. ZIP downloads include it. Keep it: it lets a later generation into the unzipped folder
+  tell TurboVault's own files apart and report the ones it no longer generates.
+- **New options** (`GenerationOptions`):
+  - `write_project_files: bool | None = None`: None is automatic, True always writes the project files,
+    False never does.
+  - `remove_stale_files: bool = False`: deletes the files generated before and no longer generated, if
+    unchanged since.
+- **Skipping sources:** use the existing runtime config `export_sources`.
+- **New issue codes** (`engine/services/generation/codes.md`), with the severity to show:
+
+  | Code | Severity |
+  |------|----------|
+  | `render.project_files_kept` | info |
+  | `render.project_needs_package` | warning |
+  | `render.project_needs_vars` | warning |
+  | `write.stale_file` | warning |
+  | `write.stale_file_removed` | info |
+  | `write.stale_file_changed` | warning |
+  | `write.files_replaced` | info |
+  | `write.model_defined_twice` | warning |
+  | `write.source_defined_twice` | warning |
+
+- **Studio:** nothing required for ZIP downloads. If Studio ever writes into a user's repository (e.g. a Git
+  integration), pass `write_project_files=None` and show the issues above, and offer "remove files TurboVault
+  no longer generates" as `remove_stale_files`.
 

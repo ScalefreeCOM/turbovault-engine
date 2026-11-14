@@ -63,6 +63,9 @@ deep-link errors; the CLI groups them in summary tables.
 | `render.invalid_profiles` | `generate_profiles_yml` is on but `profiles` is not a mapping or holds a value that cannot be written as YAML. The engine does not check the dbt profile shape (targets, outputs, adapter fields) — that is the caller's concern. Nothing is generated. | Pass `profiles` as a mapping of YAML-serializable values. |
 | `render.invalid_materialization` | A layer materialization (`control_`, `staging_`, `raw_vault_`, `business_vault_materialization`) or a `model_materializations` entry is not a dbt materialization name, or names an unknown model kind. Nothing is generated. | Use a name such as `table`, `view`, `incremental`, `ephemeral`, or a custom materialization's name. |
 | `render.prestage.maintained_in_dbt` | The project has a pre-stage (warning, once per pre-stage, dbt output only). Its model belongs to the dbt project: TurboVault doesn't generate it, and its stage reads it with `ref()`, which only resolves in the dbt project that contains the model. | Generate into the dbt project that contains the model. |
+| `render.project_files_kept` (info) | The output folder holds a dbt project whose `dbt_project.yml` TurboVault didn't write (dbt output only, spec D17). Its `dbt_project.yml`, `packages.yml` (and `profiles.yml`) aren't written. Its folder settings apply; a model carries its layer's schema and materialization in `config()` where they give it none. | Generate with `--write-project-files` (`write_project_files=True`) to replace them. |
+| `render.project_needs_package` | In an existing dbt project: its packages lack datavault4dbt, or a package of the project's settings (`dbt_packages`), which the generated models need. | Add the listed entries to its `packages.yml`. |
+| `render.project_needs_vars` | In an existing dbt project: its `dbt_project.yml` doesn't set variables the project's settings have (`global_vars`). | Add them to its `vars:`. |
 | `render.literal_secret_in_profile` | A secret key in `profiles` — one ending in `password`, `passphrase`, `secret`, `token`, `private_key`, `access_key` or `api_key`, or `pass` / `keyfile_json` — holds a literal value, or an `env_var` reference with a non-empty default (dbt uses the default whenever the variable is unset). Nothing is generated; the value is never echoed. | Reference the secret via `{{ env_var('...') }}` (optionally `\| as_native`), without a default or with an empty one. An inline `keyfile_json` mapping is allowed when its own secret fields are references. |
 
 ## Write stage
@@ -72,6 +75,12 @@ deep-link errors; the CLI groups them in summary tables.
 | `write.io_error` | A file could not be written (permission, disk full). | Resolve the filesystem issue and re-run. |
 | `write.path_collision` | Two artifacts tried to write to the same path. | Rename one of the colliding entities or report a bug. |
 | `write.zip_failed` | The optional ZIP archive could not be created. | Re-run without `--zip`; the dbt tree on disk is still valid. |
+| `write.stale_file` | A file TurboVault generated into the folder before (its record, `.turbovault/generated.json`) and no longer generates, e.g. after renaming an entity. Kept. | Delete it, or generate with `--remove-stale-files`. |
+| `write.stale_file_removed` (info) | Such a file, unchanged since TurboVault wrote it, deleted (`remove_stale_files`). | — |
+| `write.stale_file_changed` | Such a file was changed since TurboVault wrote it: kept, and from now on the project's own (not reported again). | Delete it if it isn't needed. |
+| `write.files_replaced` (info) | Files of the folder TurboVault hadn't written were replaced by its own (e.g. the models of an imported dbt project, generated back into it). | — |
+| `write.model_defined_twice` | dbt output: a model TurboVault wrote is also defined (another model file of its name) or described (another YAML entry for it) elsewhere in the dbt project; dbt fails on either. | Remove one of them. |
+| `write.source_defined_twice` | dbt output: a source table TurboVault's source definitions declare is declared in another YAML file of the project too. | Remove one of them, or skip TurboVault's sources (`output.export_sources: false`). |
 
 ## Internal
 

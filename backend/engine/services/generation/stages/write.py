@@ -25,6 +25,12 @@ import logging
 import zipfile
 from pathlib import Path
 
+from engine.services.generation.dbt_target import checksum as file_checksum
+from engine.services.generation.dbt_target import (
+    defined_twice,
+    read_record,
+    write_record,
+)
 from engine.services.generation.errors import Code, make_issue
 from engine.services.generation.types import (
     GeneratedArtifact,
@@ -68,7 +74,10 @@ def write_artifacts(
         )
 
     if output_type in ("dbt", "sqlmesh"):
-        return _write_project(artifacts, output_path, options)
+        written, issues = _write_project(artifacts, output_path, options)
+        if output_type == "dbt":
+            issues.extend(_defined_twice(written, output_path))
+        return written, issues
     return _write_single_file(artifacts, output_path, output_type, options)
 
 
@@ -110,18 +119,31 @@ def _write_project(
     issues: list[Issue] = []
     written: list[GeneratedArtifact] = []
     seen_paths: set[Path] = set()
+    # TurboVault's record of the files it wrote here before (spec D17)
+    previous = read_record(output_path)
+    record: dict[str, str] = {}
+    replaced: list[str] = []
 
     for a in artifacts:
         if not a.path or a.content is None:
             written.append(a)
             continue
         full = output_path / a.path
+        relative = Path(a.path).as_posix()
+        record[relative] = file_checksum(a.content)
 
         # Write-once artifacts are skipped silently when the file already exists
         # so the user's edits (e.g. filled-in credentials) are never overwritten.
         if not a.overwrite and full.exists():
+            record[relative] = file_checksum(full.read_bytes())
             written.append(a.model_copy(update={"path": str(full), "content": None}))
             continue
+        if (
+            relative not in previous
+            and full.is_file()
+            and file_checksum(full.read_bytes()) != record[relative]
+        ):
+            replaced.append(relative)
 
         if full in seen_paths:
             issues.append(
@@ -176,6 +198,33 @@ def _write_project(
                 )
             )
 
+    issues.extend(_stale_files(output_path, previous, record, options))
+    if replaced:
+        issues.append(
+            make_issue(
+                severity="info",
+                code=Code.WRITE_FILES_REPLACED,
+                stage="write",
+                message=(
+                    f"{len(replaced)} file(s) of the folder TurboVault hadn't "
+                    "written were replaced by its own: "
+                    + ", ".join(replaced[:5])
+                    + (", ..." if len(replaced) > 5 else "")
+                ),
+            )
+        )
+    try:
+        write_record(output_path, record)
+    except OSError as exc:
+        issues.append(
+            make_issue(
+                severity="warning",
+                code=Code.WRITE_IO_ERROR,
+                stage="write",
+                message=f"Could not record the generated files: {exc}",
+            )
+        )
+
     if options.create_zip:
         zip_artifact, zip_issues = _create_zip(output_path)
         issues.extend(zip_issues)
@@ -183,6 +232,100 @@ def _write_project(
             written.append(zip_artifact)
 
     return written, issues
+
+
+def _stale_files(
+    output_path: Path,
+    previous: dict[str, str],
+    record: dict[str, str],
+    options: GenerationOptions,
+) -> list[Issue]:
+    """The files TurboVault wrote before and no longer generates.
+
+    Reported; deleted with ``remove_stale_files`` while unchanged since
+    TurboVault wrote them. A file changed since stays and leaves the record:
+    it is the project's now. Unchanged ones stay in the record until deleted.
+    """
+    issues: list[Issue] = []
+    for relative, written_checksum in sorted(previous.items()):
+        if relative in record:
+            continue
+        full = output_path / relative
+        if not full.is_file():
+            continue
+        if file_checksum(full.read_bytes()) != written_checksum:
+            issues.append(
+                make_issue(
+                    severity="warning",
+                    code=Code.WRITE_STALE_FILE_CHANGED,
+                    stage="write",
+                    message=(
+                        f"{relative}: TurboVault no longer generates it, and it "
+                        "was changed since TurboVault wrote it, so it stays"
+                    ),
+                )
+            )
+            continue
+        if options.remove_stale_files:
+            full.unlink()
+            issues.append(
+                make_issue(
+                    severity="info",
+                    code=Code.WRITE_STALE_FILE_REMOVED,
+                    stage="write",
+                    message=f"{relative}: TurboVault no longer generates it; deleted",
+                )
+            )
+            continue
+        record[relative] = written_checksum
+        issues.append(
+            make_issue(
+                severity="warning",
+                code=Code.WRITE_STALE_FILE,
+                stage="write",
+                message=(
+                    f"{relative}: TurboVault generated it before and no longer "
+                    "does. Delete it, or generate with --remove-stale-files"
+                ),
+            )
+        )
+    return issues
+
+
+def _defined_twice(written: list[GeneratedArtifact], output_path: Path) -> list[Issue]:
+    """Models and sources TurboVault wrote that the dbt project defines again.
+
+    dbt fails on a model, its YAML or a source table defined twice: the user
+    removes one of them.
+    """
+    paths = {
+        Path(a.path).relative_to(output_path).as_posix()
+        for a in written
+        if a.path and Path(a.path).is_absolute() and a.kind != "zip"
+    }
+    issues = []
+    for kind, name, other in defined_twice(output_path, paths):
+        what = {
+            "model": f"Model '{name}' is defined twice: by TurboVault and in {other}",
+            "model_yaml": (
+                f"Model '{name}' is described twice: in TurboVault's YAML and "
+                f"in {other}"
+            ),
+            "source": f"Source table '{name}' is defined twice: by TurboVault and in {other}",
+        }[kind]
+        issues.append(
+            make_issue(
+                severity="warning",
+                code=(
+                    Code.WRITE_SOURCE_DEFINED_TWICE
+                    if kind == "source"
+                    else Code.WRITE_MODEL_DEFINED_TWICE
+                ),
+                stage="write",
+                message=f"{what}. dbt needs one: remove one of them.",
+            )
+        )
+    return issues
 
 
 def _create_zip(output_path: Path) -> tuple[GeneratedArtifact | None, list[Issue]]:

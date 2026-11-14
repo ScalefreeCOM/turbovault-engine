@@ -116,10 +116,11 @@ def _parse(generated: Path, work: Path, profiles: Path) -> Path:
 
 
 def _files(root: Path) -> dict[str, str]:
+    """The generated files (without TurboVault's record of them)."""
     return {
         path.relative_to(root).as_posix(): path.read_text(encoding="utf-8")
         for path in root.rglob("*")
-        if path.is_file()
+        if path.is_file() and ".turbovault" not in path.relative_to(root).parts
     }
 
 
@@ -182,6 +183,7 @@ def test_a_generated_project_comes_back_as_it_was(django_setup, tmp_path):
         if before.get(name) != after.get(name)
     }
     unexpected = sorted(differing - KNOWN_DIFFERENCES)
+    _generate_back_into(copy, parsed, config, profiles)
     assert not unexpected, "\n".join(
         line
         for name in unexpected[:5]
@@ -193,3 +195,28 @@ def test_a_generated_project_comes_back_as_it_was(django_setup, tmp_path):
             lineterm="",
         )
     )
+
+
+def _generate_back_into(project, dbt_project: Path, config, profiles: Path) -> None:
+    """The way back (spec D17): the imported project generated into the dbt
+    project it came from, which keeps its dbt_project.yml, and still parses."""
+    from engine.services.generation import generate
+
+    shutil.rmtree(dbt_project / ".turbovault")  # a dbt project of its own
+    own = "# The project's own comment\n" + (dbt_project / "dbt_project.yml").read_text(
+        encoding="utf-8"
+    )
+    (dbt_project / "dbt_project.yml").write_text(own, encoding="utf-8")
+
+    result = generate(
+        project=project,
+        output_type="dbt",
+        output_path=dbt_project,
+        runtime_config=config,
+    )
+
+    codes = {issue.code for issue in result.issues}
+    assert "render.project_files_kept" in codes
+    assert "write.model_defined_twice" not in codes
+    assert (dbt_project / "dbt_project.yml").read_text(encoding="utf-8") == own
+    _dbt("parse", cwd=dbt_project, profiles=profiles)

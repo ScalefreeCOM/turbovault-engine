@@ -530,6 +530,33 @@ The way back for an imported project, and the only one when it has pre-stages (D
 | models and their YAML | written | written; a final check reports every model or source the project also defines elsewhere, so the user removes one of them |
 | files TurboVault no longer generates | — | reported from TurboVault's record of the files it generated; deleted only on request |
 
+As implemented:
+
+- **The record:** TurboVault writes `.turbovault/generated.json` (paths and checksums) into every folder it
+  generates into. A `dbt_project.yml` it doesn't list is a dbt project's own. Older outputs have no record
+  and count as existing projects once: `--write-project-files` replaces their files.
+- **Options** (`GenerationOptions`):
+  - `write_project_files`: None is automatic, True always writes, False never. The CLI flags are
+    `--write-project-files` / `--keep-project-files`. Without project files, `profiles.yml` isn't written
+    either.
+  - `remove_stale_files`: CLI `--remove-stale-files`.
+  - Sources are skipped with config.yml's existing `output.export_sources: false`.
+- **Folder settings:** in an existing project, its own `models:` block stands in for TurboVault's layer
+  blocks. A model gets its layer's schema and materialization in `config()` where that block gives its
+  folder no settings.
+- **The report:**
+  - `render.project_files_kept` (info);
+  - `render.project_needs_package` and `render.project_needs_vars`, for datavault4dbt, the
+    `dbt_packages` and the `global_vars` the project lacks;
+  - `write.stale_file`, `write.stale_file_removed` and `write.stale_file_changed`. A stale file is deleted
+    only while unchanged; a changed one becomes the project's own;
+  - `write.files_replaced`, for the project's files TurboVault replaced the first time;
+  - `write.model_defined_twice` and `write.source_defined_twice`, for model files, model YAML and source
+    tables found elsewhere under the model paths.
+- **CLI default:** `turbovault generate --type dbt` writes into config.yml's `dbt_project.path` when it is set
+  (D11); `--output` wins.
+- **Tested** by the round trip (§12), which also generates the imported project back into its dbt project.
+
 ---
 
 ## 10. Support matrix
@@ -653,7 +680,7 @@ As implemented (Phase 4c):
 | 2 | Foundations: artifact reader, sandbox extraction, datavault4dbt adapter (normalization, signature table 1.x/2.x), notation tests | done (`DbtSource`, CLI and issue locations moved to Phase 4) |
 | 3 | Pre-stages kept in the dbt project (D9), layer folders (D12), metadata extensions (§9.1–9.6): output attributes and name resolution, hash diff name/alias, stage options, derived column shadowing, Satellite v1 options, smaller additions (D13) | done |
 | 4 | 4a: `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, opt-in `dbt parse` (D21), issue locations; the import (executor and JSON round trip) stores every §9 setting and the JSON import its snapshot controls. 4b-1: sources, stages, pre-stages, Hubs, Links, Satellites (§7.1–7.5), warnings/skips for direct parsers, the project's settings as import input (D22). 4b-2a: PITs, reference tables, snapshot controls, groups (§7.6), dependent child keys selected by generated links (D23). 4b-2b: model settings (D20), the dbt_project.yml (D25), naming inference (§8, D22), snapshot logic generation (D24), default tags (D26), folder patterns (D27), inferred project settings (§8.1, D28). 4c: round-trip and corpus tests (§12), stable stage hash key order | done |
-| 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models; generating into an existing dbt project (§9.7) | |
+| 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models; generating into an existing dbt project (§9.7) | §9.7 done |
 | 6 | Custom models for downstream models (#461), optional | postponed (D19) |
 | 7 | Hardening: performance limits, docs, CLI polish | |
 

@@ -45,7 +45,7 @@ Each stage produces typed output for the next, records its duration in
 | **Validate** | Runs the model-level invariants from the [Validation Rules](03_validation-rules.md) catalog. Every violation becomes an `Issue` with `stage="validate"`, a stable `validate.*` code, and an `entity` reference. Skipped if `options.skip_validation=True`. |
 | **Plan** | Walks the `ProjectExport`, applies the [entity selection filter](#selective-generation), and produces a `GenerationPlan` — per-entity-type counts of artifacts the pipeline will emit. |
 | **Render** | Produces `GeneratedArtifact` objects **in memory**. dbt rendering wraps the existing `DbtProjectGenerator`; SQLMesh rendering calls `render_sqlmesh()`; JSON/DBML rendering wraps the existing exporters. Render-time problems become `render.*` issues. |
-| **Write** | Persists each rendered artifact to disk under the resolved `output_path`. Skipped in dry-run mode. Optional ZIP archive for dbt. |
+| **Write** | Persists each rendered artifact to disk under the resolved `output_path`. Skipped in dry-run mode. Optional ZIP archive for dbt. Records the files it writes in `.turbovault/generated.json` and reports the ones generated before and no longer generated (`write.stale_file`). It deletes them only with `remove_stale_files`. For dbt it then reports models, model YAML and source tables the folder defines twice. An existing dbt project, whose `dbt_project.yml` TurboVault didn't write, keeps its project files (`write_project_files`, spec D17). |
 | **Report** | Persists a `GenerationRun` audit row and returns a structured `GenerationReport` to the caller. |
 
 The same pipeline runs for all four output types — only the plan,

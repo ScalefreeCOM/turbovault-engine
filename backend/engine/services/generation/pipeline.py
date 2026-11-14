@@ -17,6 +17,7 @@ from pathlib import Path
 
 from engine.models import GenerationRun, Project
 from engine.services.config_loader import ConfigValidationError
+from engine.services.generation.dbt_target import inspect_target
 from engine.services.generation.errors import Code, PipelineAbort, make_issue
 from engine.services.generation.progress import ProgressCallback, emit
 from engine.services.generation.stages.build import build_export
@@ -155,11 +156,19 @@ def run_pipeline(
             message=f"Rendering {output_type}",
         )
         t0 = time.perf_counter()
+        # The folder a dbt project goes into: an existing dbt project keeps
+        # its dbt_project.yml and packages.yml (spec D17)
+        target = (
+            inspect_target(output_path, write_project_files=options.write_project_files)
+            if output_type == "dbt"
+            else None
+        )
         rendered, render_issues = render(
             project_export=filtered_export,
             output_type=output_type,
             runtime_config=runtime_config,
             options=options,
+            target=target,
         )
         artifacts = rendered
         issues.extend(render_issues)

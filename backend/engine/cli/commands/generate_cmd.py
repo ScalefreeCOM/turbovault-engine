@@ -102,6 +102,28 @@ def generate(
             ),
         ),
     ] = None,
+    write_project_files: Annotated[
+        bool | None,
+        typer.Option(
+            "--write-project-files/--keep-project-files",
+            help=(
+                "dbt: write dbt_project.yml and packages.yml, or keep the output "
+                "folder's. Default: keep them in a dbt project whose files "
+                "TurboVault didn't generate"
+            ),
+        ),
+    ] = None,
+    remove_stale_files: Annotated[
+        bool,
+        typer.Option(
+            "--remove-stale-files",
+            help=(
+                "Delete the files TurboVault generated before and no longer "
+                "generates (only those unchanged since); without it they are "
+                "reported"
+            ),
+        ),
+    ] = False,
     json_output: Annotated[
         Path | None,
         typer.Option("--json-output", help="Alias for --output when type=json"),
@@ -226,6 +248,8 @@ def generate(
         create_zip=create_zip,
         generate_satellite_v1_views=not no_v1_satellites,
         use_model_folders=model_folders,
+        write_project_files=write_project_files,
+        remove_stale_files=remove_stale_files,
         entity_selection=_build_selection(
             include_type=include_type,
             exclude_type=exclude_type,
@@ -503,7 +527,9 @@ def _resolve_output_path(
     Priority order:
       1. Type-specific override flags (`--json-output`, `--dbml-output`, `--sqlmesh-output`).
       2. Generic `--output` / `-o`.
-      3. `output.sqlmesh_output_dir` from the project's config.yml (SQLMesh only).
+      3. `output.sqlmesh_output_dir` from the project's config.yml (SQLMesh only);
+         `dbt_project.path` (dbt only): the dbt project the project belongs to
+         (spec D11, D17).
       4. Workspace convention: `<project_dir>/exports/{dbt_project | sqlmesh | <name>.json | …}`.
       5. Fallback `./output/<slug>` when the project has no `project_directory`
          set (ad-hoc / test projects).
@@ -523,6 +549,14 @@ def _resolve_output_path(
     if output_type == "sqlmesh":
         configured_dir = _configured_sqlmesh_output_dir(project)
         if configured_dir is not None:
+            return configured_dir
+    if output_type == "dbt":
+        configured_dir = _configured_dbt_project_dir(project)
+        if configured_dir is not None:
+            print_info(
+                f"Generating into the dbt project of config.yml's dbt_project.path "
+                f"({configured_dir}); --output generates elsewhere."
+            )
             return configured_dir
 
     slug = project.name.lower().replace(" ", "_")
@@ -576,6 +610,22 @@ def _configured_sqlmesh_output_dir(project) -> Path | None:
     if configured.is_absolute():
         return configured
     return (resolve_project_path(project_directory) / configured).resolve()
+
+
+def _configured_dbt_project_dir(project) -> Path | None:
+    """config.yml's ``dbt_project.path`` (the project's dbt project), or None.
+
+    Relative to the directory the CLI runs in, like the import reads it.
+    """
+    if not getattr(project, "project_directory", None):
+        return None
+    try:
+        config = project.load_config()
+    except Exception:
+        return None
+    if config.dbt_project is None or config.dbt_project.path is None:
+        return None
+    return Path(config.dbt_project.path).expanduser()
 
 
 def _project_exports_dir(project) -> Path | None:

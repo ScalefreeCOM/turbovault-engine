@@ -166,6 +166,13 @@ class GenerationOptions(BaseModel):
     # folder's settings. Names stay either way. None: the project's setting
     # (runtime config use_model_folders).
     use_model_folders: bool | None = None
+    # dbt: whether to write dbt_project.yml and packages.yml (spec D17). None:
+    # unless the output folder holds a dbt project whose dbt_project.yml
+    # TurboVault didn't write (its record, .turbovault/generated.json).
+    write_project_files: bool | None = None
+    # Delete the files TurboVault generated earlier and no longer generates
+    # (while unchanged since); off: they are reported.
+    remove_stale_files: bool = False
     # Preserve the legacy resolver contract: active DB templates precede files.
     use_db_templates: bool = True
     entity_selection: EntitySelection | None = None
