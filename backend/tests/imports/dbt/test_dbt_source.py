@@ -261,3 +261,52 @@ def test_dbt_parse_without_dbt_explains(tmp_path, monkeypatch):
 
     assert not result.ok
     assert "isn't installed" in result.output
+
+
+def test_the_wizard_shows_a_dbt_projects_files_once(project, tmp_path, monkeypatch):
+    import typer
+    from engine.cli.commands import import_cmd
+
+    root = _dbt_project(tmp_path / "dbt")
+    # Project, path, descriptions, tags, mode, errors, dry run, snapshots
+    answers = iter(
+        [project.name, str(root), True, True, "merge", "best-effort", True, False]
+    )
+
+    class Prompt:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def ask(self):
+            return next(answers)
+
+    for prompt in ("select", "path", "confirm"):
+        monkeypatch.setattr(import_cmd.questionary, prompt, Prompt)
+    shown = []
+    show = import_cmd._prepare_dbt_source
+
+    def prepare(source, *, run_parse):
+        shown.append(source.path)
+        return show(source, run_parse=run_parse)
+
+    monkeypatch.setattr(import_cmd, "_prepare_dbt_source", prepare)
+
+    with pytest.raises(typer.Exit):
+        import_cmd.import_metadata_cmd(
+            source=None,
+            source_format=None,
+            catalog=None,
+            dbt_project_file=None,
+            dbt_parse=False,
+            no_descriptions=False,
+            no_tags=False,
+            apply_settings=None,
+            project_name=None,
+            mode="merge",
+            on_error="best-effort",
+            dry_run=False,
+            skip_snapshots=False,
+            interactive=True,
+        )
+
+    assert shown == [root]

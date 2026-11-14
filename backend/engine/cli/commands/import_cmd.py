@@ -158,6 +158,8 @@ def import_metadata_cmd(
         turbovault import
         turbovault import --interactive
     """
+    # The wizard shows a dbt project's files (and runs dbt parse) itself
+    dbt_files_shown = False
     # If the user asked for interactive mode explicitly, OR they didn't pass
     # the essential arguments (--project + --source), drop into the wizard.
     if interactive or (project_name is None and source is None):
@@ -174,6 +176,7 @@ def import_metadata_cmd(
         skip_snapshots = params["skip_snapshots"]
         no_descriptions = not params["import_descriptions"]
         no_tags = not params["import_tags"]
+        dbt_files_shown = source_format == "dbt"
     else:
         # Without a source, a project with a configured dbt project imports
         # from it (unless another format is asked for).
@@ -208,6 +211,7 @@ def import_metadata_cmd(
         import_descriptions=not no_descriptions,
         import_tags=not no_tags,
         apply_settings=apply_settings,
+        dbt_files_shown=dbt_files_shown,
     )
 
 
@@ -226,8 +230,13 @@ def _run_import(
     import_descriptions: bool = True,
     import_tags: bool = True,
     apply_settings: bool | None = None,
+    dbt_files_shown: bool = False,
 ) -> None:
-    """Shared execution path used by both flag-driven and interactive modes."""
+    """Shared execution path used by both flag-driven and interactive modes.
+
+    ``dbt_files_shown``: the wizard has shown the dbt project's files (and
+    created a missing manifest) already.
+    """
     # Deferred: requires Django setup.
     from engine.models import Project
     from engine.services.imports import DbtSource, ImportOptions, import_metadata
@@ -254,7 +263,11 @@ def _run_import(
         )
         raise typer.Exit(2)
 
-    if isinstance(src, DbtSource) and not _prepare_dbt_source(src, run_parse=dbt_parse):
+    if (
+        isinstance(src, DbtSource)
+        and not dbt_files_shown
+        and not _prepare_dbt_source(src, run_parse=dbt_parse)
+    ):
         raise typer.Exit(2)
 
     options = ImportOptions(
