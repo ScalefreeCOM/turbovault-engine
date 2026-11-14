@@ -161,6 +161,7 @@ turbovault project init --config config.yml
 | `--control-schema STR` | | Control layer schema name | `control` |
 | `--stage-database STR` | | Optional staging database name | — |
 | `--rdv-database STR` | | Optional RDV database name | — |
+| `--snapshot-controls` / `--no-snapshot-controls` | | Create TurboVault's default snapshot control; leave it out for a project whose source brings its own (e.g. a dbt project) | `--snapshot-controls` |
 | `--bdv-database STR` | | Optional BDV database name — currently not saved, see note below | — |
 | `--hashdiff-naming STR` | | Hashdiff naming pattern | `hd_[[ satellite_name ]]` |
 | `--hashkey-naming STR` | | Hashkey naming pattern | `hd_[[ entity_name ]]` |
