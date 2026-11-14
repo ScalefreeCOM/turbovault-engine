@@ -283,7 +283,8 @@ As implemented (4b-1):
   - A pre-stage that reads no sources (a seed, or a model reading none) has no lineage to name its system.
     It belongs to the system its stage's name gives (`stg__crm__countries` under the stage naming pattern:
     `crm`), else to one named after its folder. That system is found by name, so a dbt source of the name
-    joins it.
+    joins it. TurboVault keeps one source system per schema, and dbt gives such a system none. It is placed in
+    a schema of its name until a dbt source of the name gives it its own.
   - A seed's columns take their types from its `column_types` config when the catalog and YAML give none;
     columns only that config names are added.
   - `dbt.prestage_maintained_in_dbt` says what stays in the dbt project: its model, the seed, the dbt
@@ -680,8 +681,12 @@ As implemented (Phase 4c):
   
   It also imports non-historized satellites without delta detection.
 - `tests/imports/dbt/test_corpus.py` (opt-in, `TURBOVAULT_DBT_EXAMPLES`): every project in the folder maps
-  with each error on a model. Its suggestions, applied, leave nothing more to suggest. It imports and
-  generates. With `TURBOVAULT_DBT`, dbt parses the result, with stub models for its pre-stages.
+  with each error on a model. Its suggestions, applied, leave nothing more to suggest. It imports, and
+  importing it again changes nothing; it generates. With `TURBOVAULT_DBT`, dbt parses the result, with stub
+  models for its pre-stages. Re-importing found the following, now fixed:
+  - snapshot control logic rules matched by column alone, so a column with several intervals kept one rule;
+  - a payload column the link hash key also hashes became two columns;
+  - several systems of pre-stages ended up in one schema.
 - `tests/imports/dbt/test_turbovault_projects.py`: the round trip's details on hand-written manifests.
 
 ---

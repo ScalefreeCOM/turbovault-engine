@@ -7,7 +7,8 @@ repository: they are other people's. For each of them:
 
 - every error the mapping reports is reported on a model;
 - the settings it suggests, applied, leave nothing more to suggest;
-- with them it imports into a project, which generates a dbt project;
+- with them it imports into a project; importing it again changes nothing;
+  the project generates a dbt project;
 - with ``TURBOVAULT_DBT`` (see test_round_trip.py), dbt parses that project,
   its pre-stages stubbed: their models stay in the original dbt project.
 """
@@ -93,6 +94,11 @@ def test_a_dbt_project_imports_and_generates(django_setup, folder, tmp_path):
     assert report.status in ("success", "partial_success"), [
         issue for issue in report.issues if issue.severity == "error"
     ][:3]
+    again = import_metadata(
+        project=project, source=source, options=ImportOptions(), runtime_config=config
+    )
+    changed = [e for e in again.plan.entities if e.action not in ("unchanged", "skip")]
+    assert not changed, [(e.ref.type, e.ref.name, e.changes[:2]) for e in changed[:3]]
     result = generate(
         project=project,
         output_type="dbt",

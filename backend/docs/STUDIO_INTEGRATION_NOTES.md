@@ -904,6 +904,15 @@ dbt and imported, generates the same files again.
   **Non-historized satellites** come in without delta detection, so the stage gets no hash diff for them.
 - **Snapshot control logic columns** keep the spelling their YAML documents (`IS_ACTIVE`), and so do PITs
   reading them.
+- **Logic rules are matched by column and component** (all imports, also JSON). A column with several
+  intervals (daily, weekly, ...) used to keep only one rule after an import; it now keeps one per component.
+  Rules are still never removed by an import.
+- **A link column the link hash key hashes is a dependent child key**, also when `payload` lists it. It used to
+  become two columns of one name, flipping between the two on every import.
+- **Systems of pre-stages** (seeds, models reading no sources) are named by their stages and kept apart, each
+  in a schema of its name. A system is where it lives, and dbt gives these none. A dbt source of the name moves
+  the system to its own schema.
+- **Re-importing the same artifacts changes nothing**, checked on real projects.
 - **Suggested settings (item 19)** leave out what TurboVault writes anyway: its layer blocks in the
   `models:` block (compared with the project's current settings), the default paths and version in
   `dbt_project.yml`, and its own datavault4dbt entry in `packages.yml`.

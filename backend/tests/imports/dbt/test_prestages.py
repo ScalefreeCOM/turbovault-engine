@@ -143,3 +143,37 @@ def test_another_packages_model_is_named_in_the_report(tmp_path):
     assert table.table_type == "prestage"
     (warning,) = codes_and_messages(issues, "dbt.prestage_maintained_in_dbt")
     assert "the model of the package 'shared'" in warning
+
+
+def _unchanged(report) -> bool:
+    return all(e.action in ("unchanged", "skip") for e in report.plan.entities)
+
+
+def test_seed_systems_stay_apart_in_the_project(tmp_path, django_setup):
+    from engine.models import Project, SourceSystem
+
+    from tests.imports.dbt.test_dbt_mapping import import_shop
+
+    project = Project.objects.create(name="shop")
+    path = write_manifest(
+        tmp_path,
+        [
+            stage_reading("stg__crm__countries", "countries"),
+            stage_reading("stg__erp__currencies", "currencies"),
+            node("seed", "countries", columns={"CODE": {}}),
+            node("seed", "currencies", columns={"CODE": {}}),
+        ],
+        [],
+    )
+
+    import_shop(project, path)
+    again = import_shop(project, path)
+
+    # Both seeds live in one schema, but a system is where it lives: each
+    # system of pre-stages gets a schema of its name
+    systems = SourceSystem.objects.filter(project=project)
+    assert {(s.name, s.schema_name) for s in systems} == {
+        ("crm", "crm"),
+        ("erp", "erp"),
+    }
+    assert _unchanged(again)

@@ -288,3 +288,53 @@ def test_what_turbovault_writes_anyway_isnt_suggested(tmp_path):
     }
     assert "dbt_project_settings" not in suggestions
     assert "dbt_packages" not in suggestions
+
+
+def test_a_payload_column_the_link_key_hashes_is_one_column(tmp_path):
+    link = model(
+        "order_customer_l",
+        dv(
+            "nh_link",
+            """
+            link_hashkey: hk_order_customer_l
+            foreign_hashkeys: [hk_order_h, hk_customer_h]
+            payload: [LINE_NO, AMOUNT]
+            source_models: stg__crm__orders
+            """,
+        ),
+    )
+
+    domain, _ = map_manifest(
+        write_manifest(
+            tmp_path,
+            [STG_CUSTOMER, STG_ORDERS, CUSTOMER_H, ORDER_H, link],
+            [CUSTOMER, ORDERS],
+        )
+    )
+
+    columns = [
+        (c.name, c.column_type) for c in domain.links["order_customer_l"].columns
+    ]
+    assert columns == [("LINE_NO", "dependent_child_key"), ("AMOUNT", "payload")]
+
+
+def test_a_logic_column_keeps_all_its_rules_in_the_project(tmp_path, django_setup):
+    from engine.models import Project, SnapshotControlLogic
+
+    from tests.imports.dbt.test_dbt_mapping import import_shop
+
+    project = Project.objects.create(name="shop")
+    path = write_manifest(
+        tmp_path, [STG_CUSTOMER, STG_ORDERS, CONTROL_V0, CONTROL_V1], [CUSTOMER, ORDERS]
+    )
+
+    import_shop(project, path, skip_snapshots=False)
+    again = import_shop(project, path, skip_snapshots=False)
+
+    # One column, a rule per interval (daily, yearly)
+    rules = SnapshotControlLogic.objects.filter(snapshot_control_table__project=project)
+    assert sorted(rules.values_list("snapshot_component", flat=True)) == [
+        "beginning_of_year",
+        "daily",
+    ]
+    assert all(e.action in ("unchanged", "skip") for e in again.plan.entities)

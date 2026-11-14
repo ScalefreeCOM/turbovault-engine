@@ -274,6 +274,9 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         self.domain = DomainModel()
         self.issues: list[Issue] = []
         self._systems_by_location: dict[tuple[str, str | None], DSourceSystem] = {}
+        # Systems of pre-stages placed in a schema of their name (no dbt
+        # source gave them one yet)
+        self._placed_systems: set[str] = set()
         self._target_database: str | None = None
         self.stages: dict[str, _Stage] = {}
         # Tables the import added columns to without knowing them.
@@ -441,9 +444,13 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         key = (schema.lower(), database.lower() if database else None)
         system = self._systems_by_location.get(key)
         named = self._system_named(system_name) if system is None else None
-        if named is not None and named not in self._systems_by_location.values():
-            # The pre-stages' system of that name (found by name): it is where
-            # this source lives
+        if named is not None and named.name in self._placed_systems:
+            # The pre-stages' system of that name: it lives where this source
+            # does
+            self._placed_systems.discard(named.name)
+            self._systems_by_location = {
+                k: v for k, v in self._systems_by_location.items() if v is not named
+            }
             named.schema_name, named.database_name = schema, database
             self._systems_by_location[key] = named
             return named
@@ -596,16 +603,25 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         name = named or folder or str(node.get("schema") or "")
         system = self._system_named(name)
         if system is None:
-            schema, database = self._location(node)
-            system = DSourceSystem(
-                name=name,
-                schema_name=schema,
-                database_name=database,
-                include_source_columns=CLEAR,
-                enable_ghost_records=CLEAR,
-                delivery_method=CLEAR,
-            )
-            self.domain.source_systems[system.name] = system
+            # A system is where it lives (one per schema), and dbt gives a
+            # system of pre-stages none: it is placed in a schema of its name,
+            # until a dbt source of the name gives it its own
+            _, database = self._location(node)
+            schema = dbt_source_name(name)
+            key = (schema.lower(), database.lower() if database else None)
+            system = self._systems_by_location.get(key)
+            if system is None:
+                system = DSourceSystem(
+                    name=name,
+                    schema_name=schema,
+                    database_name=database,
+                    include_source_columns=CLEAR,
+                    enable_ghost_records=CLEAR,
+                    delivery_method=CLEAR,
+                )
+                self._systems_by_location[key] = system
+                self._placed_systems.add(system.name)
+                self.domain.source_systems[system.name] = system
         return system
 
     def _system_named(self, name: str) -> DSourceSystem | None:
@@ -1429,11 +1445,17 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         additional = [
             str(c) for c in as_list(model.call.params.get("additional_columns"))
         ]
+        # A column the link hash key hashes is a dependent child key, also
+        # when the payload lists it: one column of a name
+        taken = {name.lower() for name, _ in dependent}
         for kind, names in (
             ("payload", payload),
             ("additional_column", additional),
         ):
             for name in names:
+                if name.lower() in taken:
+                    continue
+                taken.add(name.lower())
                 order += 1
                 column = DLinkColumn(name=name, column_type=kind, sort_order=order)
                 for source, stage in sources:

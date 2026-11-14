@@ -1742,29 +1742,35 @@ class _Executor:
             existing=existing,
         )
 
+        # A rule is a logic column's component: a column has one per
+        # component (daily, weekly, ...)
         rules = {
-            rule.snapshot_control_logic_column_name.lower(): rule
+            (
+                rule.snapshot_control_logic_column_name.lower(),
+                rule.snapshot_component,
+            ): rule
             for rule in SnapshotControlLogic.objects.filter(
                 snapshot_control_table=control
             )
         }
         for rule_d in d.logic_rules:
+            key = (rule_d.column_name.lower(), rule_d.component)
             rule, _ = self._upsert(
                 SnapshotControlLogic,
                 lookup={
                     "snapshot_control_table": control,
                     "snapshot_control_logic_column_name": rule_d.column_name,
+                    "snapshot_component": rule_d.component,
                 },
                 values={
-                    "snapshot_component": rule_d.component,
                     "snapshot_duration": rule_d.duration,
                     "snapshot_unit": rule_d.unit,
                     "snapshot_forever": rule_d.forever,
                 },
-                existing=rules.get(rule_d.column_name.lower()),
-                path=("logic_rules", rule_d.column_name),
+                existing=rules.get(key),
+                path=("logic_rules", rule_d.column_name, rule_d.component),
             )
-            rules[rule_d.column_name.lower()] = rule
+            rules[key] = rule
         self._apply_model_outputs(
             "snapshot_control", control, d.outputs, op.entity_type, op.name
         )
