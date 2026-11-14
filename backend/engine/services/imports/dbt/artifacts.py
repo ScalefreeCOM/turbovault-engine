@@ -204,9 +204,15 @@ class DbtArtifacts:
                 if entries:
                     # The lock file names each package; packages.yml doesn't
                     return [
-                        {key: value for key, value in entry.items() if key != "name"}
-                        if lock
-                        else entry
+                        (
+                            {
+                                key: value
+                                for key, value in entry.items()
+                                if key != "name"
+                            }
+                            if lock
+                            else entry
+                        )
                         for entry in entries
                     ]
         return []

@@ -562,9 +562,11 @@ class DbtProjectGenerator:
         if governing is not None:
             for name, value in project_yml.layer_values(
                 self._layer_schema(governing),
-                getattr(self.config, f"{governing}_materialization", None)
-                if governing != "prestaging"
-                else self._prestaging_materialization(),
+                (
+                    getattr(self.config, f"{governing}_materialization", None)
+                    if governing != "prestaging"
+                    else self._prestaging_materialization()
+                ),
             ).items():
                 now.values[project_yml.settings_key(name)] = value
         if layer_defaults is not None:  # the model's config() gets them too
@@ -1258,13 +1260,15 @@ class DbtProjectGenerator:
                 if satellite.gets_v1_view(generate_v1):
                     self._generate_satellite_v1(
                         satellite,
-                        self._default_dir(
-                            "satellite_v1",
-                            group=satellite.group,
-                            source_system=satellite.source_system,
-                        )
-                        if self.folder_config.has_own("satellite_v1")
-                        else default_dir,
+                        (
+                            self._default_dir(
+                                "satellite_v1",
+                                group=satellite.group,
+                                source_system=satellite.source_system,
+                            )
+                            if self.folder_config.has_own("satellite_v1")
+                            else default_dir
+                        ),
                         v0_name,
                     )
 
@@ -1371,10 +1375,12 @@ class DbtProjectGenerator:
                         hub.group,
                         hashkey_name,
                         hub.source_tables,
-                        hub.record_tracking_satellite_output
-                        if own
-                        else _in_folder_of(
-                            hub.record_tracking_satellite_output, hub.output
+                        (
+                            hub.record_tracking_satellite_output
+                            if own
+                            else _in_folder_of(
+                                hub.record_tracking_satellite_output, hub.output
+                            )
                         ),
                         "record_tracking_satellite" if own else "hub",
                         "hub",
@@ -1389,10 +1395,12 @@ class DbtProjectGenerator:
                         link.group,
                         hashkey_name,
                         link.source_tables,
-                        link.record_tracking_satellite_output
-                        if own
-                        else _in_folder_of(
-                            link.record_tracking_satellite_output, link.output
+                        (
+                            link.record_tracking_satellite_output
+                            if own
+                            else _in_folder_of(
+                                link.record_tracking_satellite_output, link.output
+                            )
                         ),
                         "record_tracking_satellite" if own else "link",
                         "link",

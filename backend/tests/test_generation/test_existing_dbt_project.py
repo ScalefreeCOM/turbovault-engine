@@ -27,8 +27,7 @@ from tests.test_generation.test_model_outputs import (
 
 pytestmark = pytest.mark.django_db
 
-PROJECT_YML = textwrap.dedent(
-    """
+PROJECT_YML = textwrap.dedent("""
     name: outputs
     version: '2.0.0'
     profile: warehouse
@@ -40,8 +39,7 @@ PROJECT_YML = textwrap.dedent(
         30_raw_vault:
           +schema: edw
           +materialized: incremental
-    """
-).lstrip()
+    """).lstrip()
 
 
 @pytest.fixture

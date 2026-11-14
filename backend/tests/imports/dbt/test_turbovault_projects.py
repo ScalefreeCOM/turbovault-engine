@@ -247,8 +247,7 @@ def test_a_logic_column_keeps_its_documented_spelling(tmp_path):
 
 def test_what_turbovault_writes_anyway_isnt_suggested(tmp_path):
     (tmp_path / "dbt_project.yml").write_text(
-        textwrap.dedent(
-            """
+        textwrap.dedent("""
             name: shop
             version: '1.0.0'
             config-version: 2
@@ -270,8 +269,7 @@ def test_what_turbovault_writes_anyway_isnt_suggested(tmp_path):
                 40_business_vault:
                   +schema: bdv
                   +materialized: table
-            """
-        ),
+            """),
         encoding="utf-8",
     )
     (tmp_path / "packages.yml").write_text(

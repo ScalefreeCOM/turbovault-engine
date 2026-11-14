@@ -335,19 +335,22 @@ class ProjectConfiguration(BaseModel):
     """Project-level Data Vault configuration."""
 
     stage_schema: str | None = Field(
-        "stage", description="Schema name for staging layer (null: no custom schema, models build into the target's schema)"
+        "stage",
+        description="Schema name for staging layer (null: no custom schema, models build into the target's schema)",
     )
     stage_database: str | None = Field(
         None, description="Optional database name for staging layer"
     )
     rdv_schema: str | None = Field(
-        "rdv", description="Schema name for Raw Data Vault layer (null: no custom schema, models build into the target's schema)"
+        "rdv",
+        description="Schema name for Raw Data Vault layer (null: no custom schema, models build into the target's schema)",
     )
     rdv_database: str | None = Field(
         None, description="Optional database name for Raw Data Vault layer"
     )
     bdv_schema: str | None = Field(
-        "bdv", description="Schema name for Business Data Vault layer (null: no custom schema, models build into the target's schema)"
+        "bdv",
+        description="Schema name for Business Data Vault layer (null: no custom schema, models build into the target's schema)",
     )
     bdv_database: str | None = Field(
         None, description="Optional database name for Business Data Vault layer"
@@ -460,7 +463,8 @@ class ProjectConfiguration(BaseModel):
         "default", description="dbt profile referenced by dbt_project.yml"
     )
     control_schema: str | None = Field(
-        "control", description="Schema name for the control layer (null: no custom schema, models build into the target's schema)"
+        "control",
+        description="Schema name for the control layer (null: no custom schema, models build into the target's schema)",
     )
     control_materialization: DbtMaterialization = Field(
         "table", description="Materialization of the control layer"
@@ -503,8 +507,11 @@ class ProjectConfiguration(BaseModel):
         unknown = sorted(set(v) - FOLDER_KEYS)
         if unknown:
             raise ValueError(
-                "Unknown folders: " + ", ".join(unknown) + " (use "
-                + ", ".join(sorted(FOLDER_KEYS)) + ")"
+                "Unknown folders: "
+                + ", ".join(unknown)
+                + " (use "
+                + ", ".join(sorted(FOLDER_KEYS))
+                + ")"
             )
         for pattern in v.values():
             if error := folder_pattern_error(str(pattern)):

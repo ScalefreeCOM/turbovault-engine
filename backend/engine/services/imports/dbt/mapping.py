@@ -682,9 +682,11 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                     node["unique_id"],
                     node.get("columns") or {},
                     # A seed's column types are its config's (dbt loads it so)
-                    types=(node.get("config") or {}).get("column_types")
-                    if node.get("resource_type") == "seed"
-                    else None,
+                    types=(
+                        (node.get("config") or {}).get("column_types")
+                        if node.get("resource_type") == "seed"
+                        else None
+                    ),
                 ),
                 outputs={},
             )
@@ -2132,9 +2134,11 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                         "source_system": system.name,
                         "source_table": table.physical_name,
                     },
-                    value
-                    if isinstance(value := getattr(table, attribute), str) and value
-                    else None,
+                    (
+                        value
+                        if isinstance(value := getattr(table, attribute), str) and value
+                        else None
+                    ),
                 )
                 for system in self.domain.source_systems.values()
                 for table in system.tables.values()

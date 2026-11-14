@@ -660,8 +660,7 @@ def test_a_prejoined_column_loads_a_satellite(tmp_path, project):
         "stg__crm__customer",
         STG_CUSTOMER[1]["raw_code"].replace(
             "hashed_columns:",
-            textwrap.dedent(
-                """\
+            textwrap.dedent("""\
                 prejoined_columns:
                     - extract_columns: [COUNTRY_NAME]
                       aliases: [CUSTOMER_COUNTRY]
@@ -669,8 +668,7 @@ def test_a_prejoined_column_loads_a_satellite(tmp_path, project):
                       src_table: country
                       this_column_name: [COUNTRY]
                       ref_column_name: [CODE]
-                hashed_columns:"""
-            ),
+                hashed_columns:"""),
         ),
         folder="models/staging",
     )
@@ -1294,8 +1292,7 @@ def test_tags_and_settings_turbovault_doesnt_give_are_kept(tmp_path):
 
 def test_folder_level_settings_stay_in_the_project_settings(tmp_path):
     (tmp_path / "dbt_project.yml").write_text(
-        textwrap.dedent(
-            """
+        textwrap.dedent("""
             name: shop
             profile: shop_warehouse
             version: '3.1.0'
@@ -1312,8 +1309,7 @@ def test_folder_level_settings_stay_in_the_project_settings(tmp_path):
             seeds:
               shop:
                 +schema: seeds
-            """
-        ),
+            """),
         encoding="utf-8",
     )
     hub = _with_settings(

@@ -103,9 +103,9 @@ def _dbt(*args: str, cwd: Path, profiles: Path) -> None:
         text=True,
         check=False,
     )
-    assert result.returncode == 0, (
-        f"dbt {' '.join(args)} failed:\n{result.stdout[-4000:]}\n{result.stderr[-2000:]}"
-    )
+    assert (
+        result.returncode == 0
+    ), f"dbt {' '.join(args)} failed:\n{result.stdout[-4000:]}\n{result.stderr[-2000:]}"
 
 
 def _parse(generated: Path, work: Path, profiles: Path) -> Path:

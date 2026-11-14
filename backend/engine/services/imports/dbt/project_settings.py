@@ -214,13 +214,17 @@ class ProjectSettingsMapping:
     def _group_of(self, entity: tuple[str, str] | None) -> str | None:
         if entity is None:
             return None
-        found = {
-            "hub": self.domain.hubs,
-            "link": self.domain.links,
-            "satellite": self.domain.satellites,
-            "pit": self.domain.pits,
-            "reference_table": self.domain.reference_tables,
-        }.get(entity[0], {}).get(entity[1])
+        found = (
+            {
+                "hub": self.domain.hubs,
+                "link": self.domain.links,
+                "satellite": self.domain.satellites,
+                "pit": self.domain.pits,
+                "reference_table": self.domain.reference_tables,
+            }
+            .get(entity[0], {})
+            .get(entity[1])
+        )
         return getattr(found, "group_name", None) if found is not None else None
 
     # Folder pattern of each kind of model output (generation's keys)
@@ -271,9 +275,11 @@ class ProjectSettingsMapping:
             sources = {
                 (
                     mapping.source_table_identifier,
-                    mapping.stage_hashkey_name
-                    if isinstance(mapping.stage_hashkey_name, str)
-                    else "",
+                    (
+                        mapping.stage_hashkey_name
+                        if isinstance(mapping.stage_hashkey_name, str)
+                        else ""
+                    ),
                 ): mapping.is_primary_source
                 for column in self.domain.hubs[name].columns
                 if column.column_type != "additional_column"
@@ -615,9 +621,11 @@ class ProjectSettingsMapping:
                 self._suggest(option, found.value, current, found, of="stages")
 
         methods = [
-            "single_batch"
-            if table.identifier in self._single_batch_tables
-            else "multi_batch"
+            (
+                "single_batch"
+                if table.identifier in self._single_batch_tables
+                else "multi_batch"
+            )
             for system in self.domain.source_systems.values()
             for table in system.tables.values()
         ]

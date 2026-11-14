@@ -111,9 +111,7 @@ def stored_settings(
     # adds TurboVault's default tags) and the stored ones (spec D26). The
     # model stores the tags the others don't give it.
     given = {tag.lower() for tag in [*regenerated.tags, *template_tags] if tag}
-    own_tags = list(
-        dict.fromkeys(t for t in effective.tags if t.lower() not in given)
-    )
+    own_tags = list(dict.fromkeys(t for t in effective.tags if t.lower() not in given))
     if own_tags:
         result["tags"] = own_tags
     return result

@@ -506,15 +506,13 @@ def test_folders_named_after_kinds_of_model_are_no_groups(tmp_path):
 
 def test_packages_are_suggested_from_the_package_files(tmp_path):
     (tmp_path / "packages.yml").write_text(
-        textwrap.dedent(
-            """
+        textwrap.dedent("""
             packages:
               - package: ScalefreeCOM/datavault4dbt
                 version: [">=1.9.0", "<2.0.0"]
               - package: dbt-labs/dbt_utils
                 version: 1.3.0
-            """
-        ),
+            """),
         encoding="utf-8",
     )
     path = write_manifest(tmp_path, [STG_CUSTOMER, STG_ORDERS], [CUSTOMER, ORDERS])
@@ -531,15 +529,13 @@ def test_packages_are_suggested_from_the_package_files(tmp_path):
 
 def test_without_packages_yml_the_lock_files_versions_are_suggested(tmp_path):
     (tmp_path / "package-lock.yml").write_text(
-        textwrap.dedent(
-            """
+        textwrap.dedent("""
             packages:
               - package: ScalefreeCOM/datavault4dbt
                 name: datavault4dbt
                 version: 1.9.3
             sha1_hash: abc
-            """
-        ),
+            """),
         encoding="utf-8",
     )
     path = write_manifest(tmp_path, [STG_CUSTOMER, STG_ORDERS], [CUSTOMER, ORDERS])
@@ -584,8 +580,7 @@ def test_settings_are_written_into_config_yml_keeping_the_rest(tmp_path):
 
     path = tmp_path / "config.yml"
     path.write_text(
-        textwrap.dedent(
-            """
+        textwrap.dedent("""
             project:
               name: shop
             configuration:
@@ -593,8 +588,7 @@ def test_settings_are_written_into_config_yml_keeping_the_rest(tmp_path):
             output:
               sqlmesh:
                 dialect: snowflake
-            """
-        ),
+            """),
         encoding="utf-8",
     )
 
