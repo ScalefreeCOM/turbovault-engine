@@ -82,6 +82,45 @@ jobs:
         turbovault --help
         turbovault --version || true
 
+  dbt-round-trip:
+    name: dbt round trip
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.12'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    # dbt in a virtualenv of its own: the Engine doesn't depend on it.
+    # dbt parse needs an adapter, but no database.
+    - name: Install dbt
+      run: |
+        python -m venv /tmp/dbt-venv
+        /tmp/dbt-venv/bin/pip install "dbt-core>=1.10,<2" dbt-postgres
+
+    - name: Run Django migrations
+      run: |
+        cd backend
+        python manage.py migrate --noinput
+
+    # Generate the TPC-H sample, dbt parse it, import the manifest, generate
+    # again and compare; also generate the import back into the parsed dbt
+    # project (spec §12, D17). dbt deps downloads datavault4dbt.
+    - name: Round trip
+      env:
+        TURBOVAULT_DBT: /tmp/dbt-venv/bin/dbt
+      run: |
+        python -m pytest backend/tests/imports/dbt/test_round_trip.py -v --tb=short
+
   build:
     name: Build Package
     runs-on: ubuntu-latest
