@@ -179,6 +179,80 @@ class _LinkInfo:
     stages: list[str] = field(default_factory=list)
 
 
+# What TurboVault's satellite templates call a satellite without description
+# ("Standard satellite for CUSTOMER_H"), by the satellite's type.
+_SATELLITE_DESCRIPTION_KINDS = (
+    "Standard",
+    "Multi_active",
+    "Multi-active",
+    "Reference",
+    "Non_historized",
+    "Non-historized",
+)
+
+
+def _in_hashdiff_order(
+    entries: list[dict[str, Any]], hashdiff_order: list[str]
+) -> list[dict[str, Any]]:
+    """A multi-active satellite's columns in its hash diff's order.
+
+    datavault4dbt lists the multi-active keys apart from the payload; the
+    stage's hash diff, which hashes them all, has the satellite's own order.
+    Used only when it hashes exactly these columns, with the payload in the
+    order the satellite lists it.
+    """
+
+    def key(entry: dict[str, Any]) -> str:
+        alias = str(entry["alias"]).lower()
+        return alias if alias in hashdiff_order else str(entry["column"]).lower()
+
+    keys = [key(entry) for entry in entries]
+    if sorted(keys) != sorted(hashdiff_order):
+        return entries
+    payload = [k for k, entry in zip(keys, entries, strict=True) if not entry["ma"]]
+    if [k for k in hashdiff_order if k in payload] != payload:
+        return entries
+    rank = {name: index for index, name in enumerate(hashdiff_order)}
+    return sorted(entries, key=lambda entry: rank[key(entry)])
+
+
+# ---------------------------------------------------------------------------
+# A table's columns
+# ---------------------------------------------------------------------------
+# Columns are found by name in any case, but a table may have columns whose
+# names differ in case only (quoted identifiers): those stay apart. A column
+# is keyed by its lowercased name; a second spelling of it by its own.
+
+
+def _add_column(columns: dict[str, DSourceColumn], column: DSourceColumn) -> None:
+    key = column.name.lower()
+    held = columns.get(key)
+    if held is None:
+        columns[key] = column
+    elif all(other.name != column.name for other in columns.values()):
+        if column.name == key:
+            # The lowercase spelling takes the lowercase key; the other keeps
+            # its place under its own spelling
+            items = [(held.name if k == key else k, v) for k, v in columns.items()]
+            columns.clear()
+            columns.update(items)
+        columns[column.name] = column
+
+
+def _find_column(columns: dict[str, DSourceColumn], name: str) -> DSourceColumn | None:
+    """The column of that name: spelled alike, else in any case."""
+    exact = columns.get(name)
+    if exact is not None and exact.name == name:
+        return exact
+    lowered = columns.get(name.lower())
+    if lowered is not None:
+        return lowered
+    return next(
+        (column for column in columns.values() if column.name.lower() == name.lower()),
+        None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # The mapper
 # ---------------------------------------------------------------------------
@@ -230,6 +304,9 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
             "enable_ghost_records": [],
         }
         self._value_samples: dict[str, list[tuple[dict[str, str], str | None]]] = {}
+        # Derived columns that only rename a link's dependent child key, as
+        # generated links have them (D23): (table identifier, lowercased name)
+        self._link_renames: set[tuple[str, str]] = set()
 
     # -- entry --------------------------------------------------------------
 
@@ -311,10 +388,13 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
             parameter=parameter,
         )
 
-    def _description(self, text: Any) -> str | None:
+    def _description(self, text: Any, *defaults: str) -> str | None:
+        """A description to import; none for one of ``defaults``, what
+        TurboVault's templates write for a model without a description."""
         if not self.source.import_descriptions:
             return None
-        return str(text or "").strip() or None
+        text = str(text or "").strip()
+        return text if text and text not in defaults else None
 
     # -- sources --------------------------------------------------------------
 
@@ -330,6 +410,18 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                 database = None
         return schema, str(database) if database else None
 
+    @staticmethod
+    def _source_spelling(node: dict[str, Any]) -> str | None:
+        """A source system's name as TurboVault spells it, when its generated
+        sources.yml names it in a table's default description ("Source table
+        from TPCH" for the dbt source ``tpch``)."""
+        match = re.fullmatch(
+            r"Source table from (.+)", str(node.get("description") or "").strip()
+        )
+        if match and dbt_source_name(match.group(1)) == str(node.get("source_name")):
+            return match.group(1)
+        return None
+
     def _system_for(
         self, node: dict[str, Any], *, name: str | None = None
     ) -> DSourceSystem:
@@ -339,7 +431,11 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         sources sharing a schema become one system, named after the first.
         """
         schema, database = self._location(node)
-        system_name = name or str(node.get("source_name") or schema)
+        system_name = (
+            name
+            or self._source_spelling(node)
+            or str(node.get("source_name") or schema)
+        )
         key = (schema.lower(), database.lower() if database else None)
         system = self._systems_by_location.get(key)
         if system is None:
@@ -383,29 +479,38 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         Ordered like the catalog (the warehouse's order) when there is one.
         """
         catalog = self.artifacts.catalog_columns(unique_id) or {}
-        described: dict[str, DSourceColumn] = {}
+        described: list[DSourceColumn] = []
         for key, column in yaml_columns.items():
             if not isinstance(column, dict):
                 continue
-            name = str(column.get("name") or key)
-            described[name.lower()] = DSourceColumn(
-                name=name,
-                datatype=str(column.get("data_type") or "") or None,
-                description=self._description(column.get("description")),
-                is_missing=False,
+            described.append(
+                DSourceColumn(
+                    name=str(column.get("name") or key),
+                    datatype=str(column.get("data_type") or "") or None,
+                    description=self._description(column.get("description")),
+                    is_missing=False,
+                )
             )
-        result: dict[str, DSourceColumn] = {}
+        ordered: list[DSourceColumn] = []
         for catalog_name, catalog_type in catalog.items():
-            key = catalog_name.lower()
-            column = described.pop(key, None)
+            # The YAML's column of that name, else of that name in any case
+            column = next(
+                (c for c in described if c.name == catalog_name), None
+            ) or next(
+                (c for c in described if c.name.lower() == catalog_name.lower()), None
+            )
             if column is None:
                 column = DSourceColumn(
                     name=catalog_name, datatype=catalog_type or None, is_missing=False
                 )
-            elif column.datatype is None:
-                column.datatype = catalog_type or None
-            result[key] = column
-        result.update(described)
+            else:
+                described.remove(column)
+                if column.datatype is None:
+                    column.datatype = catalog_type or None
+            ordered.append(column)
+        result: dict[str, DSourceColumn] = {}
+        for column in [*ordered, *described]:
+            _add_column(result, column)
         return result
 
     def _source_table(self, node: dict[str, Any]) -> tuple[DSourceSystem, DSourceTable]:
@@ -418,7 +523,9 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
             table = DSourceTable(
                 identifier=identifier,
                 physical_name=physical,
-                description=self._description(node.get("description")),
+                description=self._description(
+                    node.get("description"), f"Source table from {system.name}"
+                ),
                 table_type="physical",
                 columns=self._columns(node["unique_id"], node.get("columns") or {}),
             )
@@ -665,11 +772,10 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         missing = params.get("missing_columns")
         if isinstance(missing, dict):
             for name, datatype in missing.items():
-                key = str(name).lower()
-                column = table.columns.get(key)
+                column = _find_column(table.columns, str(name))
                 if column is None:
                     column = DSourceColumn(name=str(name))
-                    table.columns[key] = column
+                    _add_column(table.columns, column)
                 column.is_missing = True
                 column.datatype = str(datatype or "") or column.datatype
         elif missing:
@@ -797,10 +903,10 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                 return table.derived_columns[key].name
             if key in stage.prejoined:
                 return stage.prejoined[key]
-        known = table.columns.get(key)
+        known = _find_column(table.columns, str(column))
         if known is not None:
             return known.name
-        table.columns[key] = DSourceColumn(name=str(column), is_missing=False)
+        _add_column(table.columns, DSourceColumn(name=str(column), is_missing=False))
         self._unknown_columns.setdefault(table.identifier, []).append(str(column))
         return str(column)
 
@@ -912,7 +1018,11 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                 physical_name=model.name,
                 hub_type="reference" if reference else "standard",
                 hashkey_name=hashkey,
-                description=self._description(model.description),
+                description=self._description(
+                    model.description,
+                    f"Standard hub for {model.name}",
+                    f"Reference hub for {model.name}",
+                ),
                 disable_hwm=as_bool(params.get("disable_hwm"), False),
                 columns=columns,
             ),
@@ -1042,7 +1152,11 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
             physical_name=model.name,
             link_type="non_historized" if non_historized else "standard",
             hashkey_name=link_hashkey,
-            description=self._description(model.description),
+            description=self._description(
+                model.description,
+                f"Standard link for {model.name}",
+                f"Non-Historized link for {model.name}",
+            ),
             create_effectivity_satellite=False,
             disable_hwm=as_bool(params.get("disable_hwm"), False),
             union_strategy=(
@@ -1157,7 +1271,14 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
             # hash key hashes beyond the hubs' keys.
             used = [c.lower() for c in hub_columns]
             for position, name in key_columns:
-                column = self._stage_column(stage, all_fk_columns[position])
+                written = all_fk_columns[position]
+                hashed = self._hashed_key_column(stage, written, link_hk) or written
+                if hashed.lower() != written.lower():
+                    # The derived column only renames the hashed column for
+                    # the link: the key maps to that column, and generation
+                    # writes the rename again (D23)
+                    self._link_renames.add((stage.identifier, written.lower()))
+                column = self._stage_column(stage, hashed)
                 dependent[name.lower()][1][stage.model.name] = column
                 used.append(column.lower())
             for column in stage.hashkey(link_hk) or []:
@@ -1261,9 +1382,25 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         ):
             return False
         return any(
-            lowered in [c.lower() for c in stage.hashkey(link_hashkey) or []]
+            self._hashed_key_column(stage, foreign_hashkey, link_hashkey) is not None
             for stage in stages
         )
+
+    def _hashed_key_column(
+        self, stage: _Stage, column: str, link_hashkey: str
+    ) -> str | None:
+        """The column the link hash key hashes for a dependent child key the
+        link selects as ``column``: the column itself, or the one a derived
+        column of that name only renames (TurboVault's links name their keys
+        so, spec D23). None when it hashes neither."""
+        hashed = [c.lower() for c in stage.hashkey(link_hashkey) or []]
+        if column.lower() in hashed:
+            return column
+        derived = (stage.table.derived_columns or {}).get(column.lower())
+        renamed = derived.expression.strip() if derived is not None else ""
+        if re.fullmatch(r"\w+", renamed) and renamed.lower() in hashed:
+            return renamed
+        return None
 
     def _link_hub(
         self,
@@ -1499,6 +1636,7 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                 params.get("src_hashdiff")
             )
         delta_columns = None
+        hashdiff_order: list[str] = []
         if hashdiff_column:
             spec = stage.hashdiffs.get(hashdiff_column) or next(
                 (
@@ -1509,7 +1647,8 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                 None,
             )
             if spec is not None:
-                delta_columns = {c.lower() for c in spec.get("columns") or []}
+                hashdiff_order = [str(c).lower() for c in spec.get("columns") or []]
+                delta_columns = set(hashdiff_order)
 
         columns: list[DSatelliteColumn] = []
         yaml_columns = model.yaml_columns()
@@ -1522,6 +1661,7 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
             {**entry, "ma": False}
             for entry in normalize_payload(params.get("src_payload"))
         ]
+        entries = _in_hashdiff_order(entries, hashdiff_order) if ma_keys else entries
         for position, entry in enumerate(entries):
             column = self._stage_column(stage, entry["column"])
             alias = entry["alias"]
@@ -1530,9 +1670,15 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                 DSatelliteColumn(
                     source_column_name=column,
                     target_column_name=alias if alias != entry["column"] else None,
-                    description=self._description(docs.get("description")),
+                    description=self._description(
+                        docs.get("description"),
+                        "Payload column",
+                        "Payload column (multi-active key)",
+                    ),
                     is_multi_active_key=entry["ma"],
-                    include_in_delta_detection=(
+                    # Non-historized satellites have no hash diff
+                    include_in_delta_detection=satellite_type != "non_historized"
+                    and (
                         delta_columns is None
                         or entry["ma"]
                         or column.lower() in delta_columns
@@ -1548,7 +1694,13 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
             parent_entity_name=parent[0],
             parent_entity_type=parent[1],  # type: ignore[arg-type]
             source_table_identifier=stage.identifier,
-            description=self._description(model.description),
+            description=self._description(
+                model.description,
+                *(
+                    f"{kind} satellite for {parent[0]}"
+                    for kind in _SATELLITE_DESCRIPTION_KINDS
+                ),
+            ),
             hashdiff_name=hashdiff_column or CLEAR,
             hashdiff_alias=hashdiff_alias or CLEAR,
             disable_hwm=as_bool(params.get("disable_hwm"), False),
@@ -1890,6 +2042,7 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         source, load date and static part where they differ from what it
         inherits (spec D28).
         """
+        self._drop_link_renames()
         self._value_samples = {
             attribute: [
                 (
@@ -1939,6 +2092,39 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                 entity=EntityRef(type="source_table", name=table_name),
                 suggestion="Provide catalog.json, or describe the columns in YAML.",
             )
+
+    def _drop_link_renames(self) -> None:
+        """Drop the derived columns that only rename a link's dependent child
+        key (D23) and nothing else uses: generation writes them from the link."""
+        if not self._link_renames:
+            return
+        used: set[tuple[str, str]] = set()
+        for hub in self.domain.hubs.values():
+            for hub_column in hub.columns:
+                used.update(
+                    (m.source_table_identifier, m.source_column_name.lower())
+                    for m in hub_column.source_mappings
+                )
+        for link in self.domain.links.values():
+            used.update(
+                (m.source_table_identifier, m.source_column_name.lower())
+                for m in link.hub_source_mappings
+            )
+            for link_column in link.columns:
+                used.update(
+                    (m.source_table_identifier, m.source_column_name.lower())
+                    for m in link_column.source_mappings
+                )
+        for satellite in self.domain.satellites.values():
+            used.update(
+                (satellite.source_table_identifier, c.source_column_name.lower())
+                for c in satellite.columns
+            )
+        for identifier, name in self._link_renames - used:
+            for system in self.domain.source_systems.values():
+                table = system.tables.get(identifier)
+                if table is not None and table.derived_columns:
+                    table.derived_columns.pop(name, None)
 
     def _default_rsrc(self, system: DSourceSystem, table: DSourceTable) -> str:
         value = self.config.default_record_source_value or f"!{system.name}"

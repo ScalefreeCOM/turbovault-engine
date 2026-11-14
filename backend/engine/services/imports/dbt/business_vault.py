@@ -172,15 +172,18 @@ class BusinessVaultMapping:
         )
         self._mapped.add(model.unique_id)
 
-    def _trigger_column(self) -> str:
-        """The logic column a log_logic mapping computes."""
+    def _trigger_column(self, model: DbtModel) -> str:
+        """The logic column a log_logic mapping computes: named by the trigger
+        column variable, spelled as the model's YAML documents it."""
         value = self.artifacts.project_vars.get("datavault4dbt.snapshot_trigger_column")
-        return str(value) if value else "is_active"
+        name = str(value) if value else "is_active"
+        documented = model.yaml_columns().get(name.lower()) or {}
+        return str(documented.get("name") or name)
 
     def _logic_rules(self, model: DbtModel) -> list[DSnapshotControlLogic]:
         log_logic = model.call.params.get("log_logic")
         if isinstance(log_logic, dict):
-            columns = [(self._trigger_column(), log_logic)]
+            columns = [(self._trigger_column(model), log_logic)]
         elif isinstance(log_logic, list):
             columns = []
             for entry in log_logic:
@@ -495,7 +498,10 @@ class BusinessVaultMapping:
             historization_type=historization,
             snapshot_control_name=base,
             snapshot_logic_column=trigger,
-            description=self._description(model.description),
+            description=self._description(
+                model.description,
+                f"Reference table combining {hub_name} with satellites",
+            ),
             satellite_assignments=assignments,
             outputs={},
         )

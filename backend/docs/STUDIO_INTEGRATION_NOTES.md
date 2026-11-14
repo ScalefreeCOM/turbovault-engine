@@ -30,8 +30,9 @@ section is completed when the Engine change lands).
 | 17 | [Default tags setting](#17-default-tags-setting) | In progress | A project switch; the tag field of a model's settings now adds tags |
 | 18 | [Folder structure; model folders setting; layers without schema](#18-folder-structure-model-folders-setting-layers-without-schema) | In progress | Folder pattern settings with placeholders; the model folders switch; "no custom schema" per layer |
 | 19 | [Project settings a dbt project suggests; packages](#19-project-settings-a-dbt-project-suggests-packages) | In progress | Show the suggestions after a dry run, apply the accepted ones to the project's settings; store the packages |
+| 20 | [Round trip: what a dbt import reads back; generation fixes](#20-round-trip-what-a-dbt-import-reads-back-generation-fixes) | In progress | None required; generated output changes in two places (stage hash key order, models without settings) |
 
-Background for items 4–19: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
+Background for items 4–20: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
 
 ---
 
@@ -877,3 +878,41 @@ differs from the settings it was given.
   write the imported packages gets `TPL_003`.
 - **Studio:** store the list with the project and pass it in the runtime config; a read-only list (or a YAML
   editor) in the project's dbt settings.
+
+---
+
+## 20. Round trip: what a dbt import reads back; generation fixes
+
+**Status:** In progress (dbt import branch). Spec §12 (Phase 4c). A TurboVault project, generated, parsed by
+dbt and imported, generates the same files again.
+
+### What a dbt import does differently now
+
+- **TurboVault's default descriptions aren't imported:** for example `Standard hub for CUSTOMER_H`, or
+  `Source table from CRM`. Entities from a generated project get no description, so generation writes
+  the defaults again. Real descriptions are imported as before.
+- **A source system's spelling:** a generated `sources.yml` names a source in lowercase (`crm`), and its
+  default table description keeps the system's name (`Source table from CRM`). The import names the system
+  `CRM`.
+- **Columns that differ in case only** (`C_NAME`, `C_name`; quoted identifiers) stay separate columns.
+  Before, they merged into one.
+- **A dependent child key renamed for its link (spec D23)** maps to the column the stage hashes, and the
+  renaming derived column isn't imported (generation writes it again). Before, such a link was left out with
+  `dbt.link_hub_ambiguous`.
+- **Multi-active satellites** keep their keys' place among the columns, taken from the stage's hash diff.
+  **Non-historized satellites** come in without delta detection, so the stage gets no hash diff for them.
+- **Snapshot control logic columns** keep the spelling their YAML documents (`IS_ACTIVE`), and so do PITs
+  reading them.
+- **Suggested settings (item 19)** leave out what TurboVault writes anyway: its layer blocks in the
+  `models:` block (compared with the project's current settings), the default paths and version in
+  `dbt_project.yml`, and its own datavault4dbt entry in `packages.yml`.
+
+### Generation changes
+
+- **A stage's hash keys are ordered:** the hubs it loads, by name, then the hub keys its links reference,
+  then the link keys. The database order used before changed between imports. Stages with several hash keys
+  may change order once.
+- **A model with no settings gets no `config()` block.** dbt rejects an empty `{{ config() }}`, which such a
+  model got with default tags off. `model_config()` now renders nothing for it.
+- `[[ source_system ]]` / `[[ source_system_name ]]` work in every folder pattern (item 18).
+

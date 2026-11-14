@@ -28,6 +28,7 @@ from engine.services.config_schema import (
     DbtMaterialization,
 )
 from engine.services.export.model_outputs import dbt_source_name, entity_base_name
+from engine.services.generation import project_yml
 from engine.services.generation.folder_config import (
     KIND_LAYERS,
     FolderConfig,
@@ -772,24 +773,24 @@ class ProjectSettingsMapping:
     def _suggest_dbt_project(self) -> None:
         """dbt_project.yml (name, profile, vars, models: block, other settings)
         and the packages, copied (D25, D28)."""
-        project_yml = self.artifacts.dbt_project or {}
-        if project_yml:
+        original = self.artifacts.dbt_project or {}
+        if original:
             source = "dbt_project.yml"
-            if project_yml.get("name"):
+            if original.get("name"):
                 self._suggest(
                     "dbt_project_name",
-                    str(project_yml["name"]),
+                    str(original["name"]),
                     self.config.dbt_project_name or self.config.project_name,
                     source=source,
                 )
-            if project_yml.get("profile"):
+            if original.get("profile"):
                 self._suggest(
                     "profile_name",
-                    str(project_yml["profile"]),
+                    str(original["profile"]),
                     self.config.profile_name,
                     source=source,
                 )
-            variables = project_yml.get("vars")
+            variables = original.get("vars")
             if isinstance(variables, dict) and variables:
                 self._suggest(
                     "global_vars",
@@ -797,7 +798,16 @@ class ProjectSettingsMapping:
                     dict(self.config.global_vars),
                     source=source,
                 )
-            models_block = self._models_block()
+            # Without what TurboVault writes anyway with the project's current
+            # settings (its layer blocks, its paths): right whichever of the
+            # other suggestions are applied
+            folders = FolderConfig(dict(self.config.folders or {}))
+            models_block = project_yml.without_layers(
+                self._models_block() or {},
+                project_yml.layers_tree(
+                    self.config, folders, prestaging=self._has_prestages()
+                ),
+            )
             if models_block:
                 self._suggest(
                     "dbt_project_models",
@@ -805,7 +815,10 @@ class ProjectSettingsMapping:
                     dict(self.config.dbt_project_models),
                     source=source,
                 )
-            other = self._other_project_settings(project_yml)
+            other = project_yml.without_defaults(
+                self._other_project_settings(original),
+                own_model_paths=folders.model_paths(),
+            )
             if other:
                 self._suggest(
                     "dbt_project_settings",
@@ -818,16 +831,23 @@ class ProjectSettingsMapping:
             self._suggest(
                 "dbt_packages",
                 packages,
-                [dict(package) for package in self.config.dbt_packages],
+                # Without packages of its own, a project has TurboVault's
+                [dict(package) for package in self.config.dbt_packages]
+                or [dict(project_yml.DATAVAULT4DBT_PACKAGE)],
                 source="package files",
             )
 
-    def _other_project_settings(self, project_yml: Mapping[str, Any]) -> dict:
+    def _has_prestages(self) -> bool:
+        return any(
+            table.table_type == "prestage"
+            for system in self.domain.source_systems.values()
+            for table in system.tables.values()
+        )
+
+    def _other_project_settings(self, original: Mapping[str, Any]) -> dict:
         """dbt_project.yml's settings without a project setting of their own."""
-        other = {
-            key: value for key, value in project_yml.items() if key not in _OWN_KEYS
-        }
-        models = project_yml.get("models")
+        other = {key: value for key, value in original.items() if key not in _OWN_KEYS}
+        models = original.get("models")
         if isinstance(models, dict):
             other_models = {
                 key: value

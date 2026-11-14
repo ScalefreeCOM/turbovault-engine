@@ -274,6 +274,22 @@ export TURBOVAULT_DEFAULT_VALIDATION_MODE=strict
 pytest backend/tests/ -v
 ```
 
+#### dbt project import: round trip and real projects (opt-in)
+
+Two tests of the dbt project import run only when these variables are set:
+
+| Variable | Description |
+|----------|-------------|
+| `TURBOVAULT_DBT` | A dbt executable with an adapter, e.g. from its own virtualenv with `dbt-core` and `dbt-postgres`. Turns on the round trip: the TPC-H sample is generated, parsed by dbt, imported, and generated again; both dbt projects must match. `dbt parse` doesn't connect to a database. |
+| `TURBOVAULT_DATAVAULT4DBT` | Optional: a local datavault4dbt package folder. Without it, `dbt deps` downloads the package. |
+| `TURBOVAULT_DBT_PROFILES_DIR` | Optional: a profiles folder. Without it, a placeholder Postgres profile is used. |
+| `TURBOVAULT_DBT_EXAMPLES` | A folder with one folder per dbt project, each with its `manifest.json` and optionally `catalog.json`, `dbt_project.yml` and package files. Each project must import and generate. With `TURBOVAULT_DBT` set, dbt also parses the result. Keep such projects out of the repository. |
+
+```bash
+uv venv /tmp/dbt-venv && uv pip install --python /tmp/dbt-venv/bin/python dbt-core dbt-postgres
+TURBOVAULT_DBT=/tmp/dbt-venv/bin/dbt pytest backend/tests/imports/dbt/test_round_trip.py
+```
+
 ---
 
 ## Environment Variable Priority

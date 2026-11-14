@@ -354,7 +354,8 @@ warning).
   model with its group); otherwise the group is the one tag that is neither a default tag of the model's
   template nor a word naming a layer or kind of model (`hub`, `satellite`, `raw_vault`, ...). When
   neither gives any group, the project's subject folders do (D28, §8.1): `models/rdv/<subject>/`.
-- Descriptions of sources, columns and models are imported. Tests are not (TurboVault generates its own).
+- Descriptions of sources, columns and models are imported, except the defaults TurboVault's templates
+  write (§12). Tests are not imported (TurboVault generates its own).
 - Tags and other configs are kept in the output attributes (§9.1).
 
 ---
@@ -618,6 +619,28 @@ The report also lists node counts per resource type (seeds, tests, … not impor
    matters: model names and paths, references, macro arguments.
 5. Re-importing the same artifacts writes nothing; a dry run changes nothing.
 
+As implemented (Phase 4c):
+
+- `tests/imports/dbt/test_round_trip.py` (opt-in, `TURBOVAULT_DBT`): the TPC-H sample is generated, parsed
+  by dbt, and imported into a new project with the settings it suggests. That project is then generated
+  again, and the two dbt projects must match file by file. Two files of one link and one stage file differ:
+  the sample has two Hubs with the same hash key, so a link on it is ambiguous. Checked with dbt 1.10 and
+  1.12; both write manifest v12.
+- What makes the trip exact: the import doesn't take TurboVault's own output for the project's. That covers
+  default descriptions, the derived column renaming a link's dependent child key (D23), and the layer blocks,
+  paths and datavault4dbt entry of `dbt_project.yml` and `packages.yml`. It reads back what datavault4dbt's
+  parameters lose:
+  - a source system's spelling, from the default table description
+  - columns that differ in case only
+  - a multi-active key's place among the columns, from the stage's hash diff
+  - a logic column's spelling, from the YAML
+  
+  It also imports non-historized satellites without delta detection.
+- `tests/imports/dbt/test_corpus.py` (opt-in, `TURBOVAULT_DBT_EXAMPLES`): every project in the folder maps
+  with each error on a model. Its suggestions, applied, leave nothing more to suggest. It imports and
+  generates. With `TURBOVAULT_DBT`, dbt parses the result, with stub models for its pre-stages.
+- `tests/imports/dbt/test_turbovault_projects.py`: the round trip's details on hand-written manifests.
+
 ---
 
 ## 13. Phases
@@ -628,7 +651,7 @@ The report also lists node counts per resource type (seeds, tests, … not impor
 | 1 | Corpus analysis: `scripts/dbt_import/profile_manifest.py`, extraction prototype `capture_calls.py` | done |
 | 2 | Foundations: artifact reader, sandbox extraction, datavault4dbt adapter (normalization, signature table 1.x/2.x), notation tests | done (`DbtSource`, CLI and issue locations moved to Phase 4) |
 | 3 | Pre-stages kept in the dbt project (D9), layer folders (D12), metadata extensions (§9.1–9.6): output attributes and name resolution, hash diff name/alias, stage options, derived column shadowing, Satellite v1 options, smaller additions (D13) | done |
-| 4 | 4a: `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, opt-in `dbt parse` (D21), issue locations; the import (executor and JSON round trip) stores every §9 setting and the JSON import its snapshot controls. 4b-1: sources, stages, pre-stages, Hubs, Links, Satellites (§7.1–7.5), warnings/skips for direct parsers, the project's settings as import input (D22). 4b-2a: PITs, reference tables, snapshot controls, groups (§7.6), dependent child keys selected by generated links (D23). 4b-2b: model settings (D20), the dbt_project.yml (D25), naming inference (§8, D22), snapshot logic generation (D24), default tags (D26), folder patterns (D27), inferred project settings (§8.1, D28). 4c: round-trip and corpus tests | 4a, 4b done |
+| 4 | 4a: `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, opt-in `dbt parse` (D21), issue locations; the import (executor and JSON round trip) stores every §9 setting and the JSON import its snapshot controls. 4b-1: sources, stages, pre-stages, Hubs, Links, Satellites (§7.1–7.5), warnings/skips for direct parsers, the project's settings as import input (D22). 4b-2a: PITs, reference tables, snapshot controls, groups (§7.6), dependent child keys selected by generated links (D23). 4b-2b: model settings (D20), the dbt_project.yml (D25), naming inference (§8, D22), snapshot logic generation (D24), default tags (D26), folder patterns (D27), inferred project settings (§8.1, D28). 4c: round-trip and corpus tests (§12), stable stage hash key order | done |
 | 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models; generating into an existing dbt project (§9.7) | |
 | 6 | Custom models for downstream models (#461), optional | postponed (D19) |
 | 7 | Hardening: performance limits, docs, CLI polish | |

@@ -70,9 +70,10 @@ def yaml_tags_literal(tags: Sequence[str]) -> str:
 
 
 def config_block(settings: Mapping[str, Any]) -> str:
-    """A ``{{ config(...) }}`` call with one argument per line."""
+    """A ``{{ config(...) }}`` call with one argument per line; nothing
+    without settings (dbt rejects an empty ``config()``)."""
     if not settings:
-        return "{{ config() }}"
+        return ""
     lines = [f"    {key}={jinja_literal(value)}" for key, value in settings.items()]
     return "{{ config(\n" + ",\n".join(lines) + "\n) }}"
 

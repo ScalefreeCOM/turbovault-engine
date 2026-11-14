@@ -133,6 +133,115 @@ def layer_tree(
     return tree
 
 
+# The schema setting of each layer and its default name (the pre-stages share
+# the staging one).
+SCHEMA_SETTINGS: dict[str, tuple[str, str]] = {
+    "control": ("control_schema", "control"),
+    "prestaging": ("stage_schema", "stage"),
+    "staging": ("stage_schema", "stage"),
+    "raw_vault": ("rdv_schema", "rdv"),
+    "business_vault": ("bdv_schema", "bdv"),
+}
+
+
+def layer_schema(config: Any, layer: str) -> str | None:
+    """A layer's schema: None for no custom schema (the target's); an empty
+    setting is TurboVault's default name."""
+    field_name, default = SCHEMA_SETTINGS[layer]
+    value = getattr(config, field_name)
+    if value is None:
+        return None
+    return value or default
+
+
+def layer_materialization(config: Any, layer: str) -> str:
+    """A layer's materialization. The pre-stages take the staging layer's,
+    but as views where it is ephemeral: a stage reads a pre-stage's columns
+    from the database."""
+    if layer == "prestaging":
+        value = config.staging_materialization
+        return "view" if value == "ephemeral" else value
+    return getattr(config, f"{layer}_materialization")
+
+
+def layers_tree(config: Any, folders: Any, *, prestaging: bool) -> dict[str, Any]:
+    """The layer blocks TurboVault writes into the models: block for a config
+    (layer schemas and materializations) and its folders (``FolderConfig``)."""
+    roots = layer_roots(
+        {layer: folders.layer_folder(layer) for layer in BLOCK_LAYERS},
+        prestaging=prestaging,
+    )
+    return layer_tree(
+        roots,
+        {
+            layer: layer_values(
+                layer_schema(config, layer), layer_materialization(config, layer)
+            )
+            for layer in roots
+        },
+    )
+
+
+def without_layers(
+    models_block: Mapping[str, Any], layers: Mapping[str, Any]
+) -> dict[str, Any]:
+    """An imported models: block without the layer settings TurboVault writes
+    anyway (``layers_tree``); folders left without settings are dropped."""
+    result = copy.deepcopy(dict(models_block))
+
+    def strip(node: dict[str, Any], tree: Mapping[str, Any]) -> None:
+        for key, value in tree.items():
+            if key.startswith("+"):
+                if key in node and node[key] == value:
+                    del node[key]
+            elif isinstance(value, Mapping) and isinstance(node.get(key), dict):
+                strip(node[key], value)
+                if not node[key]:
+                    del node[key]
+
+    strip(result, layers)
+    return result
+
+
+# What the template writes for the header keys of an imported dbt_project.yml
+# without them.
+TEMPLATE_DEFAULTS: dict[str, Any] = {
+    "version": "1.0.0",
+    "analysis-paths": ["analyses"],
+    "test-paths": ["tests"],
+    "seed-paths": ["seeds"],
+    "macro-paths": ["macros"],
+    "snapshot-paths": ["snapshots"],
+    "clean-targets": ["target", "dbt_packages"],
+}
+
+
+def without_defaults(
+    settings: Mapping[str, Any], *, own_model_paths: list[str]
+) -> dict[str, Any]:
+    """An imported dbt_project.yml's other settings without the ones TurboVault
+    writes the same anyway (``own_model_paths``: the model paths it needs)."""
+
+    def as_list(value: Any) -> list[str]:
+        return [str(v) for v in value] if isinstance(value, list) else [str(value)]
+
+    result: dict[str, Any] = {}
+    for key, value in settings.items():
+        default = TEMPLATE_DEFAULTS.get(key)
+        if default is not None and (
+            as_list(value) == as_list(default)
+            if isinstance(default, list)
+            else str(value) == default
+        ):
+            continue
+        if key == "model-paths" and model_paths(own_model_paths, {key: value}) == (
+            own_model_paths or ["models"]
+        ):
+            continue
+        result[key] = value
+    return result
+
+
 def root_level(models_block: Mapping[str, Any] | None) -> dict[str, Any]:
     """The settings of a models: block that apply to every model (no folders)."""
     return {

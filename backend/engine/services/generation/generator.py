@@ -412,8 +412,7 @@ class DbtProjectGenerator:
         The stage reads a pre-stage's columns from the database, where an
         ephemeral model doesn't exist, so an ephemeral staging layer gives views.
         """
-        materialization = self.config.staging_materialization
-        return "view" if materialization == "ephemeral" else materialization
+        return project_yml.layer_materialization(self.config, "prestaging")
 
     # -- model outputs -----------------------------------------------------
 
@@ -431,22 +430,12 @@ class DbtProjectGenerator:
         )
 
     # The schema setting of each layer (the pre-stages share the staging one)
-    _SCHEMA_KEYS = {
-        "control": ("control_schema", "control"),
-        "prestaging": ("stage_schema", "stage"),
-        "staging": ("stage_schema", "stage"),
-        "raw_vault": ("rdv_schema", "rdv"),
-        "business_vault": ("bdv_schema", "bdv"),
-    }
+    _SCHEMA_KEYS = project_yml.SCHEMA_SETTINGS
 
     def _layer_schema(self, layer: str) -> str | None:
         """A layer's schema: None for no custom schema (the target's), an
         empty setting is TurboVault's default name."""
-        field_name, default = self._SCHEMA_KEYS[layer]
-        value = getattr(self.config, field_name)
-        if value is None:
-            return None
-        return value or default
+        return project_yml.layer_schema(self.config, layer)
 
     def _layer_defaults(self, layer: str) -> LayerDefaults:
         """The schema and materialization dbt_project.yml gives a layer's folder."""
@@ -812,19 +801,10 @@ class DbtProjectGenerator:
                 models_block=(
                     project_yml.models_block(
                         self.config.project_name,
-                        project_yml.layer_tree(
-                            self._layer_roots,
-                            {
-                                layer: project_yml.layer_values(
-                                    self._layer_schema(layer),
-                                    prestaging
-                                    if layer == "prestaging"
-                                    else getattr(
-                                        self.config, f"{layer}_materialization"
-                                    ),
-                                )
-                                for layer in self._layer_roots
-                            },
+                        project_yml.layers_tree(
+                            self.config,
+                            self.folder_config,
+                            prestaging=has_prestages,
                         ),
                         written_models,
                         settings,
