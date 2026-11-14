@@ -623,9 +623,10 @@ As implemented (Phase 4c):
 
 - `tests/imports/dbt/test_round_trip.py` (opt-in, `TURBOVAULT_DBT`): the TPC-H sample is generated, parsed
   by dbt, and imported into a new project with the settings it suggests. That project is then generated
-  again, and the two dbt projects must match file by file. Two files of one link and one stage file differ:
-  the sample has two Hubs with the same hash key, so a link on it is ambiguous. Checked with dbt 1.10 and
-  1.12; both write manifest v12.
+  again, and the two dbt projects must match file by file. Only the files of the sample's name clashes
+  differ. Two Hubs share a hash key, so a link on it is ambiguous. Two links share a hash key name, so the
+  stage computes it once (`validate.stage.duplicate_hashkey`). Checked with dbt 1.10 and 1.12; both write
+  manifest v12.
 - What makes the trip exact: the import doesn't take TurboVault's own output for the project's. That covers
   default descriptions, the derived column renaming a link's dependent child key (D23), and the layer blocks,
   paths and datavault4dbt entry of `dbt_project.yml` and `packages.yml`. It reads back what datavault4dbt's

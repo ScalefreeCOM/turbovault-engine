@@ -912,6 +912,11 @@ dbt and imported, generates the same files again.
 - **A stage's hash keys are ordered:** the hubs it loads, by name, then the hub keys its links reference,
   then the link keys. The database order used before changed between imports. Stages with several hash keys
   may change order once.
+- **Each hash key once per stage:** hubs or links that name their hash keys alike used to make the stage list
+  the key twice. That is a duplicate YAML key, and datavault4dbt kept the last. The stage now computes it
+  once, for the first (hubs by name, then links by name). New validation warning
+  `validate.stage.duplicate_hashkey` (legacy code `STG_006`) when they hash different columns: show it like
+  `validate.stage.duplicate_hashdiff`. The TPC-H sample has one, on two of its test links.
 - **A model with no settings gets no `config()` block.** dbt rejects an empty `{{ config() }}`, which such a
   model got with default tags off. `model_config()` now renders nothing for it.
 - `[[ source_system ]]` / `[[ source_system_name ]]` work in every folder pattern (item 18).

@@ -52,13 +52,16 @@ PLACEHOLDER_PROFILE = """{name}:
       threads: 1
 """
 
-# The sample has two Hubs with the hash key HK_NATION_REGION_H: a Link on it
-# can't tell them apart in dbt, so the import leaves it out, and with it its
-# hash key in the nation stage (where the sample's two test links also share
-# one).
+# The sample's own name clashes. Two Hubs share the hash key
+# HK_NATION_REGION_H: a Link on it can't tell them apart in dbt, so the import
+# leaves it out. That Link and another share the hash key name
+# HK_nation_test_link_l (validate.stage.duplicate_hashkey): the nation stage
+# computes it for the first, and the other Link comes back with its columns.
 KNOWN_DIFFERENCES = {
     "models/30_raw_vault/region/nation_test_bkcc_link.sql",
     "models/30_raw_vault/region/nation_test_bkcc_link.yml",
+    "models/30_raw_vault/region/nation_test_link.sql",
+    "models/30_raw_vault/region/nation_test_link.yml",
     "models/20_staging/tpch/stg__tpch__nation.sql",
     "models/20_staging/tpch/stg__tpch__nation.yml",
 }

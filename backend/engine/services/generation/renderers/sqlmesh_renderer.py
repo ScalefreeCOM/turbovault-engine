@@ -692,6 +692,8 @@ def _render_stage(
     for hk in stage.hashkeys:
         if hk.hashkey_name in gaps.hashkeys:
             continue
+        if hk.hashkey_name.lower() in {name.lower() for name in hashed_columns}:
+            continue  # the first of a name (dbt's too; STG_006)
         if hk.entity_type == "hub" and hk.target_entity not in rendered_hub_names:
             continue
         if hk.entity_type == "link" and hk.target_entity not in rendered_link_names:

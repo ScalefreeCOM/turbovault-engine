@@ -44,6 +44,7 @@ _LEGACY_CODE_MAP: dict[str, str] = {
     "STG_003": "validate.stage.derived_column_no_datatype",
     "STG_004": "validate.stage.uses_load_column",
     "STG_005": "validate.stage.duplicate_hashdiff",
+    "STG_006": "validate.stage.duplicate_hashkey",
     "REF_001": "validate.reference_table.satellite_without_v1",
     "HUB_001": "validate.hub.missing_hashkey",
     "HUB_002": "validate.hub.no_business_keys",

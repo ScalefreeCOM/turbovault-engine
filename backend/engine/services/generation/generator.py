@@ -123,6 +123,28 @@ def _in_folder_of(
     return output.model_copy(update={"folder": other.folder})
 
 
+def _first_by_name(items: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    """The items whose name (``key``, in any case) no earlier item has."""
+    seen: set[str] = set()
+    result = []
+    for item in items:
+        name = str(item.get(key) or "").lower()
+        if name not in seen:
+            seen.add(name)
+            result.append(item)
+    return result
+
+
+def _stage_context(stage: Any) -> dict[str, Any]:
+    """A stage's template context: each hash key and hash diff once, the
+    first of a name (entities sharing one hash the same columns; the
+    validation warns where they don't, STG_005/STG_006)."""
+    context = stage.model_dump()
+    context["hashkeys"] = _first_by_name(context["hashkeys"], "hashkey_name")
+    context["hashdiffs"] = _first_by_name(context["hashdiffs"], "hashdiff_name")
+    return context
+
+
 def _entity_source_systems(
     project_export: ProjectExport,
 ) -> dict[tuple[str, str], str | None]:
@@ -965,7 +987,7 @@ class DbtProjectGenerator:
                     directory=directory,
                     sql_template=sql_template,
                     yaml_template=yaml_template,
-                    context=stage.model_dump(),
+                    context=_stage_context(stage),
                     model_config=model_config,
                 )
                 if content is not None:

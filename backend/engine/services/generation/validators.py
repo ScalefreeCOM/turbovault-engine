@@ -25,6 +25,7 @@ if TYPE_CHECKING:
         SourceDefinition,
         StageDefinition,
         StageHashdiffDef,
+        StageHashkeyDef,
     )
 
 
@@ -285,7 +286,7 @@ def _validate_models(
                 entity_name=entity_name,
                 field="model_name",
                 message=(
-                    f"'{model_name}' can't name a dbt model file: no slashes " "or '..'"
+                    f"'{model_name}' can't name a dbt model file: no slashes or '..'"
                 ),
                 code="MDL_002",
             )
@@ -380,6 +381,29 @@ def _validate_stage(stage: StageDefinition) -> ValidationResult:
                     "the stage won't compile without it"
                 ),
                 code="STG_003",
+            )
+
+    # One hash key column per name: hubs and links naming theirs alike get it
+    # once, for the first (entities sharing a key hash the same columns).
+    hashkeys: dict[str, StageHashkeyDef] = {}
+    for hashkey in stage.hashkeys:
+        first = hashkeys.setdefault(hashkey.hashkey_name.lower(), hashkey)
+        if first is not hashkey and first.business_key_columns != (
+            hashkey.business_key_columns
+        ):
+            result.add_warning(
+                entity_type="stage",
+                entity_name=stage.stage_name,
+                field="hashkeys",
+                message=(
+                    f"{first.entity_type.capitalize()} '{first.target_entity}' and "
+                    f"{hashkey.entity_type} '{hashkey.target_entity}' both name "
+                    f"their hash key '{hashkey.hashkey_name}' but hash different "
+                    f"columns: the stage computes it once, for "
+                    f"'{first.target_entity}'. Give one of them its own hash key "
+                    "name."
+                ),
+                code="STG_006",
             )
 
     # One hash diff column per name: satellites may share one only if they hash
