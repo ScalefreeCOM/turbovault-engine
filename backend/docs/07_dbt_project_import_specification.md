@@ -533,8 +533,10 @@ The way back for an imported project, and the only one when it has pre-stages (D
 As implemented:
 
 - **The record:** TurboVault writes `.turbovault/generated.json` (paths and checksums) into every folder it
-  generates into. A `dbt_project.yml` it doesn't list is a dbt project's own. Older outputs have no record
-  and count as existing projects once: `--write-project-files` replaces their files.
+  generates into. A `dbt_project.yml` it doesn't list is a dbt project's own. For folders without a record:
+  - The CLI counts the workspace's exports folder (generated before records existed) as TurboVault's own.
+  - In a terminal, without a flag, the CLI asks whether to replace a folder's unrecorded project files. The
+    default answer is yes for the exports folder, no elsewhere.
 - **Options** (`GenerationOptions`):
   - `write_project_files`: None is automatic, True always writes, False never. The CLI flags are
     `--write-project-files` / `--keep-project-files`. Without project files, `profiles.yml` isn't written

@@ -241,6 +241,9 @@ def generate(
         dry_run=dry_run,
     )
 
+    if output_type == "dbt" and write_project_files is None and not dry_run:
+        write_project_files = _project_files_choice(project, output_path)
+
     options = GenerationOptions(
         error_strategy="fail_fast" if mode == "strict" else "best_effort",
         dry_run=dry_run,
@@ -610,6 +613,38 @@ def _configured_sqlmesh_output_dir(project) -> Path | None:
     if configured.is_absolute():
         return configured
     return (resolve_project_path(project_directory) / configured).resolve()
+
+
+def _project_files_choice(project, output_path: Path | None) -> bool | None:
+    """Whether to write dbt_project.yml and packages.yml into a folder that
+    has a dbt_project.yml TurboVault has no record of writing (spec D17).
+
+    The workspace's exports folder is TurboVault's own (generated before it
+    kept a record): written. Elsewhere it is a dbt project's own: kept. In a
+    terminal the user decides, with that as the default answer. None: the
+    folder has no such file (generation decides).
+    """
+    from engine.services.generation.dbt_target import read_record
+
+    if output_path is None or not (output_path / "dbt_project.yml").is_file():
+        return None
+    if "dbt_project.yml" in read_record(output_path):
+        return None
+    exports = _project_exports_dir(project)
+    own = exports is not None and (
+        output_path.resolve() == (exports / "dbt_project").resolve()
+    )
+    if console.is_terminal:
+        answer = questionary.confirm(
+            f"{output_path} has a dbt_project.yml TurboVault didn't write (or "
+            "wrote before it kept a record). Replace dbt_project.yml and "
+            "packages.yml with TurboVault's?",
+            default=own,
+        ).ask()
+        if answer is None:
+            raise typer.Exit(0)
+        return bool(answer)
+    return True if own else None
 
 
 def _configured_dbt_project_dir(project) -> Path | None:
