@@ -264,6 +264,17 @@ def _merge(base: dict[str, Any], tree: Mapping[str, Any]) -> None:
             base[name] = copy.deepcopy(value)
 
 
+def merged_models(
+    imported: Mapping[str, Any] | None, layers: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The project's entry of the generated ``models:`` block: the imported
+    block with TurboVault's layer tree merged in (its settings win for the
+    layers' folders)."""
+    project = copy.deepcopy(dict(imported or {}))
+    _merge(project, layers)
+    return project
+
+
 def models_block(
     project_name: str,
     layers: Mapping[str, Any],
@@ -278,8 +289,7 @@ def models_block(
     """
     other = (settings or {}).get("models")
     other = dict(other) if isinstance(other, Mapping) else {}
-    project = copy.deepcopy(dict(imported or {}))
-    _merge(project, layers)
+    project = merged_models(imported, layers)
     other.pop(project_name, None)
     return yaml.safe_dump(
         {"models": {**other, project_name: project}},

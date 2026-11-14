@@ -470,9 +470,12 @@ the project setting `dbt_project_models`, written into the generated `dbt_projec
 As implemented (4b-2b): a model output stores its folder when it differs from the folder TurboVault
 generates the model in (a v1 view, an effectivity or record-tracking satellite and a snapshot control's
 logic follow their v0, entity or table), and each setting whose value differs from what the regenerated
-model gets: its template's default (e.g. the v1 view's `view`, the PIT's `clean_up_pit` post-hook), else its
-folder's (the imported `models:` block where it covers the folder, else TurboVault's layer settings). An unset
-materialization counts as dbt's `view`. Tags add up in dbt, so a model stores its own tags whenever the
+model gets: its template's default (e.g. the v1 view's `view`, the PIT's `clean_up_pit` post-hook), else what
+its folder gives it in the generated project. That is the project's `dbt_project_models` merged with
+TurboVault's layer blocks where they cover the folder, else TurboVault's layer settings. The settings in
+effect decide (D28): with the dbt project's block applied, a model stores none of its folder's settings;
+without it (`--keep-settings`), it stores those the generated project's folders don't give it, such as a
+schema that differs from TurboVault's. An unset materialization counts as dbt's `view`. Tags add up in dbt, so a model stores its own tags whenever the
 folder's and its template's tags (with its group) don't make its effective ones, `[]` included. Generation
 doesn't add TurboVault's layer settings to a model in a folder the imported `models:` block covers.
 

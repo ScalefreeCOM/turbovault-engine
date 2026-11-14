@@ -1328,11 +1328,13 @@ def test_folder_level_settings_stay_in_the_project_settings(tmp_path):
     domain, _ = map_manifest(path)
 
     output = domain.hubs["customer_h"].outputs["hub"]
-    # The folder's schema and materialization aren't the model's own
+    # The folder's schema and materialization aren't the model's own, and
+    # TurboVault's raw vault settings give the same
     assert (output.schema_name, output.materialized) == (None, None)
     assert output.folder == "models/vault"
-    # Tags add up (folder, TurboVault's defaults, its own): it keeps its own
-    assert output.tags == ["pii"]
+    # The project's settings don't have the folder's tag yet: the model keeps
+    # it with its own (TurboVault's default tags aside)
+    assert output.tags == ["vault", "pii"]
     # dbt_project.yml is suggested as it is (copied: no share)
     settings = {
         key: suggestion.value
@@ -1356,6 +1358,54 @@ def test_folder_level_settings_stay_in_the_project_settings(tmp_path):
             "models": {"elementary": {"+schema": "elementary"}},
         },
     }
+
+    # Applied, the folder's settings are the project's: the model keeps its own
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    applied = EngineRuntimeConfig().with_settings(
+        {"dbt_project_models": settings["dbt_project_models"]}
+    )
+    domain, _ = map_manifest(path, applied)
+
+    assert domain.hubs["customer_h"].outputs["hub"].tags == ["pii"]
+
+
+def test_without_its_folder_block_a_model_keeps_what_its_folder_gave_it(tmp_path):
+    # The schema the folder gives differs from TurboVault's raw vault schema
+    (tmp_path / "dbt_project.yml").write_text(
+        textwrap.dedent("""
+            name: shop
+            models:
+              shop:
+                raw_vault:
+                  +schema: raw_vault
+                  +materialized: incremental
+            """),
+        encoding="utf-8",
+    )
+    hub = _with_settings(
+        CUSTOMER_H,
+        tags=["hub", "raw_vault"],
+        folder="models/raw_vault/customer",
+        fqn=["shop", "raw_vault", "customer", "customer_h"],
+        unrendered={"schema": "raw_vault", "materialized": "incremental"},
+    )
+    path = write_manifest(tmp_path, [STG_CUSTOMER, STG_ORDERS, hub], [CUSTOMER, ORDERS])
+
+    # With the project's settings kept, the generated project has no such
+    # folder block: the hub keeps its schema
+    domain, _ = map_manifest(path)
+
+    assert domain.hubs["customer_h"].outputs["hub"].schema_name == "raw_vault"
+
+    # Applied, the folder gives it again: the hub stores no schema
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    block = domain.project_settings.suggestions["dbt_project_models"].value
+    applied = EngineRuntimeConfig().with_settings({"dbt_project_models": block})
+    domain, _ = map_manifest(path, applied)
+
+    assert domain.hubs["customer_h"].outputs["hub"].schema_name is None
 
 
 def test_naming_patterns_the_project_follows_are_suggested(tmp_path):

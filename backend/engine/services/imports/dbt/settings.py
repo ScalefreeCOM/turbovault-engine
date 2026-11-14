@@ -88,7 +88,9 @@ def stored_settings(
     }
     result: dict[str, Any] = {}
     extra: dict[str, Any] = {}
-    for key in {*own, *template_defaults}:
+    # Its own settings, its template's, and its folder's: the regenerated
+    # folder may not give them (a models: block the project doesn't have)
+    for key in dict.fromkeys([*own, *template_defaults, *folder.values]):
         target = own.get(key, folder.values.get(key))
         default = (
             template_defaults[key]

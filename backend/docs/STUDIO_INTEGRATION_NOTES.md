@@ -287,11 +287,13 @@ warehouse.
     found or missing. A missing catalog or `dbt_project.yml` is a warning. Studio uploads the files.
   - Never `profiles.yml`.
 - **Folder-level settings (spec D20):** with `dbt_project.yml` uploaded, each imported model keeps only the
-  settings that differ from the original project's folder-level configuration (the `models:` block of its
-  `dbt_project.yml`). That block comes back with the import as the project setting `dbt_project_models`
-  (planned runtime config field). Studio either passes it on to generation, which writes it into
-  `dbt_project.yml`, or puts it into the project's manual `dbt_project.yml`. Without `dbt_project.yml`, each
-  model stores its effective settings.
+  settings that differ from what its folder gives it in the generated project. That is the runtime config's
+  `dbt_project_models` merged with TurboVault's layer settings. The dbt project's `models:` block is suggested
+  as `dbt_project_models` (item 19). Applied before the import, it gives the models their folders' settings,
+  and they store none of them. Not applied, each model stores the folder settings the generated project
+  wouldn't give it (e.g. a schema that differs from TurboVault's), so it still comes back as it was. A block
+  that only goes into a manual `dbt_project.yml` counts as not applied. Without `dbt_project.yml`, each model
+  stores its effective settings.
 - **Pre-stages:** the models upstream of the stages become pre-stages (item 1); their SQL stays in the dbt
   project. The report warns that the project must be generated back into that dbt project
   (`dbt.prestage_maintained_in_dbt`). Show this before the user confirms the import.

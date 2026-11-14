@@ -358,12 +358,23 @@ class ProjectSettingsMapping:
         return defaults
 
     def _apply_model_settings(self) -> None:
-        """Store each model's folder and settings where they differ (D20)."""
+        """Store each model's folder and settings where they differ (D20).
+
+        What differs is relative to the project generated with the settings
+        in effect: its models: block is the project's (``dbt_project_models``:
+        the dbt project's once applied) with TurboVault's layer blocks.
+        """
         models_block = self._models_block()
+        folders = FolderConfig(dict(self.config.folders or {}))
+        regenerated_block = project_yml.merged_models(
+            self.config.dbt_project_models,
+            project_yml.layers_tree(
+                self.config, folders, prestaging=self._has_prestages()
+            ),
+        )
         for item in self._tracked_outputs:
             group = self._group_of(item.entity)
             folder = _folder(item.model)
-            folders = FolderConfig(dict(self.config.folders or {}))
             follows = item.follows is not None and not folders.has_own(
                 self._FOLDER_KINDS[item.kind]
             )
@@ -379,14 +390,17 @@ class ProjectSettingsMapping:
                 if models_block is not None
                 else Settings()
             )
-            covered = bool(folder_level.values or folder_level.tags)
+            # What the generated project's folder gives the model; a folder
+            # it doesn't configure leaves the model its layer's settings
+            regenerated = folder_settings(regenerated_block, fqn)
+            covered = bool(regenerated.values or regenerated.tags)
             fields = stored_settings(
                 effective=model_settings(item.model.node),
                 folder=folder_level,
                 template_defaults=self._template_defaults(item),
                 template_tags=self._template_tags(item, group),
                 regenerated_folder=(
-                    folder_level if covered else self._layer_settings(item.kind)
+                    regenerated if covered else self._layer_settings(item.kind)
                 ),
             )
             if stored_folder:
