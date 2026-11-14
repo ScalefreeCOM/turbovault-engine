@@ -1,7 +1,7 @@
 # dbt Project Import — Specification
 
-**Status:** Draft 2, 2026-11-13. Decisions recorded in §2; Phases 0–5 are built on one branch,
-`feat/dbt-project-import` (D15).
+**Status:** Draft 3, 2026-11-14. Decisions D1–D28 recorded in §2; Phases 0–5 and 7 are built on one
+branch, `feat/dbt-project-import` (D15); Phase 6 is postponed (D19).
 **Tracking:** `product_development_milestones` #460 (import); related #442 (per-model output attributes)
 and #461 (custom models). The issue texts were initial ideas; this document supersedes them where they
 differ.
@@ -702,9 +702,9 @@ As implemented (Phase 4c):
 | 4 | 4a: `DbtSource`, project folder detection (D10), configured dbt project folder (D11), CLI `--format` and interactive mode, opt-in `dbt parse` (D21), issue locations; the import (executor and JSON round trip) stores every §9 setting and the JSON import its snapshot controls. 4b-1: sources, stages, pre-stages, Hubs, Links, Satellites (§7.1–7.5), warnings/skips for direct parsers, the project's settings as import input (D22). 4b-2a: PITs, reference tables, snapshot controls, groups (§7.6), dependent child keys selected by generated links (D23). 4b-2b: model settings (D20), the dbt_project.yml (D25), naming inference (§8, D22), snapshot logic generation (D24), default tags (D26), folder patterns (D27), inferred project settings (§8.1, D28). 4c: round-trip and corpus tests (§12), stable stage hash key order | done |
 | 5 | Upstream models: pre-stages with original names, seeds / snapshots / package models (§7.2); generating into an existing dbt project (§9.7) | done |
 | 6 | Custom models for downstream models (#461), optional | postponed (D19) |
-| 7 | Hardening: performance limits, docs, CLI polish | |
+| 7 | Hardening: the round trip in CI, a user guide (`docs/02_getting-started/06_dbt-project-import.md`), re-imports that change nothing. No performance limits needed: the largest example (about 1,000 models) maps in seconds | done |
 
-Phases 0–5 are one pull request (D15); every phase comes with tests, Engine docs and its section in the
+Phases 0–5 and 7 are one pull request (D15); every phase comes with tests, Engine docs and its section in the
 Studio integration notes.
 
 ---

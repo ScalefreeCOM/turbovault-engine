@@ -21,7 +21,7 @@ section is completed when the Engine change lands).
 | 8 | [Derived columns that shadow a source column](#8-derived-columns-that-shadow-a-source-column) | In progress | Allow a derived column with a source column's name |
 | 9 | [Satellite v1 options](#9-satellite-v1-options) | In progress | Satellite fields for its v1 view |
 | 10 | [Hub, Link, PIT and snapshot control options; delivery method](#10-hub-link-pit-and-snapshot-control-options-delivery-method) | In progress | Fields on Hubs, Links, mappings, Satellites, source systems/tables, PITs and snapshot controls; two project settings |
-| 11 | [Custom models](#11-custom-models) | Planned | List, view and edit custom models |
+| 11 | [Custom models](#11-custom-models) | Postponed | List, view and edit custom models |
 | 12 | [Layer folders renumbered](#12-layer-folders-renumbered) | In progress | Use the new folder names wherever Studio shows or builds model paths |
 | 13 | [JSON export and import of the new settings; snapshot controls](#13-json-export-and-import-of-the-new-settings-snapshot-controls) | In progress | Show the new `snapshot_control` plan entities; keep `model_outputs` when Studio builds or edits exports |
 | 14 | [Links select their dependent child keys](#14-links-select-their-dependent-child-keys) | In progress | Template editor: new variable `dependent_child_keys`; tell users their links gain columns |
@@ -197,10 +197,16 @@ dbt source; for a pre-stage, dbt would fail to find that source.
 
 ## 4. dbt project import
 
-**Status:** In progress (dbt import branch). Built: artifact reading, call extraction, the `DbtSource` in the
-import pipeline with artifact detection and its issues, the CLI, and the mapping of stages, pre-stages, Hubs,
-Links, Satellites, snapshot controls, PITs, reference tables and groups (spec Phases 4b-1, 4b-2a), the models'
-folders and settings, the project's dbt_project.yml and naming pattern inference (4b-2b).
+**Status:** In progress (dbt import branch), complete for the pull request (spec Phases 2–5). It covers:
+
+- the `DbtSource` in the import pipeline, with artifact detection and its issues, and the CLI;
+- the mapping of stages, pre-stages (also from seeds, snapshots and other packages' models), Hubs, Links,
+  Satellites, snapshot controls, PITs, reference tables and groups;
+- the models' folders and settings, the project's `dbt_project.yml` and packages, and the suggested project
+  settings (item 19);
+- generating back into the dbt project (item 21), with a round trip test that runs in CI (item 20).
+
+The user guide is `docs/02_getting-started/06_dbt-project-import.md`.
 
 ### API
 
@@ -573,7 +579,7 @@ parameter, `false` otherwise). With the switch off nothing changes.
 
 ## 11. Custom models
 
-**Status:** Planned (spec Phase 6, #461). Optional on import.
+**Status:** Postponed (spec D19): not part of the dbt import pull request. Optional on import.
 
 Models the import can't map (Business Vault, marts, …), kept with their SQL, YAML properties and output
 attributes, and written back unchanged. Generation warns when a custom model refers to a model that no longer
