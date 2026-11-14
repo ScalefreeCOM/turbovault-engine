@@ -810,17 +810,23 @@ class ProjectSettingsMapping:
             # settings (its layer blocks, its paths): right whichever of the
             # other suggestions are applied
             folders = FolderConfig(dict(self.config.folders or {}))
-            models_block = project_yml.without_layers(
-                self._models_block() or {},
-                project_yml.layers_tree(
-                    self.config, folders, prestaging=self._has_prestages()
-                ),
+            layers = project_yml.layers_tree(
+                self.config, folders, prestaging=self._has_prestages()
             )
-            if models_block:
+            models_block = project_yml.without_layers(
+                self._models_block() or {}, layers
+            )
+            current_models = dict(self.config.dbt_project_models)
+            # A block the project has already, but for layer blocks TurboVault
+            # writes anyway, is no difference: the block applied together
+            # with the layer settings that make its layer blocks redundant
+            if models_block and models_block != project_yml.without_layers(
+                current_models, layers
+            ):
                 self._suggest(
                     "dbt_project_models",
                     models_block,
-                    dict(self.config.dbt_project_models),
+                    current_models,
                     source=source,
                 )
             other = project_yml.without_defaults(

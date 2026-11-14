@@ -863,6 +863,10 @@ differs from the settings it was given.
   value, "n of m follow it" or "from the dbt project"), let the user pick; save the accepted ones in the
   project's settings; run the import with the new runtime config. Importing again then suggests nothing more,
   and entities store less: on the corpus, stored folders and schemas mostly drop to none.
+- **`dbt_project_models` and the layer settings:** the suggested block keeps the layer blocks TurboVault
+  wouldn't write with the project's current settings, so it is right whichever other suggestions are applied.
+  Applied together with the folders and schemas, those layer blocks become redundant. The import compares the
+  stored block without them, so it doesn't suggest a shorter block afterwards.
 
 ### What entities store now (relative to the settings in effect)
 

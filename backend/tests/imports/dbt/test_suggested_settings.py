@@ -624,3 +624,60 @@ def test_settings_are_written_into_config_yml_keeping_the_rest(tmp_path):
     with pytest.raises(ValueError):
         apply_settings(path, {"folders.vault": "models/dv"})
     assert path.read_text(encoding="utf-8") == before
+
+
+def test_layer_blocks_the_applied_settings_write_arent_suggested_again(tmp_path):
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    # The layer blocks are what TurboVault writes once the project's folders
+    # and schemas are applied; marts are the project's own
+    (tmp_path / "dbt_project.yml").write_text(
+        textwrap.dedent("""
+            name: shop
+            version: '1.0.0'
+            config-version: 2
+            profile: default
+            model-paths: ["models"]
+            models:
+              shop:
+                marts:
+                  +schema: marts
+                stages:
+                  +schema: staging
+                  +materialized: view
+                rdv:
+                  +schema: edw
+                  +materialized: incremental
+            """),
+        encoding="utf-8",
+    )
+    stage = {"schema": "staging", "materialized": "view"}
+    vault = {"schema": "edw", "materialized": "incremental"}
+    path = write_manifest(
+        tmp_path,
+        [
+            configured(STG_CUSTOMER, folder="models/stages/crm", **stage),
+            configured(STG_ORDERS, folder="models/stages/crm", **stage),
+            configured(CUSTOMER_H, folder="models/rdv/customer", **vault),
+            configured(CUSTOMER_S_V0, folder="models/rdv/customer", **vault),
+            configured(
+                CUSTOMER_S_V1,
+                folder="models/rdv/customer",
+                **{**vault, "materialized": "view"},
+            ),
+            configured(ORDER_H, folder="models/rdv/order", **vault),
+            configured(ORDER_CUSTOMER_L, folder="models/rdv/order", **vault),
+        ],
+        [CUSTOMER, ORDERS],
+    )
+
+    domain, _ = map_manifest(path, EngineRuntimeConfig())
+    found = suggestions(domain)
+    # With TurboVault's folders and schemas, the layer blocks are needed
+    assert set(found["dbt_project_models"]) == {"marts", "stages", "rdv"}
+
+    domain, _ = map_manifest(path, EngineRuntimeConfig().with_settings(found))
+
+    # Applied together with the folders and schemas, the stored layer blocks
+    # are what TurboVault writes anyway: nothing more to suggest
+    assert domain.project_settings.is_empty(), suggestions(domain)

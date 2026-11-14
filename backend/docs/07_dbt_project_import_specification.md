@@ -418,7 +418,9 @@ several kinds and not named after a kind of model (`hubs/`, `satellites/`, ...) 
 Entities store values relative to the settings in effect: a table's record source, load date and static
 part where they differ from what the project gives it (placeholders filled in), its delivery method where
 it differs from the project's. Applied, the suggestions leave less on the entities; a second import
-suggests nothing more.
+suggests nothing more. The suggested `dbt_project_models` keeps the layer blocks the current settings
+don't write, so it is right whichever suggestions are applied. A stored block that differs only in layer
+blocks TurboVault writes anyway counts as the same.
 
 ---
 
