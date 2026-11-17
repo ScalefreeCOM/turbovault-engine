@@ -53,6 +53,18 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "framework",
+                    models.CharField(
+                        choices=[("dbt", "dbt")],
+                        default="dbt",
+                        help_text=(
+                            "The output this model belongs to: dbt (another output, "
+                            "e.g. SQLMesh, gets rows of its own)"
+                        ),
+                        max_length=20,
+                    ),
+                ),
+                (
                     "model_name",
                     models.CharField(
                         blank=True,
@@ -299,28 +311,31 @@ class Migration(migrations.Migration):
                         name="model_output_one_entity",
                     ),
                     models.UniqueConstraint(
-                        fields=("source_table", "kind"),
+                        fields=("source_table", "framework", "kind"),
                         name="model_output_unique_source_table_kind",
                     ),
                     models.UniqueConstraint(
-                        fields=("hub", "kind"), name="model_output_unique_hub_kind"
+                        fields=("hub", "framework", "kind"),
+                        name="model_output_unique_hub_kind",
                     ),
                     models.UniqueConstraint(
-                        fields=("link", "kind"), name="model_output_unique_link_kind"
+                        fields=("link", "framework", "kind"),
+                        name="model_output_unique_link_kind",
                     ),
                     models.UniqueConstraint(
-                        fields=("satellite", "kind"),
+                        fields=("satellite", "framework", "kind"),
                         name="model_output_unique_satellite_kind",
                     ),
                     models.UniqueConstraint(
-                        fields=("pit", "kind"), name="model_output_unique_pit_kind"
+                        fields=("pit", "framework", "kind"),
+                        name="model_output_unique_pit_kind",
                     ),
                     models.UniqueConstraint(
-                        fields=("reference_table", "kind"),
+                        fields=("reference_table", "framework", "kind"),
                         name="model_output_unique_reference_table_kind",
                     ),
                     models.UniqueConstraint(
-                        fields=("snapshot_control", "kind"),
+                        fields=("snapshot_control", "framework", "kind"),
                         name="model_output_unique_snapshot_control_kind",
                     ),
                 ],

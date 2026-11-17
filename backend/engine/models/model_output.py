@@ -13,15 +13,19 @@ TurboVault derives it.
 
 from __future__ import annotations
 
-import re
 import uuid
-from pathlib import PurePosixPath
 from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
+from engine.models.output_attributes import (  # noqa: F401 (re-exported)
+    config_key_errors,
+    folder_error,
+    model_name_error,
+    normalize_folder,
+)
 from engine.models.project import Project
 
 # The entity field each kind of model belongs to.
@@ -35,10 +39,6 @@ ENTITY_FIELDS = (
     "snapshot_control",
 )
 
-# A model name is a file name: no path separators, no leading dot, no
-# whitespace or control characters.
-_MODEL_NAME = re.compile(r"[^/\\\s.][^/\\\s]*")
-
 # config() keys with a field of their own.
 _FIELD_CONFIG_KEYS = {
     "materialized": "materialized",
@@ -47,38 +47,6 @@ _FIELD_CONFIG_KEYS = {
     "database": "database_name",
     "tags": "tags",
 }
-
-
-def model_name_error(name: str) -> str | None:
-    """Why *name* can't be a model's name, or None when it can."""
-    if not _MODEL_NAME.fullmatch(name) or "\x00" in name:
-        return (
-            f"'{name}' can't name a dbt model: use letters, digits and "
-            "underscores, without spaces, dots or slashes"
-        )
-    return None
-
-
-def normalize_folder(folder: str) -> str:
-    """A folder relative to the dbt project: forward slashes, no outer slashes."""
-    return folder.strip().replace("\\", "/").strip("/")
-
-
-def folder_error(folder: str) -> str | None:
-    """Why *folder* can't hold a model, or None when it can.
-
-    The folder is relative to the dbt project. It must stay inside it: no
-    absolute paths, drive letters or ``..`` segments.
-    """
-    if not folder:
-        return None
-    raw = folder.strip()
-    if raw.startswith(("/", "\\", "~")) or re.match(r"[A-Za-z]:", raw):
-        return f"Folder '{folder}' must be relative to the dbt project"
-    parts = PurePosixPath(normalize_folder(raw)).parts
-    if any(part in ("..", ".") for part in parts) or "\x00" in raw:
-        return f"Folder '{folder}' must stay inside the dbt project (no '..' or '.')"
-    return None
 
 
 class ModelOutput(models.Model):
@@ -142,6 +110,19 @@ class ModelOutput(models.Model):
         max_length=40,
         choices=Kind.choices,
         help_text="Which of the entity's dbt models this is",
+    )
+
+    class Framework(models.TextChoices):
+        DBT = "dbt", "dbt"
+
+    framework = models.CharField(
+        max_length=20,
+        choices=Framework.choices,
+        default=Framework.DBT,
+        help_text=(
+            "The output this model belongs to: dbt (another output, e.g. "
+            "SQLMesh, gets rows of its own)"
+        ),
     )
 
     source_table = models.ForeignKey(
@@ -293,7 +274,8 @@ class ModelOutput(models.Model):
             ),
             *[
                 models.UniqueConstraint(
-                    fields=[field, "kind"], name=f"model_output_unique_{field}_kind"
+                    fields=[field, "framework", "kind"],
+                    name=f"model_output_unique_{field}_kind",
                 )
                 for field in ENTITY_FIELDS
             ],
@@ -395,11 +377,26 @@ class ModelOutput(models.Model):
                             f"Set '{key}' in its own field "
                             f"({_FIELD_CONFIG_KEYS[key]}), not in config."
                         )
+                errors.setdefault("config", []).extend(
+                    config_key_errors(
+                        {
+                            key: value
+                            for key, value in self.config.items()
+                            if key not in _FIELD_CONFIG_KEYS
+                        }
+                    )
+                )
+                if not errors["config"]:
+                    del errors["config"]
 
         if self.model_name and not errors.get("model_name"):
             project = self.project if self.project_id else self._entity_project()
             duplicate = (
-                ModelOutput.objects.filter(project=project, model_name=self.model_name)
+                ModelOutput.objects.filter(
+                    project=project,
+                    framework=self.framework,
+                    model_name=self.model_name,
+                )
                 .exclude(pk=self.pk)
                 .exists()
             )
