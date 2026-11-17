@@ -14,6 +14,7 @@ import uuid
 
 from django.db import models
 
+from engine.models.output_attributes import generation_config_field
 from engine.models.project import Project
 
 
@@ -276,6 +277,8 @@ class SourceTable(models.Model):
         null=True,
         help_text="Optional description of the source table, written to the generated dbt docs",
     )
+
+    generation_config = generation_config_field("SourceTable")
 
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the source table was created"

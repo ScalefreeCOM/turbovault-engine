@@ -196,6 +196,34 @@ Explicit `--output`, `--sqlmesh-output`, `--json-output`, or `--dbml-output` alw
 The fallback `./output/<slug>` is only used when the project has no
 `project_directory` configured (e.g. ad-hoc or test projects).
 
+### Model paths, names and configs inside a dbt project
+
+By default each model goes into its layer folder (`models/00_control`,
+`02_staging/<source system>`, `03_raw_vault/<group>`,
+`04_business_vault/pits/<group>`) and is named by the entity or the
+configured naming pattern (`satellite_v0_naming`, `satellite_v1_naming`, …).
+
+A model with stored [output attributes](01_domain-model.md#output-attributes),
+e.g. one imported from an existing dbt project, is written to its stored
+`file_path` under its stored `model_name`, with its `alias`, `schema`,
+`database`, `materialized`, `tags` and any further `custom_config_json`
+settings in `config()`. Everything not stored is
+derived as above. Before rendering, generation resolves the name and file of
+every model, so:
+
+- every reference to a model — stages in `source_models`, `sat_v0` of v1
+  views and PITs, `sat_v1` of reference tables, the hub of a reference table,
+  the tracked hub/link and snapshot control of a PIT — uses its actual name;
+- a model outside its layer's folder gets that layer's schema and
+  materialization in its own `config()`, as `dbt_project.yml` configures
+  layers by folder;
+- two models with the same name or file (case-insensitive) fail with
+  `write.path_collision`, and nothing is written.
+
+`--standard-paths` (`GenerationOptions.use_original_paths=False`) ignores the
+stored attributes and gives every model the standard layout. SQLMesh output
+ignores them for now.
+
 ---
 
 ## dbt project settings

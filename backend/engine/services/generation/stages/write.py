@@ -119,6 +119,7 @@ def _write_project(
     options: GenerationOptions,
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
     output_path.mkdir(parents=True, exist_ok=True)
+    output_root = output_path.resolve()
     issues: list[Issue] = []
     written: list[GeneratedArtifact] = []
     seen_paths: set[Path] = set()
@@ -132,6 +133,18 @@ def _write_project(
             written.append(a)
             continue
         full = output_path / a.path
+        # Names and stored folders are validated before rendering; this
+        # catches anything that still points outside the output folder.
+        if not full.resolve().is_relative_to(output_root):
+            issues.append(
+                make_issue(
+                    severity="error",
+                    code=Code.WRITE_PATH_OUTSIDE_OUTPUT,
+                    stage="write",
+                    message=f"Refused to write outside the output folder: {a.path}",
+                )
+            )
+            continue
         relative = Path(a.path).as_posix()
         record[relative] = file_checksum(a.content)
 

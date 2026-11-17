@@ -126,6 +126,7 @@ class Code:
     # Write stage
     WRITE_IO_ERROR = "write.io_error"
     WRITE_PATH_COLLISION = "write.path_collision"
+    WRITE_PATH_OUTSIDE_OUTPUT = "write.path_outside_output"
     WRITE_ZIP_FAILED = "write.zip_failed"
     WRITE_STALE_FILE = "write.stale_file"
     WRITE_STALE_FILE_REMOVED = "write.stale_file_removed"

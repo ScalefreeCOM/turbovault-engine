@@ -15,6 +15,7 @@ from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from engine.models.output_attributes import generation_config_field
 from engine.models.project import Project
 
 
@@ -97,6 +98,8 @@ class SnapshotControlTable(models.Model):
             "the sdts_alias variable"
         ),
     )
+
+    generation_config = generation_config_field("SnapshotControlTable")
 
     created_at = models.DateTimeField(
         auto_now_add=True,

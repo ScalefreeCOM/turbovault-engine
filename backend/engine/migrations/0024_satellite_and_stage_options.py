@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("engine", "0021_model_outputs"),
+        ("engine", "0023_model_outputs"),
     ]
 
     operations = [

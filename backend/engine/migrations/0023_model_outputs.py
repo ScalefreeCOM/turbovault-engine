@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("engine", "0020_prestages_maintained_in_dbt"),
+        ("engine", "0022_prestages_maintained_in_dbt"),
     ]
 
     operations = [

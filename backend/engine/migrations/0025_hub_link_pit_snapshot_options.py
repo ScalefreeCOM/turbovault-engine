@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("engine", "0022_satellite_and_stage_options"),
+        ("engine", "0024_satellite_and_stage_options"),
     ]
 
     operations = [

@@ -68,7 +68,7 @@ models, and SQLMesh or future output types couldn't run dbt models anyway.)
 | `SourceColumn` (existing) | — | — | The model's **output columns** (name, data type, description). Needed for mapping. |
 
 - Migration `0019_prestages` adds `table_type`; existing tables become `physical`.
-- Migration `0020_prestages_maintained_in_dbt` removes `SourceTable.prestage_sql` and the `prestage` template
+- Migration `0022_prestages_maintained_in_dbt` removes `SourceTable.prestage_sql` and the `prestage` template
   entity type, and deletes workspace copies of the pre-stage templates (`ModelTemplate` rows with
   `entity_type = "prestage"`).
 - A column's staging column (what mappings point to) is created by a `post_save` signal on
@@ -330,7 +330,7 @@ further `config()` keys. The dbt import (item 4) fills them from the original pr
 them. Empty means "as TurboVault derives it", and a project without stored values generates exactly as
 before (verified byte for byte on the TPC-H sample).
 
-### Data model: `ModelOutput` (new table `model_output`, migration `0021_model_outputs`)
+### Data model: `ModelOutput` (new table `model_output`, migration `0023_model_outputs`)
 
 One row per entity and kind of model, only where something differs from the defaults.
 
@@ -450,7 +450,7 @@ Helpers: `engine.models.model_output.model_name_error(name)`, `folder_error(fold
 
 ## 6. Hash diff name and alias
 
-**Status:** In progress (dbt import branch), migration `0022_satellite_and_stage_options`. Engine docs:
+**Status:** In progress (dbt import branch), migration `0024_satellite_and_stage_options`. Engine docs:
 domain model §7.1.
 
 | Field | Type | Default | Notes |
@@ -470,7 +470,7 @@ domain model §7.1.
 
 ## 7. Stage options and missing columns
 
-**Status:** In progress (dbt import branch), migration `0022_satellite_and_stage_options`. Engine docs:
+**Status:** In progress (dbt import branch), migration `0024_satellite_and_stage_options`. Engine docs:
 domain model §3.1–3.3, project schema.
 
 | Field | Type | Default | Notes |
@@ -511,7 +511,7 @@ domain model §3.1–3.3, project schema.
 
 ## 9. Satellite v1 options
 
-**Status:** In progress (dbt import branch), migration `0022_satellite_and_stage_options`. Engine docs:
+**Status:** In progress (dbt import branch), migration `0024_satellite_and_stage_options`. Engine docs:
 domain model §7.1.
 
 | Field | Type | Default | Notes |
@@ -531,7 +531,7 @@ domain model §7.1.
 
 ## 10. Hub, Link, PIT and snapshot control options; delivery method
 
-**Status:** In progress (dbt import branch), migration `0023_hub_link_pit_snapshot_options`. Engine docs:
+**Status:** In progress (dbt import branch), migration `0025_hub_link_pit_snapshot_options`. Engine docs:
 domain model §3.1–3.2 (delivery method), §4.1, §4.3, §5.1, §8.1, §8.3, §9.1; project schema.
 
 ### New fields
