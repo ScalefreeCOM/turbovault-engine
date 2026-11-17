@@ -73,8 +73,8 @@ deep-link errors; the CLI groups them in summary tables.
 | Code | Cause | Suggestion |
 |------|-------|------------|
 | `write.io_error` | A file could not be written (permission, disk full). | Resolve the filesystem issue and re-run. |
-| `write.path_collision` | Two models resolve to the same model name or file path — from their stored output attributes (`model_name`, `file_path`) or the naming patterns. Checked before rendering (stage `render`); nothing is written. Names and paths compare case-insensitively. | Change the `model_name` / `file_path` output attribute or the naming pattern of one of the listed models, or generate with `--standard-paths`. |
-| `write.path_outside_output` | A file would land outside the output folder. Stored file paths are validated on input, so this is a safeguard. Only that file is skipped. | Fix the entity's name or `file_path` output attribute. |
+| `write.path_collision` | Two generated files would have one path (compared case-insensitively: dbt, Windows and macOS ignore case), e.g. a model whose stored name and folder give a generated sources file's path. Checked before writing; nothing is written. Two models of one name are `validate.model.duplicate_name`. | Rename or move one of the models (its model output's name or folder), or generate with `--standard-folders`. |
+| `write.path_outside_output` | A file would land outside the output folder. Stored model names and folders are validated on input, so this is a safeguard. Only that file is skipped. | Fix the entity's name or its model output's name or folder. |
 | `write.zip_failed` | The optional ZIP archive could not be created. | Re-run without `--zip`; the dbt tree on disk is still valid. |
 | `write.stale_file` | A file TurboVault generated into the folder before (its record, `.turbovault/generated.json`) and no longer generates, e.g. after renaming an entity. Kept. | Delete it, or generate with `--remove-stale-files`. |
 | `write.stale_file_removed` (info) | Such a file, unchanged since TurboVault wrote it, deleted (`remove_stale_files`). | — |

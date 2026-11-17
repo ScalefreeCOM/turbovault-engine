@@ -118,6 +118,24 @@ def _write_project(
     output_path: Path,
     options: GenerationOptions,
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
+    # Two files of one path (however cased: dbt, Windows and macOS ignore
+    # case) would overwrite each other: nothing is written
+    collisions = _colliding_paths(artifacts)
+    if collisions:
+        return [], [
+            make_issue(
+                severity="error",
+                code=Code.WRITE_PATH_COLLISION,
+                stage="write",
+                message=(
+                    f"{len(paths)} generated files would have the path "
+                    + " / ".join(dict.fromkeys(paths))
+                    + ", e.g. a model named and placed like a sources file. "
+                    "Nothing was written."
+                ),
+            )
+            for paths in collisions
+        ]
     output_path.mkdir(parents=True, exist_ok=True)
     output_root = output_path.resolve()
     issues: list[Issue] = []
@@ -249,6 +267,17 @@ def _write_project(
             written.append(zip_artifact)
 
     return written, issues
+
+
+def _colliding_paths(artifacts: list[GeneratedArtifact]) -> list[list[str]]:
+    """The paths more than one artifact would be written to, compared
+    case-insensitively, each with the spellings of its artifacts."""
+    by_path: dict[str, list[str]] = {}
+    for a in artifacts:
+        if a.path and a.content is not None:
+            path = Path(a.path).as_posix()
+            by_path.setdefault(path.casefold(), []).append(path)
+    return [paths for paths in by_path.values() if len(paths) > 1]
 
 
 def _keep_project_sources(full: Path, content: str, output_path: Path) -> list[Issue]:
