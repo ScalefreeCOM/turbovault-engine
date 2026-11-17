@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from engine.services.naming import technical_name
+
 # Where each kind of model goes: patterns relative to the dbt project, like
 # the naming patterns (spec D27). [[ group ]] and [[ source_system ]] stand for
 # the entity's group and its source system as folder names (lowercase, spaces
@@ -65,8 +67,13 @@ def main_source_system(systems: Iterable[str | None]) -> str | None:
 
 
 def folder_name(name: str) -> str:
-    """A name as a folder name: lowercase, spaces and dashes as underscores."""
-    return name.lower().replace(" ", "_").replace("-", "_")
+    """A name as a folder name.
+
+    Uses the shared ``technical_name`` rule, so a folder matches the dbt
+    source name and tag derived from the same display name, and can never
+    hold a path separator or ``..``.
+    """
+    return technical_name(name)
 
 
 def folder_pattern_error(pattern: str) -> str | None:

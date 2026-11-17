@@ -195,6 +195,10 @@ def _model_outputs(project_export: ProjectExport) -> Iterable[ModelOutputDef]:
         yield from filter(None, (control.v0_output, control.v1_output))
 
 
+class UnsafePathError(ValueError):
+    """A generated file would be written outside the output folder."""
+
+
 class DbtProjectGenerator:
     """
     Generate a complete dbt project from TurboVault export data.
@@ -384,10 +388,20 @@ class DbtProjectGenerator:
                 entity_type="project",
                 entity_name=self.config.project_name,
                 message=str(e),
-                code="GEN_001",
+                code="PTH_002" if isinstance(e, UnsafePathError) else "GEN_001",
             )
 
         return self.report
+
+    def _checked_path(self, path: Path) -> Path:
+        """Return ``path`` after checking it lies inside the output folder.
+
+        Last line of defence behind validation (MDL_002, MDL_003): raises
+        UnsafePathError rather than write anywhere else.
+        """
+        if not path.resolve().is_relative_to(self.output_path.resolve()):
+            raise UnsafePathError(f"Refused to write outside the output folder: {path}")
+        return path
 
     def _specific_materialization(self, model_kind: str) -> str | None:
         """Materialization to write into a model-specific config() block.
@@ -623,12 +637,16 @@ class DbtProjectGenerator:
         sql_content = yaml_content = None
         if sql_template is not None:
             sql_content = sql_template.render(**{**context, **(sql_context or {})})
-            path = directory / get_model_filename(model_name, extension="sql")
+            path = self._checked_path(
+                directory / get_model_filename(model_name, extension="sql")
+            )
             write_sql_file(path, sql_content)
             self.report.add_file(path, entity_type, model_name, "sql")
         if yaml_template is not None:
             yaml_content = yaml_template.render(**context)
-            path = directory / get_model_filename(model_name, extension="yml")
+            path = self._checked_path(
+                directory / get_model_filename(model_name, extension="yml")
+            )
             write_yaml_file(path, yaml_content)
             self.report.add_file(path, entity_type, model_name, "yaml")
         self._check_model_templates(
@@ -969,7 +987,7 @@ class DbtProjectGenerator:
             source_name = self.folder_config._sanitize_name(source.name)
             if template:
                 content = template.render(source=source)
-                path = (
+                path = self._checked_path(
                     self.output_path
                     / self.folder_config.folder("sources", source_system=source.name)
                     / f"source__{source_name}.yml"

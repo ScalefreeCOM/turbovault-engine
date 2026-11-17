@@ -1,25 +1,35 @@
 [# sources.yml Template #]
 [# Defines source and its tables for the dbt project #]
+[# Source names are written as found in the source database. A table or #]
+[# column whose name only works quoted (spaces, hyphens, ...) gets dbt's #]
+[# identifier quoting; every other name keeps the adapter's default. #]
 version: 2
 
 sources:
-  - name: [[ source.name | lower | replace(" ", "_") ]]
+  - name: [[ source.name | technical_name ]]
 [% if source.description %]
     description: [[ source.description | yaml_quote ]]
 [% endif %]
 [% if source.database_name %]
-    database: [[ source.database_name ]]
+    database: [[ source.database_name | yaml_scalar ]]
 [% endif %]
-    schema: [[ source.schema_name ]]
+    schema: [[ source.schema_name | yaml_scalar ]]
     tables:
 [% for table in source.tables %]
-      - name: [[ table.table_name ]]
+      - name: [[ table.table_name | yaml_scalar ]]
+[% if table.table_name | needs_identifier_quoting %]
+        quoting:
+          identifier: true
+[% endif %]
         description: [[ (table.description or ("Source table from " ~ source.name)) | yaml_quote ]]
         columns:
 [# A missing column isn't in the source: its stage adds it #]
 [% for column in table.columns if not column.is_missing %]
-          - name: [[ column.column_name ]]
-            data_type: [[ column.datatype ]]
+          - name: [[ column.column_name | yaml_scalar ]]
+[% if column.column_name | needs_identifier_quoting %]
+            quote: true
+[% endif %]
+            data_type: [[ column.datatype | yaml_scalar ]]
 [% if column.description %]
             description: [[ column.description | yaml_quote ]]
 [% endif %]

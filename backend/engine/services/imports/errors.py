@@ -111,6 +111,11 @@ class Code:
     # Imported as another kind of entity than the source gives it, e.g. an
     # effectivity satellite as its parent's effectivity flag.
     ENTITY_IMPORTED_DIFFERENTLY = "entity.imported_differently"
+    # Names (#450): Data Vault names must be plain identifiers, unique ignoring
+    # case; unusual source names are only reported.
+    ENTITY_INVALID_NAME = "entity.invalid_name"
+    ENTITY_NAME_CASE_COLLISION = "entity.name_case_collision"
+    ENTITY_UNUSUAL_SOURCE_NAME = "entity.unusual_source_name"
 
     # Plan stage
     PLAN_WOULD_CREATE = "plan.would_create"

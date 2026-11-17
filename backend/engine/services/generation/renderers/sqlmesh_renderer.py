@@ -72,6 +72,7 @@ from engine.services.generation.types import (
     GenerationOptions,
     Issue,
 )
+from engine.services.naming import technical_name
 from engine.services.runtime_config import EngineRuntimeConfig
 
 
@@ -1181,8 +1182,8 @@ def _render_model(
 
 
 def _slug(name: str) -> str:
-    """Convert a name to a filesystem-safe slug."""
-    return name.lower().replace(" ", "_").replace("-", "_")
+    """Convert a name to a filesystem-safe slug (the shared technical name)."""
+    return technical_name(name)
 
 
 # ---------------------------------------------------------------------------

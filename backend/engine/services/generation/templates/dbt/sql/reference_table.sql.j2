@@ -12,13 +12,13 @@ ref_satellites:
     [% if sat.include_columns %]
       include:
         [% for col in sat.include_columns %]
-        - [[ col ]]
+        - [[ col | yaml_scalar ]]
         [% endfor %]
     [% endif %]
     [% if sat.exclude_columns %]
       exclude:
         [% for col in sat.exclude_columns %]
-        - [[ col ]]
+        - [[ col | yaml_scalar ]]
         [% endfor %]
     [% endif %]
 [% endfor %]

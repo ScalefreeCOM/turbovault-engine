@@ -66,6 +66,9 @@ _LEGACY_CODE_MAP: dict[str, str] = {
     "MDL_001": "validate.model.duplicate_name",
     "MDL_002": "validate.model.invalid_name",
     "MDL_003": "validate.model.invalid_folder",
+    "NAM_001": "validate.name.invalid",
+    "NAM_002": "validate.name.case_collision",
+    "NAM_003": "validate.name.source_needs_quoting",
 }
 
 

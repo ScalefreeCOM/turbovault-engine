@@ -1,13 +1,13 @@
 [# Reference Satellite Template #]
 [# Generates a satellite for reference/lookup data #]
 [# model_config: the config() block; the satellite's stored settings override these defaults #]
-[[ model_config(materialized=materialization, tags=['satellite', 'reference', 'raw_vault', group]) ]]
+[[ model_config(materialized=materialization, tags=['satellite', 'reference', 'raw_vault', (group | technical_name) if group else none]) ]]
 
 {%- set yaml_metadata -%}
 source_model: [[ stage_name ]]
 parent_ref_keys:
 [% for bk in parent_business_keys %]
-    - [[ bk ]]
+    - [[ bk | yaml_scalar ]]
 [% endfor %]
 [# hashdiff_alias: the hash diff's name inside the satellite, when it differs from the stage's #]
 [% if hashdiff_alias %]
@@ -19,7 +19,7 @@ src_hashdiff: [[ hashdiff_name ]]
 [% endif %]
 src_payload:
 [% for col in columns %]
-    - [[ col.target_column_name if col.target_column_name else col.source_column ]]
+    - [[ (col.target_column_name if col.target_column_name else col.source_column) | yaml_scalar ]]
 [% endfor %]
 [% if disable_hwm %]
 disable_hwm: true

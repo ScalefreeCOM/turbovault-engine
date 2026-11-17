@@ -44,6 +44,9 @@ deep-link errors; the CLI groups them in summary tables.
 | `validate.snapshot.no_name` | A snapshot control has no name. | Provide a name for the snapshot control. |
 | `validate.snapshot.no_start_date` | A snapshot control has no start date. | Set the snapshot range's start date. |
 | `validate.snapshot.no_logic_patterns` | A snapshot control has no logic patterns (warning). | Add at least one snapshot logic pattern. |
+| `validate.name.invalid` | A Data Vault name (Hub, Link, Satellite, PIT, reference table, snapshot control, hash key, hashdiff, key/alias column, derived column) is not a plain identifier `^[A-Za-z_][A-Za-z0-9_]*$`. | Rename it using only letters, digits and `_`, starting with a letter or `_`. |
+| `validate.name.case_collision` | Two entity names, or two columns of one stage or satellite, differ only in case. | Give them names that differ in more than case. |
+| `validate.name.source_needs_quoting` | *Warning.* A source table or column name only works quoted (special characters, reserved word, mixed case). TurboVault quotes such tables and columns in `sources.yml`; datavault4dbt escapes columns itself and may change their case. One warning per table. | Check the generated stage compiles; rename in the source if it doesn't. |
 
 ## Plan stage
 
@@ -67,6 +70,7 @@ deep-link errors; the CLI groups them in summary tables.
 | `render.project_files_kept` (info) | The output folder holds a dbt project whose `dbt_project.yml` TurboVault didn't write (dbt output only, spec D17). Its `dbt_project.yml`, `packages.yml` (and `profiles.yml`) aren't written. Its folder settings apply; a model carries its layer's schema and materialization in `config()` where they give it none. | Generate with `--write-project-files` (`write_project_files=True`) to replace them. |
 | `render.project_needs_package` | In an existing dbt project: its packages lack datavault4dbt, or a package of the project's settings (`dbt_packages`), which the generated models need. | Add the listed entries to its `packages.yml`. |
 | `render.project_needs_vars` | In an existing dbt project: its `dbt_project.yml` doesn't set variables the project's settings have (`global_vars`). | Add them to its `vars:`. |
+| `render.unsafe_path` | A model or source file would be written outside the output folder. Last line of defence behind validation (`validate.model.invalid_name`, `validate.model.invalid_folder`, `validate.name.invalid`), also with validation skipped. | Rename the entity, or fix the naming pattern. |
 | `render.literal_secret_in_profile` | A secret key in `profiles` — one ending in `password`, `passphrase`, `secret`, `token`, `private_key`, `access_key` or `api_key`, or `pass` / `keyfile_json` — holds a literal value, or an `env_var` reference with a non-empty default (dbt uses the default whenever the variable is unset). Nothing is generated; the value is never echoed. | Reference the secret via `{{ env_var('...') }}` (optionally `\| as_native`), without a default or with an empty one. An inline `keyfile_json` mapping is allowed when its own secret fields are references. |
 
 ## Write stage

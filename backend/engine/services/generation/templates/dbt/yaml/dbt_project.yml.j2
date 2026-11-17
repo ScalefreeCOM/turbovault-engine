@@ -8,8 +8,8 @@
 [# An imported dbt project's settings (spec D25): project_version, the paths, #]
 [# clean_targets; models_block (its models: block merged with the layers) and #]
 [# extra_block (its other settings) replace or follow the defaults below. #]
-name: '[[ project_name ]]'
-version: '[[ project_version | default('1.0.0', true) ]]'
+name: [[ project_name | yaml_single_quote ]]
+version: [[ project_version | default('1.0.0', true) | yaml_single_quote ]]
 config-version: 2
 
 profile: [[ profile_name | default('default', true) | yaml_single_quote ]]
@@ -30,7 +30,7 @@ clean-targets:
 [[ vars_block ]][% if models_block %]
 [[ models_block ]][[ extra_block ]][% else %]
 models:
-  [[ project_name ]]:
+  [[ project_name | yaml_scalar ]]:
     00_control:
       +schema: [[ control_schema | default('control', true) | yaml_scalar ]]
       +materialized: [[ control_materialization | default('table', true) | yaml_scalar ]]

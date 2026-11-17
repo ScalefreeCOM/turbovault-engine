@@ -24,6 +24,7 @@ from engine.services.export.models import (  # noqa: F401 (re-exported)
     ModelOutputAttributes,
     ModelOutputDef,
 )
+from engine.services.naming import technical_name
 
 if TYPE_CHECKING:
     from engine.models import (
@@ -51,7 +52,7 @@ def dbt_source_name(source_system_name: str) -> str:
     ``[[ source_system ]]`` of the stage and pre-stage naming patterns
     (``stg__crm__customer``).
     """
-    return source_system_name.lower().replace(" ", "_")
+    return technical_name(source_system_name)
 
 
 def entity_base_name(parent_physical_name: str) -> str:
@@ -101,7 +102,7 @@ def derived_model_name(kind: str, entity: Any, config: EngineRuntimeConfig) -> s
         return apply_pattern(
             pattern,
             source_system=dbt_source_name(entity.source_system.name),
-            source_table=entity.physical_table_name.lower(),
+            source_table=technical_name(entity.physical_table_name),
         )
     if kind in ("satellite_v0", "satellite_v1"):
         pattern = (

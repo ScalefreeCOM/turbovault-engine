@@ -5,7 +5,7 @@ models:
   - name: [[ hub_name ]]
     description: [[ (description or (('Standard' if hub_type == 'standard' else 'Reference') ~ " hub for " ~ hub_name)) | yaml_quote ]]
     config:
-      tags: [[ model_tags(['hub', 'raw_vault', group]) ]]
+      tags: [[ model_tags(['hub', 'raw_vault', (group | technical_name) if group else none]) ]]
     columns:
 [% if hashkey %]
       - name: [[ hashkey.hashkey_name ]]
@@ -15,7 +15,7 @@ models:
           - not_null
 [% endif %]
 [% for bk in business_key_columns %]
-      - name: [[ bk ]]
+      - name: [[ bk | yaml_scalar ]]
 [% set docs = column_descriptions.get(bk) %]
         description: [[ (((docs.description or docs.source_description) if docs else none) or "Business key column") | yaml_quote ]]
         data_tests:

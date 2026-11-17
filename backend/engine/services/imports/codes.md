@@ -78,6 +78,14 @@ left out is planned as a skip, so `replace_all` keeps the project's copy.
 | `entity.missing_source_table` | A mapping references a source table identifier that does not exist. | Add the source table or fix the identifier. |
 | `entity.invalid_configuration` | An entity is internally inconsistent (e.g. satellite with both hub & link parent), or one of its stored model settings (`model_outputs`) can't be stored: an invalid model name or folder, or a name another model has. That setting is left out; the entity is imported. From a workbook or SQLite file also: a link row's incomplete prejoin, or one that joins two tables on other columns than an earlier row (*error*, that mapping is skipped), a prejoined column an earlier row already takes under another name (*warning*, the link uses that name), link rows beyond a hub's keys (*warning*, those rows are not imported), a link connecting fewer hubs than it needs (*warning*, imported as is), the rows of one PIT tracking different entities (*error*, the PIT is skipped) or giving a setting different values (*warning*, the first is used). | Correct the entity definition or the model setting. |
 | `entity.depends_on_skipped` | *Warning.* An entity is left out because an entity it depends on can't be imported (a satellite of a skipped link, a PIT tracking a skipped satellite). | Fix the problem reported for that entity. |
+| `entity.invalid_name` | A Data Vault name (Hub, Link, Satellite, PIT, reference table, snapshot control, hash key, column, alias, derived column) is not a plain identifier `^[A-Za-z_][A-Za-z0-9_]*$`. Checked for every import source. | Rename it using only letters, digits and `_`, starting with a letter or `_`. |
+| `entity.name_case_collision` | Two entity names differ only in case (`hub_Customer`, `HUB_CUSTOMER`); they would become the same dbt model on most warehouses and file systems. | Give each entity a name that differs in more than case. |
+| `entity.unusual_source_name` | *Warning.* A source table or column name only works quoted: spaces, hyphens or other special characters, an SQL reserved word, or mixed case. One warning per table. | No change needed if the name is right; check the generated stage compiles. |
+
+Invalid names and case collisions are reported, never renamed. With
+`error_strategy="fail_fast"` they stop the import before the plan; in
+`best_effort` the entities are imported and generation reports them again
+(`validate.name.*`) until they are renamed.
 
 An entity that can't be imported is left out rather than imported
 half-resolved, and appears in the plan as a skip with one of these

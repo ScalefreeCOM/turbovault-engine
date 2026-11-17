@@ -1,7 +1,7 @@
 [# Multi-Active Satellite Template #]
 [# Generates a multi-active satellite model using datavault4dbt.ma_sat_v0() macro #]
 [# model_config: the config() block; the satellite's stored settings override these defaults #]
-[[ model_config(materialized=materialization, tags=['satellite', 'multi_active', 'raw_vault', group]) ]]
+[[ model_config(materialized=materialization, tags=['satellite', 'multi_active', 'raw_vault', (group | technical_name) if group else none]) ]]
 
 {%- set yaml_metadata -%}
 source_model: [[ stage_name ]]
@@ -16,11 +16,11 @@ src_hashdiff: [[ hashdiff_name ]]
 [% endif %]
 src_ma_key:
 [% for col in columns if col.is_multi_active_key %]
-    - [[ col.target_column_name if col.target_column_name else col.source_column ]]
+    - [[ (col.target_column_name if col.target_column_name else col.source_column) | yaml_scalar ]]
 [% endfor %]
 src_payload:
 [% for col in columns if not col.is_multi_active_key%]
-    - [[ col.target_column_name if col.target_column_name else col.source_column ]]
+    - [[ (col.target_column_name if col.target_column_name else col.source_column) | yaml_scalar ]]
 [% endfor %]
 [% if disable_hwm %]
 disable_hwm: true

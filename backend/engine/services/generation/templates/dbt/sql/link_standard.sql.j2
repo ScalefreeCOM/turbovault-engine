@@ -2,7 +2,7 @@
 [# Generates a link model using datavault4dbt.link() macro with yaml_metadata #]
 
 [# model_config: the config() block; the link's stored settings override these defaults #]
-[[ model_config(materialized=materialization, tags=['link', 'raw_vault', group]) ]]
+[[ model_config(materialized=materialization, tags=['link', 'raw_vault', (group | technical_name) if group else none]) ]]
 
 {%- set yaml_metadata -%}
 source_models:
@@ -14,14 +14,14 @@ source_models:
 [% if source.fk_columns %]
       fk_columns:
 [% for fk in source.fk_columns %]
-          - [[ fk ]]
+          - [[ fk | yaml_scalar ]]
 [% endfor %]
 [% endif %]
 [% endfor %]
 link_hashkey: [[ hashkey.hashkey_name ]]
 foreign_hashkeys:
 [% for fk in foreign_hashkeys %]
-    - [[ fk ]]
+    - [[ fk | yaml_scalar ]]
 [% endfor %]
 [# Dependent child keys: selected into the link after the hub hash keys #]
 [% for dck in dependent_child_keys %]

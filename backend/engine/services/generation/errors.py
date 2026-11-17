@@ -106,6 +106,11 @@ class Code:
     VALIDATE_SNAPSHOT_NO_START_DATE = "validate.snapshot.no_start_date"
     VALIDATE_SNAPSHOT_NO_LOGIC_PATTERNS = "validate.snapshot.no_logic_patterns"
 
+    # Validate stage — names (#450)
+    VALIDATE_NAME_INVALID = "validate.name.invalid"
+    VALIDATE_NAME_CASE_COLLISION = "validate.name.case_collision"
+    VALIDATE_NAME_SOURCE_NEEDS_QUOTING = "validate.name.source_needs_quoting"
+
     # Plan stage
     PLAN_UNSUPPORTED_OUTPUT_TYPE = "plan.unsupported_output_type"
     PLAN_EMPTY_PROJECT = "plan.empty_project"
@@ -123,6 +128,7 @@ class Code:
     RENDER_PROJECT_FILES_KEPT = "render.project_files_kept"
     RENDER_PROJECT_NEEDS_PACKAGE = "render.project_needs_package"
     RENDER_PROJECT_NEEDS_VARS = "render.project_needs_vars"
+    RENDER_UNSAFE_PATH = "render.unsafe_path"
 
     # Write stage
     WRITE_IO_ERROR = "write.io_error"

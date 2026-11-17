@@ -70,6 +70,7 @@ from engine.services.imports.types import (
     SourceMetadataSource,
     SqliteSource,
 )
+from engine.services.imports.validation.names import check_names
 from engine.services.imports.validation.resolver import resolve
 from engine.services.imports.validation.schema_validator import validate_schema
 from engine.services.runtime_config import EngineRuntimeConfig
@@ -311,6 +312,26 @@ def import_metadata(
                     progress=progress,
                 )
         # else: JSON path — domain is already populated; minimal validation.
+
+        # Names are checked on every source, IR-based or not.
+        name_issues = check_names(domain)
+        issues.extend(name_issues)
+        if options.error_strategy == "fail_fast" and any(
+            i.severity == "error" for i in name_issues
+        ):
+            timings["validate"] = _ms(t0)
+            return _finalize(
+                project=project,
+                source=source,
+                options=options,
+                plan=plan_for_report,
+                issues=issues,
+                started_at=started_at,
+                timings=timings,
+                run_id=run_id,
+                executor_committed=False,
+                progress=progress,
+            )
 
         timings["validate"] = _ms(t0)
         emit(
