@@ -354,7 +354,7 @@ class ProjectSettingsMapping:
         if item.kind == "pit" and item.control:
             models = self._models_of.get(("snapshot_control", item.control)) or []
             v1 = models[1].name if len(models) > 1 else f"{item.control}_v1"
-            defaults["post-hook"] = "{{ datavault4dbt.clean_up_pit('" + v1 + "') }}"
+            defaults["post_hook"] = "{{ datavault4dbt.clean_up_pit('" + v1 + "') }}"
         return defaults
 
     def _apply_model_settings(self) -> None:

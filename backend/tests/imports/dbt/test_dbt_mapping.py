@@ -1408,6 +1408,29 @@ def test_without_its_folder_block_a_model_keeps_what_its_folder_gave_it(tmp_path
     assert domain.hubs["customer_h"].outputs["hub"].schema_name is None
 
 
+def test_a_pits_own_post_hook_is_stored_as_config_takes_it(tmp_path):
+    from engine.services.generation.model_config import config_block
+
+    own = _with_settings(
+        CUSTOMER_PIT, unrendered={"post-hook": "{{ grant_reporting() }}"}
+    )
+    domain, _ = map_manifest(shop(tmp_path, CONTROL_V0, CONTROL_V1, own))
+
+    # dbt_project.yml and YAML write post-hook; config() takes post_hook
+    config = domain.pits["customer_pit"].outputs["pit"].config
+    assert config == {"post_hook": "{{ grant_reporting() }}"}
+    assert "    post_hook='{{ grant_reporting() }}'" in config_block(config)
+
+    # The hook TurboVault's template writes anyway isn't stored
+    default = _with_settings(
+        CUSTOMER_PIT,
+        unrendered={"post-hook": "{{ datavault4dbt.clean_up_pit('control_snap_v1') }}"},
+    )
+    domain, _ = map_manifest(shop(tmp_path, CONTROL_V0, CONTROL_V1, default))
+
+    assert domain.pits["customer_pit"].outputs["pit"].config is None
+
+
 def test_naming_patterns_the_project_follows_are_suggested(tmp_path):
     from engine.services.runtime_config import EngineRuntimeConfig
 

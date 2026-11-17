@@ -371,9 +371,10 @@ IGNORED_SETTINGS = frozenset({"enabled", "packages"})
 
 
 def settings_key(name: str) -> str:
-    """A settings key as dbt reads it: without '+', hooks with '-'."""
+    """A settings key as a ``config()`` call takes it: without '+', hooks
+    with '_' (``post_hook``; dbt_project.yml and YAML write ``post-hook``)."""
     key = str(name).lstrip("+")
-    return {"pre_hook": "pre-hook", "post_hook": "post-hook"}.get(key, key)
+    return {"pre-hook": "pre_hook", "post-hook": "post_hook"}.get(key, key)
 
 
 def tag_list(value: Any) -> list[str]:
