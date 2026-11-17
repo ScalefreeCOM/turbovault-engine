@@ -59,6 +59,9 @@ class DModelOutput:
     kind: str
     model_name: str | None = None
     folder: str | None = None
+    # The file name of a JSON import's file_path: the model's name, stored
+    # where it isn't the one TurboVault derives (model_name wins)
+    file_name: str | None = None
     alias: str | None = None
     schema_name: str | None = None
     database_name: str | None = None

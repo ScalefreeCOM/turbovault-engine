@@ -484,23 +484,34 @@ def test_the_export_carries_the_stored_values_not_the_derived_ones():
     customer = next(
         t for t in _entities(data, "tables") if t["table_name"] == "CUSTOMER"
     )
-    assert customer["model_outputs"] == {
-        "stage": {
-            "model_name": "stg_crm_customer",
-            "folder": "models/staging/crm",
-            "alias": None,
-            "schema_name": None,
-            "database_name": None,
-            "materialized": "view",
-            "tags": ["crm"],
-            "config": {"on_schema_change": "sync_all_columns"},
+    # The generation_config of issue #442: the folder as the file path below
+    # models/, the further config() settings as custom_config_json
+    assert customer["generation_config"] == {
+        "dbt": {
+            "stage": {
+                "model_name": "stg_crm_customer",
+                "file_path": "staging/crm/stg_crm_customer.sql",
+                "materialized": "view",
+                "tags": ["crm"],
+                "custom_config_json": {"on_schema_change": "sync_all_columns"},
+            }
         }
     }
     nation = next(t for t in _entities(data, "tables") if t["table_name"] == "NATION")
-    assert nation["model_outputs"] == {}
+    assert nation["generation_config"] == {}
     hub = next(h for h in data["hubs"] if h["hub_name"] == "CUSTOMER_H")
-    assert hub["model_outputs"]["hub"]["model_name"] is None
+    # Named after itself: its file is named after the hub
+    assert hub["generation_config"]["dbt"]["hub"] == {
+        "file_path": "raw_vault/hubs/CUSTOMER_H.sql",
+        "alias": "customer",
+    }
     assert hub["output"]["model_name"] == "CUSTOMER_H"
+    link = next(h for h in data["links"] if h["link_name"] == "REFERRAL_L")
+    # No tags of its own is a stored value too
+    assert link["generation_config"]["dbt"]["link"] == {
+        "materialized": "incremental",
+        "tags": [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -523,16 +534,16 @@ def test_an_older_export_leaves_the_stored_settings_alone(tmp_path):
             "enable_ghost_records",
             "sequence_column",
             "delivery_method",
-            "model_outputs",
+            "generation_config",
         ),
         "columns": ("is_missing",),
-        "hubs": ("disable_hwm", "effectivity_options", "model_outputs"),
+        "hubs": ("disable_hwm", "effectivity_options", "generation_config"),
         "links": (
             "create_effectivity_satellite",
             "disable_hwm",
             "union_strategy",
             "effectivity_options",
-            "model_outputs",
+            "generation_config",
         ),
         "satellites": (
             "hashdiff_alias",
@@ -541,14 +552,14 @@ def test_an_older_export_leaves_the_stored_settings_alone(tmp_path):
             "v1_add_is_current_flag",
             "v1_include_payload",
             "disable_hwm",
-            "model_outputs",
+            "generation_config",
         ),
-        "snapshot_controls": ("sdts_alias", "model_outputs"),
-        "reference_tables": ("model_outputs",),
+        "snapshot_controls": ("sdts_alias", "generation_config"),
+        "reference_tables": ("generation_config",),
         "pits": (
             "use_snapshot_optimization",
             "include_business_objects_before_appearance",
-            "model_outputs",
+            "generation_config",
         ),
     }
     for key, fields in newer.items():
@@ -573,7 +584,7 @@ def test_an_export_clears_what_it_leaves_empty(tmp_path):
         t for t in _entities(data, "tables") if t["table_name"] == "CUSTOMER"
     )
     customer["sequence_column"] = None
-    del customer["model_outputs"]["stage"]
+    del customer["generation_config"]["dbt"]["stage"]
     sat = next(s for s in data["satellites"] if s["satellite_name"] == "CUSTOMER_S")
     sat["hashdiff_alias"] = None
     sat["create_v1_view"] = None
@@ -621,20 +632,37 @@ def test_a_derived_hash_diff_name_stays_derived(tmp_path):
     assert satellites["CUSTOMER_S"] == "HD_CUSTOMER_CUSTOM"
 
 
-def test_an_invalid_model_output_is_reported_and_left_out(tmp_path):
+def test_a_model_output_that_cant_be_stored_is_reported_and_left_out(tmp_path):
     data = _export_data(_build("invalid"))
     hub = next(h for h in data["hubs"] if h["hub_name"] == "CUSTOMER_H")
-    hub["model_outputs"]["hub"]["folder"] = "../outside"
+    # The name of the customer table's stage
+    hub["generation_config"]["dbt"]["effectivity_satellite"] = {
+        "model_name": "stg_crm_customer"
+    }
     target = Project.objects.create(name="invalid_target")
 
     report = _import(target, _write(data, tmp_path / "invalid.json"))
 
     (issue,) = [i for i in report.issues if i.code == "entity.invalid_configuration"]
-    assert "hub model of hub 'CUSTOMER_H'" in issue.message
-    assert "must stay inside the dbt project" in issue.message
+    assert "effectivity satellite model of hub 'CUSTOMER_H'" in issue.message
+    assert "Another model of the project is named" in issue.message
     imported = Hub.objects.get(project=target, hub_physical_name="CUSTOMER_H")
     kinds = set(ModelOutput.objects.filter(hub=imported).values_list("kind", flat=True))
-    assert kinds == {"effectivity_satellite"}
+    assert kinds == {"hub"}
+
+
+def test_a_file_path_outside_models_makes_the_export_invalid(tmp_path):
+    data = _export_data(_build("outside"))
+    hub = next(h for h in data["hubs"] if h["hub_name"] == "CUSTOMER_H")
+    hub["generation_config"]["dbt"]["hub"]["file_path"] = "../outside/CUSTOMER_H.sql"
+    target = Project.objects.create(name="outside_target")
+
+    report = _import(target, _write(data, tmp_path / "outside.json"))
+
+    (issue,) = [i for i in report.issues if i.severity == "error"]
+    assert issue.code == "source.invalid_json"
+    assert "file_path" in issue.message
+    assert not Hub.objects.filter(project=target).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -688,3 +716,51 @@ def test_project_init_from_an_export_restores_its_snapshot_controls(
     init_cmd._create_project(config)
 
     assert _stored(Project.objects.get(name="init_copy")) == _stored(source)
+
+
+def test_a_file_path_names_the_model_unless_turbovault_derives_that_name(tmp_path):
+    data = _export_data(_build("file_names"))
+    nation = next(t for t in _entities(data, "tables") if t["table_name"] == "NATION")
+    # The name the stage naming pattern gives: only the folder is stored
+    nation["generation_config"] = {
+        "dbt": {"stage": {"file_path": "staging/crm/stg__crm__nation.sql"}}
+    }
+    plain = next(
+        s for s in data["satellites"] if s["satellite_name"] == "CUSTOMER_PLAIN_S"
+    )
+    # Another name: the file names the model
+    plain["generation_config"] = {
+        "dbt": {"satellite_v0": {"file_path": "raw_vault/customer_plain.sql"}}
+    }
+    target = Project.objects.create(name="file_names_target")
+
+    report = _import(target, _write(data, tmp_path / "file_names.json"))
+
+    assert report.status == "success", report.issues
+    stage = ModelOutput.objects.get(
+        source_table__project=target,
+        source_table__physical_table_name="NATION",
+        kind="stage",
+    )
+    assert (stage.model_name, stage.folder) == (None, "models/staging/crm")
+    v0 = ModelOutput.objects.get(
+        satellite__project=target,
+        satellite__satellite_physical_name="CUSTOMER_PLAIN_S",
+        kind="satellite_v0",
+    )
+    assert (v0.model_name, v0.folder) == ("customer_plain", "models/raw_vault")
+
+
+def test_a_folder_outside_models_is_left_out_of_the_export(caplog):
+    project = _build("other_model_path")
+    hub = Hub.objects.get(project=project, hub_physical_name="CUSTOMER_H")
+    ModelOutput.objects.filter(hub=hub, kind="hub").update(folder="transform/hubs")
+
+    with caplog.at_level("WARNING", logger="engine.services.export.model_outputs"):
+        data = _export_data(project)
+
+    exported = next(h for h in data["hubs"] if h["hub_name"] == "CUSTOMER_H")
+    # A file_path is relative to models/: the alias stays, the folder can't
+    assert exported["generation_config"]["dbt"]["hub"] == {"alias": "customer"}
+    assert "outside models/" in caplog.text
+    assert "hub 'CUSTOMER_H'" in caplog.text

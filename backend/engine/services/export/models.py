@@ -8,9 +8,22 @@ that can be serialized to various output formats (JSON, dbt, DBML, etc.).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
+
+from engine.models.output_attributes import (
+    OUTPUT_KINDS_BY_ENTITY,
+    output_attribute_errors,
+)
 
 # Satellite types with a v1 view (load end date) on top of their v0 table.
 V1_SATELLITE_TYPES = frozenset({"standard", "effectivity", "multi_active", "reference"})
@@ -64,34 +77,145 @@ class ModelOutputDef(BaseModel):
         return settings
 
 
-class StoredModelOutputDef(BaseModel):
-    """What a project stores for one dbt model of an entity.
+# =============================================================================
+# Output attributes: what an entity stores for its dbt models (#442)
+# =============================================================================
 
-    The stored values of an ``engine.models.ModelOutput``: None stores
-    nothing, and the model follows TurboVault's defaults there. An entity's
-    ``model_outputs`` maps each of its models with stored values by kind
-    (``stage``, ``hub``, ``satellite_v1``, ...); its ``output`` fields are the
-    resolved models. The JSON import restores ``model_outputs``.
+
+class ModelOutputAttributes(BaseModel):
+    """File path, name and config of one generated dbt model.
+
+    What the project stores for the model (``engine.models.ModelOutput``),
+    e.g. the settings of the dbt project it was imported from. Every
+    attribute is optional; generation derives what is missing. The rules for
+    the values are ``engine.models.output_attributes``.
     """
 
-    model_name: str | None = None
-    folder: str | None = None
-    alias: str | None = None
-    schema_name: str | None = None
-    database_name: str | None = None
-    materialized: str | None = None
-    tags: list[str] | None = Field(
-        None, description="The model's own tags, added to the default tags"
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+        serialize_by_alias=True,
+        # `model_name` is a field here, not pydantic API.
+        protected_namespaces=(),
     )
-    config: dict[str, Any] | None = None
 
-
-def _stored_outputs_field(kinds: str) -> Any:
-    return Field(
-        default_factory=dict,
+    model_name: str | None = Field(
+        default=None,
         description=(
-            f"Stored settings of the entity's models by kind ({kinds}); "
-            "models without any are left out"
+            "Model name, where it isn't the one TurboVault derives (hubs, links, "
+            "PITs and reference tables are named after themselves)"
+        ),
+    )
+    alias: str | None = Field(default=None, description="Relation name (dbt alias)")
+    file_path: str | None = Field(
+        default=None,
+        description=(
+            "Path of the model's .sql file relative to models/, with forward "
+            "slashes (e.g. 'raw_vault/hubs/hub_customer.sql'). The file name is "
+            "the model's name; the .yml is written next to it"
+        ),
+    )
+    materialized: str | None = Field(default=None, description="Materialization")
+    tags: list[str] | None = Field(
+        default=None,
+        description=(
+            "The model's own tags, added to TurboVault's default tags (which "
+            "the project setting add_default_tags turns off)"
+        ),
+    )
+    schema_name: str | None = Field(
+        default=None, alias="schema", description="Schema (dbt custom schema)"
+    )
+    database: str | None = Field(default=None, description="Database")
+    custom_config_json: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            'Further config() settings by key, e.g. {"unique_key": "hk"}. '
+            "Keys with their own attribute (materialized, alias, schema, "
+            "database, tags) are not allowed"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _check_values(self) -> ModelOutputAttributes:
+        errors = output_attribute_errors(self.as_stored())
+        if errors:
+            raise ValueError("; ".join(errors))
+        return self
+
+    @model_serializer(mode="wrap")
+    def _drop_unset(self, handler: SerializerFunctionWrapHandler) -> dict:
+        # Unset attributes mean "derive it"; leaving them out keeps exports short.
+        return {
+            name: value for name, value in handler(self).items() if value is not None
+        }
+
+    def as_stored(self) -> dict[str, object]:
+        """The attributes as the JSON format writes them."""
+        return self.model_dump(exclude_none=True, by_alias=True)
+
+
+class GenerationConfigDef(BaseModel):
+    """An entity's ``generation_config``: output attributes by framework.
+
+    Only ``dbt`` is defined so far, keyed by output kind (e.g. ``hub``,
+    ``satellite_v1``). Kinds without stored attributes are left out.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    dbt: dict[str, ModelOutputAttributes] = Field(
+        default_factory=dict,
+        description="Attributes of the generated dbt models, by output kind",
+    )
+
+    @model_serializer(mode="wrap")
+    def _drop_empty(self, handler: SerializerFunctionWrapHandler) -> dict:
+        # A framework without attributes is left out, like unset attributes.
+        return {name: value for name, value in handler(self).items() if value}
+
+
+def _output_kinds_of(entity: str) -> AfterValidator:
+    """Reject output kinds the entity does not generate."""
+    allowed = OUTPUT_KINDS_BY_ENTITY[entity]
+
+    def check(value: GenerationConfigDef) -> GenerationConfigDef:
+        unknown = [kind for kind in value.dbt if kind not in allowed]
+        if unknown:
+            raise ValueError(
+                f"unknown dbt output kind(s) {', '.join(unknown)}; "
+                f"expected one of: {', '.join(allowed)}"
+            )
+        return value
+
+    return AfterValidator(check)
+
+
+# `generation_config` of each entity definition.
+SourceTableGenerationConfig = Annotated[
+    GenerationConfigDef, _output_kinds_of("SourceTable")
+]
+HubGenerationConfig = Annotated[GenerationConfigDef, _output_kinds_of("Hub")]
+LinkGenerationConfig = Annotated[GenerationConfigDef, _output_kinds_of("Link")]
+SatelliteGenerationConfig = Annotated[
+    GenerationConfigDef, _output_kinds_of("Satellite")
+]
+PITGenerationConfig = Annotated[GenerationConfigDef, _output_kinds_of("PIT")]
+ReferenceTableGenerationConfig = Annotated[
+    GenerationConfigDef, _output_kinds_of("ReferenceTable")
+]
+SnapshotControlGenerationConfig = Annotated[
+    GenerationConfigDef, _output_kinds_of("SnapshotControlTable")
+]
+
+
+def _generation_config_field() -> Any:
+    return Field(
+        default_factory=GenerationConfigDef,
+        description=(
+            "What the project stores for the entity's dbt models (name, file "
+            "path, config), keyed by framework and output kind, e.g. "
+            '{"dbt": {"hub": {"alias": ...}}}. Empty: generation derives them'
         ),
     )
 
@@ -163,9 +287,7 @@ class SourceTableDef(BaseModel):
         default_factory=list,
         description="Columns the stage computes from this table's columns",
     )
-    model_outputs: dict[str, StoredModelOutputDef] = _stored_outputs_field(
-        "stage, prestage"
-    )
+    generation_config: SourceTableGenerationConfig = _generation_config_field()
 
 
 class SourceSystemDef(BaseModel):
@@ -336,9 +458,7 @@ class HubDefinition(BaseModel):
     record_tracking_satellite_output: ModelOutputDef | None = Field(
         None, description="The record-tracking satellite's model, when the hub has one"
     )
-    model_outputs: dict[str, StoredModelOutputDef] = _stored_outputs_field(
-        "hub, effectivity_satellite, record_tracking_satellite"
-    )
+    generation_config: HubGenerationConfig = _generation_config_field()
 
 
 # =============================================================================
@@ -561,9 +681,7 @@ class LinkDefinition(BaseModel):
         None,
         description="The record-tracking satellite's model, when the link has one",
     )
-    model_outputs: dict[str, StoredModelOutputDef] = _stored_outputs_field(
-        "link, effectivity_satellite, record_tracking_satellite"
-    )
+    generation_config: LinkGenerationConfig = _generation_config_field()
     column_descriptions: dict[str, ColumnDescriptionDef] = Field(
         default_factory=dict,
         description="Descriptions by link column name, for columns that have one",
@@ -837,9 +955,7 @@ class SatelliteDefinition(BaseModel):
             "when v1 views are on)"
         ),
     )
-    model_outputs: dict[str, StoredModelOutputDef] = _stored_outputs_field(
-        "satellite_v0, satellite_v1"
-    )
+    generation_config: SatelliteGenerationConfig = _generation_config_field()
     create_v1_view: bool | None = Field(
         None, description="Whether it gets a v1 view; None: the project's setting"
     )
@@ -927,9 +1043,7 @@ class ReferenceTableDefinition(BaseModel):
     output: ModelOutputDef | None = Field(
         None, description="The reference table's dbt model (None: named table_name)"
     )
-    model_outputs: dict[str, StoredModelOutputDef] = _stored_outputs_field(
-        "reference_table"
-    )
+    generation_config: ReferenceTableGenerationConfig = _generation_config_field()
 
 
 class PITDefinition(BaseModel):
@@ -972,7 +1086,7 @@ class PITDefinition(BaseModel):
     output: ModelOutputDef | None = Field(
         None, description="The PIT's dbt model (None: named pit_name, defaults)"
     )
-    model_outputs: dict[str, StoredModelOutputDef] = _stored_outputs_field("pit")
+    generation_config: PITGenerationConfig = _generation_config_field()
 
 
 # ============================================================================
@@ -1032,9 +1146,7 @@ class SnapshotControlDefinition(BaseModel):
     v1_output: ModelOutputDef | None = Field(
         None, description="The control logic's model (None: named <base>_v1)"
     )
-    model_outputs: dict[str, StoredModelOutputDef] = _stored_outputs_field(
-        "snapshot_control_v0, snapshot_control_v1"
-    )
+    generation_config: SnapshotControlGenerationConfig = _generation_config_field()
 
     @property
     def base_name(self) -> str:

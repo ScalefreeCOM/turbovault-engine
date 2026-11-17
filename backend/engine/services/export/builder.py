@@ -250,7 +250,11 @@ class ModelBuilder:
                         description=table.description or None,
                         columns=columns,
                         derived_columns=derived_columns,
-                        model_outputs=self.outputs.stored("source_table", table.pk),
+                        generation_config=self.outputs.generation_config(
+                            "source_table",
+                            table,
+                            f"source table '{table.physical_table_name}'",
+                        ),
                     )
                 )
 
@@ -377,18 +381,18 @@ class ModelBuilder:
                     column_descriptions=column_descriptions,
                     output=self.outputs.hub(hub),
                     effectivity_satellite_output=(
-                        self.outputs.effectivity_satellite(hub, hub.hub_physical_name)
+                        self.outputs.effectivity_satellite(hub)
                         if hub.create_effectivity_satellite
                         else None
                     ),
                     record_tracking_satellite_output=(
-                        self.outputs.record_tracking_satellite(
-                            hub, hub.hub_physical_name
-                        )
+                        self.outputs.record_tracking_satellite(hub)
                         if hub.create_record_tracking_satellite
                         else None
                     ),
-                    model_outputs=self.outputs.stored("hub", hub.pk),
+                    generation_config=self.outputs.generation_config(
+                        "hub", hub, f"hub '{hub.hub_physical_name}'"
+                    ),
                 )
             )
 
@@ -1435,7 +1439,9 @@ class ModelBuilder:
                     v1_include_payload=sat.v1_include_payload,
                     disable_hwm=sat.disable_hwm,
                     source_is_single_batch=self._single_batch(sat.source_table),
-                    model_outputs=self.outputs.stored("satellite", sat.pk),
+                    generation_config=self.outputs.generation_config(
+                        "satellite", sat, f"satellite '{sat.satellite_physical_name}'"
+                    ),
                 )
             )
 
@@ -1684,20 +1690,18 @@ class ModelBuilder:
                     ),
                     output=self.outputs.link(link),
                     effectivity_satellite_output=(
-                        self.outputs.effectivity_satellite(
-                            link, link.link_physical_name
-                        )
+                        self.outputs.effectivity_satellite(link)
                         if link.create_effectivity_satellite
                         else None
                     ),
                     record_tracking_satellite_output=(
-                        self.outputs.record_tracking_satellite(
-                            link, link.link_physical_name
-                        )
+                        self.outputs.record_tracking_satellite(link)
                         if link.create_record_tracking_satellite
                         else None
                     ),
-                    model_outputs=self.outputs.stored("link", link.pk),
+                    generation_config=self.outputs.generation_config(
+                        "link", link, f"link '{link.link_physical_name}'"
+                    ),
                 )
             )
 
@@ -1747,7 +1751,11 @@ class ModelBuilder:
                     logic_patterns=logic_patterns,
                     v0_output=self.outputs.snapshot_control_v0(control),
                     v1_output=self.outputs.snapshot_control_v1(control),
-                    model_outputs=self.outputs.stored("snapshot_control", control.pk),
+                    generation_config=self.outputs.generation_config(
+                        "snapshot_control",
+                        control,
+                        f"snapshot control '{control.name}'",
+                    ),
                 )
             )
 
@@ -1855,7 +1863,11 @@ class ModelBuilder:
                     satellites=satellite_assignments,
                     description=ref_table.description or None,
                     output=self.outputs.reference_table(ref_table),
-                    model_outputs=self.outputs.stored("reference_table", ref_table.pk),
+                    generation_config=self.outputs.generation_config(
+                        "reference_table",
+                        ref_table,
+                        f"reference table '{ref_table.reference_table_physical_name}'",
+                    ),
                 )
             )
 
@@ -1929,7 +1941,9 @@ class ModelBuilder:
                     custom_record_source=pit.custom_record_source or None,
                     include_business_objects_before_appearance=pit.include_business_objects_before_appearance,
                     output=self.outputs.pit(pit),
-                    model_outputs=self.outputs.stored("pit", pit.pk),
+                    generation_config=self.outputs.generation_config(
+                        "pit", pit, f"PIT '{pit.pit_physical_name}'"
+                    ),
                 )
             )
 

@@ -55,6 +55,7 @@ from engine.models import (
 )
 from engine.models.model_output import normalize_folder
 from engine.models.snapshot_control import create_default_logic
+from engine.services.export.model_outputs import derived_model_name
 from engine.services.imports.changes import (
     LOOKUP,
     OpOutcome,
@@ -92,7 +93,10 @@ from engine.services.imports.types import (
     PlanCounts,
     PlanState,
 )
-from engine.services.runtime_config import EngineRuntimeConfig
+from engine.services.runtime_config import (
+    EngineRuntimeConfig,
+    resolve_runtime_config,
+)
 
 
 def _only_supplied(**fields: Any) -> dict[str, Any]:
@@ -255,6 +259,8 @@ class _Executor:
         self.project = project
         # The project's settings: naming patterns name hash keys and diffs.
         self.runtime_config = runtime_config
+        # The project's naming settings, resolved when a stored name needs them
+        self._naming_config: EngineRuntimeConfig | None = None
         self.domain = domain
         self.plan = plan
         self.error_strategy = error_strategy
@@ -455,11 +461,13 @@ class _Executor:
             return
         existing = {
             row.kind: row
-            for row in ModelOutput.objects.filter(**{entity_field: entity})
+            for row in ModelOutput.objects.filter(
+                **{entity_field: entity}, framework=ModelOutput.Framework.DBT
+            )
         }
         for kind, d in outputs.items():
             values = {
-                "model_name": d.model_name or None,
+                "model_name": self._stored_model_name(kind, entity, d),
                 "folder": normalize_folder(d.folder) or None if d.folder else None,
                 "alias": d.alias or None,
                 "schema_name": d.schema_name or None,
@@ -492,7 +500,11 @@ class _Executor:
                 continue
             self._upsert(
                 ModelOutput,
-                lookup={entity_field: entity, "kind": kind},
+                lookup={
+                    entity_field: entity,
+                    "framework": ModelOutput.Framework.DBT,
+                    "kind": kind,
+                },
                 values=values,
                 create_values={"project": self.project},
                 existing=current,
@@ -501,6 +513,22 @@ class _Executor:
         for kind, row in existing.items():
             if kind not in outputs:
                 remove(row, outcome=self._current, path=("model_outputs", kind))
+
+    def _stored_model_name(self, kind: str, entity: Any, d: DModelOutput) -> str | None:
+        """The model name to store: the given one, else the file name of a
+        JSON import's ``file_path`` where it isn't the name TurboVault derives
+        (so a round trip stores no name the patterns give anyway). Hubs,
+        links, PITs and reference tables are named after themselves."""
+        if d.model_name:
+            return d.model_name
+        if not d.file_name or kind in ModelOutput.NAMED_BY_ENTITY:
+            return None
+        if self._naming_config is None:
+            self._naming_config = resolve_runtime_config(
+                self.project, self.runtime_config
+            )
+        derived = derived_model_name(kind, entity, self._naming_config)
+        return None if d.file_name == derived else d.file_name
 
     def _stored_hashdiff_name(self, d: DSatellite, existing: Satellite | None) -> Any:
         """The hash diff name to store for a satellite: None keeps, CLEAR clears.

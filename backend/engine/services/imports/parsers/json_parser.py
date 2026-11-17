@@ -8,12 +8,13 @@ a DomainModel directly. The export schema is owned by
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from engine.services.export.models import ProjectExport
+from engine.models.output_attributes import file_path_folder
+from engine.services.export.models import ModelOutputAttributes, ProjectExport
 from engine.services.imports.domain import (
     CLEAR,
     DPIT,
@@ -137,13 +138,39 @@ def _optional(definition: BaseModel, field: str) -> Any:
 
 
 def _outputs(definition: BaseModel) -> dict[str, DModelOutput] | None:
-    """The entity's stored model outputs, or None for older exports."""
-    if "model_outputs" not in definition.model_fields_set:
+    """The entity's stored model outputs (its ``generation_config``), or None
+    for exports without them."""
+    if "generation_config" not in definition.model_fields_set:
         return None
     return {
-        kind: DModelOutput(kind=kind, **stored.model_dump())
-        for kind, stored in definition.model_outputs.items()
+        kind: _output(kind, attributes)
+        for kind, attributes in definition.generation_config.dbt.items()
     }
+
+
+def _output(kind: str, attributes: ModelOutputAttributes) -> DModelOutput:
+    """One output kind's attributes as stored values: a ``file_path`` gives
+    the folder, and its file name the model's name (see ``DModelOutput``)."""
+    folder = file_name = None
+    if attributes.file_path:
+        folder = file_path_folder(attributes.file_path)
+        file_name = PurePosixPath(attributes.file_path).name.removesuffix(".sql")
+    return DModelOutput(
+        kind=kind,
+        model_name=attributes.model_name,
+        folder=folder,
+        file_name=file_name,
+        alias=attributes.alias,
+        schema_name=attributes.schema_name,
+        database_name=attributes.database,
+        materialized=attributes.materialized,
+        tags=list(attributes.tags) if attributes.tags is not None else None,
+        config=(
+            dict(attributes.custom_config_json)
+            if attributes.custom_config_json
+            else None
+        ),
+    )
 
 
 def _effectivity_options(entity: Any, definition: BaseModel) -> None:
