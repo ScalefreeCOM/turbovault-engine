@@ -5,7 +5,7 @@ models:
   - name: [[ link_name ]]
     description: [[ (description or (('Standard' if link_type == 'standard' else 'Non-Historized') ~ " link for " ~ link_name)) | yaml_quote ]]
     config:
-      tags: ['link', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+      tags: [% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['link', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
     columns:
       - name: [[ hashkey.hashkey_name ]]
         description: "Link hash key"

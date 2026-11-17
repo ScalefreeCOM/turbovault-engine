@@ -95,6 +95,12 @@ class Code:
     # Execute stage
     EXECUTE_CONSTRAINT_VIOLATION = "execute.constraint_violation"
     EXECUTE_UNEXPECTED_ERROR = "execute.unexpected_error"
+    # Snapshot controls have no plan entity, so their output attributes are
+    # reported as issues: applied (info) or without a matching table (warning).
+    EXECUTE_SNAPSHOT_CONTROL_ATTRIBUTES_UPDATED = (
+        "execute.snapshot_control_attributes_updated"
+    )
+    EXECUTE_SNAPSHOT_CONTROL_NOT_FOUND = "execute.snapshot_control_not_found"
 
     # Internal
     INTERNAL_BUG = "internal.bug"

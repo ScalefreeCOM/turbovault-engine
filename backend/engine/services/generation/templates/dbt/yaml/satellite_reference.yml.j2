@@ -5,7 +5,7 @@ models:
   - name: [[ satellite_name ]]
     description: [[ (description or ("Reference satellite for " ~ parent_entity)) | yaml_quote ]]
     config:
-      tags: ['satellite', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]]
+      tags: [% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['satellite', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
     columns:
 [% for bk in parent_business_keys %]
       - name: [[ bk ]]

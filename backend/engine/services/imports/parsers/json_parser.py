@@ -9,10 +9,21 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from pydantic import ValidationError
 
-from engine.services.export.models import ProjectExport
+from engine.services.export.models import (
+    HubDefinition,
+    LinkDefinition,
+    PITDefinition,
+    PrestageDefinition,
+    ProjectExport,
+    ReferenceTableDefinition,
+    SatelliteDefinition,
+    SnapshotControlDefinition,
+    StageDefinition,
+)
 from engine.services.imports.domain import (
     DPIT,
     DDerivedColumn,
@@ -112,6 +123,43 @@ def parse_json(path: Path) -> DomainModel:
 # ---------------------------------------------------------------------------
 
 
+def _generation_config(
+    definition: (
+        HubDefinition
+        | LinkDefinition
+        | SatelliteDefinition
+        | StageDefinition
+        | PrestageDefinition
+        | PITDefinition
+        | ReferenceTableDefinition
+        | SnapshotControlDefinition
+    ),
+) -> dict[str, Any] | None:
+    """The definition's ``generation_config`` as stored, or None when it has none.
+
+    Exports from before output attributes existed don't carry the field; None
+    then keeps what the project has.
+    """
+    if "generation_config" not in definition.model_fields_set:
+        return None
+    return definition.generation_config.as_stored()
+
+
+def _merged_generation_config(
+    current: dict[str, Any] | None, part: dict[str, Any]
+) -> dict[str, Any]:
+    """Add one definition's part of a source table's ``generation_config``.
+
+    A source table's stage and pre-stage each export their own output kind;
+    together they are the table's value.
+    """
+    by_kind = {
+        **((current or {}).get("dbt") or {}),
+        **(part.get("dbt") or {}),
+    }
+    return {"dbt": by_kind} if by_kind else {}
+
+
 def _project_export_to_domain(export: ProjectExport) -> DomainModel:
     model = DomainModel()
 
@@ -200,6 +248,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             create_effectivity_satellite=hub_def.create_effectivity_satellite,
             group_name=hub_def.group,
             description=hub_def.description,
+            generation_config=_generation_config(hub_def),
         )
         for i, col_name in enumerate(hub_def.business_key_columns):
             hub.columns.append(
@@ -267,6 +316,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             create_record_tracking_satellite=link_def.create_record_tracking_satellite,
             group_name=link_def.group,
             description=link_def.description,
+            generation_config=_generation_config(link_def),
         )
         for i, ref in enumerate(link_def.hub_references):
             link.hub_references.append(
@@ -432,6 +482,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             source_table_identifier=f"{sat_def.source_system}|{sat_def.source_table}",
             group_name=sat_def.group,
             description=sat_def.description,
+            generation_config=_generation_config(sat_def),
         )
         for i, col_def in enumerate(sat_def.columns):
             sat.columns.append(
@@ -455,6 +506,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             start_date=ctrl.start_date,
             end_date=ctrl.end_date,
             daily_time=ctrl.daily_time,
+            generation_config=_generation_config(ctrl),
         )
         for pattern in ctrl.logic_patterns:
             sc.logic_rules.append(
@@ -478,6 +530,7 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             snapshot_logic_column=rt_def.snapshot_logic_column,
             group_name=rt_def.group,
             description=rt_def.description,
+            generation_config=_generation_config(rt_def),
             satellite_assignments=[
                 DRefSatAssignment(
                     satellite_name=s.satellite_name,
@@ -507,7 +560,27 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             dimension_key_column_name=pit_def.dimension_key_column,
             pit_type=pit_def.pit_type,
             group_name=pit_def.group,
+            generation_config=_generation_config(pit_def),
         )
+
+    # The output attributes of a stage and of a pre-stage belong to their
+    # source table; a pre-stage table carries both.
+    for definition, system_name, table_name in (
+        *((stage, stage.source_system, stage.source_table) for stage in export.stages),
+        *(
+            (prestage, prestage.source_system, prestage.table_name)
+            for prestage in export.prestages
+        ),
+    ):
+        generation_config = _generation_config(definition)
+        if generation_config is None:
+            continue
+        system = model.source_systems.get(system_name)
+        table = system.tables.get(table_name) if system else None
+        if table is not None:
+            table.generation_config = _merged_generation_config(
+                table.generation_config, generation_config
+            )
 
     # Prejoins are embedded in stage definitions in JSON exports.
     for stage in export.stages:

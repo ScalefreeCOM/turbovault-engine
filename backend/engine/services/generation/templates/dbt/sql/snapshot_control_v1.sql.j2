@@ -1,13 +1,24 @@
 [# Snapshot Control V1 Template #]
 [# Generates the snapshot control logic with retention patterns #]
 
-[# v0_name: the snapshot control table model this logic reads #]
-
+[# v0_name: model name of the snapshot control v0 model this one reads #]
 {{ config(
 [% if materialization %]
     materialized='[[ materialization ]]',
 [% endif %]
-    tags=['snapshot_control', 'control']
+[% if model_alias %]
+    alias='[[ model_alias ]]',
+[% endif %]
+[% if model_schema %]
+    schema='[[ model_schema ]]',
+[% endif %]
+[% if model_database %]
+    database='[[ model_database ]]',
+[% endif %]
+[% for key, value in (model_custom_config | default({})).items() %]
+    [[ key ]]=[[ value | config_literal ]],
+[% endfor %]
+    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['snapshot_control', 'control'][% endif +%]
 ) }}
 
 {%- set yaml_metadata -%}

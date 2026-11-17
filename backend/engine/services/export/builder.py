@@ -11,9 +11,16 @@ from collections import defaultdict
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
+from engine.models.output_attributes import (
+    OUTPUT_KINDS_BY_ENTITY,
+    generation_config_errors,
+)
 from engine.services.export.models import (
     ColumnDescriptionDef,
     DerivedColumnDef,
+    GenerationConfigDef,
     HashkeyDefinition,
     HubColumnMapping,
     HubDefinition,
@@ -59,6 +66,8 @@ from engine.services.sql_columns import referenced_columns
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from django.db.models import Model
+
     from engine.models import Project, SourceTable, StagingColumn
 
 # Enough of a staging column to know its name, type and description, whatever
@@ -102,6 +111,38 @@ def _prejoin_origin(staging_column: StagingColumn) -> tuple[str | None, str | No
         return None, None
     target = prejoin_column.prejoin.prejoin_target_table
     return target.physical_table_name, target.source_system.name
+
+
+def _generation_config(
+    entity: Model, label: str, kinds: tuple[str, ...] | None = None
+) -> GenerationConfigDef:
+    """The entity's stored ``generation_config``, checked.
+
+    ``kinds`` keeps only those output kinds, for definitions that carry part
+    of an entity's models (a source table's stage and pre-stage).
+
+    Raises ValueError naming the entity when a stored value is invalid (e.g.
+    written to the database without going through validation).
+    """
+    stored = entity.generation_config or {}
+    # Checked here, kinds included, so a bad value names its entity instead of
+    # failing later in the export schema's validators.
+    errors = generation_config_errors(
+        stored, OUTPUT_KINDS_BY_ENTITY[type(entity).__name__]
+    )
+    if errors:
+        raise ValueError(
+            f"Invalid generation_config on {label} '{entity}': {'; '.join(errors)}"
+        )
+    if kinds is not None:
+        by_kind = (stored.get("dbt") or {}).items()
+        stored = {"dbt": {kind: attrs for kind, attrs in by_kind if kind in kinds}}
+    try:
+        return GenerationConfigDef.model_validate(stored)
+    except ValidationError as exc:
+        raise ValueError(
+            f"Invalid generation_config on {label} '{entity}': {exc}"
+        ) from exc
 
 
 def stage_model_name(table: SourceTable) -> str:
@@ -351,6 +392,7 @@ class ModelBuilder:
                     create_effectivity_satellite=hub.create_effectivity_satellite,
                     description=hub.description or None,
                     column_descriptions=column_descriptions,
+                    generation_config=_generation_config(hub, "hub"),
                 )
             )
 
@@ -524,6 +566,7 @@ class ModelBuilder:
                     multi_active_config=multi_active_config,
                     derived_columns=derived_columns,
                     columns=columns,
+                    generation_config=_generation_config(table, "source table", ("stage",)),
                 )
             )
 
@@ -560,6 +603,9 @@ class ModelBuilder:
                     )
                     for column in table.columns.all()
                 ],
+                generation_config=_generation_config(
+                    table, "source table", ("prestage",)
+                ),
             )
             for table in tables
         ]
@@ -1308,6 +1354,7 @@ class ModelBuilder:
                     hashdiff_name=hashdiff_name,
                     columns=columns,
                     description=sat.description or None,
+                    generation_config=_generation_config(sat, "satellite"),
                 )
             )
 
@@ -1525,6 +1572,7 @@ class ModelBuilder:
                     create_record_tracking_satellite=link.create_record_tracking_satellite,
                     description=link.description or None,
                     column_descriptions=column_descriptions,
+                    generation_config=_generation_config(link, "link"),
                 )
             )
 
@@ -1567,6 +1615,7 @@ class ModelBuilder:
                     end_date=control.snapshot_end_date.isoformat(),
                     daily_time=control.daily_snapshot_time.isoformat(),
                     logic_patterns=logic_patterns,
+                    generation_config=_generation_config(control, "snapshot control"),
                 )
             )
 
@@ -1662,6 +1711,7 @@ class ModelBuilder:
                     snapshot_logic_column=snapshot_logic_column,
                     satellites=satellite_assignments,
                     description=ref_table.description or None,
+                    generation_config=_generation_config(ref_table, "reference table"),
                 )
             )
 
@@ -1732,6 +1782,7 @@ class ModelBuilder:
                     pit_type=pit.pit_type,
                     use_snapshot_optimization=pit.use_snapshot_optimization,
                     include_business_objects_before_appearance=pit.include_business_objects_before_appearance,
+                    generation_config=_generation_config(pit, "PIT"),
                 )
             )
 

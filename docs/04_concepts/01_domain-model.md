@@ -115,6 +115,7 @@ prepares data for its stage (see [Pre-stages](#35-pre-stages)).
 | static_part_of_record_source | string     |          | The part of the record source that stays the same across loads, as an SQL `LIKE` pattern (e.g. `SAP/Accounts/%`). Written as the `rsrc_static` of the hubs and links the table loads. Empty inherits. |
 | load_date_value              | string     |          | The stage's `ldts`: a column name or SQL expression (e.g. `sysdate()`). Empty inherits (see below). |
 | description                  | string     |          | Optional description; written to `sources.yml` and the stage's model YAML. |
+| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`stage`, `prestage`). Empty: derived. See [Output attributes](#output-attributes). |
 | created_at                   | datetime   | ✓       | Timestamp when the record was created.                              |
 | updated_at                   | datetime   | ✓       | Timestamp when the record was last updated.                         |
 
@@ -273,6 +274,77 @@ comments.
 
 ---
 
+### Output attributes
+
+Every entity that generates dbt models stores, per model, the
+file path, name and config the model should have, e.g. the ones of the dbt
+project it was imported from. Generation then writes the model there, so a team
+can switch to Turbovault without restructuring its repository.
+
+They live in the entity's `generation_config` field, keyed first by framework
+and then by output kind, because one entity can generate several models. Only
+`dbt` is defined today; another framework (e.g. SQLMesh) gets its own key next
+to it instead of sharing the dbt attributes. Any other top-level key is
+rejected.
+
+| Entity                   | Output kinds                                                      |
+| ------------------------ | ----------------------------------------------------------------- |
+| `source_table`           | `stage`, `prestage` (pre-stage tables)                            |
+| `hub`                    | `hub`, `record_tracking_satellite`, `effectivity_satellite`       |
+| `link`                   | `link`, `record_tracking_satellite`                               |
+| `satellite`              | `satellite_v0`, `satellite_v1`                                    |
+| `snapshot_control_table` | `snapshot_control_v0`, `snapshot_control_v1`                      |
+| `reference_table`        | `reference_table`                                                 |
+| `pit`                    | `pit`                                                             |
+
+Each output kind holds any of these attributes; whatever is missing is derived
+as before (layer folders, naming patterns, `dbt_project.yml` settings):
+
+| Attribute      | Description |
+| -------------- | ----------- |
+| `model_name`   | Model name, which dbt also uses as the file name. |
+| `file_path`    | Path of the `.sql` file relative to `models/`, with `/` (e.g. `raw_vault/hubs/hub_customer.sql`). The `.yml` goes next to it. Must stay inside `models/`, use only letters, digits, `_`, `.` and `-`, and be named after `model_name` when both are set. |
+| `alias`        | Relation name (`config(alias=...)`). |
+| `schema`       | Custom schema (`config(schema=...)`). |
+| `database`     | Database (`config(database=...)`). |
+| `materialized` | Materialization (`config(materialized=...)`). |
+| `tags`         | Tags. Replace the tags generation would set, in the model's `config()` and `.yml`. |
+| `custom_config_json` | Further `config()` settings by key, written as `key=value` into the model's `config()` (e.g. `{"unique_key": "hk_customer_h", "persist_docs": {"relation": true}}`). Keys are identifiers; the keys above (`materialized`, `alias`, `schema`, `database`, `tags`) must use their own attribute. A PIT's `post_hook` here replaces its default `clean_up_pit` hook. |
+
+```json
+{
+  "dbt": {
+    "satellite_v0": {"file_path": "raw_vault/satellites/customer_details.sql"},
+    "satellite_v1": {
+      "model_name": "customer_details_current",
+      "alias": "customer",
+      "custom_config_json": {"persist_docs": {"relation": true}}
+    }
+  }
+}
+```
+
+Generation honors them unless it runs with `--standard-paths`
+(`GenerationOptions.use_original_paths=False`), and every reference to a model
+(pre-stages read by stages and prejoins, stages in `source_models`, `sat_v0`
+of v1 views and PITs, `sat_v1` of reference tables, the snapshot control of
+PITs) uses its actual name. A model
+placed outside its layer's folder gets that layer's schema and materialization
+in its own `config()`, since `dbt_project.yml` configures layers by folder.
+A pre-stage's SQL is the user's complete model and may call `config()` itself,
+so its stored config (including the layer fallback) goes into the `config:`
+block of its `.yml` instead, which dbt ranks below the model's own `config()`.
+A pre-stage maintained outside Turbovault (no SQL) can store a `model_name`:
+nothing is written for it, but its stage reads it under that name.
+Two models with the same name or file, or a model file that would overwrite a
+generated sources file (`01_sources/source__<system>.yml`), fail generation
+with `write.path_collision` before anything is written.
+
+The SQLMesh output ignores the `dbt` attributes; it can add a `sqlmesh` key
+of its own later.
+
+---
+
 ## 4. Hubs & Hub Mappings
 
 These tables define DV hubs and how they map to source data.
@@ -291,6 +363,7 @@ Defines a Data Vault hub entity.
 | create_record_tracking_satellite | boolean    | ✓       | If true, a record-tracking satellite should be generated for this hub. |
 | create_effectivity_satellite     | boolean    | ✓       | If true, an effectivity satellite should be generated for this hub.    |
 | description                      | string     |          | Optional description, written to the hub's model YAML.                 |
+| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`hub`, `record_tracking_satellite`, `effectivity_satellite`). Empty: derived. See [Output attributes](#output-attributes). |
 | created_at                       | datetime   | ✓       | Timestamp when the record was created.                                 |
 | updated_at                       | datetime   | ✓       | Timestamp when the record was last updated.                            |
 
@@ -369,6 +442,7 @@ Defines a Data Vault link entity.
 | link_hashkey_name  | string     | ✓       | Name of the link hashkey column (e.g.`lk_customer_order`). |
 | link_type          | string     | ✓       | `standard` or `non-historized`.                          |
 | description        | string     |          | Optional description, written to the link's model YAML.      |
+| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`link`, `record_tracking_satellite`). Empty: derived. See [Output attributes](#output-attributes). |
 | created_at         | datetime   | ✓       | Timestamp when the record was created.                       |
 | updated_at         | datetime   | ✓       | Timestamp when the record was last updated.                  |
 
@@ -537,6 +611,7 @@ Represents a Data Vault satellite attached to either a hub or a link.
 | parent_entity_id        | identifier | ✓       | Identifier of the parent entity (hub or link).                                                                                                                        |
 | satellite_type          | string     | ✓       | `standard` (default for standard hub & link), `reference` (default for reference hub), `non-historized` (default for non-historized link), or `multi-active`. |
 | description             | string     |          | Optional description, written to the satellite's model YAML. |
+| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`satellite_v0`, `satellite_v1`). Empty: derived. See [Output attributes](#output-attributes). |
 | created_at              | datetime   | ✓       | Timestamp when the record was created.                                                                                                                                |
 | updated_at              | datetime   | ✓       | Timestamp when the record was last updated.                                                                                                                           |
 
@@ -595,6 +670,7 @@ Stores global snapshot configuration.
 | snapshot_start_date       | date       | ✓       | Start date of snapshot range (default: beginning of (year of today - 5 years); format `YYYY-MM-DD`). |
 | snapshot_end_date         | date       | ✓       | End date of snapshot range (default: end of (year of today + 5 years); format `YYYY-MM-DD`).         |
 | daily_snapshot_time       | time       | ✓       | Daily snapshot time (default:`08:00:00`; format `hh:mm:ss`).                                       |
+| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`snapshot_control_v0`, `snapshot_control_v1`). Empty: derived. See [Output attributes](#output-attributes). |
 | created_at                | datetime   | ✓       | Timestamp when the record was created.                                                                 |
 | updated_at                | datetime   | ✓       | Timestamp when the record was last updated.                                                            |
 
@@ -639,6 +715,7 @@ Represents a reference table based on a reference hub.
 | snapshot_table_id             | identifier |          | FK to `snapshot_control_table.snapshot_control_table_id` when `historization_type` requires snapshot handling. |
 | snapshot_control_logic_id     | identifier |          | FK to `snapshot_control_logic.snapshot_control_logic_id` when snapshot-based logic is used.                      |
 | description                   | string     |          | Optional description, written to the reference table's model YAML. |
+| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`reference_table`). Empty: derived. See [Output attributes](#output-attributes). |
 | created_at                    | datetime   | ✓       | Timestamp when the record was created.                                                                             |
 | updated_at                    | datetime   | ✓       | Timestamp when the record was last updated.                                                                        |
 
@@ -698,6 +775,7 @@ Defines Point-in-Time structures over satellites for a tracked hub or link.
 | use_snapshot_optimization                  | boolean    | ✓       | If `true`, snapshot optimization techniques are applied (default: `true`).                     |
 | include_business_objects_before_appearance | boolean    | ✓       | If `true`, includes business keys before their first appearance in the PIT (default: `false`). |
 | satellite_ids                              | list[id]   | ✓       | List of `satellite.satellite_id` entries included in the PIT structure.                          |
+| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`pit`). Empty: derived. See [Output attributes](#output-attributes). |
 | created_at                                 | datetime   | ✓       | Timestamp when the record was created.                                                             |
 | updated_at                                 | datetime   | ✓       | Timestamp when the record was last updated.                                                        |
 

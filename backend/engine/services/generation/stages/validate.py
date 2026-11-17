@@ -92,6 +92,7 @@ def validate(
     result: ValidationResult = validate_export(
         project_export,
         keeps_load_columns=keeps is True or str(keeps).lower() == "true",
+        use_original_paths=options.use_original_paths,
     )
     group_lookup = _build_group_lookup(project_export)
 

@@ -161,6 +161,10 @@ class GenerationOptions(BaseModel):
     skip_validation: bool = False
     create_zip: bool = False
     generate_satellite_v1_views: bool = True
+    # dbt: write models with their stored output attributes (file path, model
+    # name, alias, schema, materialization, tags) where set. False gives
+    # Turbovault's standard folder structure and naming for every model.
+    use_original_paths: bool = True
     # Preserve the legacy resolver contract: active DB templates precede files.
     use_db_templates: bool = True
     entity_selection: EntitySelection | None = None

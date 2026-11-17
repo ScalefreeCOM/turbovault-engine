@@ -593,3 +593,336 @@ def test_sqlmesh_output_leaves_the_prestages_out(prestage_project, tmp_path):
     stages = {a.entity_name for a in report.artifacts if a.entity_type == "stage"}
     assert stages == {"stg__crm__customer"}
     assert report.plan.by_entity_type["stage"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Output attributes (#442): pre-stages keep their imported path, name, config
+# ---------------------------------------------------------------------------
+#
+# A pre-stage's attributes are stored on its source table under the output
+# kind `prestage`, next to the table's `stage` attributes. Its SQL is the
+# user's complete model and may call config() itself, so the stored config
+# goes into the pre-stage's .yml (which dbt ranks below the SQL's config()).
+
+
+def _set_prestage_attributes(table_name: str, **attributes) -> None:
+    table = _table(table_name)
+    table.generation_config = {"dbt": {"prestage": attributes}}
+    table.full_clean(validate_unique=False, validate_constraints=False)
+    table.save()
+
+
+def _prestage_yml(path: Path) -> dict:
+    (entry,) = yaml.safe_load(path.read_text(encoding="utf-8"))["models"]
+    return entry
+
+
+def _error_codes(report) -> list[str]:
+    return [issue.code for issue in report.issues if issue.severity == "error"]
+
+
+def test_a_prestage_is_written_to_its_stored_path_and_name(prestage_project, tmp_path):
+    _set_prestage_attributes(
+        "CUSTOMER_ADDRESS", file_path="prep/crm/customer_addresses.sql"
+    )
+    report = _generate(prestage_project, tmp_path)
+    assert report.status == "success", report.issues
+
+    models = tmp_path / "dbt" / "models"
+    model = models / "prep" / "crm" / "customer_addresses.sql"
+    assert model.read_text(encoding="utf-8") == ADDRESS_SQL + "\n"
+    assert _prestage_yml(model.with_suffix(".yml"))["name"] == "customer_addresses"
+    assert not list(models.rglob("pstg__crm__customer_address*"))
+
+
+def test_the_stage_and_prejoins_read_the_stored_prestage_name(
+    prestage_project, tmp_path
+):
+    from engine.models import PrejoinDefinition, PrejoinExtractionColumn, SourceColumn
+
+    customer = _table("CUSTOMER")
+    address = _table("CUSTOMER_ADDRESS")
+    address_no = SourceColumn.objects.create(
+        source_table=customer,
+        source_column_physical_name="C_ADDRESS_NO",
+        source_column_datatype="NUMBER",
+    )
+    prejoin = PrejoinDefinition.objects.create(
+        project=prestage_project, source_table=customer, prejoin_target_table=address
+    )
+    prejoin.prejoin_condition_source_column.add(address_no)
+    prejoin.prejoin_condition_target_column.add(
+        address.columns.get(source_column_physical_name="ADDRESS_NO")
+    )
+    PrejoinExtractionColumn.objects.create(
+        prejoin=prejoin,
+        source_column=address.columns.get(source_column_physical_name="STREET"),
+    )
+    _set_prestage_attributes("CUSTOMER_ADDRESS", model_name="customer_addresses")
+
+    _generate(prestage_project, tmp_path)
+    staging = tmp_path / "dbt" / "models" / "02_staging" / "crm"
+
+    stage = _yaml_metadata(staging / "stg__crm__customer_address.sql")
+    assert stage["source_model"] == "customer_addresses"
+    (prejoined,) = _yaml_metadata(staging / "stg__crm__customer.sql")[
+        "prejoined_columns"
+    ]
+    assert prejoined["ref_model"] == "customer_addresses"
+
+
+def test_a_prestage_without_sql_is_referenced_by_its_stored_name(
+    prestage_project, tmp_path
+):
+    _set_prestage_attributes("ORDER_ITEMS", model_name="order_items_flat")
+    _generate(prestage_project, tmp_path)
+    models = tmp_path / "dbt" / "models"
+
+    assert not list(models.rglob("order_items_flat*"))
+    stage = _yaml_metadata(models / "02_staging" / "crm" / "stg__crm__order_items.sql")
+    assert stage["source_model"] == "order_items_flat"
+
+
+def test_the_stored_config_goes_into_the_yml(prestage_project, tmp_path):
+    _set_prestage_attributes(
+        "CUSTOMER_ADDRESS",
+        alias="customer_address",
+        schema="prep",
+        database="analytics",
+        materialized="table",
+        tags=["prep", "pii"],
+        custom_config_json={"persist_docs": {"relation": True}, "meta": {"o": "x"}},
+    )
+    _generate(prestage_project, tmp_path)
+    folder = tmp_path / "dbt" / "models" / "01_prestaging" / "crm"
+
+    config = _prestage_yml(folder / "pstg__crm__customer_address.yml")["config"]
+    assert config == {
+        "alias": "customer_address",
+        "schema": "prep",
+        "database": "analytics",
+        "materialized": "table",
+        "persist_docs": {"relation": True},
+        "meta": {"o": "x"},
+        "tags": ["prep", "pii"],
+    }
+    # The user's SQL is written as it is.
+    sql = (folder / "pstg__crm__customer_address.sql").read_text(encoding="utf-8")
+    assert sql == ADDRESS_SQL + "\n"
+
+
+def test_a_prestage_outside_its_layer_folder_gets_the_layer_config(
+    prestage_project, tmp_path
+):
+    _set_prestage_attributes("CUSTOMER_ADDRESS", file_path="prep/customer_address.sql")
+    _generate(prestage_project, tmp_path)
+    root = tmp_path / "dbt"
+
+    config = _prestage_yml(root / "models" / "prep" / "customer_address.yml")["config"]
+    assert config["schema"] == "stage"
+    assert config["materialized"] == "view"
+    # No pre-stage is left in 01_prestaging, so dbt_project.yml doesn't
+    # configure the (unused) folder.
+    assert "01_prestaging" not in (root / "dbt_project.yml").read_text(encoding="utf-8")
+
+
+def test_a_prestage_in_its_layer_folder_inherits_the_layer_config(
+    prestage_project, tmp_path
+):
+    _set_prestage_attributes(
+        "CUSTOMER_ADDRESS", file_path="01_prestaging/crm/customer_address.sql"
+    )
+    _generate(prestage_project, tmp_path)
+    root = tmp_path / "dbt"
+
+    folder = root / "models" / "01_prestaging" / "crm"
+    config = _prestage_yml(folder / "customer_address.yml")["config"]
+    assert config == {"tags": ["prestage", "crm"]}
+    assert "01_prestaging" in (root / "dbt_project.yml").read_text(encoding="utf-8")
+
+
+def test_standard_paths_ignore_the_prestage_attributes(prestage_project, tmp_path):
+    from engine.services.generation.types import GenerationOptions
+
+    _set_prestage_attributes(
+        "CUSTOMER_ADDRESS",
+        file_path="prep/customer_addresses.sql",
+        materialized="table",
+    )
+    report = _generate(
+        prestage_project, tmp_path, options=GenerationOptions(use_original_paths=False)
+    )
+    assert report.status == "success", report.issues
+    models = tmp_path / "dbt" / "models"
+
+    folder = models / "01_prestaging" / "crm"
+    config = _prestage_yml(folder / "pstg__crm__customer_address.yml")["config"]
+    assert config == {"tags": ["prestage", "crm"]}
+    stage = _yaml_metadata(
+        models / "02_staging" / "crm" / "stg__crm__customer_address.sql"
+    )
+    assert stage["source_model"] == "pstg__crm__customer_address"
+
+
+@pytest.mark.parametrize(
+    ("table_name", "model_name"),
+    [
+        # A written pre-stage taking a stage's name.
+        ("CUSTOMER_ADDRESS", "stg__crm__customer"),
+        # A pre-stage maintained outside TurboVault still takes its name.
+        ("ORDER_ITEMS", "CUSTOMER_H"),
+        # Names compare case-insensitively.
+        ("CUSTOMER_ADDRESS", "PSTG__CRM__ORDER_ITEMS"),
+    ],
+)
+def test_a_prestage_name_collision_writes_nothing(
+    prestage_project, tmp_path, table_name, model_name
+):
+    _set_prestage_attributes(table_name, model_name=model_name)
+    report = _generate(prestage_project, tmp_path)
+
+    assert _error_codes(report) == ["write.path_collision"]
+    assert not (tmp_path / "dbt" / "models").exists()
+
+
+def test_a_stored_ephemeral_materialization_is_an_error(prestage_project, tmp_path):
+    _set_prestage_attributes("CUSTOMER_ADDRESS", materialized="ephemeral")
+
+    (issue,) = _issues(
+        _dry_run(prestage_project, tmp_path), "validate.prestage.ephemeral"
+    )
+    assert issue.severity == "error"
+    assert issue.entity.name == "pstg__crm__customer_address"
+
+    # With the stored attributes ignored, nothing is ephemeral.
+    assert not _issues(
+        _dry_run(prestage_project, tmp_path / "std", use_original_paths=False),
+        "validate.prestage.ephemeral",
+    )
+
+
+def test_the_sql_config_ranks_above_a_stored_materialization(
+    prestage_project, tmp_path
+):
+    address = _table("CUSTOMER_ADDRESS")
+    address.prestage_sql = "{{ config(materialized='view') }}\n" + ADDRESS_SQL
+    address.save()
+    _set_prestage_attributes("CUSTOMER_ADDRESS", materialized="ephemeral")
+
+    assert not _issues(
+        _dry_run(prestage_project, tmp_path), "validate.prestage.ephemeral"
+    )
+
+
+def test_prestage_attributes_are_validated():
+    from engine.services.export.models import PrestageDefinition, StageDefinition
+    from pydantic import ValidationError as SchemaError
+
+    with pytest.raises(SchemaError, match="must stay inside models/"):
+        PrestageDefinition(
+            model_name="p",
+            table_name="t",
+            source_system="s",
+            generation_config={"dbt": {"prestage": {"file_path": "../p.sql"}}},
+        )
+    # Each definition carries only its own output kind.
+    with pytest.raises(SchemaError, match="unknown dbt output kind"):
+        PrestageDefinition(
+            model_name="p",
+            table_name="t",
+            source_system="s",
+            generation_config={"dbt": {"stage": {"model_name": "x"}}},
+        )
+    with pytest.raises(SchemaError, match="unknown dbt output kind"):
+        StageDefinition(
+            stage_name="s",
+            source_table="t",
+            source_schema="s",
+            source_system="s",
+            generation_config={"dbt": {"prestage": {"model_name": "x"}}},
+        )
+
+
+def test_the_source_table_field_accepts_prestage_attributes(prestage_project):
+    address = _table("CUSTOMER_ADDRESS")
+    address.generation_config = {
+        "dbt": {
+            "stage": {"model_name": "stg_addresses"},
+            "prestage": {"file_path": "../escape.sql"},
+        }
+    }
+    with pytest.raises(ValidationError, match="must stay inside models/"):
+        address.full_clean(validate_unique=False, validate_constraints=False)
+
+    address.generation_config["dbt"]["prestage"] = {"model_name": "customer_addresses"}
+    address.full_clean(validate_unique=False, validate_constraints=False)
+
+
+def test_the_export_splits_the_attributes_of_a_table(prestage_project):
+    address = _table("CUSTOMER_ADDRESS")
+    address.generation_config = {
+        "dbt": {
+            "stage": {"model_name": "stg_addresses"},
+            "prestage": {"model_name": "customer_addresses"},
+        }
+    }
+    address.save()
+    export = _export(prestage_project)
+
+    prestage = next(p for p in export.prestages if p.table_name == "CUSTOMER_ADDRESS")
+    stage = next(s for s in export.stages if s.source_table == "CUSTOMER_ADDRESS")
+    assert prestage.generation_config.as_stored() == {
+        "dbt": {"prestage": {"model_name": "customer_addresses"}}
+    }
+    assert stage.generation_config.as_stored() == {
+        "dbt": {"stage": {"model_name": "stg_addresses"}}
+    }
+
+
+def test_json_round_trip_keeps_the_prestage_attributes(prestage_project, tmp_path):
+    import json
+
+    from engine.models import Project, SourceTable
+    from engine.services.imports import ImportOptions, JsonSource, import_metadata
+
+    stored = {
+        "CUSTOMER_ADDRESS": {
+            "dbt": {
+                "stage": {"model_name": "stg_addresses"},
+                "prestage": {
+                    "file_path": "prep/customer_addresses.sql",
+                    "custom_config_json": {"meta": {"owner": "data"}},
+                },
+            }
+        },
+        # Only its pre-stage definition carries this one: ORDER_ITEMS has a
+        # stage, but CUSTOMER_RAW (read only by pre-stages) has none.
+        "ORDER_ITEMS": {"dbt": {"prestage": {"model_name": "order_items_flat"}}},
+    }
+    for name, value in stored.items():
+        table = _table(name)
+        table.generation_config = value
+        table.save()
+
+    path = tmp_path / "export.json"
+    path.write_text(
+        json.dumps(_export(prestage_project).model_dump(mode="json"), default=str),
+        encoding="utf-8",
+    )
+    target = Project.objects.create(name="prestages-copy")
+    report = import_metadata(
+        project=target, source=JsonSource(path=path), options=ImportOptions()
+    )
+    assert report.status == "success", report.issues
+    for name, value in stored.items():
+        table = SourceTable.objects.get(project=target, physical_table_name=name)
+        assert table.generation_config == value
+
+    # Importing the same export again changes nothing.
+    again = import_metadata(
+        project=prestage_project,
+        source=JsonSource(path=path),
+        options=ImportOptions(dry_run=True),
+    )
+    changed = [e for e in again.plan.entities if e.changes]
+    assert changed == [], [(e.ref, e.changes) for e in changed]
