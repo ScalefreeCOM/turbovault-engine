@@ -5,6 +5,17 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.24.0...turbovault-engine-v0.25.0) (2026-11-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **generation:** keep imported models' file paths, names and configs on dbt generation ([#235](https://github.com/ScalefreeCOM/turbovault-engine/issues/235))
+
+### Features
+
+* **generation:** keep imported models' file paths, names and configs on dbt generation ([#235](https://github.com/ScalefreeCOM/turbovault-engine/issues/235)) ([076fb7c](https://github.com/ScalefreeCOM/turbovault-engine/commit/076fb7cb2803e0e0bc402ef643e476977a141c64))
+
 ## [0.24.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.23.0...turbovault-engine-v0.24.0) (2026-11-12)
 
 
