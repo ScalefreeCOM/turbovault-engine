@@ -16,7 +16,7 @@
 [% for key, value in (model_custom_config | default({})).items() %]
     [[ key ]]=[[ value | config_literal ]],
 [% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['satellite', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
+    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['satellite', 'raw_vault'[% if group %], '[[ group | technical_name ]]'[% endif %]][% endif +%]
 ) }}
 
 {%- set yaml_metadata -%}
@@ -25,7 +25,7 @@ parent_hashkey: [[ parent_hashkey ]]
 src_hashdiff: [[ hashdiff_name ]]
 src_payload:
 [% for col in columns %]
-    - [[ col.target_column_name if col.target_column_name else col.source_column ]]
+    - [[ (col.target_column_name if col.target_column_name else col.source_column) | yaml_scalar ]]
 [% endfor %]
 {%- endset -%}
 

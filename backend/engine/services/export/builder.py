@@ -51,6 +51,7 @@ from engine.services.export.models import (
     StageHashdiffDef,
     StageHashkeyDef,
 )
+from engine.services.naming import technical_name
 from engine.services.prestage_sql import (
     dbt_source_name,
     referenced_models,
@@ -148,13 +149,13 @@ def _generation_config(
 def stage_model_name(table: SourceTable) -> str:
     """Name of a source table's stage model: ``stg__<system>__<table>``."""
     system = dbt_source_name(table.source_system.name)
-    return f"stg__{system}__{table.physical_table_name.lower()}"
+    return f"stg__{system}__{technical_name(table.physical_table_name)}"
 
 
 def prestage_model_name(table: SourceTable) -> str:
     """Name of a pre-stage's dbt model: ``pstg__<system>__<table>``."""
     system = dbt_source_name(table.source_system.name)
-    return f"pstg__{system}__{table.physical_table_name.lower()}"
+    return f"pstg__{system}__{technical_name(table.physical_table_name)}"
 
 
 class ModelBuilder:

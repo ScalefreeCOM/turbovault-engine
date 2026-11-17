@@ -14,6 +14,7 @@ import yaml
 
 from engine.services.app_config_loader import get_project_root, resolve_project_path
 from engine.services.config_loader import load_config_from_path
+from engine.services.naming import technical_name
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ def initialize_project_folder(project, config) -> Path:
     """
 
     # Determine project directory path (relative to PROJECT_ROOT)
-    project_name_slug = project.name.lower().replace(" ", "_").replace("-", "_")
+    project_name_slug = technical_name(project.name)
     relative_dir = f"projects/{project_name_slug}"
 
     # Resolve to absolute path

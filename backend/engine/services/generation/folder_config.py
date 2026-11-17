@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
+from engine.services.naming import technical_name
+
 
 @dataclass
 class FolderConfig:
@@ -108,9 +110,11 @@ class FolderConfig:
         """
         Sanitize a name for use in filesystem paths.
 
-        Converts to lowercase and replaces spaces with underscores.
+        Uses the shared ``technical_name`` rule, so a folder matches the dbt
+        source name and tag derived from the same display name, and can never
+        hold a path separator or ``..``.
         """
-        return name.lower().replace(" ", "_").replace("-", "_")
+        return technical_name(name)
 
 
 @dataclass

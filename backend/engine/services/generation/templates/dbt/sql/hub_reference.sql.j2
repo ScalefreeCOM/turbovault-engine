@@ -16,7 +16,7 @@
 [% for key, value in (model_custom_config | default({})).items() %]
     [[ key ]]=[[ value | config_literal ]],
 [% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['hub', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
+    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['hub', 'reference', 'raw_vault'[% if group %], '[[ group | technical_name ]]'[% endif %]][% endif +%]
 ) }}
 
 {%- set yaml_metadata -%}
@@ -29,13 +29,13 @@ source_models:
 [% if source.business_key_columns %]
       ref_keys: 
     [% for rk in source.business_key_columns %]
-        - [[ rk ]]
+        - [[ rk | yaml_scalar ]]
     [% endfor %]
 [% endif %]
 [% endfor %]
 ref_keys:
 [% for rk in reference_key_columns %]
-    - [[ rk ]]
+    - [[ rk | yaml_scalar ]]
 [% endfor %]
 {%- endset -%}
 

@@ -11,6 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from engine.services.generation.name_validation import validate_names
 from engine.services.prestage_sql import (
     configured_materialization,
     dbt_source_name,
@@ -176,6 +177,9 @@ def validate_export(
     # Validate snapshot controls
     for snap_ctrl in project_export.snapshot_controls:
         result.merge(_validate_snapshot_control(snap_ctrl))
+
+    # Validate names: Data Vault names, case collisions, quoted source names
+    validate_names(project_export, result)
 
     return result
 

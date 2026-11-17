@@ -39,6 +39,9 @@ deep-link errors; the CLI groups them in summary tables.
 | `validate.snapshot.no_name` | A snapshot control has no name. | Provide a name for the snapshot control. |
 | `validate.snapshot.no_start_date` | A snapshot control has no start date. | Set the snapshot range's start date. |
 | `validate.snapshot.no_logic_patterns` | A snapshot control has no logic patterns (warning). | Add at least one snapshot logic pattern. |
+| `validate.name.invalid` | A Data Vault name (Hub, Link, Satellite, PIT, reference table, snapshot control, hash key, hashdiff, key/alias column, derived column) is not a plain identifier `^[A-Za-z_][A-Za-z0-9_]*$`. | Rename it using only letters, digits and `_`, starting with a letter or `_`. |
+| `validate.name.case_collision` | Two entity names, or two columns of one stage or satellite, differ only in case. | Give them names that differ in more than case. |
+| `validate.name.source_needs_quoting` | *Warning.* A source table or column name only works quoted (special characters, reserved word, mixed case). TurboVault quotes such tables and columns in `sources.yml`; datavault4dbt escapes columns itself and may change their case. One warning per table. | Check the generated stage compiles; rename in the source if it doesn't. |
 
 ## Plan stage
 
@@ -58,6 +61,7 @@ deep-link errors; the CLI groups them in summary tables.
 | `render.invalid_global_vars` | The caller-supplied `global_vars` mapping could not be serialized into the `vars:` block. Nothing is generated, so an earlier run's output is left untouched rather than half-replaced. | Fix the reported key — `global_vars` must be a mapping with string keys and YAML-serializable values. |
 | `render.invalid_profiles` | `generate_profiles_yml` is on but `profiles` is not a mapping or holds a value that cannot be written as YAML. The engine does not check the dbt profile shape (targets, outputs, adapter fields) — that is the caller's concern. Nothing is generated. | Pass `profiles` as a mapping of YAML-serializable values. |
 | `render.invalid_materialization` | A layer materialization (`control_`, `staging_`, `raw_vault_`, `business_vault_materialization`) or a `model_materializations` entry is not a dbt materialization name, or names an unknown model kind. Nothing is generated. | Use a name such as `table`, `view`, `incremental`, `ephemeral`, or a custom materialization's name. |
+| `render.unsafe_path` | A model's name (from an entity name or naming pattern) is not a plain identifier, or its folder is not inside `models/`, so its file could create subfolders or leave the project. Checked even with validation skipped; nothing is generated. | Rename the entity, or fix the naming pattern. |
 | `render.literal_secret_in_profile` | A secret key in `profiles` — one ending in `password`, `passphrase`, `secret`, `token`, `private_key`, `access_key` or `api_key`, or `pass` / `keyfile_json` — holds a literal value, or an `env_var` reference with a non-empty default (dbt uses the default whenever the variable is unset). Nothing is generated; the value is never echoed. | Reference the secret via `{{ env_var('...') }}` (optionally `\| as_native`), without a default or with an empty one. An inline `keyfile_json` mapping is allowed when its own secret fields are references. |
 
 ## Write stage

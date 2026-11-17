@@ -83,6 +83,11 @@ class Code:
     ENTITY_MISSING_SOURCE_TABLE = "entity.missing_source_table"
     ENTITY_INVALID_CONFIGURATION = "entity.invalid_configuration"
     ENTITY_DEPENDS_ON_SKIPPED = "entity.depends_on_skipped"
+    # Names (#450): Data Vault names must be plain identifiers, unique ignoring
+    # case; unusual source names are only reported.
+    ENTITY_INVALID_NAME = "entity.invalid_name"
+    ENTITY_NAME_CASE_COLLISION = "entity.name_case_collision"
+    ENTITY_UNUSUAL_SOURCE_NAME = "entity.unusual_source_name"
 
     # Plan stage
     PLAN_WOULD_CREATE = "plan.would_create"

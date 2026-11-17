@@ -19,13 +19,13 @@
     tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['pit', 'business_vault'][% endif %],
 [# A post_hook in custom_config_json replaces the default clean-up hook #]
 [% if 'post_hook' not in model_custom_config | default({}) %]
-    post_hook="{{ datavault4dbt.clean_up_pit('[[ snapshot_control_name ]]') }}"
+    post_hook="{{ datavault4dbt.clean_up_pit([[ snapshot_control_name | jinja_string ]]) }}"
 [% endif %]
 ) }}
 
 {%- set yaml_metadata -%}
 [% if pit_type %]
-pit_type: '[[ pit_type ]]'
+pit_type: [[ pit_type | yaml_single_quote ]]
 [% endif %]
 tracked_entity: [[ tracked_entity_name ]]
 hashkey: [[ tracked_hashkey ]]
@@ -35,9 +35,9 @@ sat_names:
     - [[ sat ]]
 [% endfor %]
 snapshot_relation: [[ snapshot_control_name ]]
-snapshot_trigger_column: [[ snapshot_logic_column ]]
+snapshot_trigger_column: [[ snapshot_logic_column | yaml_scalar ]]
 [% if dimension_key_column %]
-dimension_key: [[ dimension_key_column ]]
+dimension_key: [[ dimension_key_column | yaml_scalar ]]
 [% endif %]
 {%- endset -%}
 

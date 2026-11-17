@@ -230,8 +230,8 @@ def test_a_stale_database_template_still_wins_over_the_fixed_file(
         encoding="utf-8"
     )
     stale = current.replace(
-        "[[ (prejoin.target_source_system or source_system) | lower",
-        "[[ source_system | lower",
+        "[[ (prejoin.target_source_system or source_system) | technical_name",
+        "[[ source_system | technical_name",
     )
     assert stale != current, "failed to reconstruct the pre-fix template"
 

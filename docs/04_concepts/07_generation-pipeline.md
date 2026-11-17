@@ -505,13 +505,15 @@ validate.link.missing_hashkey         validate.link.too_few_hubs         validat
 validate.satellite.no_parent          validate.satellite.no_stage        validate.satellite.no_columns       validate.satellite.no_hashdiff
 validate.pit.no_satellites            validate.pit.no_snapshot_logic     validate.pit.no_tracked_entity
 validate.snapshot.no_name             validate.snapshot.no_start_date    validate.snapshot.no_logic_patterns
+validate.name.invalid                 validate.name.case_collision       validate.name.source_needs_quoting
 
 plan.unsupported_output_type          plan.empty_project
 
 render.template_not_found             render.template_render_failed      render.entity_skipped
-render.template_outdated
+render.template_outdated              render.unsafe_path
 
 write.io_error                        write.path_collision               write.zip_failed
+write.path_outside_output
 
 internal.bug
 ```

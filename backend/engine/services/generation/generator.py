@@ -88,6 +88,10 @@ _LAYER_SCHEMA_FIELDS = {
 }
 
 
+class UnsafePathError(ValueError):
+    """A generated file would be written outside the output folder."""
+
+
 class DbtProjectGenerator:
     """
     Generate a complete dbt project from TurboVault export data.
@@ -221,10 +225,23 @@ class DbtProjectGenerator:
         # Collisions are checked across the models this run writes; names are
         # resolved across the whole project, as a selected model may reference
         # one the selection left out.
-        collisions = resolve_model_outputs(project_export, self.config).collisions()
+        selected_outputs = resolve_model_outputs(project_export, self.config)
+        collisions = selected_outputs.collisions()
         self.outputs = resolve_model_outputs(
             reference_export or project_export, self.config
         )
+        # A file must never land outside the project folder, even when
+        # validation (which rejects such names first) is skipped.
+        unsafe_paths = selected_outputs.unsafe_paths()
+        if unsafe_paths:
+            for message in unsafe_paths:
+                self.report.add_error(
+                    entity_type="project",
+                    entity_name=self.config.project_name,
+                    message=message,
+                    code="PTH_002",
+                )
+            return self.report
         if collisions:
             for message in collisions:
                 self.report.add_error(
@@ -299,10 +316,20 @@ class DbtProjectGenerator:
                 entity_type="project",
                 entity_name=self.config.project_name,
                 message=str(e),
-                code="GEN_001",
+                code="PTH_002" if isinstance(e, UnsafePathError) else "GEN_001",
             )
 
         return self.report
+
+    def _checked_path(self, path: Path) -> Path:
+        """Return ``path`` after checking it lies inside the output folder.
+
+        Last line of defence behind validation and `unsafe_paths()`: raises
+        UnsafePathError rather than write anywhere else.
+        """
+        if not path.resolve().is_relative_to(self.output_path.resolve()):
+            raise UnsafePathError(f"Refused to write outside the output folder: {path}")
+        return path
 
     def _specific_materialization(self, model_kind: str) -> str | None:
         """Materialization to write into a model-specific config() block.
@@ -401,11 +428,11 @@ class DbtProjectGenerator:
         sql_content = None
         if sql_template:
             sql_content = sql_template.render(**context)
-            path = directory / f"{output.model_name}.sql"
+            path = self._checked_path(directory / f"{output.model_name}.sql")
             write_sql_file(path, sql_content)
             self.report.add_file(path, entity_type, output.model_name, "sql")
         if yaml_template:
-            path = directory / f"{output.model_name}.yml"
+            path = self._checked_path(directory / f"{output.model_name}.yml")
             write_yaml_file(path, yaml_template.render(**context))
             self.report.add_file(path, entity_type, output.model_name, "yaml")
         return sql_content
@@ -638,8 +665,10 @@ class DbtProjectGenerator:
             source_name = self.folder_config.sanitize_name(source.name)
             if template:
                 content = template.render(source=source)
-                path = self.output_path.joinpath(
-                    *self.folder_config.source_file(source.name).parts
+                path = self._checked_path(
+                    self.output_path.joinpath(
+                        *self.folder_config.source_file(source.name).parts
+                    )
                 )
                 write_yaml_file(path, content)
                 self.report.add_file(path, "source", f"source__{source_name}", "yaml")

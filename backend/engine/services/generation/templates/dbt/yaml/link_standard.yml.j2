@@ -5,7 +5,7 @@ models:
   - name: [[ link_name ]]
     description: [[ (description or (('Standard' if link_type == 'standard' else 'Non-Historized') ~ " link for " ~ link_name)) | yaml_quote ]]
     config:
-      tags: [% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['link', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
+      tags: [% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['link', 'raw_vault'[% if group %], '[[ group | technical_name ]]'[% endif %]][% endif +%]
     columns:
       - name: [[ hashkey.hashkey_name ]]
         description: "Link hash key"
@@ -13,13 +13,13 @@ models:
           - unique
           - not_null
 [% for fk in foreign_hashkeys %]
-      - name: [[ fk ]]
+      - name: [[ fk | yaml_scalar ]]
         description: "Foreign key to hub"
         data_tests:
           - not_null
 [% endfor %]
 [% for payload in payload_columns %]
-      - name: [[ payload ]]
+      - name: [[ payload | yaml_scalar ]]
 [% set docs = column_descriptions.get(payload) %]
         description: [[ (((docs.description or docs.source_description) if docs else none) or "Payload column") | yaml_quote ]]
 [% endfor %]

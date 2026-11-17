@@ -5,10 +5,10 @@ models:
   - name: [[ hub_name ]]
     description: [[ (description or ("Reference hub for " ~ hub_name)) | yaml_quote ]]
     config:
-      tags: [% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['hub', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
+      tags: [% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['hub', 'reference', 'raw_vault'[% if group %], '[[ group | technical_name ]]'[% endif %]][% endif +%]
     columns:
 [% for bk in business_key_columns %]
-      - name: [[ bk ]]
+      - name: [[ bk | yaml_scalar ]]
 [% set docs = column_descriptions.get(bk) %]
         description: [[ (((docs.description or docs.source_description) if docs else none) or "Business key column") | yaml_quote ]]
         data_tests:

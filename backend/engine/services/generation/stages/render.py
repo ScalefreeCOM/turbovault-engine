@@ -40,6 +40,7 @@ from engine.services.generation.types import (
     Issue,
     OutputType,
 )
+from engine.services.naming import dbt_project_name
 from engine.services.runtime_config import EngineRuntimeConfig
 
 logger = logging.getLogger(__name__)
@@ -112,9 +113,9 @@ def _render_dbt(
         )
         legacy_report = generator.generate(project_export, reference_export)
 
-        artifacts = _collect_dbt_artifacts(temp_root, legacy_report)
+        artifacts, path_issues = _collect_dbt_artifacts(temp_root, legacy_report)
         issues = _translate_dbt_issues(legacy_report)
-        return artifacts, issues
+        return artifacts, [*issues, *path_issues]
 
 
 def _build_dbt_config(
@@ -128,7 +129,7 @@ def _build_dbt_config(
         or "turbovault_project"
     )
     return GenerationConfig(
-        project_name=(project_name or "turbovault_project").lower().replace(" ", "_"),
+        project_name=dbt_project_name(project_name),
         profile_name=runtime_config.profile_name,
         generate_satellite_v1_views=options.generate_satellite_v1_views,
         use_original_paths=options.use_original_paths,
@@ -171,10 +172,30 @@ _PROJECT_KIND_BY_FILENAME: dict[str, ArtifactKind] = {
 }
 
 
-def _collect_dbt_artifacts(temp_root: Path, legacy_report) -> list[GeneratedArtifact]:
-    """Read each file the legacy generator wrote back into a GeneratedArtifact."""
+def _collect_dbt_artifacts(
+    temp_root: Path, legacy_report
+) -> tuple[list[GeneratedArtifact], list[Issue]]:
+    """Read each file the legacy generator wrote back into a GeneratedArtifact.
+
+    A file outside the temp tree is never turned into an artifact: its path
+    relative to the project would start with ``..`` and the write stage would
+    place it outside the output folder.
+    """
     artifacts: list[GeneratedArtifact] = []
+    issues: list[Issue] = []
+    root = temp_root.resolve()
     for gf in legacy_report.files:
+        if not gf.path.resolve().is_relative_to(root):
+            issues.append(
+                make_issue(
+                    severity="error",
+                    code=Code.WRITE_PATH_OUTSIDE_OUTPUT,
+                    stage="render",
+                    message=f"Refused a generated file outside the project: {gf.path}",
+                    entity=_entity_ref_or_none(gf.entity_type, gf.entity_name),
+                )
+            )
+            continue
         try:
             content = gf.path.read_text(encoding="utf-8")
         except OSError as exc:
@@ -194,7 +215,7 @@ def _collect_dbt_artifacts(temp_root: Path, legacy_report) -> list[GeneratedArti
                 content=content,
             )
         )
-    return artifacts
+    return artifacts, issues
 
 
 def _kind_for_file(gf) -> ArtifactKind:
@@ -214,6 +235,7 @@ _LEGACY_ERROR_CODE_MAP: dict[str, str] = {
     "PRF_002": Code.RENDER_LITERAL_SECRET_IN_PROFILE,
     "MAT_001": Code.RENDER_INVALID_MATERIALIZATION,
     "PTH_001": Code.WRITE_PATH_COLLISION,
+    "PTH_002": Code.RENDER_UNSAFE_PATH,
 }
 
 # Legacy warning codes surfaced as warnings: YML_001 ("SQL but no YAML") and

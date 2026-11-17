@@ -17,16 +17,16 @@
 [% for key, value in (model_custom_config | default({})).items() %]
     [[ key ]]=[[ value | config_literal ]],
 [% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['staging', '[[ source_system | lower | replace(" ", "_") ]]'][% endif +%]
+    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['staging', '[[ source_system | technical_name ]]'][% endif +%]
 ) }}
 
 {%- set yaml_metadata -%}
 [% if prestage_model %]
 [# A pre-stage is a dbt model: a string source_model is read with ref() #]
-source_model: '[[ prestage_model ]]'
+source_model: [[ prestage_model | yaml_single_quote ]]
 [% else %]
 source_model:
-    [[ source_system | lower | replace(" ", "_") ]]: [[ source_table ]]
+    [[ source_system | technical_name ]]: [[ source_table | yaml_scalar ]]
 [% endif %]
 ldts: [[ load_date | yaml_quote ]]
 rsrc: [[ record_source | yaml_quote ]]
@@ -35,7 +35,7 @@ hashed_columns:
 [% for hashkey in hashkeys %]
     [[ hashkey.hashkey_name ]]:
 [% for bk in hashkey.business_key_columns %]
-        - [[ bk ]]
+        - [[ bk | yaml_scalar ]]
 [% endfor %]
 [% endfor %]
 [% for hashdiff in hashdiffs %]
@@ -43,7 +43,7 @@ hashed_columns:
         is_hashdiff: true
         columns:
 [% for col in hashdiff.columns %]
-            - [[ col ]]
+            - [[ col | yaml_scalar ]]
 [% endfor %]
 [% endfor %]
 [% endif %]
@@ -52,27 +52,27 @@ prejoined_columns:
 [% for prejoin in prejoins %]
     - extract_columns:
     [% for extraction_col in prejoin.extraction_columns %]
-        - [[ extraction_col.source_column_name ]]
+        - [[ extraction_col.source_column_name | yaml_scalar ]]
     [% endfor %]
       aliases:
       [% for extraction_col in prejoin.extraction_columns %]
-        - [[ extraction_col.target_column_alias or extraction_col.source_column_name ]]
+        - [[ (extraction_col.target_column_alias or extraction_col.source_column_name) | yaml_scalar ]]
       [% endfor %]
       [% if prejoin.target_model %]
-      ref_model: '[[ prejoin.target_model ]]'
+      ref_model: [[ prejoin.target_model | yaml_single_quote ]]
       [% else %]
-      src_name: '[[ (prejoin.target_source_system or source_system) | lower | replace(" ", "_") ]]'
-      src_table: '[[ prejoin.target_table ]]'
+      src_name: '[[ (prejoin.target_source_system or source_system) | technical_name ]]'
+      src_table: [[ prejoin.target_table | yaml_single_quote ]]
       [% endif %]
       this_column_name: 
       [% for source_column in prejoin.join_conditions.source_columns %]
-        - '[[ source_column ]]'
+        - [[ source_column | yaml_single_quote ]]
       [% endfor %]
       ref_column_name: 
       [% for target_column in prejoin.join_conditions.target_columns %]
-        - '[[ target_column ]]'
+        - [[ target_column | yaml_single_quote ]]
       [% endfor %]
-      operator: '[[ prejoin.join_conditions.operator ]]'
+      operator: [[ prejoin.join_conditions.operator | yaml_single_quote ]]
 [% endfor %]
 [% endif %]
 [% if derived_columns | length > 0 %]
@@ -95,8 +95,8 @@ derived_columns:
 [% endif %]
 [% if multi_active_config %]
 multi_active_config:
-    multi_active_key: '[[ multi_active_config.multi_active_key[0] ]]'
-    main_hashkey_column: '[[ hashkeys[0].hashkey_name if hashkeys else multi_active_config.main_hashkey_column ]]'
+    multi_active_key: [[ multi_active_config.multi_active_key[0] | yaml_single_quote ]]
+    main_hashkey_column: [[ (hashkeys[0].hashkey_name if hashkeys else multi_active_config.main_hashkey_column) | yaml_single_quote ]]
 [% endif %]
 {%- endset -%}
 

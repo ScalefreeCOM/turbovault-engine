@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
+from engine.services.naming import DV_NAME_RULE, is_dv_name
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -177,6 +179,47 @@ class ModelOutputs:
                         f"also the generated {clash[1]}"
                     )
         return messages
+
+    def unsafe_paths(self) -> list[str]:
+        """Describe every model whose file would not be a plain file inside
+        the project's ``models/`` folder.
+
+        A model's file is named after the model, so its name must be a plain
+        identifier: a ``/`` or ``..`` in an entity name or naming pattern
+        would otherwise create subfolders or point outside the project.
+        Stored file paths are validated on input and folders derived from
+        display names can't hold separators; both are checked again here
+        because generation can run with validation skipped.
+        """
+        every_output = [*self, *(output for _, output in self._duplicates)]
+        messages = []
+        for output in every_output:
+            if not is_dv_name(output.model_name):
+                messages.append(
+                    f"Model name {output.model_name!r} of {_describe([output])} "
+                    f"{DV_NAME_RULE}, so it can't be used as a file name"
+                )
+            elif not _is_inside_models(output.directory):
+                messages.append(
+                    f"Folder '{output.directory}' of {_describe([output])} is "
+                    "not inside the project's models/ folder"
+                )
+        for path, description in self._project_files.items():
+            if not _is_inside_models(path.parent):
+                messages.append(
+                    f"File path '{path}' of the generated {description} is not "
+                    "inside the project's models/ folder"
+                )
+        return messages
+
+
+def _is_inside_models(directory: PurePosixPath) -> bool:
+    """Whether ``directory`` is ``models/`` or a folder below it."""
+    return (
+        not directory.is_absolute()
+        and directory.parts[:1] == ("models",)
+        and ".." not in directory.parts
+    )
 
 
 def _describe(outputs: list[ModelOutput]) -> str:

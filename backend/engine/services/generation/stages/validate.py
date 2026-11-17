@@ -61,6 +61,9 @@ _LEGACY_CODE_MAP: dict[str, str] = {
     "SNAP_001": "validate.snapshot.no_name",
     "SNAP_002": "validate.snapshot.no_start_date",
     "SNAP_003": "validate.snapshot.no_logic_patterns",
+    "NAM_001": "validate.name.invalid",
+    "NAM_002": "validate.name.case_collision",
+    "NAM_003": "validate.name.source_needs_quoting",
 }
 
 

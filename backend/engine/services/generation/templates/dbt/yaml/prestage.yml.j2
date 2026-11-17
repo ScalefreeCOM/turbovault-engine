@@ -22,11 +22,14 @@ models:
 [% for key, value in (model_custom_config | default({})).items() %]
       [[ key ]]: [[ value | yaml_json ]]
 [% endfor %]
-      tags: [% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['prestage', '[[ source_system | lower | replace(" ", "_") ]]'][% endif +%]
+      tags: [% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['prestage', '[[ source_system | technical_name ]]'][% endif +%]
 [% if columns %]
     columns:
 [% for column in columns %]
-      - name: [[ column.column_name ]]
+      - name: [[ column.column_name | yaml_scalar ]]
+[% if column.column_name | needs_identifier_quoting %]
+        quote: true
+[% endif %]
 [% if column.datatype %]
         data_type: [[ column.datatype | yaml_scalar ]]
 [% endif %]

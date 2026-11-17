@@ -24,6 +24,7 @@ from engine.services.generation.python_literals import (
     py_literal,
     py_source_models_filter,
 )
+from engine.services.naming import needs_identifier_quoting, technical_name
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -210,6 +211,19 @@ def yaml_json(value: object) -> Markup:
     return Markup(dumped)
 
 
+def jinja_string(value: object) -> Markup:
+    """``value`` as a single-quoted string literal in dbt Jinja, e.g. ``'snap'``.
+
+    Used where a name is passed to a macro inside a dbt Jinja expression that
+    itself sits in a double-quoted SQL string (``post_hook="{{ m('x') }}"``):
+    backslashes and both quote characters are escaped, so the value can end
+    neither the Jinja string nor the surrounding one.
+    """
+    text = "" if value is None else str(value)
+    escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
+    return Markup("'" + escaped + "'")
+
+
 def config_literal(value: object) -> Markup:
     """A JSON value as a literal in a dbt ``config()`` call.
 
@@ -233,7 +247,9 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     Adds the ``yaml_quote``, ``yaml_scalar`` and ``yaml_single_quote`` filters
     for writing user text into YAML, ``quoted_list`` for tag lists,
     ``config_literal`` / ``yaml_json`` for custom config values in SQL / YAML,
-    and the ``py``, ``py_dict``,
+    ``jinja_string`` for names passed to dbt macros, ``technical_name`` for
+    names derived from display names (tags), ``needs_identifier_quoting`` for
+    source names that only work quoted, and the ``py``, ``py_dict``,
     ``py_hashed_columns`` and ``py_source_models`` filters for writing Python
     literals into SQLMesh model files.
     """
@@ -256,6 +272,9 @@ def build_jinja_environment(loader: BaseLoader | None = None) -> Environment:
     environment.filters["quoted_list"] = quoted_list
     environment.filters["config_literal"] = config_literal
     environment.filters["yaml_json"] = yaml_json
+    environment.filters["jinja_string"] = jinja_string
+    environment.filters["technical_name"] = technical_name
+    environment.filters["needs_identifier_quoting"] = needs_identifier_quoting
     environment.filters["py"] = py_literal
     environment.filters["py_dict"] = py_dict_filter
     environment.filters["py_hashed_columns"] = py_hashed_columns_filter

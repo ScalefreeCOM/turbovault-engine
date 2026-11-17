@@ -5,7 +5,7 @@
 [# Settings fall back to the engine defaults when missing or empty, so a #]
 [# caller rendering this template with only the pre-0.22 variables (e.g. #]
 [# Studio's manual dbt_project.yml prefill) still gets a usable file. #]
-name: '[[ project_name ]]'
+name: [[ project_name | yaml_single_quote ]]
 version: '1.0.0'
 config-version: 2
 
@@ -23,7 +23,7 @@ clean-targets:
   - "dbt_packages"
 
 [[ vars_block ]]models:
-  [[ project_name ]]:
+  [[ project_name | yaml_scalar ]]:
     00_control:
       +schema: [[ control_schema | default('control', true) | yaml_scalar ]]
       +materialized: [[ control_materialization | default('table', true) | yaml_scalar ]]

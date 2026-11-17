@@ -73,11 +73,44 @@ turbovault generate --project my_project --skip-validation
 
 ---
 
+### Naming Rules
+
+Every name the Engine writes into SQL, YAML or a file path is checked before
+generation. TurboVault Studio applies the same rules.
+
+- **Data Vault names** — Hub, Link, Satellite, PIT, reference table and
+  snapshot control names; hash keys, hashdiffs, key, alias and derived
+  columns — must match `^[A-Za-z_][A-Za-z0-9_]*$` and be unique ignoring case.
+- **Source names** — physical source tables and columns — are used as they
+  are. Names that only work quoted are reported as a warning. Tables and
+  columns with special characters get dbt's quoting in `sources.yml`
+  (`quoting.identifier` / `quote: true`). datavault4dbt escapes column names
+  in its macros and may change their case (lowercase on Postgres/Redshift,
+  uppercase on Snowflake/Exasol by default).
+- **Derived technical names** — one rule turns display names into technical
+  names: lowercase, accents dropped, every run of other characters becomes
+  `_`. Source system `SAP-ERP` gives the dbt source `sap_erp`, the folder
+  `sap_erp` and the stage `stg__sap_erp__orders`; subject area `Sales & Ops`
+  gives the folder and tag `sales_ops`; project `2024 DWH` gives the dbt project
+  `project_2024_dwh` (dbt project names must start with a letter).
+
+| Code | Entity | Rule | How to Fix |
+|------|--------|------|------------|
+| `NAM_001` | Any | A Data Vault name is not a plain identifier (error, `validate.name.invalid`) | Rename it using only letters, digits and `_`, starting with a letter or `_` |
+| `NAM_002` | Any | Two entity names, or two columns of one stage or satellite, differ only in case (error, `validate.name.case_collision`) | Give them names that differ in more than case |
+| `NAM_003` | Source | A source table or column name only works quoted: special characters, reserved word or mixed case (warning, `validate.name.source_needs_quoting`) | Check the generated stage compiles; rename in the source if it doesn't |
+
+The import reports the same problems as `entity.invalid_name`,
+`entity.name_case_collision` and `entity.unusual_source_name`.
+
+---
+
 ### Generation Output Rules
 
 | Code | Entity | Rule | How to Fix |
 |------|--------|------|------------|
 | `YML_001` | Model | SQL model was generated but YAML schema is missing | Check that the corresponding YAML template exists in Django Admin → Model Templates |
+| `PTH_002` | Model | A model's file would not be a plain file inside `models/`: its name (from an entity name or naming pattern) is not a plain identifier, or its folder leaves `models/`. Checked even with validation skipped; nothing is generated (`render.unsafe_path`) | Rename the entity or fix the naming pattern |
 | `TPL_003` | Stage | The stage template doesn't read a pre-stage model or prejoin one: it predates pre-stages (warning, `render.template_outdated`) | Update the stage template; `python manage.py populate_templates --overwrite` refreshes the workspace's copies (and replaces their customizations) |
 
 ---

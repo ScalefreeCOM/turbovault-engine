@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import re
 
+from engine.services.naming import technical_name
+
 _JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.DOTALL)
 
 # A string literal argument: 'crm' or "crm".
@@ -38,7 +40,7 @@ def dbt_source_name(source_system_name: str) -> str:
     It names the system's source in ``sources.yml`` and is the middle part of
     its stage and pre-stage names (``stg__crm__customer``).
     """
-    return source_system_name.lower().replace(" ", "_")
+    return technical_name(source_system_name)
 
 
 def _scannable(sql: str | None) -> str:
