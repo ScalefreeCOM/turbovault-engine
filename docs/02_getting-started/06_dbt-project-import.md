@@ -35,6 +35,16 @@ turbovault project init --name shop --no-snapshot-controls
 
 `--no-snapshot-controls` leaves out TurboVault's default snapshot control: the dbt project brings its own.
 
+Or create the project and import in one go with the wizard:
+
+```bash
+turbovault project init --interactive
+```
+
+Answer "Import existing metadata?" with yes, and choose **dbt project** as the source type. The wizard asks
+what `turbovault import` asks (steps 2 and 3), and offers to make the folder the project's `dbt_project.path`
+(see step 5).
+
 ## 2. Preview the import
 
 ```bash

@@ -142,6 +142,18 @@ turbovault project init --interactive
 
 Prompts for project name, description, source metadata, schema names, naming patterns, and ZIP option.
 
+The source can also be a **dbt project** (its folder or `manifest.json`): see
+[Importing a dbt Project](06_dbt-project-import.md). The wizard then works like `turbovault import`:
+
+1. It shows the dbt project's files, and offers to run `dbt parse` when the manifest is missing.
+2. It asks whether to import descriptions and tags, and whether the folder becomes the project's
+   `dbt_project.path`, the default for `import` and `generate`.
+3. Once the project exists, it shows the settings the dbt project suggests and writes them into
+   `config.yml` if you agree, then imports.
+
+It asks neither for default snapshot controls nor for schemas, naming patterns and materializations: the
+dbt project brings its own snapshot controls and suggests the settings.
+
 #### From a Config File
 
 ```bash
@@ -154,7 +166,7 @@ turbovault project init --config config.yml
 |--------|-------|-------------|---------|
 | `--name NAME` | `-n` | Project name | prompted |
 | `--description STR` | | Project description | — |
-| `--source PATH` | `-s` | Source metadata file (`.xlsx`, `.db`, or `.json` export), or a directory holding an IRiS three-file export | — |
+| `--source PATH` | `-s` | Source metadata file (`.xlsx`, `.db`, or `.json` export), or a directory holding an IRiS three-file export. A dbt project is imported by the interactive wizard, or by `turbovault import` once the project exists | — |
 | `--stage-schema STR` | | Staging schema name | `stage` |
 | `--rdv-schema STR` | | Raw Data Vault schema name | `rdv` |
 | `--bdv-schema STR` | | Business Data Vault schema name | `bdv` |

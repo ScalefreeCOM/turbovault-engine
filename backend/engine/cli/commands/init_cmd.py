@@ -6,6 +6,7 @@ The --interactive flag launches a guided wizard when needed.
 """
 
 import os
+import shlex
 from pathlib import Path
 from typing import Annotated
 
@@ -58,7 +59,8 @@ def init(
             help=(
                 "Path to source metadata file (Excel .xlsx, SQLite .db, or "
                 "JSON export .json), or a directory holding an IRiS three-file "
-                "export"
+                "export. A dbt project: use --interactive, or `turbovault "
+                "import` once the project exists"
             ),
         ),
     ] = None,
@@ -293,6 +295,21 @@ def _init_from_flags(
         TurboVaultConfig,
     )
 
+    # A dbt project is imported once the project exists (the wizard does both)
+    if source_path and _is_dbt_project(source_path):
+        print_error(
+            f"{source_path} is a dbt project: create the project, then import it"
+        )
+        name_arg = shlex.quote(name)
+        console.print(
+            f"  turbovault project init --name {name_arg} --no-snapshot-controls\n"
+            f"  turbovault import --project {name_arg} --source "
+            f"{shlex.quote(str(source_path))}\n"
+            "Or both in one go: turbovault project init --interactive",
+            style="dim",
+        )
+        raise typer.Exit(1)
+
     # Determine source config. A directory is taken to be an IRiS three-file
     # export; otherwise the file extension selects the format.
     source_cfg = None
@@ -380,13 +397,19 @@ def _init_from_config(
 
 
 def _create_project(
-    config, *, overwrite: bool = False, snapshot_controls: bool = True
+    config,
+    *,
+    overwrite: bool = False,
+    snapshot_controls: bool = True,
+    dbt_source=None,
 ) -> None:
     """
     Core project creation logic shared by all init paths.
 
     Creates the Project DB record, project folder, snapshot controls,
-    and optionally imports metadata from the configured source.
+    and optionally imports metadata from the configured source, or from
+    ``dbt_source`` (a ``DbtSource``: a dbt project, imported with the
+    settings it suggests).
     """
     # Lazy import to avoid loading models before Django setup
     from engine.models import Project
@@ -438,16 +461,21 @@ def _create_project(
         project.delete()
         raise typer.Exit(1)
 
-    # Create default snapshot controls, unless a JSON export is the source:
-    # it carries its own, which the import restores with the PITs and
-    # reference tables that read them.
+    # Create default snapshot controls, unless the source carries its own: a
+    # JSON export (the import restores them with the PITs and reference
+    # tables that read them) or a dbt project.
     skip_snapshots = (
         os.getenv("TURBOVAULT_SKIP_DEFAULT_SNAPSHOTS", "").lower() == "true"
     )
     json_source = (
         config.source is not None and getattr(config.source, "type", None) == "json"
     )
-    if snapshot_controls and not skip_snapshots and not json_source:
+    if (
+        snapshot_controls
+        and not skip_snapshots
+        and not json_source
+        and dbt_source is None
+    ):
         from engine.cli.utils.db_utils import create_default_snapshot_controls
 
         create_default_snapshot_controls(project)
@@ -455,13 +483,28 @@ def _create_project(
     # Import metadata if source is defined
     if config.source:
         _import_metadata(project, config.source, skip_snapshots=skip_snapshots)
+    elif dbt_source is not None:
+        _import_dbt_project(project, dbt_source)
+        # The settings the dbt project suggested may be in config.yml now
+        from engine.services.project_config import load_project_config
+
+        try:
+            config = load_project_config(project)
+        except Exception:  # the summary shows the settings it started with
+            pass
 
     print_step(3, 3, "Project initialization complete!")
 
+    if config.source:
+        source_label = f"{config.source.type} ({config.source.path})"
+    elif dbt_source is not None:
+        source_label = f"dbt project ({dbt_source.path})"
+    else:
+        source_label = "None (start from scratch)"
     summary = f"""
 [bold]Project:[/bold] {project.name}
 [bold]Description:[/bold] {project.description or 'N/A'}
-[bold]Source:[/bold] {f"{config.source.type} ({config.source.path})" if config.source else "None (start from scratch)"}
+[bold]Source:[/bold] {source_label}
 [bold]Stage Schema:[/bold] {config.configuration.stage_schema}
 [bold]RDV Schema:[/bold] {config.configuration.rdv_schema}
 [bold]BDV Schema:[/bold] {config.configuration.bdv_schema}
@@ -472,7 +515,20 @@ def _create_project(
 """
     print_panel("Project Summary", summary.strip(), style="success")
 
-    if config.source:
+    if dbt_source is not None:
+        print_info(
+            "Next step: review the imported model in the admin (turbovault serve), "
+            "then generate it back into the dbt project"
+        )
+        folder = _dbt_project_folder(dbt_source)
+        configured = config.dbt_project is not None and config.dbt_project.path
+        output = "" if configured or folder is None else f" --output {folder}"
+        console.print(
+            f"  Run: turbovault generate --project {shlex.quote(project.name)} "
+            f"--type dbt{output}",
+            style="dim",
+        )
+    elif config.source:
         print_info("Next step: Use the admin interface to review your imported model")
     else:
         print_info("Next step: Use Django admin to define your Data Vault model")
@@ -670,6 +726,10 @@ def _run_interactive_init() -> None:
     ).ask()
 
     source_cfg = None
+    # A dbt project is imported after the project exists: the settings it
+    # suggests are shown and written into config.yml first
+    dbt_source = None
+    dbt_project_cfg = None
 
     if import_metadata:
         source_type = questionary.select(
@@ -679,6 +739,9 @@ def _run_interactive_init() -> None:
                 questionary.Choice("SQLite database (.db)", value="sqlite"),
                 questionary.Choice("JSON export file (.json)", value="json"),
                 questionary.Choice("IRiS three-file export (directory)", value="iris"),
+                questionary.Choice(
+                    "dbt project (folder or manifest.json)", value="dbt"
+                ),
             ],
         ).ask()
 
@@ -700,11 +763,16 @@ def _run_interactive_init() -> None:
             ).ask()
             if path:
                 source_cfg = IrisSourceConfig(path=Path(path))
+        elif source_type == "dbt":
+            dbt_source, dbt_project_cfg = _ask_dbt_project()
 
-    # Snapshot controls
-    create_snapshot_controls = questionary.confirm(
-        "Create default snapshot control tables?", default=False
-    ).ask()
+    # Snapshot controls: a dbt project brings its own
+    create_snapshot_controls = (
+        dbt_source is None
+        and questionary.confirm(
+            "Create default snapshot control tables?", default=False
+        ).ask()
+    )
 
     # Configuration defaults
     stage_schema = "stage"
@@ -717,10 +785,15 @@ def _run_interactive_init() -> None:
     create_zip = False
     naming_config: dict = {}
 
-    modify_defaults = questionary.confirm(
-        "Do you want to modify default settings (schema names, naming patterns)?",
-        default=False,
-    ).ask()
+    # A dbt project suggests the settings its models follow (schemas, naming,
+    # materializations, ...): shown before the import instead
+    modify_defaults = (
+        dbt_source is None
+        and questionary.confirm(
+            "Do you want to modify default settings (schema names, naming patterns)?",
+            default=False,
+        ).ask()
+    )
 
     if modify_defaults:
         stage_schema = questionary.text("Stage schema name:", default="stage").ask()
@@ -781,7 +854,7 @@ def _run_interactive_init() -> None:
                 "Satellite V1 naming pattern:", default="[[ satellite_name ]]_v1"
             ).ask()
 
-    dbt_config = _ask_materializations()
+    dbt_config = _ask_materializations() if dbt_source is None else {}
 
     # Build config object
     config = TurboVaultConfig(
@@ -802,10 +875,105 @@ def _run_interactive_init() -> None:
             dbt_project_dir="dbt_project",  # Default relative path
             create_zip=create_zip,
         ),
+        dbt_project=dbt_project_cfg,
     )
 
     # Directly create project instead of writing config.yml first
-    _create_project(config, snapshot_controls=create_snapshot_controls)
+    _create_project(
+        config, snapshot_controls=create_snapshot_controls, dbt_source=dbt_source
+    )
+
+
+def _ask_dbt_project():
+    """Ask for the dbt project to import, as `turbovault import` does.
+
+    Shows the project's files, and offers to run `dbt parse` when the
+    manifest is missing. Returns the source and, when the user wants it, the
+    project's ``dbt_project`` block naming the dbt project's folder: the
+    default of `turbovault import` and `turbovault generate`.
+    """
+    from engine.cli.commands.import_cmd import _prepare_dbt_source
+    from engine.services.config_schema import DbtProjectConfig
+    from engine.services.imports import DbtSource
+
+    answer = questionary.path(
+        "Path to the dbt project (its folder or manifest.json):"
+    ).ask()
+    if not answer:
+        raise typer.Exit(0)
+    path = Path(answer).expanduser()
+    if not _is_dbt_project(path):
+        print_error(
+            f"{path} isn't a dbt project: no dbt_project.yml or dbt manifest there."
+        )
+        raise typer.Exit(1)
+    if not _prepare_dbt_source(DbtSource(path=path), run_parse=None):
+        raise typer.Exit(1)
+
+    import_descriptions = questionary.confirm(
+        "Import the descriptions of models and columns?", default=True
+    ).ask()
+    import_tags = questionary.confirm("Import the models' tags?", default=True).ask()
+    if import_descriptions is None or import_tags is None:
+        raise typer.Exit(0)
+    source = DbtSource(
+        path=path, import_descriptions=import_descriptions, import_tags=import_tags
+    )
+
+    dbt_project_cfg = None
+    folder = _dbt_project_folder(source)
+    if folder is not None:
+        use_folder = questionary.confirm(
+            f"Make {folder} this project's dbt project? (turbovault import and "
+            "generate use it by default)",
+            default=True,
+        ).ask()
+        if use_folder is None:
+            raise typer.Exit(0)
+        if use_folder:
+            dbt_project_cfg = DbtProjectConfig(path=folder)
+
+    print_info(
+        "The dbt project brings its own snapshot controls, and suggests the "
+        "settings its models follow: you'll see them before the import."
+    )
+    return source, dbt_project_cfg
+
+
+def _is_dbt_project(path: Path) -> bool:
+    """Whether *path* is a dbt project folder or a dbt manifest."""
+    from engine.cli.commands.import_cmd import _detect_format
+
+    return path.exists() and _detect_format(path) == "dbt"
+
+
+def _dbt_project_folder(source) -> Path | None:
+    """The folder of the dbt project a source reads (None: a bare manifest)."""
+    from engine.services.imports.dbt.parser import locate
+
+    found = locate(source).dbt_project
+    return found.parent if found is not None else None
+
+
+def _import_dbt_project(project, source, *, apply_settings: bool | None = None):
+    """Import a dbt project into a new project, as `turbovault import` does.
+
+    The settings the dbt project suggests come first: shown, and written into
+    config.yml when the user agrees (asked in a terminal; ``apply_settings``
+    decides instead). Returns the import report.
+    """
+    from engine.cli.commands.import_cmd import _offer_project_settings, _render_report
+    from engine.services.imports import ImportOptions
+    from engine.services.imports import import_metadata as run_import
+
+    options = ImportOptions(
+        conflict_strategy="replace_all", error_strategy="best_effort"
+    )
+    print_info(f"Importing the dbt project {source.path}...")
+    _offer_project_settings(project, source, options, apply_settings)
+    report = run_import(project=project, source=source, options=options)
+    _render_report(report)
+    return report
 
 
 # Choices offered for each layer's materialization, in display order.

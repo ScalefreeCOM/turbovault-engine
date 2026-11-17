@@ -307,6 +307,16 @@ warehouse.
   - A dry-run review: entities to create or update, skipped models with reasons, warnings.
   - A confirm step.
   - Afterwards, the report linked from the import run.
+- **Creating a project from a dbt project (the CLI's flow, for reference):** `turbovault project init
+  --interactive` offers a dbt project next to the other sources. The flow:
+  1. It shows the found and missing files, and asks about descriptions, tags, and whether the folder becomes
+     the project's `dbt_project.path`.
+  2. It creates the project. It doesn't create the default snapshot controls (the dbt project brings its
+     own) and doesn't ask for schemas, naming patterns or materializations, since the suggestions cover them.
+  3. It runs the suggested-settings flow of item 19, then imports.
+
+  A Studio "new project from dbt" wizard can follow the same order. Engine-side nothing changes: it's the
+  import as above, run on an empty project.
 
 ---
 

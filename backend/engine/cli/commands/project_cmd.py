@@ -37,7 +37,8 @@ def project_init(
             "--source",
             "-s",
             help="Path to source file (.xlsx, .db, .json) or a directory of "
-            "IRiS files",
+            "IRiS files. A dbt project: use --interactive, or `turbovault "
+            "import` once the project exists",
         ),
     ] = None,
     # Schemas
