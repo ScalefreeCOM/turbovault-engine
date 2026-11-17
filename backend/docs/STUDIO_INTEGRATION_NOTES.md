@@ -694,9 +694,12 @@ datavault4dbt has no dependent child key concept: a link lists such keys in `for
 hash keys, as plain columns, and the link hash key hashes them. TurboVault hashed a link's dependent child keys
 into the link hash key but didn't select them, so the link table lacked the columns.
 
-- Generated links (`link`, `nh_link`) now write each dependent child key into `foreign_hashkeys` after the hub
-  hash keys, and their YAML describes it ("Dependent child key" unless the column has a description). The link
-  hash key is unchanged.
+- Generated standard links (`link`) now write each dependent child key into `foreign_hashkeys` after the hub
+  hash keys. Non-historized links (`nh_link`) write them first in their `payload`, which datavault4dbt
+  requires and selects as the link's own columns (after the load date and record source). The YAML describes
+  each one ("Dependent child key" unless the column has a description). The link hash key is unchanged.
+- A non-historized link with neither payload columns nor dependent child keys fails validation with
+  `validate.link.nh_without_payload`: datavault4dbt can't build it.
 - A dependent child key named differently from its stage column (e.g. link column `DCK_COMMENT` mapped from
   `O_COMMENT`) gets a renaming derived column in the stage, so the link can select it by its name.
 - The export's `LinkDefinition` gained `dependent_child_keys` (names, in order); `foreign_hashkeys` still holds

@@ -87,6 +87,7 @@ class Code:
     # Validate stage — links
     VALIDATE_LINK_MISSING_HASHKEY = "validate.link.missing_hashkey"
     VALIDATE_LINK_TOO_FEW_HUBS = "validate.link.too_few_hubs"
+    VALIDATE_LINK_NH_WITHOUT_PAYLOAD = "validate.link.nh_without_payload"
     VALIDATE_LINK_NO_SOURCES = "validate.link.no_sources"
 
     # Validate stage — satellites

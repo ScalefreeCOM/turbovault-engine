@@ -33,6 +33,7 @@ deep-link errors; the CLI groups them in summary tables.
 | `validate.link.missing_hashkey` | A link has no hashkey column name. | Set a hashkey on the link. |
 | `validate.link.too_few_hubs` | A link references fewer than two hubs (warning). | A link should connect at least two hubs. |
 | `validate.link.no_sources` | A link has no source mappings (warning). | Map the link's foreign hashkeys to source columns. |
+| `validate.link.nh_without_payload` | A non-historized link has neither payload columns nor dependent child keys. datavault4dbt's `nh_link` requires a payload. | Give the link a payload column, or a dependent child key (written first in its payload). |
 | `validate.satellite.no_parent` | A satellite has neither a parent hub nor a parent link. | Set `parent_hub` or `parent_link`. |
 | `validate.satellite.no_stage` | A satellite has no associated stage. | Confirm the satellite's source table feeds a stage. |
 | `validate.satellite.no_columns` | A satellite has no columns (warning). | Add at least one satellite column. |

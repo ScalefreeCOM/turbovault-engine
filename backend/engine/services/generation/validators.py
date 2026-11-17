@@ -591,6 +591,23 @@ def _validate_link(link: LinkDefinition) -> ValidationResult:
             code="LNK_003",
         )
 
+    # datavault4dbt's nh_link requires a payload: the link's dependent child
+    # keys and payload columns
+    if link.link_type == "non_historized" and not (
+        link.payload_columns or link.dependent_child_keys
+    ):
+        result.add_error(
+            entity_type="link",
+            entity_name=link.link_name,
+            field="payload_columns",
+            message=(
+                "A non-historized link needs at least one payload column or "
+                "dependent child key: datavault4dbt can't build it without a "
+                "payload"
+            ),
+            code="LNK_004",
+        )
+
     return result
 
 

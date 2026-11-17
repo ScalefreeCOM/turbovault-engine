@@ -142,6 +142,22 @@ def _generate(project, tmp_path: Path, runtime_config=None, **options):
     return report
 
 
+def _with_payload(link_name: str, column: str, source_column: str) -> None:
+    """Give a link a payload column: a non-historized link needs one."""
+    from engine.models import LinkColumn, LinkSourceMapping, StagingColumn
+
+    staging = StagingColumn.objects.get(
+        source_column__source_column_physical_name=source_column
+    )
+    payload = LinkColumn.objects.create(
+        link=_get("Link", link_physical_name=link_name),
+        column_name=column,
+        column_type=LinkColumn.ColumnType.PAYLOAD,
+        sort_order=1,
+    )
+    LinkSourceMapping.objects.create(link_column=payload, staging_column=staging)
+
+
 def _metadata(tmp_path: Path, *parts: str) -> dict:
     """A model's yaml_metadata block, parsed as datavault4dbt will."""
     sql = (tmp_path / "dbt" / "models" / Path(*parts)).read_text(encoding="utf-8")
@@ -276,6 +292,7 @@ def test_the_delivery_method_inherits_from_system_and_project(project, tmp_path)
         {"link_physical_name": "ORDER_CUSTOMER_L"},
         link_type=Link.LinkType.NON_HISTORIZED,
     )
+    _with_payload("ORDER_CUSTOMER_L", "SELLER", "O_SELLER")
 
     _generate(
         project,
@@ -328,6 +345,7 @@ def test_a_non_historized_links_union_strategy(project, tmp_path):
         link_type=Link.LinkType.NON_HISTORIZED,
         union_strategy="distinct",
     )
+    _with_payload("ORDER_CUSTOMER_L", "SELLER", "O_SELLER")
 
     _generate(project, tmp_path)
 
@@ -548,3 +566,49 @@ def test_a_link_selects_its_dependent_child_keys(project, tmp_path):
     assert stage["derived_columns"]["SELLER_ID"]["value"] == "O_SELLER"
     yml = tmp_path / "dbt" / "models" / "30_raw_vault" / "ORDER_CUSTOMER_L.yml"
     assert "- name: SELLER_ID" in yml.read_text(encoding="utf-8")
+
+
+def test_a_non_historized_link_has_its_dependent_child_keys_in_its_payload(
+    project, tmp_path
+):
+    """datavault4dbt's nh_link requires a payload and selects it as the
+    link's own columns: dependent child keys go first in it."""
+    from engine.models import Link, LinkColumn, LinkSourceMapping, StagingColumn
+
+    link = _get("Link", link_physical_name="ORDER_CUSTOMER_L")
+    Link.objects.filter(pk=link.pk).update(link_type=Link.LinkType.NON_HISTORIZED)
+    seller = StagingColumn.objects.get(
+        source_column__source_column_physical_name="O_SELLER"
+    )
+    column = LinkColumn.objects.create(
+        link=link,
+        column_name="SELLER_ID",
+        column_type=LinkColumn.ColumnType.DEPENDENT_CHILD_KEY,
+        sort_order=1,
+    )
+    LinkSourceMapping.objects.create(link_column=column, staging_column=seller)
+
+    report = _generate(project, tmp_path)
+
+    assert report.status == "success", report.issues
+    metadata = _raw_vault(tmp_path, "ORDER_CUSTOMER_L")
+    assert set(metadata["foreign_hashkeys"]) == {"hk_order_h", "hk_customer_h"}
+    assert metadata["payload"] == ["SELLER_ID"]
+    stage = _stage(tmp_path, "orders")
+    assert stage["hashed_columns"]["hk_order_customer_l"][-1] == "O_SELLER"
+
+
+def test_a_non_historized_link_without_payload_is_an_error(project, tmp_path):
+    from engine.models import Link
+    from engine.services.generation import generate
+
+    _update(
+        "Link",
+        {"link_physical_name": "ORDER_CUSTOMER_L"},
+        link_type=Link.LinkType.NON_HISTORIZED,
+    )
+
+    report = generate(project=project, output_type="dbt", output_path=tmp_path)
+
+    codes = [issue.code for issue in report.issues if issue.severity == "error"]
+    assert "validate.link.nh_without_payload" in codes
