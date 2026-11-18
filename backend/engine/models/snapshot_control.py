@@ -15,7 +15,6 @@ from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from engine.models.output_attributes import generation_config_field
 from engine.models.project import Project
 
 
@@ -32,7 +31,10 @@ def default_snapshot_start_date() -> date:
 def default_snapshot_end_date() -> date:
     """
     Return the end of the year 5 years from now.
-    Default end date for snapshot control.
+
+    The former default end date. Kept for the migrations that reference it: a
+    snapshot control has no end date unless one is set (the range then runs up
+    to the current date).
     """
     today = date.today()
     five_years_ahead = today + relativedelta(years=5)
@@ -73,15 +75,28 @@ class SnapshotControlTable(models.Model):
     )
 
     snapshot_end_date = models.DateField(
-        default=default_snapshot_end_date,
-        help_text="End date for snapshot range (default: end of current year + 5)",
+        blank=True,
+        null=True,
+        default=None,
+        help_text=(
+            "Last date of the snapshot range (datavault4dbt end_date). Empty: the "
+            "range runs up to the current date"
+        ),
     )
 
     daily_snapshot_time = models.TimeField(
         default=time(8, 0, 0), help_text="Daily snapshot time (default: 08:00:00)"
     )
 
-    generation_config = generation_config_field("SnapshotControlTable")
+    sdts_alias = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=(
+            "Name of the snapshot date column (datavault4dbt sdts_alias). Empty: "
+            "the sdts_alias variable"
+        ),
+    )
 
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -99,7 +114,8 @@ class SnapshotControlTable(models.Model):
 
     def __str__(self) -> str:
         return (
-            f"Snapshot Control ({self.snapshot_start_date} to {self.snapshot_end_date})"
+            f"Snapshot Control ({self.snapshot_start_date} to "
+            f"{self.snapshot_end_date or 'today'})"
         )
 
 
@@ -216,3 +232,34 @@ class SnapshotControlLogic(models.Model):
         return (
             f"{self.snapshot_component} ({self.snapshot_duration} {self.snapshot_unit})"
         )
+
+
+# The logic of a default snapshot control: one is_active column with
+# datavault4dbt's example retention. Daily snapshots for three months, weekly
+# ones (beginning of week) for a year, monthly ones for five years, yearly
+# ones forever. Only daily and the beginnings of a week, month and year are
+# intervals datavault4dbt computes (see services.generation.snapshot_logic).
+DEFAULT_LOGIC_COLUMN = "is_active"
+DEFAULT_LOGIC: tuple[dict, ...] = (
+    {"component": "daily", "duration": 3, "unit": "MONTH"},
+    {"component": "beginning_of_week", "duration": 1, "unit": "YEAR"},
+    {"component": "beginning_of_month", "duration": 5, "unit": "YEAR"},
+    {"component": "beginning_of_year", "forever": True},
+)
+
+
+def create_default_logic(
+    control: SnapshotControlTable, column: str = DEFAULT_LOGIC_COLUMN
+) -> list[SnapshotControlLogic]:
+    """Give a snapshot control the default logic, in one logic column."""
+    return [
+        SnapshotControlLogic.objects.create(
+            snapshot_control_table=control,
+            snapshot_control_logic_column_name=column,
+            snapshot_component=rule["component"],
+            snapshot_duration=rule.get("duration"),
+            snapshot_unit=rule.get("unit"),
+            snapshot_forever=rule.get("forever", False),
+        )
+        for rule in DEFAULT_LOGIC
+    ]

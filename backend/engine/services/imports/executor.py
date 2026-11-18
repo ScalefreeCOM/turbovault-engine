@@ -20,8 +20,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import date, time
 from typing import Any
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 
 from engine.models import (
@@ -36,6 +38,7 @@ from engine.models import (
     LinkHubReference,
     LinkHubSourceMapping,
     LinkSourceMapping,
+    ModelOutput,
     PrejoinDefinition,
     PrejoinExtractionColumn,
     Project,
@@ -50,6 +53,9 @@ from engine.models import (
     SourceTable,
     StagingColumn,
 )
+from engine.models.model_output import normalize_folder
+from engine.models.snapshot_control import create_default_logic
+from engine.services.export.model_outputs import derived_model_name
 from engine.services.imports.changes import (
     LOOKUP,
     OpOutcome,
@@ -58,14 +64,18 @@ from engine.services.imports.changes import (
     upsert,
 )
 from engine.services.imports.domain import (
+    CLEAR,
     DPIT,
     DHub,
     DLink,
+    DModelOutput,
     DomainModel,
     DPrejoin,
     DReferenceTable,
     DSatellite,
+    DSnapshotControl,
     DSourceSystem,
+    snapshot_base_name,
 )
 from engine.services.imports.errors import Code, PipelineAbort, make_issue
 from engine.services.imports.planner import (
@@ -83,24 +93,38 @@ from engine.services.imports.types import (
     PlanCounts,
     PlanState,
 )
+from engine.services.runtime_config import (
+    EngineRuntimeConfig,
+    resolve_runtime_config,
+)
 
 
 def _only_supplied(**fields: Any) -> dict[str, Any]:
     """The fields a source actually supplied.
 
     None means the format has no place for the field (see domain.py), so the
-    value the project has is kept rather than cleared.
+    value the project has is kept rather than cleared. CLEAR means the source
+    sets the field to empty: it is cleared.
     """
-    return {name: value for name, value in fields.items() if value is not None}
+    return {
+        name: None if value is CLEAR else value
+        for name, value in fields.items()
+        if value is not None
+    }
 
 
-def _snapshot_base_name(name: str) -> str:
-    """Base name of a snapshot control: trailing _v0/_v1 stripped, lowercased."""
-    lowered = (name or "").lower()
-    for suffix in ("_v0", "_v1"):
-        if lowered.endswith(suffix):
-            return lowered[: -len(suffix)]
-    return lowered
+def _iso_date(value: Any) -> Any:
+    """An ISO date string as a date; None and CLEAR pass through."""
+    if isinstance(value, str):
+        return date.fromisoformat(value)
+    return value
+
+
+def _iso_time(value: Any) -> Any:
+    """An ISO time string as a time; None and CLEAR pass through."""
+    if isinstance(value, str):
+        return time.fromisoformat(value)
+    return value
 
 
 @dataclass(slots=True)
@@ -118,6 +142,7 @@ def execute_plan(
     error_strategy: ErrorStrategy,
     skip_snapshots: bool,
     dry_run: bool = False,
+    runtime_config: EngineRuntimeConfig | None = None,
 ) -> ExecutionResult:
     """Apply the plan to the database; return the issues and what each op did.
 
@@ -133,6 +158,7 @@ def execute_plan(
         plan=plan,
         error_strategy=error_strategy,
         skip_snapshots=skip_snapshots,
+        runtime_config=runtime_config,
     )
     with transaction.atomic():
         executor.run()
@@ -228,8 +254,13 @@ class _Executor:
         plan: ExecutionPlan,
         error_strategy: ErrorStrategy,
         skip_snapshots: bool,
+        runtime_config: EngineRuntimeConfig | None = None,
     ):
         self.project = project
+        # The project's settings: naming patterns name hash keys and diffs.
+        self.runtime_config = runtime_config
+        # The project's naming settings, resolved when a stored name needs them
+        self._naming_config: EngineRuntimeConfig | None = None
         self.domain = domain
         self.plan = plan
         self.error_strategy = error_strategy
@@ -410,6 +441,112 @@ class _Executor:
         if self.error_strategy == "fail_fast":
             raise PipelineAbort(issue)
 
+    def _apply_model_outputs(
+        self,
+        entity_field: str,
+        entity: Any,
+        outputs: dict[str, DModelOutput] | None,
+        entity_type: str,
+        entity_name: str,
+    ) -> None:
+        """Give an entity exactly the stored model outputs the source lists.
+
+        None leaves the entity's outputs alone: the format has no place for
+        them. An output the source leaves out is removed, so the model is
+        generated with TurboVault's defaults again. An output that isn't
+        valid (a bad name or folder, a name another model has) is reported
+        and left as it is.
+        """
+        if outputs is None:
+            return
+        existing = {
+            row.kind: row
+            for row in ModelOutput.objects.filter(
+                **{entity_field: entity}, framework=ModelOutput.Framework.DBT
+            )
+        }
+        for kind, d in outputs.items():
+            values = {
+                "model_name": self._stored_model_name(kind, entity, d),
+                "folder": normalize_folder(d.folder) or None if d.folder else None,
+                "alias": d.alias or None,
+                "schema_name": d.schema_name or None,
+                "database_name": d.database_name or None,
+                "materialized": d.materialized or None,
+                # An empty list is a model without tags; None its default tags.
+                "tags": list(d.tags) if d.tags is not None else None,
+                "config": dict(d.config) if d.config else None,
+            }
+            current = existing.get(kind)
+            candidate = ModelOutput(
+                project=self.project, kind=kind, **{entity_field: entity}, **values
+            )
+            if current is not None:
+                # Validated as that row: its own name and kind aren't duplicates.
+                candidate.pk = current.pk
+                candidate._state.adding = False
+            try:
+                candidate.full_clean(exclude=["project"])
+            except ValidationError as exc:
+                self._record_error(
+                    code=Code.ENTITY_INVALID_CONFIGURATION,
+                    message=(
+                        f"The {kind.replace('_', ' ')} model of {entity_type} "
+                        f"'{entity_name}' can't be stored: " + "; ".join(exc.messages)
+                    ),
+                    entity_type=entity_type,
+                    entity_name=entity_name,
+                )
+                continue
+            self._upsert(
+                ModelOutput,
+                lookup={
+                    entity_field: entity,
+                    "framework": ModelOutput.Framework.DBT,
+                    "kind": kind,
+                },
+                values=values,
+                create_values={"project": self.project},
+                existing=current,
+                path=("model_outputs", kind),
+            )
+        for kind, row in existing.items():
+            if kind not in outputs:
+                remove(row, outcome=self._current, path=("model_outputs", kind))
+
+    def _stored_model_name(self, kind: str, entity: Any, d: DModelOutput) -> str | None:
+        """The model name to store: the given one, else the file name of a
+        JSON import's ``file_path`` where it isn't the name TurboVault derives
+        (so a round trip stores no name the patterns give anyway). Hubs,
+        links, PITs and reference tables are named after themselves."""
+        if d.model_name:
+            return d.model_name
+        if not d.file_name or kind in ModelOutput.NAMED_BY_ENTITY:
+            return None
+        if self._naming_config is None:
+            self._naming_config = resolve_runtime_config(
+                self.project, self.runtime_config
+            )
+        derived = derived_model_name(kind, entity, self._naming_config)
+        return None if d.file_name == derived else d.file_name
+
+    def _stored_hashdiff_name(self, d: DSatellite, existing: Satellite | None) -> Any:
+        """The hash diff name to store for a satellite: None keeps, CLEAR clears.
+
+        A name the project's naming pattern gives is stored as none, so the
+        satellite keeps following the pattern; one the satellite already
+        stores is kept as it is.
+        """
+        name = d.hashdiff_name
+        if name is None or name is CLEAR:
+            return name
+        if existing is not None and existing.hashdiff_name == name:
+            return name
+        derived = self.project.resolve_naming_pattern(
+            "hashdiff_naming", d.physical_name, runtime_config=self.runtime_config
+        )
+        return CLEAR if name == derived else name
+
     def _get_or_create_group(self, name: str | None) -> Group | None:
         if not name:
             return None
@@ -438,27 +575,15 @@ class _Executor:
             )
             return self._default_snap_logic
 
-        from datetime import date, time
-
         today = date.today()
+        # No end date: the snapshot range runs up to the current date
         control = SnapshotControlTable.objects.create(
             project=self.project,
             snapshot_start_date=date(today.year - 5, 1, 1),
-            snapshot_end_date=date(today.year + 5, 12, 31),
             daily_snapshot_time=time(8, 0, 0),
         )
         self._set("_default_snap_control", control)
-        self._set(
-            "_default_snap_logic",
-            SnapshotControlLogic.objects.create(
-                snapshot_control_table=control,
-                snapshot_control_logic_column_name="is_active",
-                snapshot_component=SnapshotControlLogic.SnapshotComponent.BEGINNING_OF_MONTH,
-                snapshot_duration=1,
-                snapshot_unit=SnapshotControlLogic.SnapshotUnit.YEAR,
-                snapshot_forever=False,
-            ),
-        )
+        self._set("_default_snap_logic", create_default_logic(control)[0])
         return self._default_snap_logic
 
     def _logic_row_for(
@@ -503,9 +628,19 @@ class _Executor:
         """
         if self.skip_snapshots:
             return None
+        return self._resolve_snapshot_logic(
+            d.snapshot_control_name, d.snapshot_logic_column
+        )
 
-        name = d.snapshot_control_name
-        trigger = d.snapshot_logic_column
+    def _resolve_snapshot_logic(
+        self, name: str | None, trigger: str | None
+    ) -> SnapshotControlLogic | None:
+        """The logic row of control *name* (by base name) for column *trigger*.
+
+        Without either, the project's default control.
+        """
+        if self.skip_snapshots:
+            return None
         if not name and not trigger:
             return self._ensure_default_snapshot_control()
 
@@ -527,26 +662,24 @@ class _Executor:
 
     def _get_or_create_snapshot_control_table(self, name: str) -> SnapshotControlTable:
         """Find a control table by base name (case-insensitive), or create it."""
-        target_base = _snapshot_base_name(name)
+        target_base = snapshot_base_name(name)
         table = next(
             (
                 t
                 for t in SnapshotControlTable.objects.filter(project=self.project)
-                if _snapshot_base_name(t.name) == target_base
+                if snapshot_base_name(t.name) == target_base
             ),
             None,
         )
         if table is not None:
             return table
 
-        from datetime import date, time
-
         today = date.today()
+        # No end date: the snapshot range runs up to the current date
         return SnapshotControlTable.objects.create(
             project=self.project,
             name=name,
             snapshot_start_date=date(today.year - 5, 1, 1),
-            snapshot_end_date=date(today.year + 5, 12, 31),
             daily_snapshot_time=time(8, 0, 0),
         )
 
@@ -569,65 +702,6 @@ class _Executor:
         # If we have any PITs in the domain and snap is not skipped, ensure one exists.
         if not self.skip_snapshots and self.domain.pits:
             self._ensure_default_snapshot_control()
-        if not self.skip_snapshots:
-            self._apply_snapshot_control_attributes()
-
-    def _apply_snapshot_control_attributes(self) -> None:
-        """Store the output attributes the source gives its snapshot controls.
-
-        Snapshot controls have no plan op of their own (the import creates
-        them on demand for PITs), so the attributes go to the project's
-        control table with the same base name, when there is one. Having no
-        plan entry, a change is reported as an info issue, and attributes
-        without a matching table as a warning rather than dropped silently.
-        """
-        tables = list(SnapshotControlTable.objects.filter(project=self.project))
-        for control_d in self.domain.snapshot_controls.values():
-            if control_d.generation_config is None:
-                continue
-            base_name = _snapshot_base_name(control_d.name)
-            matching = [t for t in tables if _snapshot_base_name(t.name) == base_name]
-            if not matching:
-                if control_d.generation_config:
-                    self.issues.append(
-                        make_issue(
-                            severity="warning",
-                            code=Code.EXECUTE_SNAPSHOT_CONTROL_NOT_FOUND,
-                            stage="execute",
-                            entity=EntityRef(
-                                type="snapshot_control", name=control_d.name
-                            ),
-                            message=(
-                                f"Output attributes of snapshot control "
-                                f"'{control_d.name}' were not stored: the project "
-                                "has no snapshot control with that name."
-                            ),
-                            suggestion=(
-                                "Import a PIT that uses it, or rename the "
-                                "project's snapshot control to match."
-                            ),
-                        )
-                    )
-                continue
-            for table in matching:
-                if table.generation_config == control_d.generation_config:
-                    continue
-                before = table.generation_config
-                table.generation_config = control_d.generation_config
-                table.save(update_fields=["generation_config", "updated_at"])
-                self.issues.append(
-                    make_issue(
-                        severity="info",
-                        code=Code.EXECUTE_SNAPSHOT_CONTROL_ATTRIBUTES_UPDATED,
-                        stage="execute",
-                        entity=EntityRef(type="snapshot_control", name=table.name),
-                        message=(
-                            f"Output attributes of snapshot control "
-                            f"'{table.name}' changed from {before or {}} to "
-                            f"{control_d.generation_config or {}}."
-                        ),
-                    )
-                )
 
     def _run_op(self, index: int, op: Any, apply: Callable[[Any], None]) -> None:
         """Apply one op in its own savepoint, recording what it did.
@@ -715,6 +789,9 @@ class _Executor:
                     record_source_value=d.record_source_value,
                     static_part_of_record_source=d.static_part_of_record_source,
                     load_date_value=d.load_date_value,
+                    include_source_columns=d.include_source_columns,
+                    enable_ghost_records=d.enable_ghost_records,
+                    delivery_method=d.delivery_method,
                 ),
             },
         )
@@ -748,11 +825,11 @@ class _Executor:
             static_part_of_record_source=table_d.static_part_of_record_source,
             description=table_d.description,
             table_type=table_d.table_type,
-            generation_config=table_d.generation_config,
+            include_source_columns=table_d.include_source_columns,
+            enable_ghost_records=table_d.enable_ghost_records,
+            sequence_column=table_d.sequence_column,
+            delivery_method=table_d.delivery_method,
         )
-        if table_d.prestage_sql is not None:
-            # "" is the source saying the table has no SQL: clear it.
-            values["prestage_sql"] = table_d.prestage_sql or None
         obj, _ = self._upsert(
             SourceTable,
             lookup={
@@ -776,7 +853,8 @@ class _Executor:
         derived_columns = self._derived_by_table.setdefault(obj.pk, {})
 
         # Derived columns first: a mapped column with a derived column's name
-        # is that derived column, not a source column to create.
+        # is that derived column (see _resolve_staging_column). A source column
+        # of the same name still exists: the derived column shadows it.
         for derived_d in (table_d.derived_columns or {}).values():
             derived, _ = self._upsert(
                 DerivedColumn,
@@ -795,8 +873,15 @@ class _Executor:
                 self._derived_columns, (obj.pk, derived_d.name.lower()), derived
             )
 
+        # A format without derived columns (Excel) lists the columns its
+        # mappings name: one named like a derived column means that column.
+        # A format that describes them (JSON) lists real source columns, which
+        # may share a derived column's name: the derived column shadows it.
+        describes_derived = table_d.derived_columns is not None
         for col in table_d.columns.values():
-            if (obj.pk, col.name.lower()) in self._derived_columns:
+            if not describes_derived and (obj.pk, col.name.lower()) in (
+                self._derived_columns
+            ):
                 continue
             sc, _ = self._upsert(
                 SourceColumn,
@@ -806,6 +891,7 @@ class _Executor:
                 values=_only_supplied(
                     source_column_datatype=col.datatype,
                     description=col.description,
+                    is_missing=col.is_missing,
                 ),
                 create_values={"source_column_datatype": ""},
                 existing=columns.get(col.name),
@@ -814,6 +900,10 @@ class _Executor:
             self._cache(columns, col.name, sc)
             self._cache(self._source_columns, (table_d.physical_name, col.name), sc)
             self._cache(self._source_columns, (table_d.identifier, col.name), sc)
+
+        self._apply_model_outputs(
+            "source_table", obj, table_d.outputs, op.entity_type, op.name
+        )
 
     def _ensure_source_column(
         self, table_identifier: str, col_name: str
@@ -878,6 +968,15 @@ class _Executor:
                 return self._staging_for(
                     derived, f"{table.physical_table_name}.{derived.column_name}"
                 )
+            # A column a prejoin brings into the stage, when the table has
+            # no column of that name.
+            if (table_identifier, col_name) not in self._source_columns:
+                extraction = self._extraction_named(table, col_name)
+                if extraction is not None:
+                    return self._staging_for(
+                        extraction,
+                        f"{table.physical_table_name}.{_staged_name(extraction)}",
+                    )
         src_col = self._ensure_source_column(table_identifier, col_name)
         if src_col is None:
             return None
@@ -886,6 +985,22 @@ class _Executor:
         )
         return self._staging_for(
             src_col, f"{table_name}.{src_col.source_column_physical_name}"
+        )
+
+    def _extraction_named(
+        self, table: SourceTable, col_name: str
+    ) -> PrejoinExtractionColumn | None:
+        """The prejoin extraction a stage of ``table`` names ``col_name``."""
+        lowered = col_name.lower()
+        return next(
+            (
+                extraction
+                for (source_pk, _target_pk, staged), extraction in (
+                    self._prejoin_extractions.items()
+                )
+                if source_pk == table.pk and staged == lowered
+            ),
+            None,
         )
 
     # ---------------------------------------------------------------- prejoin
@@ -1078,7 +1193,7 @@ class _Executor:
         hashkey = d.hashkey_name
         if d.hub_type == Hub.HubType.STANDARD and not hashkey:
             hashkey = self.project.resolve_naming_pattern(
-                "hashkey_naming", d.physical_name
+                "hashkey_naming", d.physical_name, runtime_config=self.runtime_config
             )
         obj, created = self._upsert(
             Hub,
@@ -1090,12 +1205,17 @@ class _Executor:
                 "create_effectivity_satellite": d.create_effectivity_satellite,
                 "group": group,
                 **_only_supplied(
-                    description=d.description, generation_config=d.generation_config
+                    description=d.description,
+                    disable_hwm=d.disable_hwm,
+                    effectivity_is_active_alias=d.effectivity_is_active_alias,
+                    effectivity_disable_hwm=d.effectivity_disable_hwm,
+                    effectivity_additional_columns=d.effectivity_additional_columns,
                 ),
             },
             existing=self._hubs_by_name.get(d.physical_name, LOOKUP),
         )
         self._cache(self._hubs_by_name, d.physical_name, obj)
+        self._apply_model_outputs("hub", obj, d.outputs, op.entity_type, op.name)
 
         existing_columns = (
             {} if created else {c.column_name: c for c in obj.columns.all()}
@@ -1181,6 +1301,7 @@ class _Executor:
             else:
                 is_primary = not has_primary and index == 0
                 values = {"is_primary_source": True} if is_primary else {}
+            values.update(_only_supplied(stage_hashkey_name=mapping.stage_hashkey_name))
             row, _ = self._upsert(
                 HubSourceMapping,
                 lookup={"hub_column": hub_column, "staging_column": staging},
@@ -1265,17 +1386,26 @@ class _Executor:
                 # What Link.save() would store for an unnamed hashkey.
                 "link_hashkey_name": d.hashkey_name
                 or self.project.resolve_naming_pattern(
-                    "hashkey_naming", d.physical_name
+                    "hashkey_naming",
+                    d.physical_name,
+                    runtime_config=self.runtime_config,
                 ),
                 "create_record_tracking_satellite": d.create_record_tracking_satellite,
                 "group": group,
                 **_only_supplied(
-                    description=d.description, generation_config=d.generation_config
+                    description=d.description,
+                    create_effectivity_satellite=d.create_effectivity_satellite,
+                    disable_hwm=d.disable_hwm,
+                    union_strategy=d.union_strategy,
+                    effectivity_is_active_alias=d.effectivity_is_active_alias,
+                    effectivity_disable_hwm=d.effectivity_disable_hwm,
+                    effectivity_additional_columns=d.effectivity_additional_columns,
                 ),
             },
             existing=self._links_by_name.get(d.physical_name, LOOKUP),
         )
         self._cache(self._links_by_name, d.physical_name, obj)
+        self._apply_model_outputs("link", obj, d.outputs, op.entity_type, op.name)
 
         ref_objs = self._apply_link_hub_references(d, obj, created)
         self._apply_link_hub_source_mappings(d, obj, created, ref_objs)
@@ -1534,6 +1664,11 @@ class _Executor:
             return
 
         group = self._get_or_create_group(d.group_name)
+        existing_satellite = self._satellites_by_name.get(d.physical_name, LOOKUP)
+        if existing_satellite is LOOKUP:
+            existing_satellite = Satellite.objects.filter(
+                project=self.project, satellite_physical_name=d.physical_name
+            ).first()
         obj, created = self._upsert(
             Satellite,
             lookup={
@@ -1547,12 +1682,20 @@ class _Executor:
                 "source_table": source_table,
                 "group": group,
                 **_only_supplied(
-                    description=d.description, generation_config=d.generation_config
+                    description=d.description,
+                    hashdiff_name=self._stored_hashdiff_name(d, existing_satellite),
+                    hashdiff_alias=d.hashdiff_alias,
+                    create_v1_view=d.create_v1_view,
+                    v1_ledts_alias=d.v1_ledts_alias,
+                    v1_add_is_current_flag=d.v1_add_is_current_flag,
+                    v1_include_payload=d.v1_include_payload,
+                    disable_hwm=d.disable_hwm,
                 ),
             },
-            existing=self._satellites_by_name.get(d.physical_name, LOOKUP),
+            existing=existing_satellite,
         )
         self._cache(self._satellites_by_name, d.physical_name, obj)
+        self._apply_model_outputs("satellite", obj, d.outputs, op.entity_type, op.name)
 
         existing_columns = (
             {} if created else {c.staging_column_id: c for c in obj.columns.all()}
@@ -1596,6 +1739,70 @@ class _Executor:
             )
             existing_columns[staging.pk] = column
 
+    # ------------------------------------------------------- snapshot control
+    def _upsert_snapshot_control(self, op: CreateOp | UpdateOp) -> None:
+        """A snapshot control, its logic rules and its model outputs.
+
+        Matched by base name (``control_snap``, ``control_snap_v0`` and
+        ``control_snap_v1`` are one control). Logic rules are added and
+        updated, never removed: PITs and reference tables point at them.
+        """
+        d: DSnapshotControl = op.payload
+        target_base = snapshot_base_name(d.name)
+        existing = next(
+            (
+                control
+                for control in SnapshotControlTable.objects.filter(project=self.project)
+                if snapshot_base_name(control.name) == target_base
+            ),
+            None,
+        )
+        control, _ = self._upsert(
+            SnapshotControlTable,
+            lookup={"project": self.project},
+            values=_only_supplied(
+                snapshot_start_date=_iso_date(d.start_date),
+                snapshot_end_date=_iso_date(d.end_date),
+                daily_snapshot_time=_iso_time(d.daily_time),
+                sdts_alias=d.sdts_alias,
+            ),
+            create_values={"name": d.name},
+            existing=existing,
+        )
+
+        # A rule is a logic column's component: a column has one per
+        # component (daily, weekly, ...)
+        rules = {
+            (
+                rule.snapshot_control_logic_column_name.lower(),
+                rule.snapshot_component,
+            ): rule
+            for rule in SnapshotControlLogic.objects.filter(
+                snapshot_control_table=control
+            )
+        }
+        for rule_d in d.logic_rules:
+            key = (rule_d.column_name.lower(), rule_d.component)
+            rule, _ = self._upsert(
+                SnapshotControlLogic,
+                lookup={
+                    "snapshot_control_table": control,
+                    "snapshot_control_logic_column_name": rule_d.column_name,
+                    "snapshot_component": rule_d.component,
+                },
+                values={
+                    "snapshot_duration": rule_d.duration,
+                    "snapshot_unit": rule_d.unit,
+                    "snapshot_forever": rule_d.forever,
+                },
+                existing=rules.get(key),
+                path=("logic_rules", rule_d.column_name, rule_d.component),
+            )
+            rules[key] = rule
+        self._apply_model_outputs(
+            "snapshot_control", control, d.outputs, op.entity_type, op.name
+        )
+
     # -------------------------------------------------------- reference table
     def _upsert_reference_table(self, op: CreateOp | UpdateOp) -> None:
         d: DReferenceTable = op.payload
@@ -1613,6 +1820,21 @@ class _Executor:
             return
 
         group = self._get_or_create_group(d.group_name)
+        # A snapshot-based reference table reads a snapshot control, chosen
+        # like a PIT's; skip_snapshots leaves what the table has.
+        snapshot_values: dict[str, Any] = {}
+        if (
+            d.historization_type == ReferenceTable.HistorizationType.SNAPSHOT_BASED
+            and not self.skip_snapshots
+        ):
+            logic = self._resolve_snapshot_logic(
+                d.snapshot_control_name, d.snapshot_logic_column
+            )
+            if logic is not None:
+                snapshot_values = {
+                    "snapshot_control_table": logic.snapshot_control_table,
+                    "snapshot_control_logic": logic,
+                }
         rt, created = self._upsert(
             ReferenceTable,
             lookup={
@@ -1623,10 +1845,12 @@ class _Executor:
                 "reference_hub": hub,
                 "historization_type": d.historization_type,
                 "group": group,
-                **_only_supplied(
-                    description=d.description, generation_config=d.generation_config
-                ),
+                **snapshot_values,
+                **_only_supplied(description=d.description),
             },
+        )
+        self._apply_model_outputs(
+            "reference_table", rt, d.outputs, op.entity_type, op.name
         )
 
         # Satellite assignments come from the Excel/JSON. When a ref table has
@@ -1759,9 +1983,15 @@ class _Executor:
                 "pit_type": d.pit_type,
                 "custom_record_source": d.custom_record_source,
                 "group": group,
-                **_only_supplied(generation_config=d.generation_config),
+                **_only_supplied(
+                    use_snapshot_optimization=d.use_snapshot_optimization,
+                    include_business_objects_before_appearance=(
+                        d.include_business_objects_before_appearance
+                    ),
+                ),
             },
         )
+        self._apply_model_outputs("pit", pit, d.outputs, op.entity_type, op.name)
 
         # Link the satellites tracked by this PIT (M2M).
         sats = []
@@ -1815,6 +2045,7 @@ _UPSERT_DISPATCH = {
     "hub": _Executor._upsert_hub,
     "link": _Executor._upsert_link,
     "satellite": _Executor._upsert_satellite,
+    "snapshot_control": _Executor._upsert_snapshot_control,
     "reference_table": _Executor._upsert_reference_table,
     "pit": _Executor._upsert_pit,
 }

@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -334,16 +334,23 @@ class IrisSourceConfig(BaseModel):
 class ProjectConfiguration(BaseModel):
     """Project-level Data Vault configuration."""
 
-    stage_schema: str = Field("stage", description="Schema name for staging layer")
+    stage_schema: str | None = Field(
+        "stage",
+        description="Schema name for staging layer (null: no custom schema, models build into the target's schema)",
+    )
     stage_database: str | None = Field(
         None, description="Optional database name for staging layer"
     )
-    rdv_schema: str = Field("rdv", description="Schema name for Raw Data Vault layer")
+    rdv_schema: str | None = Field(
+        "rdv",
+        description="Schema name for Raw Data Vault layer (null: no custom schema, models build into the target's schema)",
+    )
     rdv_database: str | None = Field(
         None, description="Optional database name for Raw Data Vault layer"
     )
-    bdv_schema: str = Field(
-        "bdv", description="Schema name for Business Data Vault layer"
+    bdv_schema: str | None = Field(
+        "bdv",
+        description="Schema name for Business Data Vault layer (null: no custom schema, models build into the target's schema)",
     )
     bdv_database: str | None = Field(
         None, description="Optional database name for Business Data Vault layer"
@@ -366,6 +373,20 @@ class ProjectConfiguration(BaseModel):
     effectivity_satellite_naming: str | None = Field(
         None, description="Naming pattern for effectivity satellite models"
     )
+    stage_naming: str | None = Field(
+        None,
+        description=(
+            "Naming pattern for stage models; placeholders [[ source_system ]] "
+            "and [[ source_table ]] (default: stg__[[ source_system ]]__[[ source_table ]])"
+        ),
+    )
+    prestage_naming: str | None = Field(
+        None,
+        description=(
+            "Naming pattern for the pre-stage models stages read (default: "
+            "pstg__[[ source_system ]]__[[ source_table ]])"
+        ),
+    )
     default_record_source_value: str | None = Field(
         None,
         description=(
@@ -381,14 +402,69 @@ class ProjectConfiguration(BaseModel):
         None,
         description="Load date of tables and source systems that set none",
     )
+    include_source_columns: bool = Field(
+        True,
+        description=(
+            "Whether stages pass all source columns on, for source tables and "
+            "systems that set nothing (datavault4dbt include_source_columns)"
+        ),
+    )
+    enable_ghost_records: bool = Field(
+        True,
+        description=(
+            "Whether stages add ghost records, for source tables and systems that "
+            "set nothing"
+        ),
+    )
+    folders: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Where generated models go: folder patterns per layer (control, "
+            "sources, prestaging, staging, raw_vault, business_vault) and kind "
+            "of model (stage, hub, link, satellite, satellite_v1, "
+            "effectivity_satellite, record_tracking_satellite, reference_table, "
+            "pit, snapshot_control), with [[ group ]], [[ group_name ]], "
+            "[[ source_system ]] and [[ source_system_name ]]. Unset ones keep "
+            "TurboVault's layout"
+        ),
+    )
+    use_model_folders: bool = Field(
+        True,
+        description=(
+            "Generate models in the folders stored for them (an imported dbt "
+            "project's); off: in the folder patterns, keeping the settings their "
+            "original folders gave them"
+        ),
+    )
+    add_default_tags: bool = Field(
+        True,
+        description=(
+            "Give generated models TurboVault's default tags (hub, raw_vault, "
+            "the group, ...); a model's own tags are added either way. A dbt "
+            "project import suggests turning it off"
+        ),
+    )
+    use_delivery_method: bool = Field(
+        False,
+        description=(
+            "Use the delivery method of source tables: models loading only "
+            "single-batch sources use datavault4dbt's single-batch logic "
+            "(source_is_single_batch)"
+        ),
+    )
+    delivery_method: Literal["single_batch", "multi_batch"] = Field(
+        "multi_batch",
+        description="Delivery method of source tables and systems that set none",
+    )
 
     # dbt project settings (dbt_project.yml). Defaults match the project the
     # engine has always generated.
     profile_name: str = Field(
         "default", description="dbt profile referenced by dbt_project.yml"
     )
-    control_schema: str = Field(
-        "control", description="Schema name for the control layer"
+    control_schema: str | None = Field(
+        "control",
+        description="Schema name for the control layer (null: no custom schema, models build into the target's schema)",
     )
     control_materialization: DbtMaterialization = Field(
         "table", description="Materialization of the control layer"
@@ -419,10 +495,35 @@ class ProjectConfiguration(BaseModel):
         ),
     )
 
+    @field_validator("folders")
+    @classmethod
+    def validate_folders(cls, v: dict[str, str]) -> dict[str, str]:
+        """Known keys and patterns that stay inside the dbt project."""
+        from engine.services.generation.folder_config import (
+            FOLDER_KEYS,
+            folder_pattern_error,
+        )
+
+        unknown = sorted(set(v) - FOLDER_KEYS)
+        if unknown:
+            raise ValueError(
+                "Unknown folders: "
+                + ", ".join(unknown)
+                + " (use "
+                + ", ".join(sorted(FOLDER_KEYS))
+                + ")"
+            )
+        for pattern in v.values():
+            if error := folder_pattern_error(str(pattern)):
+                raise ValueError(error)
+        return {key: str(pattern) for key, pattern in v.items() if pattern}
+
     @field_validator("stage_schema", "rdv_schema", "bdv_schema", "control_schema")
     @classmethod
-    def validate_schema_name(cls, v: str) -> str:
-        """Validate schema name is a valid SQL identifier."""
+    def validate_schema_name(cls, v: str | None) -> str | None:
+        """Validate schema name is a valid SQL identifier (null: none)."""
+        if v is None:
+            return None
         if not v:
             raise ValueError("Schema name cannot be empty")
 
@@ -544,6 +645,57 @@ class OutputConfiguration(BaseModel):
     )
 
 
+class DbtProjectConfig(BaseModel):
+    """The dbt project this TurboVault project belongs to (spec D11, D18, D25).
+
+    The CLI imports from it (its ``target/manifest.json``, catalog,
+    ``dbt_project.yml`` and package files) when no source is given. An
+    import from a dbt project keeps its ``dbt_project.yml`` settings here,
+    and generation writes them into the generated ``dbt_project.yml``.
+    """
+
+    path: Path | None = Field(
+        None,
+        description=(
+            "Folder of the dbt project, absolute or relative to the directory "
+            "the CLI runs in"
+        ),
+    )
+    vars: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Variables of the dbt project (datavault4dbt's and others)",
+    )
+    models: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "The project's models: block of dbt_project.yml (folder-level "
+            "settings), without the project-name level"
+        ),
+    )
+    settings: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Other dbt_project.yml settings, written as they are (seeds:, "
+            "snapshots:, on-run-start, dispatch, paths, other packages' models:)"
+        ),
+    )
+    packages: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "The dbt project's packages (packages.yml's list), written into the "
+            "generated packages.yml; datavault4dbt is added when missing"
+        ),
+    )
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def sanitize_path(cls, v: object) -> str | None:
+        """Strip quotes and whitespace from the path."""
+        if v is None:
+            return None
+        return _sanitize_path_string(v)
+
+
 class TurboVaultConfig(BaseModel):
     """
     Root configuration model for TurboVault Engine.
@@ -570,6 +722,10 @@ class TurboVaultConfig(BaseModel):
     output: OutputConfiguration = Field(
         default_factory=OutputConfiguration,
         description="dbt project output configuration",
+    )
+    dbt_project: DbtProjectConfig | None = Field(
+        None,
+        description="The dbt project to import from (dbt project import)",
     )
 
     @model_validator(mode="after")

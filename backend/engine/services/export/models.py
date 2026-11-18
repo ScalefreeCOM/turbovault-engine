@@ -25,17 +25,70 @@ from engine.models.output_attributes import (
     output_attribute_errors,
 )
 
+# Satellite types with a v1 view (load end date) on top of their v0 table.
+V1_SATELLITE_TYPES = frozenset({"standard", "effectivity", "multi_active", "reference"})
+
+
 # =============================================================================
-# Output Attributes
+# Generated dbt models
+# =============================================================================
+
+
+class ModelOutputDef(BaseModel):
+    """A generated dbt model: its name and the settings it's generated with.
+
+    ``model_name`` is always set: the stored name, else the one TurboVault
+    derives. The other fields are the model's stored settings (see
+    ``engine.models.ModelOutput``); None keeps TurboVault's defaults. Derived
+    from the project: the JSON import doesn't read it back.
+    """
+
+    model_name: str
+    folder: str | None = Field(
+        None, description="Folder of the model's files, relative to the dbt project"
+    )
+    alias: str | None = None
+    schema_name: str | None = None
+    database_name: str | None = None
+    materialized: str | None = None
+    tags: list[str] | None = Field(
+        None,
+        description=(
+            "The model's own tags, added to TurboVault's default tags (which "
+            "the project setting add_default_tags turns off)"
+        ),
+    )
+    config: dict[str, Any] | None = Field(
+        None, description="Further config() keys, written as they are"
+    )
+
+    def settings(self) -> dict[str, Any]:
+        """The stored config() settings, without empty values."""
+        values = {
+            "materialized": self.materialized,
+            "alias": self.alias,
+            "schema": self.schema_name,
+            "database": self.database_name,
+        }
+        settings: dict[str, Any] = {k: v for k, v in values.items() if v}
+        if self.tags:
+            settings["tags"] = list(self.tags)
+        settings.update(self.config or {})
+        return settings
+
+
+# =============================================================================
+# Output attributes: what an entity stores for its dbt models (#442)
 # =============================================================================
 
 
 class ModelOutputAttributes(BaseModel):
-    """File path, name and config of one generated model.
+    """File path, name and config of one generated dbt model.
 
-    Set for models imported from an existing project, so generation writes
-    them where and as they were. Every attribute is optional; generation
-    derives what is missing as for any other model.
+    What the project stores for the model (``engine.models.ModelOutput``),
+    e.g. the settings of the dbt project it was imported from. Every
+    attribute is optional; generation derives what is missing. The rules for
+    the values are ``engine.models.output_attributes``.
     """
 
     model_config = ConfigDict(
@@ -47,21 +100,28 @@ class ModelOutputAttributes(BaseModel):
     )
 
     model_name: str | None = Field(
-        default=None, description="Model name; also the file name without .sql"
+        default=None,
+        description=(
+            "Model name, where it isn't the one TurboVault derives (hubs, links, "
+            "PITs and reference tables are named after themselves)"
+        ),
     )
     alias: str | None = Field(default=None, description="Relation name (dbt alias)")
     file_path: str | None = Field(
         default=None,
         description=(
             "Path of the model's .sql file relative to models/, with forward "
-            "slashes (e.g. 'raw_vault/hubs/hub_customer.sql'). The .yml is "
-            "written next to it"
+            "slashes (e.g. 'raw_vault/hubs/hub_customer.sql'). The file name is "
+            "the model's name; the .yml is written next to it"
         ),
     )
     materialized: str | None = Field(default=None, description="Materialization")
     tags: list[str] | None = Field(
         default=None,
-        description="Tags; replace the tags generation would set when given",
+        description=(
+            "The model's own tags, added to TurboVault's default tags (which "
+            "the project setting add_default_tags turns off)"
+        ),
     )
     schema_name: str | None = Field(
         default=None, alias="schema", description="Schema (dbt custom schema)"
@@ -91,7 +151,7 @@ class ModelOutputAttributes(BaseModel):
         }
 
     def as_stored(self) -> dict[str, object]:
-        """The attributes as stored in an entity's ``generation_config``."""
+        """The attributes as the JSON format writes them."""
         return self.model_dump(exclude_none=True, by_alias=True)
 
 
@@ -99,7 +159,7 @@ class GenerationConfigDef(BaseModel):
     """An entity's ``generation_config``: output attributes by framework.
 
     Only ``dbt`` is defined so far, keyed by output kind (e.g. ``hub``,
-    ``satellite_v1``).
+    ``satellite_v1``). Kinds without stored attributes are left out.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -114,22 +174,10 @@ class GenerationConfigDef(BaseModel):
         # A framework without attributes is left out, like unset attributes.
         return {name: value for name, value in handler(self).items() if value}
 
-    def as_stored(self) -> dict[str, object]:
-        """The value as stored in an entity's ``generation_config`` field."""
-        if not self.dbt:
-            return {}
-        return {"dbt": {kind: attrs.as_stored() for kind, attrs in self.dbt.items()}}
 
-
-def _output_kinds_of(
-    entity: str, kinds: tuple[str, ...] | None = None
-) -> AfterValidator:
-    """Reject output kinds the entity does not generate.
-
-    ``kinds`` narrows them for definitions that carry only some of an
-    entity's models, e.g. a source table's stage and pre-stage definitions.
-    """
-    allowed = kinds or OUTPUT_KINDS_BY_ENTITY[entity]
+def _output_kinds_of(entity: str) -> AfterValidator:
+    """Reject output kinds the entity does not generate."""
+    allowed = OUTPUT_KINDS_BY_ENTITY[entity]
 
     def check(value: GenerationConfigDef) -> GenerationConfigDef:
         unknown = [kind for kind in value.dbt if kind not in allowed]
@@ -144,12 +192,8 @@ def _output_kinds_of(
 
 
 # `generation_config` of each entity definition.
-# A source table's attributes are split between its stage and pre-stage.
-StageGenerationConfig = Annotated[
-    GenerationConfigDef, _output_kinds_of("SourceTable", ("stage",))
-]
-PrestageGenerationConfig = Annotated[
-    GenerationConfigDef, _output_kinds_of("SourceTable", ("prestage",))
+SourceTableGenerationConfig = Annotated[
+    GenerationConfigDef, _output_kinds_of("SourceTable")
 ]
 HubGenerationConfig = Annotated[GenerationConfigDef, _output_kinds_of("Hub")]
 LinkGenerationConfig = Annotated[GenerationConfigDef, _output_kinds_of("Link")]
@@ -164,11 +208,16 @@ SnapshotControlGenerationConfig = Annotated[
     GenerationConfigDef, _output_kinds_of("SnapshotControlTable")
 ]
 
-_GENERATION_CONFIG_DESCRIPTION = (
-    "File path, name and config of the generated model(s), keyed by framework "
-    'and output kind, e.g. {"dbt": {"hub": {"model_name": ...}}}. '
-    "Empty: generation derives them"
-)
+
+def _generation_config_field() -> Any:
+    return Field(
+        default_factory=GenerationConfigDef,
+        description=(
+            "What the project stores for the entity's dbt models (name, file "
+            "path, config), keyed by framework and output kind, e.g. "
+            '{"dbt": {"hub": {"alias": ...}}}. Empty: generation derives them'
+        ),
+    )
 
 
 # =============================================================================
@@ -182,6 +231,13 @@ class SourceColumnDef(BaseModel):
     column_name: str
     datatype: str
     description: str | None = None
+    is_missing: bool = Field(
+        default=False,
+        description=(
+            "The source no longer has the column: the stage adds it with NULL "
+            "values (missing_columns), and the dbt source leaves it out"
+        ),
+    )
 
 
 class SourceDerivedColumnDef(BaseModel):
@@ -211,14 +267,8 @@ class SourceTableDef(BaseModel):
         default="physical",
         description=(
             "physical: a table of the source system, read with source(). "
-            "prestage: a dbt model (pre-stage) the stage reads with ref()"
-        ),
-    )
-    prestage_sql: str | None = Field(
-        default=None,
-        description=(
-            "A pre-stage's dbt model, written to the project as it is. None for "
-            "a physical table, or a pre-stage maintained outside TurboVault"
+            "prestage: a dbt model of the project (pre-stage) the stage reads "
+            "with ref(); the dbt project maintains it"
         ),
     )
     alias: str | None = None
@@ -226,12 +276,18 @@ class SourceTableDef(BaseModel):
     record_source: str | None = None
     static_part_of_record_source: str | None = None
     load_date: str | None = None
+    # Stage options as the table sets them; None inherits.
+    include_source_columns: bool | None = None
+    enable_ghost_records: bool | None = None
+    sequence_column: str | None = None
+    delivery_method: Literal["single_batch", "multi_batch"] | None = None
     description: str | None = None
     columns: list[SourceColumnDef] = Field(default_factory=list)
     derived_columns: list[SourceDerivedColumnDef] = Field(
         default_factory=list,
         description="Columns the stage computes from this table's columns",
     )
+    generation_config: SourceTableGenerationConfig = _generation_config_field()
 
 
 class SourceSystemDef(BaseModel):
@@ -245,6 +301,9 @@ class SourceSystemDef(BaseModel):
     record_source: str | None = None
     static_part_of_record_source: str | None = None
     load_date: str | None = None
+    include_source_columns: bool | None = None
+    enable_ghost_records: bool | None = None
+    delivery_method: Literal["single_batch", "multi_batch"] | None = None
     tables: list[SourceTableDef] = Field(default_factory=list)
 
 
@@ -325,6 +384,33 @@ class HubSourceInfo(BaseModel):
         default_factory=list,
         description="Explicit hub column → source column mappings for round-trip import",
     )
+    hk_column: str | None = Field(
+        default=None,
+        description=(
+            "The stage's hash key column this source loads, when it differs from "
+            "the hub's hash key (role-playing: one stage loading the hub twice)"
+        ),
+    )
+    source_is_single_batch: bool = Field(
+        default=False,
+        description="Whether the stage delivers single batches (delivery method)",
+    )
+
+
+class EffectivitySatelliteOptions(BaseModel):
+    """Options of a hub's or link's effectivity satellite."""
+
+    is_active_alias: str | None = Field(
+        default=None, description="Name of its is_active column (None: the default)"
+    )
+    disable_hwm: bool = False
+    additional_columns: list[str] = Field(
+        default_factory=list, description="Further stage columns it carries"
+    )
+    source_is_single_batch: bool = Field(
+        default=False,
+        description="Whether its stage delivers single batches (delivery method)",
+    )
 
 
 class HubDefinition(BaseModel):
@@ -353,15 +439,26 @@ class HubDefinition(BaseModel):
     )
     create_record_tracking_satellite: bool = False
     create_effectivity_satellite: bool = True
+    disable_hwm: bool = False
+    effectivity_options: EffectivitySatelliteOptions = Field(
+        default_factory=EffectivitySatelliteOptions,
+        description="Options of the effectivity satellite, when the hub has one",
+    )
     description: str | None = None
     column_descriptions: dict[str, ColumnDescriptionDef] = Field(
         default_factory=dict,
         description="Descriptions by hub column name, for columns that have one",
     )
-    generation_config: HubGenerationConfig = Field(
-        default_factory=GenerationConfigDef,
-        description=_GENERATION_CONFIG_DESCRIPTION,
+    output: ModelOutputDef | None = Field(
+        None, description="The hub's dbt model (None: named hub_name, defaults)"
     )
+    effectivity_satellite_output: ModelOutputDef | None = Field(
+        None, description="The effectivity satellite's model, when the hub has one"
+    )
+    record_tracking_satellite_output: ModelOutputDef | None = Field(
+        None, description="The record-tracking satellite's model, when the hub has one"
+    )
+    generation_config: HubGenerationConfig = _generation_config_field()
 
 
 # =============================================================================
@@ -503,6 +600,10 @@ class LinkSourceInfo(BaseModel):
         default_factory=list,
         description="Mappings from link foreign hashkeys to stage hashkeys",
     )
+    source_is_single_batch: bool = Field(
+        default=False,
+        description="Whether the stage delivers single batches (delivery method)",
+    )
 
 
 class LinkHubReferenceDefinition(BaseModel):
@@ -536,6 +637,14 @@ class LinkDefinition(BaseModel):
     payload_columns: list[str] = Field(
         default_factory=list, description="Payload columns in the link"
     )
+    dependent_child_keys: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Dependent child key columns, in order. The link hash key hashes "
+            "them after the hubs' keys, and the link selects them: datavault4dbt "
+            "lists them in foreign_hashkeys after the hub hash keys"
+        ),
+    )
     additional_columns: list[str] = Field(
         default_factory=list, description="Additional non-payload columns"
     )
@@ -544,14 +653,38 @@ class LinkDefinition(BaseModel):
         description="Source tables that feed this link with column mappings",
     )
     create_record_tracking_satellite: bool = False
+    create_effectivity_satellite: bool = False
+    disable_hwm: bool = False
+    union_strategy: Literal["all", "distinct"] | None = Field(
+        default=None,
+        description="Non-historized links: how sources are unioned (None: all)",
+    )
+    source_is_single_batch: bool = Field(
+        default=False,
+        description=(
+            "Non-historized links: whether every source stage delivers single "
+            "batches (delivery method)"
+        ),
+    )
+    effectivity_options: EffectivitySatelliteOptions = Field(
+        default_factory=EffectivitySatelliteOptions,
+        description="Options of the effectivity satellite, when the link has one",
+    )
     description: str | None = None
+    output: ModelOutputDef | None = Field(
+        None, description="The link's dbt model (None: named link_name, defaults)"
+    )
+    effectivity_satellite_output: ModelOutputDef | None = Field(
+        None, description="The effectivity satellite's model, when the link has one"
+    )
+    record_tracking_satellite_output: ModelOutputDef | None = Field(
+        None,
+        description="The record-tracking satellite's model, when the link has one",
+    )
+    generation_config: LinkGenerationConfig = _generation_config_field()
     column_descriptions: dict[str, ColumnDescriptionDef] = Field(
         default_factory=dict,
         description="Descriptions by link column name, for columns that have one",
-    )
-    generation_config: LinkGenerationConfig = Field(
-        default_factory=GenerationConfigDef,
-        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
 
@@ -561,11 +694,11 @@ class LinkDefinition(BaseModel):
 
 
 class PrestageDefinition(BaseModel):
-    """A pre-stage: a dbt model that prepares a table's data for its stage.
+    """A pre-stage: a dbt model of the project that prepares data for a stage.
 
-    Built from a source table of type ``prestage``. Generation writes its SQL
-    as it is, with a YAML file documenting its columns; the stage reads the
-    model with ``ref()``.
+    Built from a source table of type ``prestage``. The dbt project maintains
+    the model; TurboVault generates no file for it, and its stage reads it
+    with ``ref()``.
     """
 
     model_name: str = Field(
@@ -573,20 +706,9 @@ class PrestageDefinition(BaseModel):
     )
     table_name: str = Field(description="Name of the pre-stage's source table")
     source_system: str = Field(description="Source system the pre-stage belongs to")
-    sql: str | None = Field(
-        default=None,
-        description=(
-            "The model's SQL. None: the model is maintained outside TurboVault "
-            "and only referenced"
-        ),
-    )
     description: str | None = None
     columns: list[SourceColumnDef] = Field(
         default_factory=list, description="Columns the model provides"
-    )
-    generation_config: PrestageGenerationConfig = Field(
-        default_factory=GenerationConfigDef,
-        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
 
@@ -693,8 +815,26 @@ class StageDefinition(BaseModel):
     )
     record_source: str | None = None
     load_date: str | None = None
+    output: ModelOutputDef | None = Field(
+        None, description="The stage's dbt model (None: named stage_name, defaults)"
+    )
     description: str | None = Field(
         default=None, description="Description of the source table"
+    )
+
+    # Stage options, resolved over table, source system and project
+    include_source_columns: bool = Field(
+        default=True, description="Whether the stage passes all source columns on"
+    )
+    enable_ghost_records: bool = Field(
+        default=True, description="Whether the stage adds ghost records"
+    )
+    sequence_column: str | None = Field(
+        default=None, description="Column holding the extraction's sequence number"
+    )
+    missing_columns: list[SourceColumnDef] = Field(
+        default_factory=list,
+        description="Columns the source no longer has: added with NULL values",
     )
 
     # Hashkey calculations for hubs
@@ -727,10 +867,6 @@ class StageDefinition(BaseModel):
     # Source columns
     columns: list[SourceColumnDef] = Field(
         default_factory=list, description="Source columns available in this stage"
-    )
-    generation_config: StageGenerationConfig = Field(
-        default_factory=GenerationConfigDef,
-        description=_GENERATION_CONFIG_DESCRIPTION,
     )
 
 
@@ -795,15 +931,65 @@ class SatelliteDefinition(BaseModel):
     source_table: str = Field(description="Source table name that feeds this satellite")
     source_system: str = Field(description="Source system name")
     stage_name: str = Field(description="Stage model name that feeds this satellite")
-    hashdiff_name: str = Field(description="Hashdiff column name for this satellite")
+    hashdiff_name: str = Field(
+        description="The stage's hash diff column for this satellite"
+    )
+    hashdiff_alias: str | None = Field(
+        None,
+        description=(
+            "The hash diff column's name inside the satellite, when it differs "
+            "from the stage's"
+        ),
+    )
     columns: list[SatelliteColumnDef] = Field(
         default_factory=list, description="Satellite columns"
     )
     description: str | None = None
-    generation_config: SatelliteGenerationConfig = Field(
-        default_factory=GenerationConfigDef,
-        description=_GENERATION_CONFIG_DESCRIPTION,
+    v0_output: ModelOutputDef | None = Field(
+        None, description="The satellite's v0 model (None: the v0 naming pattern)"
     )
+    v1_output: ModelOutputDef | None = Field(
+        None,
+        description=(
+            "The satellite's v1 view, for the types that have one (generated "
+            "when v1 views are on)"
+        ),
+    )
+    generation_config: SatelliteGenerationConfig = _generation_config_field()
+    create_v1_view: bool | None = Field(
+        None, description="Whether it gets a v1 view; None: the project's setting"
+    )
+    v1_ledts_alias: str | None = Field(
+        None, description="Load end date column of the v1 view (None: the variable)"
+    )
+    v1_add_is_current_flag: bool = Field(
+        True, description="Whether the v1 view adds an is_current flag"
+    )
+    v1_include_payload: bool = Field(
+        True, description="Whether the v1 view includes the payload"
+    )
+    disable_hwm: bool = Field(
+        False, description="Whether it loads without the high-water mark"
+    )
+    source_is_single_batch: bool = Field(
+        False, description="Whether its stage delivers single batches"
+    )
+
+    @property
+    def hashdiff_column(self) -> str:
+        """The hash diff column inside the satellite: its alias, else its name."""
+        return self.hashdiff_alias or self.hashdiff_name
+
+    def gets_v1_view(self, project_default: bool) -> bool:
+        """Whether the satellite gets a v1 view: its own setting, else the project's.
+
+        Only the types with a load end date view have one.
+        """
+        if self.satellite_type not in V1_SATELLITE_TYPES:
+            return False
+        if self.create_v1_view is not None:
+            return self.create_v1_view
+        return project_default
 
 
 # =============================================================================
@@ -820,6 +1006,9 @@ class ReferenceTableSatelliteAssignment(BaseModel):
     """Satellite assignment for a reference table."""
 
     satellite_name: str = Field(description="Name of the reference satellite")
+    model_name: str | None = Field(
+        None, description="The satellite's v1 model, which the reference table reads"
+    )
     include_columns: list[str] = Field(
         default_factory=list,
         description="Specific columns to include (if empty, includes all except excluded)",
@@ -851,10 +1040,10 @@ class ReferenceTableDefinition(BaseModel):
         default_factory=list, description="Reference satellite assignments"
     )
     description: str | None = None
-    generation_config: ReferenceTableGenerationConfig = Field(
-        default_factory=GenerationConfigDef,
-        description=_GENERATION_CONFIG_DESCRIPTION,
+    output: ModelOutputDef | None = Field(
+        None, description="The reference table's dbt model (None: named table_name)"
     )
+    generation_config: ReferenceTableGenerationConfig = _generation_config_field()
 
 
 class PITDefinition(BaseModel):
@@ -868,6 +1057,10 @@ class PITDefinition(BaseModel):
     satellites: list[str] = Field(
         default_factory=list, description="List of satellite names included in the PIT"
     )
+    satellite_models: list[str] = Field(
+        default_factory=list,
+        description="The v0 models of those satellites, which the PIT reads",
+    )
     snapshot_control_name: str = Field(
         description="Name of the snapshot control table (v1)"
     )
@@ -876,17 +1069,24 @@ class PITDefinition(BaseModel):
         None, description="Optional dimension key column name"
     )
     pit_type: str | None = Field(None, description="Optional PIT type classification")
-    use_snapshot_optimization: bool = Field(
-        default=True, description="Whether snapshot optimization is enabled"
+    use_snapshot_optimization: bool | None = Field(
+        default=None,
+        description=(
+            "datavault4dbt's snapshot_optimization, written only when set "
+            "(None: datavault4dbt's default, off)"
+        ),
+    )
+    custom_record_source: str | None = Field(
+        default=None, description="Written as the PIT's custom_rsrc, when set"
     )
     include_business_objects_before_appearance: bool = Field(
         default=False,
         description="Whether to include business keys before first appearance",
     )
-    generation_config: PITGenerationConfig = Field(
-        default_factory=GenerationConfigDef,
-        description=_GENERATION_CONFIG_DESCRIPTION,
+    output: ModelOutputDef | None = Field(
+        None, description="The PIT's dbt model (None: named pit_name, defaults)"
     )
+    generation_config: PITGenerationConfig = _generation_config_field()
 
 
 # ============================================================================
@@ -926,15 +1126,27 @@ class SnapshotControlDefinition(BaseModel):
         )
     )
     start_date: str = Field(description="Overall snapshot start date (YYYY-MM-DD)")
-    end_date: str = Field(description="Overall snapshot end date (YYYY-MM-DD)")
+    end_date: str | None = Field(
+        default=None,
+        description=(
+            "Last snapshot date (YYYY-MM-DD). None: the range runs up to the "
+            "current date"
+        ),
+    )
     daily_time: str = Field(description="Daily snapshot execution time (HH:MM:SS)")
+    sdts_alias: str | None = Field(
+        default=None, description="Name of the snapshot date column, when set"
+    )
     logic_patterns: list[SnapshotLogicPattern] = Field(
         default_factory=list, description="List of snapshot logic patterns"
     )
-    generation_config: SnapshotControlGenerationConfig = Field(
-        default_factory=GenerationConfigDef,
-        description=_GENERATION_CONFIG_DESCRIPTION,
+    v0_output: ModelOutputDef | None = Field(
+        None, description="The control table's model (None: named <base>_v0)"
     )
+    v1_output: ModelOutputDef | None = Field(
+        None, description="The control logic's model (None: named <base>_v1)"
+    )
+    generation_config: SnapshotControlGenerationConfig = _generation_config_field()
 
     @property
     def base_name(self) -> str:
@@ -944,21 +1156,27 @@ class SnapshotControlDefinition(BaseModel):
     @property
     def v0_name(self) -> str:
         """
-        Model name for the snapshot control table (_v0 suffix).
+        Model name of the snapshot control table: its stored name, else
+        ``<base>_v0``.
 
         Used for the base snapshot control model that contains
         start_date, end_date, and daily_time configuration.
         """
+        if self.v0_output is not None:
+            return self.v0_output.model_name
         return f"{self.base_name}_v0"
 
     @property
     def v1_name(self) -> str:
         """
-        Model name for the snapshot control logic (_v1 suffix).
+        Model name of the snapshot control logic: its stored name, else
+        ``<base>_v1``.
 
         Used for the model that implements the logic patterns
         (daily, weekly, monthly, etc. snapshot windows).
         """
+        if self.v1_output is not None:
+            return self.v1_output.model_name
         return f"{self.base_name}_v1"
 
 

@@ -1,27 +1,18 @@
 [# Snapshot Control V0 Template #]
 [# Generates the snapshot control table with date ranges #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-[% if model_alias %]
-    alias='[[ model_alias ]]',
-[% endif %]
-[% if model_schema %]
-    schema='[[ model_schema ]]',
-[% endif %]
-[% if model_database %]
-    database='[[ model_database ]]',
-[% endif %]
-[% for key, value in (model_custom_config | default({})).items() %]
-    [[ key ]]=[[ value | config_literal ]],
-[% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['snapshot_control', 'control'][% endif +%]
-) }}
+[# model_config: the config() block; the model's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['snapshot_control', 'control']) ]]
 
 {%- set yaml_metadata -%}
 start_date: '[[ start_date ]]'
 daily_snapshot_time: '[[ daily_time ]]'
+[# Without an end date the snapshots run up to the current date #]
+[% if end_date %]
+end_date: '[[ end_date ]]'
+[% endif %]
+[% if sdts_alias %]
+sdts_alias: [[ sdts_alias ]]
+[% endif %]
 {%- endset -%}
 
 {{ datavault4dbt.control_snap_v0(yaml_metadata=yaml_metadata) }}

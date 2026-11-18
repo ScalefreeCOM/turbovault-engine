@@ -4,13 +4,15 @@ Django Admin configuration for TurboVault Engine.
 Register domain models here for data inspection and debugging via the admin UI.
 """
 
-from django import forms
 from django.contrib import admin
+from django.utils.html import format_html, format_html_join
 
+from engine.admin_projects import ProjectFieldsMixin
 from engine.models import (
     PIT,
     DerivedColumn,
     Group,
+    ModelOutput,
     PrejoinDefinition,
     PrejoinExtractionColumn,
     Project,
@@ -22,9 +24,156 @@ from engine.models import (
     StagingColumn,
 )
 
+_MODEL_OUTPUT_FIELDS = [
+    "kind",
+    "model_name",
+    "folder",
+    "alias",
+    "schema_name",
+    "database_name",
+    "materialized",
+    "tags",
+    "config",
+]
+
+
+def _model_output_inline(entity_field: str) -> type[admin.TabularInline]:
+    """Inline admin for the dbt models of one kind of entity."""
+
+    class ModelOutputInline(ProjectFieldsMixin, admin.TabularInline):
+        model = ModelOutput
+        fk_name = entity_field
+        extra = 0
+        fields = _MODEL_OUTPUT_FIELDS
+        verbose_name = "dbt model"
+        verbose_name_plural = (
+            "dbt models (name, folder and config() settings; empty keeps the "
+            "defaults)"
+        )
+
+    ModelOutputInline.__name__ = f"{entity_field.title().replace('_', '')}OutputInline"
+    return ModelOutputInline
+
+
+class GeneratedModelsMixin:
+    """Shows, read-only, the dbt models an entity generates.
+
+    Each model with the path generation writes it to and its config() block,
+    rendered with the project's settings and templates (nothing is written).
+    The stored model outputs below override what is derived.
+    """
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(super().get_readonly_fields(request, obj))
+        return [*fields, "generated_dbt_models"] if obj is not None else fields
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = list(super().get_fieldsets(request, obj))
+        if obj is None:
+            return fieldsets
+        return [
+            *fieldsets,
+            (
+                "Generated dbt models",
+                {
+                    "fields": ["generated_dbt_models"],
+                    "description": (
+                        "What generation writes for this entity, with the "
+                        "project's settings. A model is stored below only where "
+                        "it differs from them; everything else is derived."
+                    ),
+                },
+            ),
+        ]
+
+    @admin.display(description="dbt models")
+    def generated_dbt_models(self, obj):
+        from engine.services.generation.preview import generated_models
+
+        try:
+            models = generated_models(obj)
+        except Exception as exc:  # shown, so the page still opens
+            return format_html("<em>The models can't be rendered: {}</em>", exc)
+        if not models:
+            return "—"
+        labels = dict(ModelOutput.Kind.choices)
+        rows = format_html_join(
+            "",
+            "<tr><td>{}</td><td><code>{}</code></td><td><code>{}</code></td>"
+            '<td>{}</td><td><pre style="margin:0">{}</pre></td></tr>',
+            (
+                (
+                    labels.get(model.kind, model.kind),
+                    model.model_name,
+                    model.path
+                    or (
+                        "the dbt project's own model"
+                        if model.kind == "prestage"
+                        else "not generated"
+                    ),
+                    (
+                        "stored: " + ", ".join(model.stored)
+                        if model.stored
+                        else "derived"
+                    ),
+                    model.config_block or "(from dbt_project.yml)",
+                )
+                for model in models
+            ),
+        )
+        return format_html(
+            "<table><thead><tr><th>Model</th><th>Name</th><th>File</th>"
+            "<th>Settings</th><th>config()</th></tr></thead><tbody>{}</tbody>"
+            "</table>",
+            rows,
+        )
+
+
+@admin.register(ModelOutput)
+class ModelOutputAdmin(ProjectFieldsMixin, admin.ModelAdmin):
+    """Admin configuration for ModelOutput: how an entity's dbt models are generated."""
+
+    list_display = [
+        "kind",
+        "model_name",
+        "folder",
+        "materialized",
+        "framework",
+        "project",
+    ]
+    list_filter = ["kind", "framework", "project"]
+    search_fields = ["model_name", "folder", "alias"]
+    readonly_fields = ["model_output_id", "project", "created_at", "updated_at"]
+    fieldsets = [
+        (
+            None,
+            {
+                "fields": [
+                    "model_output_id",
+                    "project",
+                    "kind",
+                    "framework",
+                    "source_table",
+                    "hub",
+                    "link",
+                    "satellite",
+                    "pit",
+                    "reference_table",
+                    "snapshot_control",
+                ],
+                "description": "Set exactly one entity; the project follows from it.",
+            },
+        ),
+        ("dbt model", {"fields": _MODEL_OUTPUT_FIELDS[1:]}),
+        (
+            "Timestamps",
+            {"fields": ["created_at", "updated_at"], "classes": ["collapse"]},
+        ),
+    ]
+
 
 @admin.register(Project)
-class ProjectAdmin(admin.ModelAdmin):
+class ProjectAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for Project model."""
 
     list_display = ["name", "created_at", "updated_at"]
@@ -40,7 +189,7 @@ class ProjectAdmin(admin.ModelAdmin):
 
 
 @admin.register(Group)
-class GroupAdmin(admin.ModelAdmin):
+class GroupAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for Group model."""
 
     list_display = ["group_name", "project", "created_at"]
@@ -58,7 +207,7 @@ class GroupAdmin(admin.ModelAdmin):
 
 
 @admin.register(SourceSystem)
-class SourceSystemAdmin(admin.ModelAdmin):
+class SourceSystemAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for SourceSystem model."""
 
     list_display = ["name", "schema_name", "database_name", "project"]
@@ -68,7 +217,7 @@ class SourceSystemAdmin(admin.ModelAdmin):
     autocomplete_fields = ["project"]
 
 
-class DerivedColumnInline(admin.TabularInline):
+class DerivedColumnInline(ProjectFieldsMixin, admin.TabularInline):
     """Inline admin for the columns a source table's stage computes."""
 
     model = DerivedColumn
@@ -78,10 +227,10 @@ class DerivedColumnInline(admin.TabularInline):
 
 
 @admin.register(SourceTable)
-class SourceTableAdmin(admin.ModelAdmin):
+class SourceTableAdmin(GeneratedModelsMixin, ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for SourceTable model."""
 
-    inlines = [DerivedColumnInline]
+    inlines = [DerivedColumnInline, _model_output_inline("source_table")]
 
     list_display = [
         "physical_table_name",
@@ -110,18 +259,6 @@ class SourceTableAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "Pre-stage",
-            {
-                "fields": ["prestage_sql"],
-                "description": (
-                    "Only for pre-stages: the dbt model, written to "
-                    "models/01_prestaging/ as it is. Leave it empty to maintain "
-                    "the model yourself; the stage reads "
-                    "pstg__&lt;system&gt;__&lt;table&gt; either way."
-                ),
-            },
-        ),
-        (
             "Data Vault Configuration",
             {
                 "fields": [
@@ -132,33 +269,36 @@ class SourceTableAdmin(admin.ModelAdmin):
                 "classes": ["collapse"],
             },
         ),
+        (
+            "Stage options",
+            {
+                "fields": [
+                    "include_source_columns",
+                    "enable_ghost_records",
+                    "sequence_column",
+                    "delivery_method",
+                ],
+                "classes": ["collapse"],
+                "description": (
+                    "Empty inherits from the source system, then the project."
+                ),
+            },
+        ),
     ]
-
-    def formfield_for_dbfield(self, db_field, request, **kwargs):
-        """Edit a pre-stage's SQL in a large monospace text area."""
-        if db_field.name == "prestage_sql":
-            kwargs["widget"] = forms.Textarea(
-                attrs={
-                    "rows": 20,
-                    "cols": 100,
-                    "spellcheck": "false",
-                    "style": "font-family: monospace",
-                }
-            )
-        return super().formfield_for_dbfield(db_field, request, **kwargs)
 
 
 @admin.register(SourceColumn)
-class SourceColumnAdmin(admin.ModelAdmin):
+class SourceColumnAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for SourceColumn model."""
 
     list_display = [
         "source_column_physical_name",
         "source_column_datatype",
+        "is_missing",
         "source_table",
         "get_source_system",
     ]
-    list_filter = ["source_table__source_system", "source_table"]
+    list_filter = ["is_missing", "source_table__source_system", "source_table"]
     search_fields = [
         "source_column_physical_name",
         "source_column_datatype",
@@ -174,7 +314,7 @@ class SourceColumnAdmin(admin.ModelAdmin):
 
 
 @admin.register(StagingColumn)
-class StagingColumnAdmin(admin.ModelAdmin):
+class StagingColumnAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for StagingColumn model."""
 
     list_display = ["physical_name", "datatype", "source_table", "project"]
@@ -202,7 +342,7 @@ class StagingColumnAdmin(admin.ModelAdmin):
 
 
 @admin.register(DerivedColumn)
-class DerivedColumnAdmin(admin.ModelAdmin):
+class DerivedColumnAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for DerivedColumn model."""
 
     list_display = ["column_name", "datatype", "source_table", "project"]
@@ -216,7 +356,7 @@ class DerivedColumnAdmin(admin.ModelAdmin):
 from engine.models import Hub, HubColumn, HubSourceMapping
 
 
-class HubColumnInline(admin.TabularInline):
+class HubColumnInline(ProjectFieldsMixin, admin.TabularInline):
     """Inline admin for hub columns."""
 
     model = HubColumn
@@ -233,12 +373,12 @@ class HubColumnInline(admin.TabularInline):
     show_change_link = True  # Allow clicking to edit column details including mappings
 
 
-class HubSourceMappingInline(admin.TabularInline):
+class HubSourceMappingInline(ProjectFieldsMixin, admin.TabularInline):
     """Inline admin for hub source mappings."""
 
     model = HubSourceMapping
     extra = 1
-    fields = ["staging_column", "is_primary_source"]
+    fields = ["staging_column", "is_primary_source", "stage_hashkey_name"]
     autocomplete_fields = ["staging_column"]
     verbose_name = "Input Mapping"
     verbose_name_plural = "Input Mappings"
@@ -251,7 +391,7 @@ class HubSourceMappingInline(admin.TabularInline):
 
 
 @admin.register(Hub)
-class HubAdmin(admin.ModelAdmin):
+class HubAdmin(GeneratedModelsMixin, ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for Hub model."""
 
     list_display = [
@@ -272,7 +412,7 @@ class HubAdmin(admin.ModelAdmin):
     search_fields = ["hub_physical_name", "hub_hashkey_name"]
     readonly_fields = ["hub_id", "created_at", "updated_at"]
     autocomplete_fields = ["project", "group"]
-    inlines = [HubColumnInline]
+    inlines = [HubColumnInline, _model_output_inline("hub")]
 
     fieldsets = [
         (
@@ -294,9 +434,16 @@ class HubAdmin(admin.ModelAdmin):
                 "fields": [
                     "create_record_tracking_satellite",
                     "create_effectivity_satellite",
+                    "effectivity_is_active_alias",
+                    "effectivity_disable_hwm",
+                    "effectivity_additional_columns",
                 ],
                 "classes": ["collapse"],
             },
+        ),
+        (
+            "Loading",
+            {"fields": ["disable_hwm"], "classes": ["collapse"]},
         ),
         (
             "Timestamps",
@@ -306,7 +453,7 @@ class HubAdmin(admin.ModelAdmin):
 
 
 @admin.register(HubColumn)
-class HubColumnAdmin(admin.ModelAdmin):
+class HubColumnAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for HubColumn model."""
 
     list_display = [
@@ -331,7 +478,7 @@ class HubColumnAdmin(admin.ModelAdmin):
 
 
 @admin.register(HubSourceMapping)
-class HubSourceMappingAdmin(admin.ModelAdmin):
+class HubSourceMappingAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for HubSourceMapping model."""
 
     list_display = [
@@ -366,7 +513,7 @@ class HubSourceMappingAdmin(admin.ModelAdmin):
 from engine.models import SnapshotControlLogic, SnapshotControlTable
 
 
-class SnapshotControlLogicInline(admin.TabularInline):
+class SnapshotControlLogicInline(ProjectFieldsMixin, admin.TabularInline):
     """Inline admin for snapshot control logic rules."""
 
     model = SnapshotControlLogic
@@ -383,7 +530,9 @@ class SnapshotControlLogicInline(admin.TabularInline):
 
 
 @admin.register(SnapshotControlTable)
-class SnapshotControlTableAdmin(admin.ModelAdmin):
+class SnapshotControlTableAdmin(
+    GeneratedModelsMixin, ProjectFieldsMixin, admin.ModelAdmin
+):
     """Admin for snapshot control tables."""
 
     list_display = [
@@ -397,7 +546,7 @@ class SnapshotControlTableAdmin(admin.ModelAdmin):
     search_fields = ["name", "project__name"]
     readonly_fields = ["snapshot_control_table_id", "created_at", "updated_at"]
     autocomplete_fields = ["project"]
-    inlines = [SnapshotControlLogicInline]
+    inlines = [SnapshotControlLogicInline, _model_output_inline("snapshot_control")]
 
     fieldsets = [
         (None, {"fields": ["snapshot_control_table_id", "project", "name"]}),
@@ -408,7 +557,9 @@ class SnapshotControlTableAdmin(admin.ModelAdmin):
                     "snapshot_start_date",
                     "snapshot_end_date",
                     "daily_snapshot_time",
-                ]
+                    "sdts_alias",
+                ],
+                "description": "Without an end date the snapshots run up to today.",
             },
         ),
         (
@@ -424,7 +575,7 @@ class SnapshotControlTableAdmin(admin.ModelAdmin):
 
 
 @admin.register(SnapshotControlLogic)
-class SnapshotControlLogicAdmin(admin.ModelAdmin):
+class SnapshotControlLogicAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for SnapshotControlLogic model."""
 
     list_display = [
@@ -453,7 +604,7 @@ class SnapshotControlLogicAdmin(admin.ModelAdmin):
 from engine.models import Satellite, SatelliteColumn
 
 
-class SatelliteColumnInline(admin.TabularInline):
+class SatelliteColumnInline(ProjectFieldsMixin, admin.TabularInline):
     """Inline admin for satellite columns."""
 
     model = SatelliteColumn
@@ -496,7 +647,7 @@ class SatelliteColumnInline(admin.TabularInline):
 
 
 @admin.register(Satellite)
-class SatelliteAdmin(admin.ModelAdmin):
+class SatelliteAdmin(GeneratedModelsMixin, ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for Satellite model."""
 
     list_display = [
@@ -530,7 +681,7 @@ class SatelliteAdmin(admin.ModelAdmin):
         "parent_link",
         "source_table",
     ]
-    inlines = [SatelliteColumnInline]
+    inlines = [SatelliteColumnInline, _model_output_inline("satellite")]
 
     fieldsets = [
         (
@@ -560,6 +711,31 @@ class SatelliteAdmin(admin.ModelAdmin):
             },
         ),
         (
+            "Hash diff",
+            {
+                "fields": ["hashdiff_name", "hashdiff_alias"],
+                "classes": ["collapse"],
+                "description": (
+                    "Empty name: the project's hashdiff naming pattern. The alias "
+                    "names the column inside the satellite when it differs."
+                ),
+            },
+        ),
+        (
+            "v1 view",
+            {
+                "fields": [
+                    "create_v1_view",
+                    "v1_ledts_alias",
+                    "v1_add_is_current_flag",
+                    "v1_include_payload",
+                    "disable_hwm",
+                ],
+                "classes": ["collapse"],
+                "description": "Empty v1 view setting: the project's.",
+            },
+        ),
+        (
             "Timestamps",
             {"fields": ["created_at", "updated_at"], "classes": ["collapse"]},
         ),
@@ -581,7 +757,7 @@ class SatelliteAdmin(admin.ModelAdmin):
 
 
 @admin.register(SatelliteColumn)
-class SatelliteColumnAdmin(admin.ModelAdmin):
+class SatelliteColumnAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for SatelliteColumn model."""
 
     list_display = [
@@ -630,7 +806,7 @@ from engine.models import (
 )
 
 
-class LinkColumnInline(admin.TabularInline):
+class LinkColumnInline(ProjectFieldsMixin, admin.TabularInline):
     """Inline admin for link columns."""
 
     model = LinkColumn
@@ -649,7 +825,7 @@ class LinkColumnInline(admin.TabularInline):
     verbose_name_plural = "Link Columns"
 
 
-class LinkHubSourceMappingInline(admin.TabularInline):
+class LinkHubSourceMappingInline(ProjectFieldsMixin, admin.TabularInline):
     """Inline admin for link hub source mappings."""
 
     model = LinkHubSourceMapping
@@ -677,7 +853,7 @@ class LinkHubSourceMappingInline(admin.TabularInline):
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
-class LinkHubReferenceInline(admin.TabularInline):
+class LinkHubReferenceInline(ProjectFieldsMixin, admin.TabularInline):
     """Inline admin for link hub references."""
 
     model = LinkHubReference
@@ -690,7 +866,7 @@ class LinkHubReferenceInline(admin.TabularInline):
     verbose_name_plural = "Hub References"
 
 
-class LinkSourceMappingInline(admin.TabularInline):
+class LinkSourceMappingInline(ProjectFieldsMixin, admin.TabularInline):
     """Inline admin for link source mappings."""
 
     model = LinkSourceMapping
@@ -707,7 +883,7 @@ class LinkSourceMappingInline(admin.TabularInline):
 
 
 @admin.register(Link)
-class LinkAdmin(admin.ModelAdmin):
+class LinkAdmin(GeneratedModelsMixin, ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for Link model."""
 
     list_display = [
@@ -723,7 +899,11 @@ class LinkAdmin(admin.ModelAdmin):
     search_fields = ["link_physical_name", "link_hashkey_name"]
     readonly_fields = ["link_id", "created_at", "updated_at"]
     autocomplete_fields = ["project", "group"]
-    inlines = [LinkHubReferenceInline, LinkColumnInline]
+    inlines = [
+        LinkHubReferenceInline,
+        LinkColumnInline,
+        _model_output_inline("link"),
+    ]
 
     fieldsets = [
         (
@@ -743,9 +923,19 @@ class LinkAdmin(admin.ModelAdmin):
         (
             "Satellite Options",
             {
-                "fields": ["create_record_tracking_satellite"],
+                "fields": [
+                    "create_record_tracking_satellite",
+                    "create_effectivity_satellite",
+                    "effectivity_is_active_alias",
+                    "effectivity_disable_hwm",
+                    "effectivity_additional_columns",
+                ],
                 "classes": ["collapse"],
             },
+        ),
+        (
+            "Loading",
+            {"fields": ["disable_hwm", "union_strategy"], "classes": ["collapse"]},
         ),
         (
             "Timestamps",
@@ -760,7 +950,7 @@ class LinkAdmin(admin.ModelAdmin):
 
 
 @admin.register(LinkColumn)
-class LinkColumnAdmin(admin.ModelAdmin):
+class LinkColumnAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for LinkColumn model."""
 
     list_display = [
@@ -785,7 +975,7 @@ class LinkColumnAdmin(admin.ModelAdmin):
 
 
 @admin.register(LinkSourceMapping)
-class LinkSourceMappingAdmin(admin.ModelAdmin):
+class LinkSourceMappingAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for LinkSourceMapping model."""
 
     list_display = [
@@ -814,7 +1004,7 @@ class LinkSourceMappingAdmin(admin.ModelAdmin):
 
 
 @admin.register(LinkHubReference)
-class LinkHubReferenceAdmin(admin.ModelAdmin):
+class LinkHubReferenceAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for LinkHubReference model."""
 
     list_display = [
@@ -831,7 +1021,7 @@ class LinkHubReferenceAdmin(admin.ModelAdmin):
 
 
 @admin.register(LinkHubSourceMapping)
-class LinkHubSourceMappingAdmin(admin.ModelAdmin):
+class LinkHubSourceMappingAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for LinkHubSourceMapping model."""
 
     list_display = [
@@ -860,7 +1050,7 @@ class LinkHubSourceMappingAdmin(admin.ModelAdmin):
 # ==============================================================================
 
 
-class ReferenceTableSatelliteAssignmentInline(admin.TabularInline):
+class ReferenceTableSatelliteAssignmentInline(ProjectFieldsMixin, admin.TabularInline):
     """Inline for managing satellite assignments to reference tables."""
 
     model = ReferenceTableSatelliteAssignment
@@ -871,7 +1061,7 @@ class ReferenceTableSatelliteAssignmentInline(admin.TabularInline):
 
 
 @admin.register(ReferenceTable)
-class ReferenceTableAdmin(admin.ModelAdmin):
+class ReferenceTableAdmin(GeneratedModelsMixin, ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for ReferenceTable model."""
 
     list_display = [
@@ -893,7 +1083,10 @@ class ReferenceTableAdmin(admin.ModelAdmin):
         "snapshot_control_table",
         "snapshot_control_logic",
     ]
-    inlines = [ReferenceTableSatelliteAssignmentInline]
+    inlines = [
+        ReferenceTableSatelliteAssignmentInline,
+        _model_output_inline("reference_table"),
+    ]
 
     fieldsets = [
         (
@@ -925,7 +1118,7 @@ class ReferenceTableAdmin(admin.ModelAdmin):
 
 
 @admin.register(ReferenceTableSatelliteAssignment)
-class ReferenceTableSatelliteAssignmentAdmin(admin.ModelAdmin):
+class ReferenceTableSatelliteAssignmentAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for ReferenceTableSatelliteAssignment model."""
 
     list_display = ["reference_table", "reference_satellite", "created_at"]
@@ -960,7 +1153,7 @@ class ReferenceTableSatelliteAssignmentAdmin(admin.ModelAdmin):
 
 
 @admin.register(PIT)
-class PITAdmin(admin.ModelAdmin):
+class PITAdmin(GeneratedModelsMixin, ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for PIT model."""
 
     list_display = [
@@ -986,6 +1179,7 @@ class PITAdmin(admin.ModelAdmin):
         "snapshot_control_logic",
     ]
     filter_horizontal = ["satellites"]
+    inlines = [_model_output_inline("pit")]
 
     fieldsets = [
         (None, {"fields": ["pit_id", "project", "pit_physical_name"]}),
@@ -1046,7 +1240,7 @@ class PITAdmin(admin.ModelAdmin):
 # ==============================================================================
 
 
-class PrejoinExtractionColumnInline(admin.TabularInline):
+class PrejoinExtractionColumnInline(ProjectFieldsMixin, admin.TabularInline):
     """Inline for prejoin extraction columns."""
 
     model = PrejoinExtractionColumn
@@ -1057,7 +1251,7 @@ class PrejoinExtractionColumnInline(admin.TabularInline):
 
 
 @admin.register(PrejoinDefinition)
-class PrejoinDefinitionAdmin(admin.ModelAdmin):
+class PrejoinDefinitionAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for PrejoinDefinition model."""
 
     list_display = [
@@ -1115,7 +1309,7 @@ class PrejoinDefinitionAdmin(admin.ModelAdmin):
 
 
 @admin.register(PrejoinExtractionColumn)
-class PrejoinExtractionColumnAdmin(admin.ModelAdmin):
+class PrejoinExtractionColumnAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for PrejoinExtractionColumn model."""
 
     list_display = [
@@ -1165,7 +1359,7 @@ from engine.models import ModelTemplate, TemplateCategory
 
 
 @admin.register(TemplateCategory)
-class TemplateCategoryAdmin(admin.ModelAdmin):
+class TemplateCategoryAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for TemplateCategory model."""
 
     list_display = ["name", "description", "created_at"]
@@ -1182,7 +1376,7 @@ class TemplateCategoryAdmin(admin.ModelAdmin):
 
 
 @admin.register(ModelTemplate)
-class ModelTemplateAdmin(admin.ModelAdmin):
+class ModelTemplateAdmin(ProjectFieldsMixin, admin.ModelAdmin):
     """Admin configuration for ModelTemplate model."""
 
     list_display = [

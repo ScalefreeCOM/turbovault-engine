@@ -1,29 +1,14 @@
 [# Reference Table Template #]
 [# Generates a reference table that combines a reference hub with its satellites #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-[% if model_alias %]
-    alias='[[ model_alias ]]',
-[% endif %]
-[% if model_schema %]
-    schema='[[ model_schema ]]',
-[% endif %]
-[% if model_database %]
-    database='[[ model_database ]]',
-[% endif %]
-[% for key, value in (model_custom_config | default({})).items() %]
-    [[ key ]]=[[ value | config_literal ]],
-[% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['reference_table', 'raw_vault'][% endif +%]
-) }}
+[# model_config: the config() block; the reference table's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['reference_table', 'raw_vault']) ]]
 
 {%- set yaml_metadata -%}
 ref_hub: [[ reference_hub_name ]]
+[# sat.model_name: the satellite's v1 model (exports without it: <name>_v1) #]
 ref_satellites:
 [% for sat in satellites %]
-    [[ sat.v1_name ]]:
+    [[ sat.model_name or (sat.satellite_name ~ '_v1') ]]:
     [% if sat.include_columns %]
       include:
         [% for col in sat.include_columns %]
@@ -37,7 +22,18 @@ ref_satellites:
         [% endfor %]
     [% endif %]
 [% endfor %]
+[% if historization_type == "snapshot_based" %]
+[# Snapshot-based: one row per snapshot of the snapshot control's logic model #]
+historized: 'snapshot'
+[% if snapshot_control_table %]
+snapshot_relation: [[ snapshot_control_table ]]
+[% endif %]
+[% if snapshot_logic_column %]
+snapshot_trigger_column: [[ snapshot_logic_column ]]
+[% endif %]
+[% else %]
 historized: '[[ "full" if historization_type == "full" else "latest" ]]'
+[% endif %]
 {%- endset -%}
 
 {{ datavault4dbt.ref_table(yaml_metadata=yaml_metadata) }}

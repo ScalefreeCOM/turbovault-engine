@@ -1,24 +1,8 @@
 [# Stage Model Template #]
 [# Generates a staging model that prepares source data for Data Vault loading #]
 [# Uses datavault4dbt.stage() macro with yaml_metadata format #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-[% if model_alias %]
-    alias='[[ model_alias ]]',
-[% endif %]
-[% if model_schema %]
-    schema='[[ model_schema ]]',
-[% endif %]
-[% if model_database %]
-    database='[[ model_database ]]',
-[% endif %]
-[% for key, value in (model_custom_config | default({})).items() %]
-    [[ key ]]=[[ value | config_literal ]],
-[% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['staging', '[[ source_system | lower | replace(" ", "_") ]]'][% endif +%]
-) }}
+[# model_config: the config() block; the stage's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['staging', source_system | lower | replace(" ", "_")]) ]]
 
 {%- set yaml_metadata -%}
 [% if prestage_model %]
@@ -30,6 +14,23 @@ source_model:
 [% endif %]
 ldts: [[ load_date | yaml_quote ]]
 rsrc: [[ record_source | yaml_quote ]]
+[# Stage options, written only where they differ from datavault4dbt's defaults #]
+[% if include_source_columns is false %]
+include_source_columns: false
+[% endif %]
+[% if enable_ghost_records is false %]
+enable_ghost_records: false
+[% endif %]
+[% if sequence_column %]
+sequence: [[ sequence_column | yaml_quote ]]
+[% endif %]
+[# Columns the source no longer has: added with NULL values of their type #]
+[% if missing_columns %]
+missing_columns:
+[% for column in missing_columns %]
+    [[ column.column_name ]]: [[ column.datatype | yaml_quote ]]
+[% endfor %]
+[% endif %]
 [% if hashkeys or hashdiffs %]
 hashed_columns:
 [% for hashkey in hashkeys %]

@@ -41,7 +41,7 @@ The admin is organized into the following sections:
 | **Engine > Projects** | Top-level project containers |
 | **Engine > Groups** | Logical groupings for organizing entities into subfolders |
 | **Engine > Source Systems** | Database/schema definitions of upstream sources |
-| **Engine > Source Tables** | Source tables with DV config (record source, load date): physical tables, and pre-stages with their dbt SQL |
+| **Engine > Source Tables** | Source tables with DV config (record source, load date): physical tables, and pre-stages (models of the dbt project) |
 | **Engine > Source Columns** | Columns belonging to source tables |
 | **Engine > Hubs** | Data Vault hub definitions (standard and reference) |
 | **Engine > Hub Columns** | Business keys and reference keys within hubs |
@@ -56,6 +56,13 @@ The admin is organized into the following sections:
 | **Engine > Model Templates** | SQL and YAML generation templates |
 
 ---
+
+## Several projects in one workspace
+
+Projects often share column and entity names, e.g. two projects importing the same source. Every dropdown
+and search list that picks a column or an entity names its project: `[source] Customer.C_NAME · shop`. On
+the page of an existing object, it offers only the items of that object's project. On an add page the project
+isn't known yet: it offers every project's items, each labelled.
 
 ## Recommended Entity Creation Order
 
@@ -79,21 +86,23 @@ When building a Data Vault model manually in the admin (rather than importing fr
 ## Working with Pre-stages
 
 When a table's data can't be loaded as it is (JSON to parse, a table to pivot),
-add a [pre-stage](../04_concepts/01_domain-model.md#35-pre-stages): a source
-table with **Table type** `Pre-stage`, in the source system whose data it
-prepares.
+your dbt project prepares it in a model of its own, and TurboVault loads from
+that model: add a [pre-stage](../04_concepts/01_domain-model.md#35-pre-stages),
+a source table with **Table type** `Pre-stage`, in the source system whose data
+it prepares. The model itself stays in the dbt project; TurboVault doesn't
+store or generate it.
 
-- **Pre-stage SQL** — the complete dbt model, written to
-  `models/01_prestaging/<system>/pstg__<system>__<table>.sql` as it is. Read
-  inputs with `{{ source('<system>', '<TABLE>') }}`, using the names in the
-  generated `sources.yml`. Leave it empty to maintain the model yourself.
+- **Physical table name** — the model is named `pstg__<system>__<table>` after
+  it (e.g. `pstg__crm__customer_address`). Place it in
+  `models/15_prestaging/` to give it the staging layer's settings.
 - **Source columns** — add the columns the model returns, with their data
   types. Hubs, links and satellites map them like any table's columns.
 - **Load date / record source** — as for any table; the load date usually is a
   column the model passes through.
 
-The pre-stage's stage reads the model with `ref()`. A table that only
-pre-stages read gets no stage of its own.
+The pre-stage's stage reads the model with `ref()`, so generate into the dbt
+project that contains the model: each generation warns about this once per
+pre-stage.
 
 ---
 
@@ -113,6 +122,23 @@ Navigate to **Engine > Hubs** to see all hubs for all projects.
 - `reference_key` — used for reference hubs
 
 **Hub Source Mappings** link hub columns to the source (staging) columns they are populated from. One mapping per hub should be marked `is_primary_source = True`.
+
+---
+
+## The dbt models of an entity
+
+Every entity that generates dbt models (source tables, Hubs, Links, Satellites, PITs, reference tables,
+snapshot controls) shows two sections on its page:
+
+- **Generated dbt models** (read-only): each model the entity generates, with the file generation writes it
+  to, its `config()` block and whether its settings are stored or derived from the project's settings. It is
+  rendered like a real generation, with the project's `config.yml` and templates, but nothing is written.
+- **dbt models** (editable): the stored [model outputs](../04_concepts/01_domain-model.md#101-model_output),
+  only where a model differs from the project's settings: its name, folder, alias, schema, materialization,
+  tags or further `config()` keys. An imported dbt project stores here what its models do differently; with
+  the settings it suggested applied, most entities store nothing.
+
+All stored model outputs are listed under **dbt Metadata > Model Outputs**.
 
 ---
 
@@ -170,54 +196,40 @@ SQLMesh templates write Python, so values go through the `py` filters (`[[ name 
 
 ### Model names, references and config (dbt)
 
-Models can have their own name, file path and config, from the naming patterns
-or from stored [output attributes](../04_concepts/01_domain-model.md#output-attributes).
-A custom dbt template must use the variables below rather than build names
-itself (e.g. `[[ satellite_name ]]_v0`), or its output refers to models that
-don't exist.
+Models can have their own name, folder and `config()` settings, from the naming
+patterns or from stored [model outputs](../04_concepts/01_domain-model.md#101-model_output)
+(e.g. those of an imported dbt project). A custom dbt template must take them
+from the variables below rather than build names itself (e.g.
+`[[ satellite_name ]]_v0`), or its output refers to models that don't exist.
 
-Every dbt model template (SQL and YAML) receives:
+Every dbt model template receives two helpers:
 
-| Variable | Content |
+| Helper | Writes |
 |---|---|
-| `model_name` | The model's name, which is also its file name. |
-| `materialization` | Materialization for `config()`; empty when `dbt_project.yml` sets it. |
-| `model_alias` | Relation name for `config(alias=...)`, or empty. |
-| `model_schema` | Schema for `config(schema=...)`, or empty. Set to the layer's schema when the model sits outside its layer's folder. |
-| `model_database` | Database for `config(database=...)`, or empty. |
-| `model_tags` | Stored tags, replacing the default ones in `config()` and the YAML, or `none`. |
-| `model_custom_config` | Further `config()` settings from the stored `custom_config_json`, as a mapping of key to value (empty when none). Write each as `[[ key ]]=[[ value \| config_literal ]],`; the `config_literal` filter turns a value into a literal dbt reads back unchanged. The bundled `pit` template leaves out its `clean_up_pit` post-hook when this holds a `post_hook`. |
+| `[[ model_config(materialized=..., tags=[...]) ]]` | The model's `{{ config(...) }}` block. The arguments are the template's defaults; the model's stored settings override them (`materialized`, `alias`, `schema`, `database`, then further keys as stored). Stored tags are added to the default tags, which the project setting `add_default_tags` turns off. A model outside its layer's folder gets the layer's schema and materialization. Writes nothing when there is nothing to set. |
+| `[[ model_tags([...]) ]]` | The model's tags as a YAML list for its `.yml`: the default ones given here, plus its stored tags. |
 
-The `prestage` YAML template writes the same variables into its `config:` block (custom values with the `yaml_json` filter), since a pre-stage's SQL is written as it is.
+Names and references hold the resolved model names:
 
-References to other models, by template:
-
-| Template | Variable | Refers to |
+| Template | Variable | Holds |
 |---|---|---|
-| `satellite_v1` | `v0_name`, `v1_name` | The satellite's v0 model, and the v1 view itself. |
-| `pit` | `satellite_v0_names` | The v0 models of the PIT's satellites (`satellites` holds base names). |
-| `reference_table` | `satellites[].v1_name` | The v1 view of each assigned satellite. |
+| every stage-reading template | `stage_name`, `source_tables[].stage_name` | The stage models. |
+| `hub_*`, `link_*`, `pit`, `reference_table` | `hub_name`, `link_name`, `pit_name`, `table_name` | The model itself (named after the entity). |
+| `satellite_*` (v0) | `satellite_name` | The satellite's v0 model. |
+| `satellite_v1` | `v0_name`, `v1_name` | The v0 model the view reads, and the view itself. |
+| `pit` | `satellite_models`, `snapshot_control_name`, `tracked_entity_name` | The v0 models of its satellites, the snapshot control's logic model, the hub or link it tracks. |
+| `reference_table` | `satellites[].model_name` | The v1 view of each assigned satellite. |
 | `snapshot_control_v0` / `_v1` | `v0_name`, `v1_name` | The two snapshot control models. |
 
-Stage names (`source_tables[].stage_name`, `stage_name`), a PIT's
-`tracked_entity_name` and `snapshot_control_name`, and a reference table's
-`reference_hub_name` already hold the resolved model names.
+The filters `quoted_list` (a list as `['a', 'b']`), `config_literal` (a JSON
+value as a `config()` argument) and `yaml_json` (a JSON value in YAML) help a
+template that writes values itself.
 
-Templates stored in the database before these variables existed are updated
-automatically by the `0020_refresh_bundled_templates` migration, unless they
-were edited. An edited template has to be updated by hand: compare it with the
-bundled file, or reset it with `populate_templates --overwrite` (below), which
-discards the edits.
-
-**To reset templates to defaults:**
-
-```bash
-# From the workspace root
-cd backend
-python manage.py populate_templates --overwrite
-```
-
----
+A workspace copies the bundled templates into its database once. Migrations
+`0020` and `0027` update copies nobody edited to the current bundled version.
+An edited template has to be updated by hand: compare it with the bundled
+file, or reset it with `populate_templates --overwrite` (below), which discards
+the edits.
 
 ## Tips
 

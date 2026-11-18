@@ -1,23 +1,7 @@
 [# Standard Hub Template #]
 [# Generates a standard hub model using datavault4dbt.hub() macro #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-[% if model_alias %]
-    alias='[[ model_alias ]]',
-[% endif %]
-[% if model_schema %]
-    schema='[[ model_schema ]]',
-[% endif %]
-[% if model_database %]
-    database='[[ model_database ]]',
-[% endif %]
-[% for key, value in (model_custom_config | default({})).items() %]
-    [[ key ]]=[[ value | config_literal ]],
-[% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['hub', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
-) }}
+[# model_config: the config() block; the hub's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['hub', 'raw_vault', group]) ]]
 
 {%- set yaml_metadata -%}
 source_models:
@@ -25,6 +9,10 @@ source_models:
     - name: [[ source.stage_name ]]
 [% if source.rsrc_static %]
       rsrc_static: [[ source.rsrc_static | yaml_quote ]]
+[% endif %]
+[# hk_column: the stage hash key this source loads, when it isn't the hub's (role-playing) #]
+[% if source.hk_column and source.hk_column != hashkey.hashkey_name %]
+      hk_column: [[ source.hk_column ]]
 [% endif %]
 [% if source.business_key_columns %]
       bk_columns:
@@ -38,6 +26,15 @@ business_keys:
 [% for bk in business_key_columns %]
     - [[ bk ]]
 [% endfor %]
+[% if additional_columns %]
+additional_columns:
+[% for col in additional_columns %]
+    - [[ col ]]
+[% endfor %]
+[% endif %]
+[% if disable_hwm %]
+disable_hwm: true
+[% endif %]
 {%- endset -%}
 
-{{ datavault4dbt.hub(yaml_metadata=yaml_metadata) }}
+{{ datavault4dbt.hub(yaml_metadata=yaml_metadata) }}

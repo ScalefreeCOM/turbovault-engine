@@ -30,6 +30,7 @@ from engine.models import (
     PrejoinDefinition,
     Project,
     ReferenceTable,
+    SnapshotControlTable,
     SourceSystem,
     SourceTable,
 )
@@ -40,6 +41,7 @@ from engine.services.imports.domain import (
     DPrejoin,
     DSourceSystem,
     DSourceTable,
+    snapshot_base_name,
 )
 from engine.services.imports.types import (
     ConflictStrategy,
@@ -151,6 +153,8 @@ class _PlanBuilder:
         self._plan_hubs()
         self._plan_links()
         self._plan_satellites()
+        # Before the reference tables and PITs that read them.
+        self._plan_snapshot_controls()
         self._plan_reference_tables()
         self._plan_pits()
         return self.exec_plan, self.public_plan
@@ -481,9 +485,11 @@ class _PlanBuilder:
                     )
                 )
 
+        left_out = self._plan_left_out("hub")
+
         if self.strategy == "replace_all":
             for h in existing_by_name.values():
-                if h.pk not in used_pks:
+                if h.pk not in used_pks and h.hub_physical_name not in left_out:
                     self._record(
                         DeleteOp(
                             entity_type="hub",
@@ -590,6 +596,56 @@ class _PlanBuilder:
                             existing_pk=s.pk,
                         )
                     )
+
+    # ---------------------------------------------------- snapshot controls
+    def _plan_snapshot_controls(self) -> None:
+        """Create and update the snapshot controls the source describes.
+
+        Matched by base name (a trailing _v0/_v1 dropped, case-insensitive).
+        Never deleted, not even by replace_all: PITs and reference tables the
+        import leaves alone may read them. Skipped with skip_snapshots.
+        """
+        existing_by_base = {}
+        for control in SnapshotControlTable.objects.filter(project=self.project):
+            existing_by_base.setdefault(snapshot_base_name(control.name), control)
+        seen: set[str] = set()
+        for d in self.domain.snapshot_controls.values():
+            base = snapshot_base_name(d.name)
+            if base in seen:
+                continue
+            seen.add(base)
+            existing = existing_by_base.get(base)
+            if self.skip_snapshots:
+                self._record(
+                    SkipOp(
+                        entity_type="snapshot_control",
+                        name=d.name,
+                        reason="skip_snapshots",
+                    ),
+                    skip_reason="skip_snapshots",
+                )
+            elif existing is not None:
+                self._record(
+                    UpdateOp(
+                        entity_type="snapshot_control",
+                        name=d.name,
+                        payload=d,
+                        existing_pk=existing.pk,
+                    )
+                )
+            elif self.strategy == "update_only":
+                self._record(
+                    SkipOp(
+                        entity_type="snapshot_control",
+                        name=d.name,
+                        reason="update_only",
+                    ),
+                    skip_reason="update_only",
+                )
+            else:
+                self._record(
+                    CreateOp(entity_type="snapshot_control", name=d.name, payload=d)
+                )
 
     # --------------------------------------------------------- ref tables
     def _plan_reference_tables(self) -> None:

@@ -45,7 +45,7 @@ Each stage produces typed output for the next, records its duration in
 | **Validate** | Runs the model-level invariants from the [Validation Rules](03_validation-rules.md) catalog. Every violation becomes an `Issue` with `stage="validate"`, a stable `validate.*` code, and an `entity` reference. Skipped if `options.skip_validation=True`. |
 | **Plan** | Walks the `ProjectExport`, applies the [entity selection filter](#selective-generation), and produces a `GenerationPlan` — per-entity-type counts of artifacts the pipeline will emit. |
 | **Render** | Produces `GeneratedArtifact` objects **in memory**. dbt rendering wraps the existing `DbtProjectGenerator`; SQLMesh rendering calls `render_sqlmesh()`; JSON/DBML rendering wraps the existing exporters. Render-time problems become `render.*` issues. |
-| **Write** | Persists each rendered artifact to disk under the resolved `output_path`. Skipped in dry-run mode. Optional ZIP archive for dbt. |
+| **Write** | Persists each rendered artifact to disk under the resolved `output_path`. Skipped in dry-run mode. Optional ZIP archive for dbt. Records the files it writes in `.turbovault/generated.json` and reports the ones generated before and no longer generated (`write.stale_file`). It deletes them only with `remove_stale_files`. For dbt it then reports models, model YAML and source tables the folder defines twice. An existing dbt project, whose `dbt_project.yml` TurboVault didn't write, keeps its project files (`write_project_files`, spec D17). |
 | **Report** | Persists a `GenerationRun` audit row and returns a structured `GenerationReport` to the caller. |
 
 The same pipeline runs for all four output types — only the plan,
@@ -57,8 +57,8 @@ renderer, and writer specialise per type.
 
 | `output_type` | Plan emits | Renderer | Writer behaviour |
 |---------------|------------|----------|------------------|
-| `dbt` | One SQL + one YAML file per entity, plus `dbt_project.yml`, `packages.yml`, `sources.yml`. Standard / multi-active satellites also get a `_v1` view when enabled. Each [pre-stage](01_domain-model.md#35-pre-stages) with SQL gets its model (the SQL as it is) and a YAML file under `models/01_prestaging/<source_system>/`; its stage reads it with `ref()`. | `DbtProjectGenerator` (via a temp directory the writer then relocates). | Writes the tree under `output_path/`; optionally creates a sibling `.zip`. |
-| `sqlmesh` | One Python file per entity (stage, hub, link, satellite), plus `config.yaml`, `config.json`, `requirements.txt`, `README.md`, and `models/__init__.py`. Standard / multi-active satellites also get a `_v1` view when enabled. Unsupported entity types (PITs, reference tables, non-historized links, multi-active / effectivity / non-historized / reference satellites) are skipped with a `warning` issue rather than failing the run. **Prejoins** aren't supported yet either: hash keys, hash diffs and derived columns that read prejoined columns are left out of the stage, and the hubs, links and satellites that use them are skipped with a warning. Nor are **pre-stages** (their SQL is a dbt model): each gets a `render.sqlmesh.unsupported.prestage` warning, and the stages reading them and the hubs, links and satellites loaded from those stages are skipped (`render.sqlmesh.prestage_dependent_skipped`). | `render_sqlmesh()` — a pure function that builds artifacts in memory without touching the filesystem. | Writes the tree under `output_path/` (shares the dbt writer path). |
+| `dbt` | One SQL + one YAML file per entity, plus `dbt_project.yml`, `packages.yml`, `sources.yml`. Standard / multi-active satellites also get a `_v1` view when enabled. A [pre-stage](01_domain-model.md#35-pre-stages) gets no file: its model belongs to the dbt project, and its stage reads it with `ref()`. A warning per pre-stage (`render.prestage.maintained_in_dbt`) says to generate into the dbt project that contains the model. | `DbtProjectGenerator` (via a temp directory the writer then relocates). | Writes the tree under `output_path/`; optionally creates a sibling `.zip`. |
+| `sqlmesh` | One Python file per entity (stage, hub, link, satellite), plus `config.yaml`, `config.json`, `requirements.txt`, `README.md`, and `models/__init__.py`. Standard / multi-active satellites also get a `_v1` view when enabled. Unsupported entity types (PITs, reference tables, non-historized links, multi-active / effectivity / non-historized / reference satellites) are skipped with a `warning` issue rather than failing the run. **Prejoins** aren't supported yet either: hash keys, hash diffs and derived columns that read prejoined columns are left out of the stage, and the hubs, links and satellites that use them are skipped with a warning. Nor are **pre-stages** (models of the dbt project, which SQLMesh can't read): each gets a `render.sqlmesh.unsupported.prestage` warning, and the stages reading them and the hubs, links and satellites loaded from those stages are skipped (`render.sqlmesh.prestage_dependent_skipped`). | `render_sqlmesh()` — a pure function that builds artifacts in memory without touching the filesystem. | Writes the tree under `output_path/` (shares the dbt writer path). |
 | `json` | One artifact, regardless of project size. | `JSONExporter`. | Writes a single `.json` file at `output_path`. |
 | `dbml` | One artifact, regardless of project size. | `DBMLExporter`. | Writes a single `.dbml` file at `output_path`. |
 
@@ -196,36 +196,6 @@ Explicit `--output`, `--sqlmesh-output`, `--json-output`, or `--dbml-output` alw
 The fallback `./output/<slug>` is only used when the project has no
 `project_directory` configured (e.g. ad-hoc or test projects).
 
-### Model paths, names and configs inside a dbt project
-
-By default each model goes into its layer folder (`models/00_control`,
-`02_staging/<source system>`, `03_raw_vault/<group>`,
-`04_business_vault/pits/<group>`) and is named by the entity or the
-configured naming pattern (`satellite_v0_naming`, `satellite_v1_naming`, …).
-
-A model with stored [output attributes](01_domain-model.md#output-attributes),
-e.g. one imported from an existing dbt project, is written to its stored
-`file_path` under its stored `model_name`, with its `alias`, `schema`,
-`database`, `materialized`, `tags` and any further `custom_config_json`
-settings in `config()`. Everything not stored is
-derived as above. Before rendering, generation resolves the name and file of
-every model, so:
-
-- every reference to a model — stages in `source_models`, `sat_v0` of v1
-  views and PITs, `sat_v1` of reference tables, the hub of a reference table,
-  the tracked hub/link and snapshot control of a PIT — uses its actual name;
-- a model outside its layer's folder gets that layer's schema and
-  materialization in its own `config()`, as `dbt_project.yml` configures
-  layers by folder;
-- two models with the same name or file (case-insensitive) fail with
-  `write.path_collision`, and nothing is written.
-
-`--standard-paths` (`GenerationOptions.use_original_paths=False`) ignores the
-stored attributes and gives every model the standard layout. SQLMesh output
-ignores them for now.
-
----
-
 ## dbt project settings
 
 Embedded callers (such as Studio) shape the generated `dbt_project.yml`
@@ -237,9 +207,9 @@ engine has always generated, byte for byte.
 | `profile_name` | `default` | `profile:` in `dbt_project.yml`. |
 | `control_schema` | `control` | `+schema` of `00_control`. |
 | `control_materialization` | `table` | `+materialized` of `00_control`. |
-| `staging_materialization` | `view` | `+materialized` of `02_staging`. |
-| `raw_vault_materialization` | `incremental` | `+materialized` of `03_raw_vault`. |
-| `business_vault_materialization` | `table` | `+materialized` of `04_business_vault`. |
+| `staging_materialization` | `view` | `+materialized` of `20_staging`. |
+| `raw_vault_materialization` | `incremental` | `+materialized` of `30_raw_vault`. |
+| `business_vault_materialization` | `table` | `+materialized` of `40_business_vault`. |
 | `model_specific_materializations` | `true` | Keep the own materialization of models that differ from their layer (see below); off, every model follows its layer. |
 | `model_materializations` | `{}` | Per-model overrides of those own materializations, e.g. `{satellite_v1: table}`. Model kinds left out keep their default. |
 | `global_vars` | `{}` | Rendered verbatim into the `vars:` block. |
@@ -304,16 +274,20 @@ Anything else — including `None` — fails the run with
 #### Subfolders
 
 Models with a group are written to a subfolder of their layer
-(`models/03_raw_vault/<group>/`), stages to one per source system
-(`models/02_staging/<source_system>/`), pre-stages likewise
-(`models/01_prestaging/<source_system>/`). dbt applies a folder's settings to
+(`models/30_raw_vault/<group>/`), stages to one per source system
+(`models/20_staging/<source_system>/`). dbt applies a folder's settings to
 all of its subfolders, so these models follow their layer's materialization
-and schema.
+and schema. The project's [folder patterns](../03_configuration/03_project-schema.md#folder-structure)
+change this layout; `dbt_project.yml` then configures each layer on the fixed
+part of its pattern, and a layer without a schema (`rdv_schema: null`) gets no
+`+schema`.
 
-The `01_prestaging` layer is only configured when the project has pre-stage
-models. It takes the staging layer's schema and materialization, except that an
-`ephemeral` staging layer gives views: a stage reads its pre-stage's columns
-from the database. A pre-stage's own `{{ config() }}` takes precedence.
+The `15_prestaging` layer is only configured when the project has
+[pre-stages](01_domain-model.md#35-pre-stages). Their models belong to the dbt
+project, which places them there; TurboVault generates none. The layer takes
+the staging layer's schema and materialization, except that an `ephemeral`
+staging layer gives views: a stage reads its pre-stage's columns from the
+database. A model's own `{{ config() }}` takes precedence.
 
 The engine sets materializations per layer only; there is no setting per
 subfolder. dbt itself supports it — a more specific folder in
@@ -322,9 +296,9 @@ subfolder. dbt itself supports it — a more specific folder in
 ```yaml
 models:
   my_project:
-    03_raw_vault:
+    30_raw_vault:
       +materialized: incremental
-      sales:                       # models/03_raw_vault/sales/
+      sales:                       # models/30_raw_vault/sales/
         +materialized: table
 ```
 
@@ -346,6 +320,65 @@ settings unless `model_specific_materializations` is off.
 > every model, so the layer settings have no effect there until the copies are
 > refreshed with `python manage.py populate_templates --overwrite` — which
 > also replaces any customised templates.
+
+### Model names, folders and settings
+
+Every model is named by the project's naming patterns (`stage_naming`,
+`prestage_naming`, `satellite_v0_naming`, ...; hubs, links, PITs and reference
+tables by their physical name) unless a
+[model output](01_domain-model.md#101-model_output) stores a name. The builder
+resolves every name once, and every reference follows it: a stage in its hubs,
+links and satellites, a v0 table in its v1 view, satellites and the snapshot
+control in a PIT, v1 views in a reference table. The export carries the
+resolved names and settings as `output` (`v0_output`/`v1_output` for
+satellites and snapshot controls, `effectivity_satellite_output` and
+`record_tracking_satellite_output` for hubs and links).
+
+**Folders.** A model with a stored folder is written there, relative to the dbt
+project; otherwise it goes to its folder pattern. A satellite's v1 view without
+a folder or pattern of its own follows its v0 table, an effectivity or
+record-tracking satellite its parent, a snapshot control's logic its table.
+`dbt_project.yml` configures schema and materialization for the layer folders
+only, so a model in a folder outside its layer's gets them in its own `config()`
+block (unless its settings say otherwise, or an imported `models:` block
+configures its folder). A folder outside `models/` adds its top folder to
+`model-paths`.
+
+The project setting `use_model_folders` (`--standard-folders` for one run,
+`GenerationOptions.use_model_folders` in the API) set to off writes every model
+to its folder pattern instead; names and settings stay. A model then keeps the
+settings its original folder gave it through an imported `dbt_project.yml`: those
+that differ from its new folder's go into its `config()` block, and
+`dbt_project.yml` keeps only the imported settings for every model. The
+warehouse objects stay the same; only the files move.
+
+**`config()` settings.** Templates write the block with
+`[[ model_config(materialized=..., tags=[...]) ]]`, YAML templates the tags with
+`[[ model_tags([...]) ]]`. The arguments are the template's defaults; stored
+settings override them: `materialized`, `alias`, `schema`, `database`, then
+further keys as they are stored. Stored tags are added to the template's
+default tags, which the project setting `add_default_tags` turns off. With
+nothing stored, the block is exactly the one written before model outputs
+existed.
+
+> **Workspace copies of the templates.** A workspace copies the bundled
+> templates into its database once, and those copies win. Migrations `0020`
+> and `0027` replace unedited copies of earlier bundled versions with the
+> current ones. An edited copy keeps its fixed `config()` block and `_v0`/`_v1`
+> names: it works for models without stored settings, and generation reports
+> `render.template_outdated` on a model whose stored settings or name it
+> ignores. Compare it with the bundled file, or reset it with
+> `python manage.py populate_templates --overwrite` (which discards the edits).
+
+Validation rejects two models of one name (`validate.model.duplicate_name`,
+compared case-insensitively; pre-stages count, being models of the dbt project)
+and names or folders that would leave the project
+(`validate.model.invalid_name`, `validate.model.invalid_folder`). Before
+writing, generation also compares every file's path, case-insensitively as
+dbt, Windows and macOS do: two files of one path, e.g. a model named and placed
+like a sources file, fail with `write.path_collision`, and nothing is written.
+A file that would land outside the output folder is refused
+(`write.path_outside_output`).
 
 ### Optional profiles.yml
 
@@ -499,7 +532,8 @@ build.project_load_failed             build.export_inconsistent
 validate.source.no_schema             validate.source.no_tables
 validate.stage.no_source_table        validate.stage.no_keys             validate.stage.derived_column_no_datatype
 validate.stage.uses_load_column
-validate.prestage.ephemeral           validate.prestage.unknown_source
+validate.stage.duplicate_hashdiff     validate.reference_table.satellite_without_v1
+validate.model.duplicate_name         validate.model.invalid_name        validate.model.invalid_folder
 validate.hub.missing_hashkey          validate.hub.no_business_keys      validate.hub.no_source_tables
 validate.link.missing_hashkey         validate.link.too_few_hubs         validate.link.no_sources
 validate.satellite.no_parent          validate.satellite.no_stage        validate.satellite.no_columns       validate.satellite.no_hashdiff
@@ -509,7 +543,7 @@ validate.snapshot.no_name             validate.snapshot.no_start_date    validat
 plan.unsupported_output_type          plan.empty_project
 
 render.template_not_found             render.template_render_failed      render.entity_skipped
-render.template_outdated
+render.template_outdated              render.prestage.maintained_in_dbt
 
 write.io_error                        write.path_collision               write.zip_failed
 

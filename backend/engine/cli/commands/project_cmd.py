@@ -37,7 +37,8 @@ def project_init(
             "--source",
             "-s",
             help="Path to source file (.xlsx, .db, .json) or a directory of "
-            "IRiS files",
+            "IRiS files. A dbt project: use --interactive, or `turbovault "
+            "import` once the project exists",
         ),
     ] = None,
     # Schemas
@@ -141,6 +142,16 @@ def project_init(
             "--overwrite", help="Overwrite existing project with the same name"
         ),
     ] = False,
+    snapshot_controls: Annotated[
+        bool,
+        typer.Option(
+            "--snapshot-controls/--no-snapshot-controls",
+            help=(
+                "Create TurboVault's default snapshot control. Leave it out for a "
+                "project its source brings its own to (e.g. a dbt project)"
+            ),
+        ),
+    ] = True,
     interactive: Annotated[
         bool,
         typer.Option("--interactive", "-i", help="Use interactive prompts"),
@@ -192,6 +203,7 @@ def project_init(
         business_vault_materialization=business_vault_materialization,
         model_specific_materializations=model_specific_materializations,
         overwrite=overwrite,
+        snapshot_controls=snapshot_controls,
         interactive=interactive,
         config=Path(config) if config else None,
     )

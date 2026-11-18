@@ -8,7 +8,8 @@ framework-neutral shape that both callers can pass into Engine services.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -23,11 +24,13 @@ class EngineRuntimeConfig:
     project_name: str | None = None
     project_description: str | None = None
 
-    stage_schema: str = "stage"
+    # Layer schemas. None: no custom schema (dbt models build into the
+    # target's schema; SQLMesh falls back to the layer's name, get_schema).
+    stage_schema: str | None = "stage"
     stage_database: str | None = None
-    rdv_schema: str = "rdv"
+    rdv_schema: str | None = "rdv"
     rdv_database: str | None = None
-    bdv_schema: str = "bdv"
+    bdv_schema: str | None = "bdv"
     bdv_database: str | None = None
 
     hashdiff_naming: str = "hd_[[ satellite_name ]]"
@@ -36,12 +39,41 @@ class EngineRuntimeConfig:
     satellite_v1_naming: str = "[[ satellite_name ]]_v1"
     record_tracking_satellite_naming: str = "[[ satellite_name ]]_ts"
     effectivity_satellite_naming: str = "[[ satellite_name ]]_es"
+    # Stage and pre-stage model names. [[ source_system ]] is the source
+    # system's dbt name (lowercase, spaces as _), [[ source_table ]] the
+    # table's physical name in lowercase.
+    stage_naming: str = "stg__[[ source_system ]]__[[ source_table ]]"
+    prestage_naming: str = "pstg__[[ source_system ]]__[[ source_table ]]"
 
     # Record source / load date of source tables that set none and whose
     # source system sets none either (see engine.services.source_values).
     default_record_source_value: str | None = None
     default_static_part_of_record_source: str | None = None
     default_load_date_value: str | None = None
+
+    # Stage options of source tables (and systems) that set none: whether the
+    # stage passes all source columns on, and whether it adds ghost records.
+    include_source_columns: bool = True
+    enable_ghost_records: bool = True
+
+    # Where generated models go (spec D27): folder patterns per layer and kind
+    # of model, over TurboVault's layout (generation.folder_config's
+    # DEFAULT_FOLDERS). use_model_folders off: models go to these folders, not
+    # to the ones stored for them, and keep their original folders' settings.
+    folders: dict[str, str] = field(default_factory=dict, hash=False)
+    use_model_folders: bool = True
+
+    # Whether generated models carry TurboVault's default tags (hub,
+    # raw_vault, the group, ...). A model's stored tags are added either way
+    # (spec D26); dbt project imports suggest turning it off.
+    add_default_tags: bool = True
+
+    # Delivery method (issue #468): with the switch on, models loading only
+    # single-batch sources use datavault4dbt's single-batch logic
+    # (source_is_single_batch). Tables and systems that set no delivery
+    # method use the project's.
+    use_delivery_method: bool = False
+    delivery_method: str = "multi_batch"
 
     dbt_project_name: str | None = None
     create_zip: bool = False
@@ -52,19 +84,31 @@ class EngineRuntimeConfig:
 
     # Passthrough for datavault4dbt global variables. Rendered verbatim into the
     # `vars:` block of dbt_project.yml. The engine does not curate or validate
-    # the key list — that is owned by the caller (e.g. Studio).
+    # the key list — that is owned by the caller (e.g. Studio). The CLI reads
+    # them from config.yml's `dbt_project.vars` (an imported dbt project's).
     #
     # `hash=False` keeps this frozen dataclass hashable: a dict field would
     # otherwise make every `hash(config)` raise TypeError. It stays part of
     # `__eq__`, so equal configs still hash equal.
     global_vars: dict[str, Any] = field(default_factory=dict, hash=False)
 
+    # An imported dbt project's dbt_project.yml (spec D20, D25), rendered into
+    # the generated one: the project's models: block (folder-level settings,
+    # without the project-name level) and its other top-level settings
+    # (seeds:, snapshots:, on-run-start, dispatch, paths, other packages'
+    # models: entries, ...). Empty: TurboVault's own dbt_project.yml.
+    dbt_project_models: dict[str, Any] = field(default_factory=dict, hash=False)
+    dbt_project_settings: dict[str, Any] = field(default_factory=dict, hash=False)
+    # The dbt project's packages (packages.yml's list, spec D28), written into
+    # the generated packages.yml with datavault4dbt. Empty: TurboVault's own.
+    dbt_packages: list[dict[str, Any]] = field(default_factory=list, hash=False)
+
     # dbt profile referenced by `profile:` in dbt_project.yml.
     profile_name: str = "default"
 
     # Per-layer settings of the `models:` block in dbt_project.yml. The
     # defaults reproduce the project the engine has always generated.
-    control_schema: str = "control"
+    control_schema: str | None = "control"
     control_materialization: str = "table"
     staging_materialization: str = "view"
     raw_vault_materialization: str = "incremental"
@@ -84,8 +128,8 @@ class EngineRuntimeConfig:
     # rendered verbatim; the engine does not curate adapter fields (Studio
     # does). Secrets must be `{{ env_var('...') }}` references — literal values
     # for known secret keys are rejected (see generation.profiles_yml).
-    # Like `global_vars`, set only by embedded callers: config.yml has no
-    # equivalent, so `from_turbovault_config` leaves both at their defaults.
+    # Set only by embedded callers: config.yml has no equivalent, so
+    # `from_turbovault_config` leaves both at their defaults.
     generate_profiles_yml: bool = False
     profiles: dict[str, Any] = field(default_factory=dict, hash=False)
 
@@ -153,6 +197,10 @@ class EngineRuntimeConfig:
                 config.configuration.effectivity_satellite_naming
                 or cls.effectivity_satellite_naming
             ),
+            stage_naming=config.configuration.stage_naming or cls.stage_naming,
+            prestage_naming=(
+                config.configuration.prestage_naming or cls.prestage_naming
+            ),
             default_record_source_value=(
                 config.configuration.default_record_source_value
             ),
@@ -160,6 +208,13 @@ class EngineRuntimeConfig:
                 config.configuration.default_static_part_of_record_source
             ),
             default_load_date_value=config.configuration.default_load_date_value,
+            include_source_columns=config.configuration.include_source_columns,
+            enable_ghost_records=config.configuration.enable_ghost_records,
+            add_default_tags=config.configuration.add_default_tags,
+            folders=dict(config.configuration.folders or {}),
+            use_model_folders=config.configuration.use_model_folders,
+            use_delivery_method=config.configuration.use_delivery_method,
+            delivery_method=config.configuration.delivery_method,
             profile_name=config.configuration.profile_name,
             control_schema=config.configuration.control_schema,
             control_materialization=config.configuration.control_materialization,
@@ -173,6 +228,18 @@ class EngineRuntimeConfig:
             ),
             model_materializations=dict(config.configuration.model_materializations),
             dbt_project_name=config.output.dbt_project_name or config.project.name,
+            global_vars=dict(config.dbt_project.vars) if config.dbt_project else {},
+            dbt_project_models=(
+                dict(config.dbt_project.models) if config.dbt_project else {}
+            ),
+            dbt_project_settings=(
+                dict(config.dbt_project.settings) if config.dbt_project else {}
+            ),
+            dbt_packages=(
+                [dict(package) for package in config.dbt_project.packages]
+                if config.dbt_project
+                else []
+            ),
             create_zip=config.output.create_zip,
             export_sources=config.output.export_sources,
             generate_tests=config.output.generate_tests,
@@ -213,6 +280,23 @@ class EngineRuntimeConfig:
             dbt_project_name=project.name,
         )
 
+    def with_settings(self, values: Mapping[str, Any]) -> EngineRuntimeConfig:
+        """A copy with ``values`` applied, keyed like an import's suggested
+        settings (spec D28): by field, a dotted key setting one entry of a
+        mapping field (``folders.raw_vault``, ``model_materializations.pit``).
+        """
+        changes: dict[str, Any] = {}
+        for key, value in values.items():
+            name, _, entry = key.partition(".")
+            if not hasattr(self, name):
+                raise ValueError(f"Unknown project setting: {key}")
+            if entry:
+                mapping = changes.setdefault(name, dict(getattr(self, name) or {}))
+                mapping[entry] = value
+            else:
+                changes[name] = value
+        return replace(self, **changes)
+
     def get_schema(self, schema_type: str) -> str:
         """Return the configured schema for ``stage``, ``rdv``, or ``bdv``."""
         value = getattr(self, f"{schema_type}_schema", None)
@@ -227,6 +311,8 @@ class EngineRuntimeConfig:
             "satellite_v1_naming": self.satellite_v1_naming,
             "record_tracking_satellite_naming": self.record_tracking_satellite_naming,
             "effectivity_satellite_naming": self.effectivity_satellite_naming,
+            "stage_naming": self.stage_naming,
+            "prestage_naming": self.prestage_naming,
             "hashkey_naming": self.hashkey_naming,
             "hashdiff_naming": self.hashdiff_naming,
         }

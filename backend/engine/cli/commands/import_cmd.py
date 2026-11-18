@@ -5,6 +5,12 @@ Supports merge / replace_all / update_only modes, fail-fast / best-effort
 error handling, and --dry-run for validate-only execution. Output is a
 Rich summary table of plan counts plus a colored issue table.
 
+Sources: Excel, SQLite, a TurboVault JSON export, an IRiS export folder, or a
+dbt project (its folder, or its manifest.json). The format follows from the
+path unless --format names it. A dbt project folder is searched for its
+manifest, catalog, dbt_project.yml and package files; what is missing is
+reported, and --dbt-parse creates a missing manifest with `dbt parse`.
+
 Exit codes:
   0 — success (no errors)
   1 — partial_success (best-effort; some entities skipped)
@@ -18,6 +24,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 import questionary
 import typer
+from rich.markup import escape
 from rich.table import Table
 
 from engine.cli.utils.console import (
@@ -46,9 +53,64 @@ def import_metadata_cmd(
             "-s",
             help=(
                 "Path to source metadata file (.xlsx, .db/.sqlite, or .json), "
-                "or a directory holding an IRiS three-file export"
+                "a directory holding an IRiS three-file export, or a dbt "
+                "project (its folder or its manifest.json). Default for dbt: "
+                "the project's configured dbt_project.path"
             ),
             exists=True,
+        ),
+    ] = None,
+    source_format: Annotated[
+        str | None,
+        typer.Option(
+            "--format",
+            "-f",
+            help="Source format: excel | sqlite | json | iris | dbt (default: from the path)",
+        ),
+    ] = None,
+    catalog: Annotated[
+        Path | None,
+        typer.Option(
+            "--catalog",
+            help="dbt: catalog.json (default: found next to the manifest)",
+            exists=True,
+        ),
+    ] = None,
+    dbt_project_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--dbt-project",
+            help="dbt: dbt_project.yml (default: found in the project folder)",
+            exists=True,
+        ),
+    ] = None,
+    dbt_parse: Annotated[
+        bool,
+        typer.Option(
+            "--dbt-parse",
+            help=(
+                "dbt: run `dbt parse` first when the project folder has no "
+                "manifest (needs dbt, the project's adapter and its packages)"
+            ),
+        ),
+    ] = False,
+    no_descriptions: Annotated[
+        bool,
+        typer.Option("--no-descriptions", help="dbt: don't import descriptions"),
+    ] = False,
+    no_tags: Annotated[
+        bool,
+        typer.Option("--no-tags", help="dbt: don't import the models' tags"),
+    ] = False,
+    apply_settings: Annotated[
+        bool | None,
+        typer.Option(
+            "--apply-settings/--keep-settings",
+            help=(
+                "dbt: write the settings the dbt project suggests (naming "
+                "patterns, its dbt_project.yml) into the project's config.yml "
+                "before importing, or keep the project's (default: ask)"
+            ),
         ),
     ] = None,
     project_name: Annotated[
@@ -89,11 +151,15 @@ def import_metadata_cmd(
 
     With flags:
         turbovault import --project my_project --source ./metadata.xlsx
+        turbovault import --project my_project --source ../analytics_dbt
+        turbovault import --project my_project --format dbt   # configured folder
 
     Interactive (no flags, or explicit --interactive):
         turbovault import
         turbovault import --interactive
     """
+    # The wizard shows a dbt project's files (and runs dbt parse) itself
+    dbt_files_shown = False
     # If the user asked for interactive mode explicitly, OR they didn't pass
     # the essential arguments (--project + --source), drop into the wizard.
     if interactive or (project_name is None and source is None):
@@ -103,11 +169,21 @@ def import_metadata_cmd(
             raise typer.Exit(0)
         project_name = params["project_name"]
         source = params["source"]
+        source_format = params["format"]
         mode = params["mode"]
         on_error = params["on_error"]
         dry_run = params["dry_run"]
         skip_snapshots = params["skip_snapshots"]
+        no_descriptions = not params["import_descriptions"]
+        no_tags = not params["import_tags"]
+        dbt_files_shown = source_format == "dbt"
     else:
+        # Without a source, a project with a configured dbt project imports
+        # from it (unless another format is asked for).
+        if source is None and project_name and source_format in (None, "dbt"):
+            configured = _configured_dbt_project(project_name)
+            if configured is not None:
+                source, source_format = configured, "dbt"
         # Partial-flag invocation: complain clearly rather than running half-blind.
         missing: list[str] = []
         if project_name is None:
@@ -124,10 +200,18 @@ def import_metadata_cmd(
     _run_import(
         project_name=project_name,
         source=source,
+        source_format=source_format,
         mode=mode,
         on_error=on_error,
         dry_run=dry_run,
         skip_snapshots=skip_snapshots,
+        catalog=catalog,
+        dbt_project_file=dbt_project_file,
+        dbt_parse=dbt_parse,
+        import_descriptions=not no_descriptions,
+        import_tags=not no_tags,
+        apply_settings=apply_settings,
+        dbt_files_shown=dbt_files_shown,
     )
 
 
@@ -139,24 +223,51 @@ def _run_import(
     on_error: str,
     dry_run: bool,
     skip_snapshots: bool,
+    source_format: str | None = None,
+    catalog: Path | None = None,
+    dbt_project_file: Path | None = None,
+    dbt_parse: bool = False,
+    import_descriptions: bool = True,
+    import_tags: bool = True,
+    apply_settings: bool | None = None,
+    dbt_files_shown: bool = False,
 ) -> None:
-    """Shared execution path used by both flag-driven and interactive modes."""
+    """Shared execution path used by both flag-driven and interactive modes.
+
+    ``dbt_files_shown``: the wizard has shown the dbt project's files (and
+    created a missing manifest) already.
+    """
     # Deferred: requires Django setup.
     from engine.models import Project
-    from engine.services.imports import ImportOptions, import_metadata
+    from engine.services.imports import DbtSource, ImportOptions, import_metadata
 
     project = Project.objects.filter(name=project_name).first()
     if project is None:
         print_error(f"Project '{project_name}' not found.")
         raise typer.Exit(2)
 
-    src = _build_source(source)
+    fmt = _normalize_format(source_format) if source_format else None
+    src = _build_source(
+        source,
+        fmt,
+        catalog=catalog,
+        dbt_project=dbt_project_file,
+        import_descriptions=import_descriptions,
+        import_tags=import_tags,
+    )
     if src is None:
         print_error(
-            f"Cannot determine source type from extension: {source.suffix}. "
-            "Use a .xlsx, .db/.sqlite, or .json file, or a directory of "
-            "IRiS files."
+            f"Cannot determine the source format of {source}. Use a .xlsx, "
+            ".db/.sqlite or .json file, a directory of IRiS files, or a dbt "
+            "project (or name the format with --format)."
         )
+        raise typer.Exit(2)
+
+    if (
+        isinstance(src, DbtSource)
+        and not dbt_files_shown
+        and not _prepare_dbt_source(src, run_parse=dbt_parse)
+    ):
         raise typer.Exit(2)
 
     options = ImportOptions(
@@ -177,14 +288,112 @@ def _run_import(
             f"(mode={options.conflict_strategy}, on_error={options.error_strategy})."
         )
 
+    if isinstance(src, DbtSource) and not dry_run:
+        _offer_project_settings(project, src, options, apply_settings)
+
     report = import_metadata(project=project, source=src, options=options)
     _render_report(report)
+    if dry_run and report.project_settings and not report.project_settings.is_empty():
+        _show_project_settings(report.project_settings)
 
     if report.status == "success":
         raise typer.Exit(0)
     if report.status == "partial_success":
         raise typer.Exit(1)
     raise typer.Exit(2)
+
+
+def _offer_project_settings(
+    project: Any, source: Any, options: Any, apply_settings: bool | None
+) -> None:
+    """Show the settings a dbt project suggests; write them into config.yml.
+
+    A dry run finds them (spec D22, D28): the naming patterns, schemas,
+    folders and defaults its models follow, and its dbt_project.yml and
+    packages. Applied before the import, what follows them isn't stored on
+    the models.
+    """
+    from engine.services.imports import import_metadata
+
+    if not project.project_directory:
+        return
+    preview = import_metadata(
+        project=project,
+        source=source,
+        options=options.model_copy(update={"dry_run": True}),
+    )
+    settings = preview.project_settings
+    if settings is None or settings.is_empty():
+        return
+    _show_project_settings(settings)
+    if apply_settings is None:
+        if not console.is_terminal:
+            print_info(
+                "Keeping the project's settings (--apply-settings writes these "
+                "into config.yml)."
+            )
+            return
+        apply_settings = questionary.confirm(
+            "Write these settings into the project's config.yml before importing?",
+            default=True,
+        ).ask()
+    if not apply_settings:
+        return
+    try:
+        path = _apply_project_settings(project, settings)
+    except Exception as exc:  # an invalid config.yml stays as it is
+        print_warning(f"config.yml wasn't updated: {exc}")
+        return
+    print_success(f"Settings written to {path}")
+
+
+def _shown_setting(value: Any) -> str:
+    """A suggested setting's value, short enough for a table cell."""
+    from engine.services.generation.project_yml import package_source
+
+    if value is None:
+        return "none"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, dict):
+        keys = [str(key) for key in value]
+        return ", ".join(keys[:6]) + (", ..." if len(keys) > 6 else "")
+    if isinstance(value, list):
+        names = [
+            package_source(entry) if isinstance(entry, dict) else str(entry)
+            for entry in value
+        ]
+        return ", ".join(names[:4]) + (", ..." if len(names) > 4 else "")
+    return str(value)
+
+
+def _show_project_settings(settings: Any) -> None:
+    table = Table(
+        title="Settings the dbt project suggests",
+        show_header=True,
+        header_style="bold cyan",
+    )
+    table.add_column("Setting", style="bold")
+    table.add_column("Suggested")
+    for key, suggestion in settings.suggestions.items():
+        share = (
+            f"  [dim]({suggestion.matching} of {suggestion.total} follow it)[/dim]"
+            if suggestion.total
+            else "  [dim](from the dbt project)[/dim]"
+        )
+        table.add_row(key, escape(_shown_setting(suggestion.value)) + share)
+    console.print(table)
+
+
+def _apply_project_settings(project: Any, settings: Any) -> Path:
+    """Write suggested settings into the project's config.yml; return its path."""
+    from engine.services.project_config import apply_settings
+
+    path = project.get_config_path()
+    apply_settings(
+        path, {key: item.value for key, item in settings.suggestions.items()}
+    )
+    return path
 
 
 def _run_interactive_import() -> dict | None:
@@ -209,9 +418,11 @@ def _run_interactive_import() -> dict | None:
     if not project_name:
         return None
 
+    configured = _configured_dbt_project(project_name)
     source_str = questionary.path(
-        "Path to metadata file (.xlsx, .db/.sqlite, or .json), "
-        "or a directory of IRiS files:",
+        "Path to metadata file (.xlsx, .db/.sqlite, or .json), a directory of "
+        "IRiS files, or a dbt project (folder or manifest.json):",
+        default=str(configured) if configured else "",
     ).ask()
     if not source_str:
         return None
@@ -219,18 +430,30 @@ def _run_interactive_import() -> dict | None:
     if not source.exists():
         print_error(f"File not found: {source}")
         return None
-    if not source.is_dir() and source.suffix.lower() not in (
-        ".xlsx",
-        ".db",
-        ".sqlite",
-        ".sqlite3",
-        ".json",
-    ):
+    source_format = _detect_format(source)
+    if source_format is None:
         print_error(
-            f"Unsupported file type '{source.suffix}'. "
-            "Use .xlsx, .db/.sqlite, .json, or a directory of IRiS files."
+            f"Unsupported file type '{source.suffix}'. Use .xlsx, .db/.sqlite, "
+            ".json, a directory of IRiS files, or a dbt project."
         )
         return None
+
+    import_descriptions = import_tags = True
+    if source_format == "dbt":
+        from engine.services.imports import DbtSource
+
+        if not _prepare_dbt_source(DbtSource(path=source), run_parse=None):
+            return None
+        import_descriptions = questionary.confirm(
+            "Import the descriptions of models and columns?", default=True
+        ).ask()
+        if import_descriptions is None:
+            return None
+        import_tags = questionary.confirm(
+            "Import the models' tags?", default=True
+        ).ask()
+        if import_tags is None:
+            return None
 
     mode = questionary.select(
         "Conflict strategy: how should existing entities be handled?",
@@ -278,7 +501,12 @@ def _run_interactive_import() -> dict | None:
         return None
 
     skip_snapshots = questionary.confirm(
-        "Skip creating a default snapshot control table?",
+        # For a dbt project it leaves out the project's own controls and PITs
+        (
+            "Leave the dbt project's snapshot controls and PITs out?"
+            if source_format == "dbt"
+            else "Skip creating a default snapshot control table?"
+        ),
         default=False,
     ).ask()
     if skip_snapshots is None:
@@ -287,10 +515,13 @@ def _run_interactive_import() -> dict | None:
     return {
         "project_name": project_name,
         "source": source,
+        "format": source_format,
         "mode": mode,
         "on_error": on_error,
         "dry_run": dry_run,
         "skip_snapshots": skip_snapshots,
+        "import_descriptions": import_descriptions,
+        "import_tags": import_tags,
     }
 
 
@@ -299,33 +530,179 @@ def _run_interactive_import() -> dict | None:
 # ---------------------------------------------------------------------------
 
 
-def _build_source(path: Path) -> Any | None:
-    """Build the right SourceInput subtype from the path.
+_FORMATS = ("excel", "sqlite", "json", "iris", "dbt")
 
-    A directory is taken to be an IRiS three-file export (Source / DataVault /
-    Mappings workbooks); otherwise the file extension selects the format.
+
+def _normalize_format(value: str) -> str:
+    fmt = value.strip().lower()
+    if fmt not in _FORMATS:
+        raise typer.BadParameter(
+            f"Unknown format '{value}'. Use one of: {', '.join(_FORMATS)}."
+        )
+    return fmt
+
+
+def _detect_format(path: Path) -> str | None:
+    """The source format a path holds, or None.
+
+    A directory is a dbt project when it has a dbt_project.yml or a dbt
+    manifest, else an IRiS three-file export. A .json file is a dbt manifest
+    or a TurboVault export, told apart by its content.
+    """
+    from engine.services.imports.dbt.artifacts import is_dbt_manifest
+
+    if path.is_dir():
+        manifests = (path / "target" / "manifest.json", path / "manifest.json")
+        if (path / "dbt_project.yml").is_file() or any(
+            candidate.is_file() and is_dbt_manifest(candidate)
+            for candidate in manifests
+        ):
+            return "dbt"
+        return "iris"
+    ext = path.suffix.lower()
+    if ext == ".xlsx":
+        return "excel"
+    if ext in (".db", ".sqlite", ".sqlite3"):
+        return "sqlite"
+    if ext == ".json":
+        return "dbt" if is_dbt_manifest(path) else "json"
+    return None
+
+
+def _build_source(
+    path: Path,
+    fmt: str | None = None,
+    *,
+    catalog: Path | None = None,
+    dbt_project: Path | None = None,
+    import_descriptions: bool = True,
+    import_tags: bool = True,
+) -> Any | None:
+    """Build the right SourceInput subtype from the path (and --format).
 
     The engine.services.imports import is deferred to keep this file safe
     to import before Django is configured.
     """
     from engine.services.imports import (
+        DbtSource,
         ExcelSource,
         IrisSource,
         JsonSource,
         SqliteSource,
     )
 
-    if path.is_dir():
-        return IrisSource(path=path)
+    fmt = fmt or _detect_format(path)
+    if fmt == "dbt":
+        return DbtSource(
+            path=path,
+            catalog=catalog,
+            dbt_project=dbt_project,
+            import_descriptions=import_descriptions,
+            import_tags=import_tags,
+        )
+    sources = {
+        "excel": ExcelSource,
+        "sqlite": SqliteSource,
+        "json": JsonSource,
+        "iris": IrisSource,
+    }
+    return sources[fmt](path=path) if fmt in sources else None
 
-    ext = path.suffix.lower()
-    if ext == ".xlsx":
-        return ExcelSource(path=path)
-    if ext in (".db", ".sqlite", ".sqlite3"):
-        return SqliteSource(path=path)
-    if ext == ".json":
-        return JsonSource(path=path)
-    return None
+
+def _configured_dbt_project(project_name: str) -> Path | None:
+    """The dbt project folder in the project's config.yml, if it has one."""
+    from engine.models import Project
+
+    project = Project.objects.filter(name=project_name).first()
+    if project is None or not project.project_directory:
+        return None
+    try:
+        config = project.load_config()
+    except Exception:  # no config.yml, or an invalid one: no default
+        return None
+    if config.dbt_project is None or config.dbt_project.path is None:
+        return None
+    return Path(config.dbt_project.path).expanduser()
+
+
+def _prepare_dbt_source(source: Any, *, run_parse: bool | None) -> bool:
+    """Show which artifacts the dbt project has; create a missing manifest.
+
+    ``run_parse``: True runs `dbt parse` when the manifest is missing, False
+    doesn't, None asks (interactive mode). Returns whether to go on.
+    """
+    from engine.services.imports.dbt.dbt_cli import find_dbt, run_dbt_parse
+    from engine.services.imports.dbt.parser import locate
+
+    paths = locate(source)
+    table = Table(title="dbt project", show_header=True, header_style="bold cyan")
+    table.add_column("File")
+    table.add_column("Status")
+    rows = [
+        (
+            "manifest.json",
+            paths.manifest if paths.manifest.is_file() else None,
+            "required",
+        ),
+        ("catalog.json", paths.catalog, "column types from the YAML only"),
+        (
+            "dbt_project.yml",
+            paths.dbt_project,
+            "var() defaults; folder settings unknown",
+        ),
+        (
+            "packages",
+            paths.packages[0] if paths.packages else None,
+            "datavault4dbt version unknown",
+        ),
+    ]
+    for name, found, without in rows:
+        status = (
+            f"[green]found[/green] {found}"
+            if found
+            else (
+                "[red]missing[/red]"
+                if without == "required"
+                else f"[yellow]missing[/yellow]: {without}"
+            )
+        )
+        table.add_row(name, status)
+    console.print(table)
+
+    if paths.manifest.is_file():
+        return True
+
+    project_dir = Path(source.path)
+    if not project_dir.is_dir():
+        print_error(f"No manifest at {paths.manifest}.")
+        return False
+    if run_parse is None:
+        if find_dbt() is None:
+            print_error(
+                "No manifest, and dbt isn't installed here. Run `dbt parse` in "
+                f"{project_dir} (no warehouse connection needed), then import again."
+            )
+            return False
+        run_parse = questionary.confirm(
+            "No manifest yet. Run `dbt parse` to create it? (renders the "
+            "project's models; doesn't connect to the warehouse)",
+            default=True,
+        ).ask()
+    if not run_parse:
+        print_error(
+            "No manifest. Run `dbt parse` in the dbt project (or pass --dbt-parse), "
+            "then import again."
+        )
+        return False
+
+    print_info(f"Running `dbt parse` in {project_dir} ...")
+    result = run_dbt_parse(project_dir)
+    if not result.ok:
+        print_error("`dbt parse` didn't create a manifest:")
+        console.print(result.output, markup=False, highlight=False)
+        return False
+    print_success("Created target/manifest.json.")
+    return True
 
 
 _MODE_MAP = {
@@ -423,6 +800,10 @@ def _render_report(report: ImportReport) -> None:
             }[issue.severity]
             loc_parts = []
             if issue.location:
+                if issue.location.node_id:
+                    loc_parts.append(issue.location.node_id)
+                if issue.location.parameter:
+                    loc_parts.append(f"param '{issue.location.parameter}'")
                 if issue.location.sheet:
                     loc_parts.append(issue.location.sheet)
                 if issue.location.row:

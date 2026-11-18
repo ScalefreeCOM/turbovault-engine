@@ -177,12 +177,6 @@ def _count_dbt(
         1 if generate_profiles_yml else 0
     )
 
-    # Pre-stages: one sql + one yml per pre-stage with SQL. One maintained
-    # outside TurboVault gets no files.
-    prestage_models = sum(1 for p in project_export.prestages if p.sql)
-    if prestage_models:
-        counts["prestage"] = prestage_models * 2
-
     # Stages: one sql + one yml per stage.
     if project_export.stages:
         counts["stage"] = len(project_export.stages) * 2
@@ -196,12 +190,11 @@ def _count_dbt(
     if project_export.satellites:
         # _v0 (sql + yml) plus optional _v1 view (sql + yml).
         sat_files = len(project_export.satellites) * 2
-        if options.generate_satellite_v1_views:
-            sat_files += sum(
-                2
-                for s in project_export.satellites
-                if s.satellite_type in ("standard", "multi_active")
-            )
+        sat_files += sum(
+            2
+            for s in project_export.satellites
+            if s.gets_v1_view(options.generate_satellite_v1_views)
+        )
         counts["satellite"] = sat_files
 
     # Record-tracking satellites: one sql + one yml per flagged hub/link.
@@ -217,13 +210,19 @@ def _count_dbt(
     if rts_count:
         counts["record_tracking_satellite"] = rts_count * 2
 
-    # Effectivity satellites: one sql + one yml per flagged hub.
+    # Effectivity satellites: one sql + one yml per flagged hub and link.
     efs_count = sum(
         1
         for h in project_export.hubs
         if getattr(h, "create_effectivity_satellite", False)
         and h.hashkey
-        and h.source_tables
+        and any(not s.hk_column for s in h.source_tables)
+    ) + sum(
+        1
+        for link in project_export.links
+        if getattr(link, "create_effectivity_satellite", False)
+        and link.hashkey
+        and link.source_tables
     )
     if efs_count:
         counts["effectivity_satellite"] = efs_count * 2

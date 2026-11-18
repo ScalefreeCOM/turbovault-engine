@@ -14,7 +14,6 @@ from django.db import models
 
 from engine.models.hubs import Hub
 from engine.models.links import Link
-from engine.models.output_attributes import generation_config_field
 from engine.models.project import Project
 from engine.models.satellites import Satellite
 from engine.models.snapshot_control import SnapshotControlLogic, SnapshotControlTable
@@ -121,19 +120,23 @@ class PIT(models.Model):
         max_length=255,
         blank=True,
         null=True,
-        help_text="Optional custom record source value",
+        help_text="Optional custom record source value (written as the PIT's custom_rsrc)",
     )
 
     use_snapshot_optimization = models.BooleanField(
-        default=True, help_text="Whether to apply snapshot optimization techniques"
+        blank=True,
+        null=True,
+        default=None,
+        help_text=(
+            "datavault4dbt's snapshot_optimization, written only when set. "
+            "Empty: datavault4dbt's default (off)"
+        ),
     )
 
     include_business_objects_before_appearance = models.BooleanField(
         default=False,
         help_text="Whether to include business keys before their first appearance",
     )
-
-    generation_config = generation_config_field("PIT")
 
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the PIT was created"

@@ -87,11 +87,13 @@ class DerivedColumn(models.Model):
         verbose_name_plural = "Derived Columns"
 
     def clean(self) -> None:
-        """A derived column needs an expression and a name of its own.
+        """A derived column needs an expression, and a name no prejoin uses.
 
-        The name must not shadow a column the stage already has — a source
-        column of the table or a column a prejoin brings in — since the stage
-        would then carry two columns of that name.
+        A derived column may take the name of a source column of its table:
+        it then shadows that column. datavault4dbt's stage replaces the
+        source column with the derived value, so everything that maps the
+        source column reads the derived one. A column a prejoin brings in
+        can't be shadowed.
         """
         super().clean()
 
@@ -104,32 +106,33 @@ class DerivedColumn(models.Model):
             return
 
         name = self.column_name.lower()
-        taken = {
-            column.lower()
-            for column in self.source_table.columns.values_list(
-                "source_column_physical_name", flat=True
-            )
-        }
         from engine.models.prejoin import PrejoinExtractionColumn
 
-        for extraction in PrejoinExtractionColumn.objects.filter(
-            prejoin__source_table_id=self.source_table_id
-        ).select_related("source_column"):
-            taken.add(
-                (
-                    extraction.prejoin_target_column_alias
-                    or extraction.source_column.source_column_physical_name
-                ).lower()
-            )
-        if name in taken:
+        prejoined = {
+            (
+                extraction.prejoin_target_column_alias
+                or extraction.source_column.source_column_physical_name
+            ).lower()
+            for extraction in PrejoinExtractionColumn.objects.filter(
+                prejoin__source_table_id=self.source_table_id
+            ).select_related("source_column")
+        }
+        if name in prejoined:
             raise ValidationError(
                 {
                     "column_name": (
-                        f"'{self.column_name}' is already a column of "
+                        f"'{self.column_name}' is a column a prejoin brings into "
                         f"{self.source_table.physical_table_name}'s stage."
                     )
                 }
             )
+
+    @property
+    def shadowed_column(self):
+        """The source column of the table this derived column replaces, if any."""
+        return self.source_table.columns.filter(
+            source_column_physical_name__iexact=self.column_name
+        ).first()
 
     def __str__(self) -> str:
         return f"{self.source_table.physical_table_name}.{self.column_name}"

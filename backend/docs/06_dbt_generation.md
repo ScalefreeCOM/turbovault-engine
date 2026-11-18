@@ -25,11 +25,11 @@ turbovault generate --project "My Project" --zip
 | `--zip` | `-z` | Create ZIP archive after generation | `false` |
 | `--skip-validation` | | Skip pre-generation validation | `false` |
 | `--no-v1-satellites` | | Skip generating satellite _v1 views | `false` |
-| `--standard-paths` | | Ignore stored output attributes; use the standard structure below | `false` |
+| `--model-folders` / `--standard-folders` | | Models in their stored folders, or in the project's folder patterns (names and settings stay) | the project's `use_model_folders` |
 
-Models with stored output attributes (e.g. imported from an existing dbt
-project) keep their own file path, model name and `config()` instead of the
-structure below; see "Output attributes" in `docs/04_concepts/01_domain-model.md`.
+Models with stored model outputs (e.g. imported from an existing dbt project)
+keep their own name, folder and `config()` settings instead of the structure
+below; see "Model Outputs" in `docs/04_concepts/01_domain-model.md`.
 
 ## Generated Project Structure
 
@@ -125,10 +125,11 @@ Templates can be customized via Django Admin:
 
 The generator checks database templates first, then falls back to file-based defaults.
 
-Custom templates must take model names, references and per-model config from
-the template variables (`model_name`, `model_alias`, `v0_name`,
-`satellite_v0_names`, ...) instead of building names themselves; see "Model
-names, references and config (dbt)" in `docs/02_getting-started/04_admin-guide.md`.
+Custom templates must write the `config()` block with `model_config(...)` and
+take model names and references from the template variables (`stage_name`,
+`v0_name`, `satellite_models`, ...) instead of building names themselves; see
+"Model names, references and config (dbt)" in
+`docs/02_getting-started/04_admin-guide.md`.
 
 ## Using the Generated Project
 

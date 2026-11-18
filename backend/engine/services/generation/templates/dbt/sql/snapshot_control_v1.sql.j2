@@ -1,38 +1,45 @@
 [# Snapshot Control V1 Template #]
 [# Generates the snapshot control logic with retention patterns #]
 
-[# v0_name: model name of the snapshot control v0 model this one reads #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-[% if model_alias %]
-    alias='[[ model_alias ]]',
-[% endif %]
-[% if model_schema %]
-    schema='[[ model_schema ]]',
-[% endif %]
-[% if model_database %]
-    database='[[ model_database ]]',
-[% endif %]
-[% for key, value in (model_custom_config | default({})).items() %]
-    [[ key ]]=[[ value | config_literal ]],
-[% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['snapshot_control', 'control'][% endif +%]
-) }}
+[# v0_name: the snapshot control table model this logic reads #]
 
+[# model_config: the config() block; the model's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['snapshot_control', 'control']) ]]
+
+[# log_logic_columns: the logic columns and their datavault4dbt intervals (daily, weekly, monthly, yearly) #]
+[# log_logic_mapping: one column named like the trigger column variable, written as a mapping #]
 {%- set yaml_metadata -%}
 control_snap_v0: [[ v0_name ]]
+[% if log_logic_columns %]
 log_logic:
-[% for pattern in logic_patterns %]
-    [[ pattern.component ]]:
-[% if pattern.forever %]
+[% if log_logic_mapping %]
+[% for interval in log_logic_columns[0].intervals %]
+    [[ interval.name ]]:
+[% if interval.forever %]
         forever: true
 [% else %]
-        duration: [[ pattern.duration ]]
-        unit: '[[ pattern.unit ]]'
+        duration: [[ interval.duration ]]
+        unit: '[[ interval.unit ]]'
 [% endif %]
 [% endfor %]
+[% else %]
+[% for column in log_logic_columns %]
+    - [[ column.name ]]:
+[% for interval in column.intervals %]
+        [[ interval.name ]]:
+[% if interval.forever %]
+            forever: true
+[% else %]
+            duration: [[ interval.duration ]]
+            unit: '[[ interval.unit ]]'
+[% endif %]
+[% endfor %]
+[% endfor %]
+[% endif %]
+[% endif %]
+[% if sdts_alias %]
+sdts_alias: [[ sdts_alias ]]
+[% endif %]
 {%- endset -%}
 
 {{ datavault4dbt.control_snap_v1(yaml_metadata=yaml_metadata) }}

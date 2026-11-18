@@ -1,23 +1,7 @@
 [# Non-Historized Link Template #]
 [# Generates a non-historized link model using datavault4dbt.nh_link() macro #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-[% if model_alias %]
-    alias='[[ model_alias ]]',
-[% endif %]
-[% if model_schema %]
-    schema='[[ model_schema ]]',
-[% endif %]
-[% if model_database %]
-    database='[[ model_database ]]',
-[% endif %]
-[% for key, value in (model_custom_config | default({})).items() %]
-    [[ key ]]=[[ value | config_literal ]],
-[% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['link', 'non_historized', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
-) }}
+[# model_config: the config() block; the link's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['link', 'non_historized', 'raw_vault', group]) ]]
 
 {%- set yaml_metadata -%}
 source_models:
@@ -41,11 +25,31 @@ foreign_hashkeys:
 [% for fk in foreign_hashkeys %]
     - [[ fk ]]
 [% endfor %]
-[% if payload_columns %]
+[# payload: the link's own columns, its dependent child keys first. datavault4dbt's nh_link requires a payload and selects it after the load date and record source #]
+[% if dependent_child_keys or payload_columns %]
 payload:
+[% for col in dependent_child_keys %]
+    - [[ col ]]
+[% endfor %]
 [% for col in payload_columns %]
     - [[ col ]]
 [% endfor %]
+[% endif %]
+[% if additional_columns %]
+additional_columns:
+[% for col in additional_columns %]
+    - [[ col ]]
+[% endfor %]
+[% endif %]
+[% if disable_hwm %]
+disable_hwm: true
+[% endif %]
+[# source_is_single_batch: every source stage delivers single batches (delivery method) #]
+[% if source_is_single_batch %]
+source_is_single_batch: true
+[% endif %]
+[% if union_strategy %]
+union_strategy: [[ union_strategy ]]
 [% endif %]
 {%- endset -%}
 

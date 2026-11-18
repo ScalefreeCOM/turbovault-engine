@@ -30,6 +30,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from engine.models import Project
+from engine.services.imports.dbt.parser import parse_dbt
 from engine.services.imports.domain import DomainModel
 from engine.services.imports.errors import Code, PipelineAbort, make_issue
 from engine.services.imports.executor import apply_outcomes, execute_plan
@@ -50,6 +51,7 @@ from engine.services.imports.reporting import (
 )
 from engine.services.imports.types import (
     ConflictStrategy,
+    DbtSource,
     EntityRef,
     ErrorStrategy,
     ExcelSource,
@@ -61,12 +63,15 @@ from engine.services.imports.types import (
     IssueLocation,
     JsonSource,
     ProgressEvent,
+    ProjectSettings,
+    SettingSuggestion,
     SourceInput,
     SourceMetadataSource,
     SqliteSource,
 )
 from engine.services.imports.validation.resolver import resolve
 from engine.services.imports.validation.schema_validator import validate_schema
+from engine.services.runtime_config import EngineRuntimeConfig
 
 __all__ = [
     "import_metadata",
@@ -76,9 +81,12 @@ __all__ = [
     "JsonSource",
     "SourceMetadataSource",
     "IrisSource",
+    "DbtSource",
     "SourceInput",
     "ImportOptions",
     "ImportReport",
+    "ProjectSettings",
+    "SettingSuggestion",
     "ImportPlan",
     "Issue",
     "IssueLocation",
@@ -100,6 +108,7 @@ def import_metadata(
     options: ImportOptions | None = None,
     progress: ProgressCallback | None = None,
     on_plan: PlanCallback | None = None,
+    runtime_config: EngineRuntimeConfig | None = None,
 ) -> ImportReport:
     """Run the import pipeline against `project`.
 
@@ -117,10 +126,17 @@ def import_metadata(
     rejected and the exception propagates to the caller, e.g. to enforce a
     quota on the entities the import would create.
 
+    ``runtime_config`` holds the project's settings, for callers that keep
+    them outside ``config.yml`` (Studio): the naming patterns name hash keys
+    and hash diffs, and a dbt import stores a model's name only where it
+    differs from what they give. Without it the project's ``config.yml`` (or
+    the defaults) applies.
+
     The only path that does NOT return is a programming bug — those become
     `internal.bug` issues in the report.
     """
     options = options or ImportOptions()
+    project_settings: ProjectSettings | None = None
     started_at = now_utc()
     timings: dict[str, int] = {}
     issues: list[Issue] = []
@@ -158,6 +174,42 @@ def import_metadata(
                 domain = parse_source_metadata(Path(source.path))
             elif isinstance(source, IrisSource):
                 domain = parse_iris(Path(source.path))
+            elif isinstance(source, DbtSource):
+                runtime_config = runtime_config or _project_settings(project)
+                domain, parse_issues = parse_dbt(source, runtime_config=runtime_config)
+                issues.extend(parse_issues)
+                project_settings = domain.project_settings
+                if options.error_strategy == "fail_fast" and any(
+                    issue.severity == "error" for issue in parse_issues
+                ):
+                    timings["parse"] = _ms(t0)
+                    return _finalize(
+                        project=project,
+                        source=source,
+                        options=options,
+                        plan=plan_for_report,
+                        issues=issues,
+                        started_at=started_at,
+                        timings=timings,
+                        run_id=run_id,
+                        executor_committed=False,
+                        progress=progress,
+                        project_settings=project_settings,
+                    )
+                if domain.is_empty():
+                    # Nothing to plan: above all, replace_all must not read an
+                    # empty project as "delete everything".
+                    raise PipelineAbort(
+                        make_issue(
+                            severity="error",
+                            code=Code.DBT_NOTHING_TO_IMPORT,
+                            stage="parse",
+                            message=(
+                                "The dbt project has no datavault4dbt models "
+                                "the import can map: nothing is imported"
+                            ),
+                        )
+                    )
             else:
                 raise PipelineAbort(
                     make_issue(
@@ -288,6 +340,7 @@ def import_metadata(
                     error_strategy=options.error_strategy,
                     skip_snapshots=options.skip_snapshots,
                     dry_run=options.dry_run,
+                    runtime_config=runtime_config,
                 )
                 issues.extend(result.issues)
                 # Only now is every action final: an entity that exists is
@@ -332,10 +385,19 @@ def import_metadata(
         run_id=run_id,
         executor_committed=executor_committed,
         progress=progress,
+        project_settings=project_settings,
     )
     if rejection is not None:
         raise rejection
     return report
+
+
+def _project_settings(project: Project) -> EngineRuntimeConfig:
+    """The project's settings from its config.yml, else the defaults."""
+    try:
+        return EngineRuntimeConfig.from_project(project)
+    except Exception:  # an invalid config.yml: naming falls back the same way
+        return EngineRuntimeConfig()
 
 
 def _finalize(
@@ -350,6 +412,7 @@ def _finalize(
     run_id,
     executor_committed: bool,
     progress: ProgressCallback | None,
+    project_settings: ProjectSettings | None = None,
 ) -> ImportReport:
     finished_at = now_utc()
     report = build_report(
@@ -363,6 +426,7 @@ def _finalize(
         finished_at=finished_at,
         timings_ms=timings,
         executor_committed=executor_committed,
+        project_settings=project_settings,
     )
 
     try:

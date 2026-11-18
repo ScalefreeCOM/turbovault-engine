@@ -1,27 +1,11 @@
 [# PIT (Point-In-Time) Template #]
 [# Generates a PIT structure for dimensional views #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-[% if model_alias %]
-    alias='[[ model_alias ]]',
-[% endif %]
-[% if model_schema %]
-    schema='[[ model_schema ]]',
-[% endif %]
-[% if model_database %]
-    database='[[ model_database ]]',
-[% endif %]
-[% for key, value in (model_custom_config | default({})).items() %]
-    [[ key ]]=[[ value | config_literal ]],
-[% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['pit', 'business_vault'][% endif %],
-[# A post_hook in custom_config_json replaces the default clean-up hook #]
-[% if 'post_hook' not in model_custom_config | default({}) %]
-    post_hook="{{ datavault4dbt.clean_up_pit('[[ snapshot_control_name ]]') }}"
-[% endif %]
-) }}
+[# model_config: the config() block; the PIT's stored settings override these defaults #]
+[[ model_config(
+    materialized=materialization,
+    tags=['pit', 'business_vault'],
+    post_hook="{{ datavault4dbt.clean_up_pit('" ~ snapshot_control_name ~ "') }}"
+) ]]
 
 {%- set yaml_metadata -%}
 [% if pit_type %]
@@ -29,15 +13,28 @@ pit_type: '[[ pit_type ]]'
 [% endif %]
 tracked_entity: [[ tracked_entity_name ]]
 hashkey: [[ tracked_hashkey ]]
+[# satellite_models: the v0 models of the PIT's satellites (exports without them: <name>_v0) #]
 sat_names:
-[# satellite_v0_names: the v0 model of each satellite in `satellites` #]
-[% for sat in satellite_v0_names %]
+[% if satellite_models %]
+[% for sat in satellite_models %]
     - [[ sat ]]
 [% endfor %]
+[% else %]
+[% for sat in satellites %]
+    - [[ sat ]]_v0
+[% endfor %]
+[% endif %]
 snapshot_relation: [[ snapshot_control_name ]]
 snapshot_trigger_column: [[ snapshot_logic_column ]]
 [% if dimension_key_column %]
 dimension_key: [[ dimension_key_column ]]
+[% endif %]
+[% if custom_record_source %]
+custom_rsrc: [[ custom_record_source | yaml_quote ]]
+[% endif %]
+[# Written only when set: empty keeps datavault4dbt's default (off) #]
+[% if use_snapshot_optimization is boolean %]
+snapshot_optimization: [[ 'true' if use_snapshot_optimization else 'false' ]]
 [% endif %]
 {%- endset -%}
 

@@ -7,8 +7,11 @@ and load configurations for projects.
 
 from __future__ import annotations
 
+import copy
 import logging
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -106,6 +109,11 @@ def write_project_config(config_path: Path, config) -> None:
             "export_sources": config.output.export_sources,
         },
     }
+    # The dbt project's name, when it isn't the project's (an imported one's)
+    if config.output.dbt_project_name and (
+        config.output.dbt_project_name != config.project.name
+    ):
+        config_dict["output"]["dbt_project_name"] = config.output.dbt_project_name
 
     if config.configuration.model_materializations:
         config_dict["configuration"]["model_materializations"] = dict(
@@ -137,6 +145,43 @@ def write_project_config(config_path: Path, config) -> None:
         config_dict["configuration"][
             "satellite_v1_naming"
         ] = config.configuration.satellite_v1_naming
+    for pattern_key in (
+        "record_tracking_satellite_naming",
+        "effectivity_satellite_naming",
+        "stage_naming",
+        "prestage_naming",
+    ):
+        if value := getattr(config.configuration, pattern_key):
+            config_dict["configuration"][pattern_key] = value
+
+    # Stage options and the delivery method, where they differ from the defaults
+    if not config.configuration.include_source_columns:
+        config_dict["configuration"]["include_source_columns"] = False
+    if not config.configuration.enable_ghost_records:
+        config_dict["configuration"]["enable_ghost_records"] = False
+    if config.configuration.folders:
+        config_dict["configuration"]["folders"] = dict(config.configuration.folders)
+    if not config.configuration.use_model_folders:
+        config_dict["configuration"]["use_model_folders"] = False
+    if not config.configuration.add_default_tags:
+        config_dict["configuration"]["add_default_tags"] = False
+    if config.configuration.use_delivery_method:
+        config_dict["configuration"]["use_delivery_method"] = True
+    if config.configuration.delivery_method != "multi_batch":
+        config_dict["configuration"][
+            "delivery_method"
+        ] = config.configuration.delivery_method
+
+    # The dbt project the CLI imports from, and its dbt_project.yml settings
+    if config.dbt_project:
+        dbt_project: dict = {}
+        if config.dbt_project.path is not None:
+            dbt_project["path"] = str(config.dbt_project.path)
+        for key in ("vars", "models", "settings", "packages"):
+            if value := getattr(config.dbt_project, key):
+                dbt_project[key] = value
+        if dbt_project:
+            config_dict["dbt_project"] = dbt_project
 
     # Add source if present
     if config.source:
@@ -151,6 +196,57 @@ def write_project_config(config_path: Path, config) -> None:
         yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
 
     logger.debug(f"Wrote config to {config_path}")
+
+
+# Where a project setting (a runtime config field) goes in config.yml, when
+# not under configuration:.
+_SETTING_LOCATIONS: dict[str, tuple[str, ...]] = {
+    "dbt_project_name": ("output", "dbt_project_name"),
+    "global_vars": ("dbt_project", "vars"),
+    "dbt_project_models": ("dbt_project", "models"),
+    "dbt_project_settings": ("dbt_project", "settings"),
+    "dbt_packages": ("dbt_project", "packages"),
+}
+
+
+def setting_location(key: str) -> tuple[str, ...]:
+    """Where a project setting goes in config.yml.
+
+    ``key`` is a runtime config field (``EngineRuntimeConfig``), as an
+    import suggests it; a dotted key is an entry of a mapping field
+    (``folders.raw_vault`` -> ``configuration.folders.raw_vault``).
+    """
+    name, _, entry = key.partition(".")
+    location = _SETTING_LOCATIONS.get(name, ("configuration", name))
+    return (*location, entry) if entry else location
+
+
+def apply_settings(config_path: Path, values: Mapping[str, Any]) -> None:
+    """Write project settings into a config.yml, keeping all else in it.
+
+    ``values`` are keyed like an import's suggested settings
+    (``ImportReport.project_settings``, spec D28): see ``setting_location``.
+    The result is checked first; an invalid one raises ``ValueError`` (a
+    pydantic ``ValidationError``) and leaves the file as it is.
+    """
+    from engine.services.config_schema import TurboVaultConfig
+
+    document = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    for key, value in values.items():
+        *parents, name = setting_location(key)
+        node = document
+        for parent in parents:
+            if not isinstance(node.get(parent), dict):
+                node[parent] = {}
+            node = node[parent]
+        node[name] = copy.deepcopy(value)
+    TurboVaultConfig.model_validate(document)
+    config_path.write_text(
+        yaml.safe_dump(
+            document, sort_keys=False, default_flow_style=False, allow_unicode=True
+        ),
+        encoding="utf-8",
+    )
 
 
 def load_project_config(project):

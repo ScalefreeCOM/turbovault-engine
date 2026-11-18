@@ -142,6 +142,18 @@ turbovault project init --interactive
 
 Prompts for project name, description, source metadata, schema names, naming patterns, and ZIP option.
 
+The source can also be a **dbt project** (its folder or `manifest.json`): see
+[Importing a dbt Project](06_dbt-project-import.md). The wizard then works like `turbovault import`:
+
+1. It shows the dbt project's files, and offers to run `dbt parse` when the manifest is missing.
+2. It asks whether to import descriptions and tags, and whether the folder becomes the project's
+   `dbt_project.path`, the default for `import` and `generate`.
+3. Once the project exists, it shows the settings the dbt project suggests and writes them into
+   `config.yml` if you agree, then imports.
+
+It asks neither for default snapshot controls nor for schemas, naming patterns and materializations: the
+dbt project brings its own snapshot controls and suggests the settings.
+
 #### From a Config File
 
 ```bash
@@ -154,13 +166,14 @@ turbovault project init --config config.yml
 |--------|-------|-------------|---------|
 | `--name NAME` | `-n` | Project name | prompted |
 | `--description STR` | | Project description | — |
-| `--source PATH` | `-s` | Source metadata file (`.xlsx`, `.db`, or `.json` export), or a directory holding an IRiS three-file export | — |
+| `--source PATH` | `-s` | Source metadata file (`.xlsx`, `.db`, or `.json` export), or a directory holding an IRiS three-file export. A dbt project is imported by the interactive wizard, or by `turbovault import` once the project exists | — |
 | `--stage-schema STR` | | Staging schema name | `stage` |
 | `--rdv-schema STR` | | Raw Data Vault schema name | `rdv` |
 | `--bdv-schema STR` | | Business Data Vault schema name | `bdv` |
 | `--control-schema STR` | | Control layer schema name | `control` |
 | `--stage-database STR` | | Optional staging database name | — |
 | `--rdv-database STR` | | Optional RDV database name | — |
+| `--snapshot-controls` / `--no-snapshot-controls` | | Create TurboVault's default snapshot control; leave it out for a project whose source brings its own (e.g. a dbt project) | `--snapshot-controls` |
 | `--bdv-database STR` | | Optional BDV database name — currently not saved, see note below | — |
 | `--hashdiff-naming STR` | | Hashdiff naming pattern | `hd_[[ satellite_name ]]` |
 | `--hashkey-naming STR` | | Hashkey naming pattern | `hd_[[ entity_name ]]` |
@@ -216,7 +229,32 @@ alone, and skip individual rows that fail validation (reporting each one
 with full sheet/row/column context). See [Import Pipeline](../04_concepts/06_import-pipeline.md)
 for the full behavior reference.
 
-The source format is selected from the path: a `.xlsx` / `.db` / `.sqlite` / `.json` file picks the matching parser, and a **directory** is read as an IRiS three-file export (`Source_*` / `DataVault_*` / `Mappings_*`). The IRiS reader is the reverse of `generate --type iris`. See [IRiS Import (Round-Trip)](../00_index.md#iris-import-round-trip).
+The source format is selected from the path, or named with `--format`:
+
+- a `.xlsx` / `.db` / `.sqlite` file picks the matching parser;
+- a `.json` file is a TurboVault JSON export, or a **dbt manifest** (told apart
+  by its content);
+- a **directory** is a **dbt project** when it has a `dbt_project.yml` or a
+  manifest (`target/manifest.json` or `manifest.json`), else an IRiS three-file
+  export (`Source_*` / `DataVault_*` / `Mappings_*`). The IRiS reader is the
+  reverse of `generate --type iris`. See [IRiS Import (Round-Trip)](../00_index.md#iris-import-round-trip).
+
+**dbt projects.** In a dbt project folder the import finds the manifest, the
+catalog (`target/catalog.json`), `dbt_project.yml` and the package files
+(`packages.yml`, `dependencies.yml`, `package-lock.yml`), and shows what it
+found before importing. Only the manifest is required: without a catalog,
+column data types come from the YAML properties (warning); without
+`dbt_project.yml`, `var()` calls fall back to their defaults (warning). The
+import reads files only. When the folder has no manifest yet, `--dbt-parse`
+(or the interactive wizard, if dbt is installed) runs `dbt parse` to create
+it: that renders the project without connecting to the warehouse, but needs
+dbt-core, the project's adapter and its installed packages (`dbt deps`). The
+catalog comes from `dbt docs generate`, which queries the warehouse: run it
+yourself when you want column types from the warehouse.
+
+A project with `dbt_project.path` in its `config.yml` imports from that folder
+when no `--source` is given. [Importing a dbt Project](06_dbt-project-import.md)
+walks through the whole loop: import, suggested settings, generating back.
 
 #### Non-Interactive Mode (Flags)
 
@@ -232,6 +270,14 @@ turbovault import --project my_project --source ./metadata.xlsx --on-error fail-
 
 # Dry-run: the whole import, rolled back, so it shows exactly what would change
 turbovault import --project my_project --source ./metadata.xlsx --dry-run
+
+# A dbt project: its folder, or its manifest
+turbovault import --project my_project --source ../analytics_dbt --dry-run
+turbovault import --project my_project --source ./target/manifest.json --catalog ./target/catalog.json
+
+# The project's configured dbt project (dbt_project.path in config.yml),
+# creating the manifest with `dbt parse` if it has none
+turbovault import --project my_project --format dbt --dbt-parse
 ```
 
 #### Interactive Mode
@@ -244,7 +290,10 @@ turbovault import --interactive
 
 Prompts for project (chosen from a list of existing projects), source
 file, conflict strategy, error strategy, dry-run, and snapshot control
-behavior.
+behavior. For a dbt project (the project's `dbt_project.path` is the default
+answer) it shows which artifacts it found, offers `dbt parse` when the
+manifest is missing and dbt is installed, and asks whether to import
+descriptions and tags.
 
 If only one of `--project` / `--source` is supplied, the command exits
 with a clear error rather than running half-blind — pass both or pass
@@ -254,12 +303,19 @@ neither.
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `--source PATH` | `-s` | Path to the source metadata file (`.xlsx`, `.db`/`.sqlite`, or `.json`), or a directory holding an IRiS three-file export | prompted |
+| `--source PATH` | `-s` | Path to the source metadata file (`.xlsx`, `.db`/`.sqlite`, or `.json`), a directory holding an IRiS three-file export, or a dbt project (folder or `manifest.json`) | prompted; for dbt the configured `dbt_project.path` |
+| `--format STR` | `-f` | Source format: `excel`, `sqlite`, `json`, `iris` or `dbt` | from the path |
+| `--catalog PATH` | | dbt: the `catalog.json` to use | found next to the manifest |
+| `--dbt-project PATH` | | dbt: the `dbt_project.yml` to use | found in the project folder |
+| `--dbt-parse` | | dbt: run `dbt parse` first when the project folder has no manifest | `false` |
+| `--no-descriptions` | | dbt: don't import descriptions | `false` |
+| `--no-tags` | | dbt: don't import the models' tags | `false` |
+| `--apply-settings` / `--keep-settings` | | dbt: before importing, write the settings the dbt project suggests into the project's `config.yml`, or keep the project's. A dry run finds them first: what most of its models follow (naming patterns, layer schemas and materializations, folder patterns, default record source and load date, stage options, delivery method, default tags) and its `dbt_project.yml` (name, profile, vars, `models:` block, other settings) and packages. The rest of `config.yml` is kept. With them applied, the models store only what differs from them | ask (keep when not interactive) |
 | `--project NAME` | `-p` | Target project name (must exist) | prompted |
 | `--mode STR` | | Conflict strategy: `merge`, `replace-all`, or `update-only` | `merge` |
 | `--on-error STR` | | Error strategy: `best-effort` or `fail-fast` | `best-effort` |
 | `--dry-run` | | Run the import and roll it back: report what would change, keep nothing | `false` |
-| `--skip-snapshots` | | Skip creating a default snapshot control table | `false` |
+| `--skip-snapshots` | | Leave snapshot controls and PITs out (no default snapshot control is created either) | `false` |
 | `--interactive` | `-i` | Run the interactive import wizard | `false` |
 
 #### Exit Codes
@@ -381,7 +437,7 @@ turbovault generate --project sales_datavault --type dbt
 
 | Output type | Default path |
 |-------------|--------------|
-| `dbt` | `<workspace>/projects/<project>/exports/dbt_project/` |
+| `dbt` | the dbt project of config.yml's `dbt_project.path`, else `<workspace>/projects/<project>/exports/dbt_project/` |
 | `sqlmesh` | `<workspace>/projects/<project>/exports/sqlmesh/` |
 | `json` | `<workspace>/projects/<project>/exports/<project_slug>.json` |
 | `dbml` | `<workspace>/projects/<project>/exports/<project_slug>.dbml` |
@@ -397,6 +453,48 @@ for `iris`) under the current directory.
 ```bash
 turbovault generate --project sales_datavault --output ./my_dbt_projects/sales
 ```
+
+#### Generate into an Existing dbt Project
+
+An empty folder gets a complete dbt project. A folder that already holds a
+dbt project, whose `dbt_project.yml` TurboVault didn't write, keeps its own
+files:
+
+- TurboVault writes its models, their YAML and the source definitions into the
+  project. It doesn't write `dbt_project.yml`, `packages.yml` or `profiles.yml`.
+- The project's folder settings apply. A model carries its layer's schema and
+  materialization in its `config()` where those settings give it none.
+- The report lists packages and variables the models need and the project
+  lacks.
+- It also reports models, model YAML and source tables the project defines a
+  second time. dbt needs one of each: remove the other.
+- When TurboVault replaces a sources file of the project, the source tables it
+  doesn't generate are kept in `<file>__kept.yml`. Those are tables only the
+  project's own models read, such as a pre-stage's source.
+
+This is the way back for a project imported from a dbt project, and the only
+one when its stages read the project's own models (pre-stages). The dbt project
+of config.yml's `dbt_project.path` is the default output folder.
+
+```bash
+turbovault generate --project shop --output ../shop_dbt
+turbovault generate --project shop --output ../shop_dbt --write-project-files
+turbovault generate --project shop --remove-stale-files
+```
+
+TurboVault records the files it writes in `.turbovault/generated.json`. That
+record tells its own `dbt_project.yml` from a project's. A folder generated
+before TurboVault kept a record is handled like this:
+
+- the workspace's exports folder counts as TurboVault's own;
+- in a terminal, without `--write-project-files` or `--keep-project-files`, the
+  CLI asks whether to replace the folder's files. The default answer is yes for
+  the exports folder and no for other folders. A "no" is recorded, and later
+  runs keep the files without asking. It also reports the
+files TurboVault generated before and no longer generates (e.g. after renaming
+an entity). They are deleted only with `--remove-stale-files`, and only while
+unchanged since TurboVault wrote them. Skip the source definitions with
+`output.export_sources: false` in config.yml.
 
 #### Generate with ZIP Archive
 
@@ -452,7 +550,9 @@ turbovault generate --project sales_datavault --dry-run
 | `--dry-run` | | Run build/validate/plan/render; skip write | `false` |
 | `--zip` | `-z` | Create ZIP archive after dbt or SQLMesh generation | `false` |
 | `--no-v1-satellites` | | Skip generating satellite `_v1` views (dbt and sqlmesh) | `false` |
-| `--standard-paths` | | dbt: ignore stored [output attributes](../04_concepts/01_domain-model.md#output-attributes) (original file paths, model names and configs of imported models) and use Turbovault's standard folders and naming | `false` |
+| `--model-folders` / `--standard-folders` | | dbt: generate models in the folders stored for them (an imported dbt project's), or in the project's folder patterns, each model keeping the settings its original folder gave it | the project's `use_model_folders` |
+| `--write-project-files` / `--keep-project-files` | | dbt: write `dbt_project.yml` and `packages.yml`, or keep the output folder's | keep them in a dbt project whose files TurboVault didn't write |
+| `--remove-stale-files` | | Delete the files TurboVault generated before and no longer generates, if unchanged since; without it they are reported | `false` |
 | `--json-output PATH` | | Alias for `--output` when `--type json` | — |
 | `--dbml-output PATH` | | Alias for `--output` when `--type dbml` | — |
 | `--iris-output PATH` | | Output directory for the IRiS Excel files when `--type iris` | — |
