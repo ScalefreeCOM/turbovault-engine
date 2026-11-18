@@ -57,8 +57,15 @@ def _model_output_inline(entity_field: str) -> type[admin.TabularInline]:
 class ModelOutputAdmin(admin.ModelAdmin):
     """Admin configuration for ModelOutput: how an entity's dbt models are generated."""
 
-    list_display = ["kind", "model_name", "folder", "materialized", "project"]
-    list_filter = ["kind", "project"]
+    list_display = [
+        "kind",
+        "model_name",
+        "folder",
+        "materialized",
+        "framework",
+        "project",
+    ]
+    list_filter = ["kind", "framework", "project"]
     search_fields = ["model_name", "folder", "alias"]
     readonly_fields = ["model_output_id", "project", "created_at", "updated_at"]
     fieldsets = [
@@ -69,6 +76,7 @@ class ModelOutputAdmin(admin.ModelAdmin):
                     "model_output_id",
                     "project",
                     "kind",
+                    "framework",
                     "source_table",
                     "hub",
                     "link",
