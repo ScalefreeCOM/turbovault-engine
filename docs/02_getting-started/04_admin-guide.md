@@ -118,6 +118,23 @@ Navigate to **Engine > Hubs** to see all hubs for all projects.
 
 ---
 
+## The dbt models of an entity
+
+Every entity that generates dbt models (source tables, Hubs, Links, Satellites, PITs, reference tables,
+snapshot controls) shows two sections on its page:
+
+- **Generated dbt models** (read-only): each model the entity generates, with the file generation writes it
+  to, its `config()` block and whether its settings are stored or derived from the project's settings. It is
+  rendered like a real generation, with the project's `config.yml` and templates, but nothing is written.
+- **dbt models** (editable): the stored [model outputs](../04_concepts/01_domain-model.md#101-model_output),
+  only where a model differs from the project's settings: its name, folder, alias, schema, materialization,
+  tags or further `config()` keys. An imported dbt project stores here what its models do differently; with
+  the settings it suggested applied, most entities store nothing.
+
+All stored model outputs are listed under **dbt Metadata > Model Outputs**.
+
+---
+
 ## Working with Links
 
 Navigate to **Engine > Links** to see all links.

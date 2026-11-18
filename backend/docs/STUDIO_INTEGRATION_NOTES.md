@@ -331,6 +331,12 @@ further `config()` keys. The dbt import (item 4) fills them from the original pr
 them. Empty means "as TurboVault derives it", and a project without stored values generates exactly as
 before (verified byte for byte on the TPC-H sample).
 
+**Preview of an entity's models:** `engine.services.generation.preview.generated_models(entity)` returns each dbt
+model the entity generates: kind, model name, the `.sql` path generation writes, the stored fields (empty:
+derived) and its `config()` block. It runs build, plan and render in memory (about 0.1 s for one entity of
+the TPC-H sample), writes nothing and records no generation run. The Engine's admin shows it on each
+entity's page; Studio can use it for a "generated models" panel next to the editable model outputs.
+
 ### Data model: `ModelOutput` (new table `model_output`, migration `0023_model_outputs`)
 
 One row per entity and kind of model, only where something differs from the defaults.

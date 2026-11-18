@@ -5,6 +5,7 @@ Register domain models here for data inspection and debugging via the admin UI.
 """
 
 from django.contrib import admin
+from django.utils.html import format_html, format_html_join
 
 from engine.models import (
     PIT,
@@ -51,6 +52,80 @@ def _model_output_inline(entity_field: str) -> type[admin.TabularInline]:
 
     ModelOutputInline.__name__ = f"{entity_field.title().replace('_', '')}OutputInline"
     return ModelOutputInline
+
+
+class GeneratedModelsMixin:
+    """Shows, read-only, the dbt models an entity generates.
+
+    Each model with the path generation writes it to and its config() block,
+    rendered with the project's settings and templates (nothing is written).
+    The stored model outputs below override what is derived.
+    """
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(super().get_readonly_fields(request, obj))
+        return [*fields, "generated_dbt_models"] if obj is not None else fields
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = list(super().get_fieldsets(request, obj))
+        if obj is None:
+            return fieldsets
+        return [
+            *fieldsets,
+            (
+                "Generated dbt models",
+                {
+                    "fields": ["generated_dbt_models"],
+                    "description": (
+                        "What generation writes for this entity, with the "
+                        "project's settings. A model is stored below only where "
+                        "it differs from them; everything else is derived."
+                    ),
+                },
+            ),
+        ]
+
+    @admin.display(description="dbt models")
+    def generated_dbt_models(self, obj):
+        from engine.services.generation.preview import generated_models
+
+        try:
+            models = generated_models(obj)
+        except Exception as exc:  # shown, so the page still opens
+            return format_html("<em>The models can't be rendered: {}</em>", exc)
+        if not models:
+            return "—"
+        labels = dict(ModelOutput.Kind.choices)
+        rows = format_html_join(
+            "",
+            "<tr><td>{}</td><td><code>{}</code></td><td><code>{}</code></td>"
+            '<td>{}</td><td><pre style="margin:0">{}</pre></td></tr>',
+            (
+                (
+                    labels.get(model.kind, model.kind),
+                    model.model_name,
+                    model.path
+                    or (
+                        "the dbt project's own model"
+                        if model.kind == "prestage"
+                        else "not generated"
+                    ),
+                    (
+                        "stored: " + ", ".join(model.stored)
+                        if model.stored
+                        else "derived"
+                    ),
+                    model.config_block or "(from dbt_project.yml)",
+                )
+                for model in models
+            ),
+        )
+        return format_html(
+            "<table><thead><tr><th>Model</th><th>Name</th><th>File</th>"
+            "<th>Settings</th><th>config()</th></tr></thead><tbody>{}</tbody>"
+            "</table>",
+            rows,
+        )
 
 
 @admin.register(ModelOutput)
@@ -151,7 +226,7 @@ class DerivedColumnInline(admin.TabularInline):
 
 
 @admin.register(SourceTable)
-class SourceTableAdmin(admin.ModelAdmin):
+class SourceTableAdmin(GeneratedModelsMixin, admin.ModelAdmin):
     """Admin configuration for SourceTable model."""
 
     inlines = [DerivedColumnInline, _model_output_inline("source_table")]
@@ -315,7 +390,7 @@ class HubSourceMappingInline(admin.TabularInline):
 
 
 @admin.register(Hub)
-class HubAdmin(admin.ModelAdmin):
+class HubAdmin(GeneratedModelsMixin, admin.ModelAdmin):
     """Admin configuration for Hub model."""
 
     list_display = [
@@ -454,7 +529,7 @@ class SnapshotControlLogicInline(admin.TabularInline):
 
 
 @admin.register(SnapshotControlTable)
-class SnapshotControlTableAdmin(admin.ModelAdmin):
+class SnapshotControlTableAdmin(GeneratedModelsMixin, admin.ModelAdmin):
     """Admin for snapshot control tables."""
 
     list_display = [
@@ -569,7 +644,7 @@ class SatelliteColumnInline(admin.TabularInline):
 
 
 @admin.register(Satellite)
-class SatelliteAdmin(admin.ModelAdmin):
+class SatelliteAdmin(GeneratedModelsMixin, admin.ModelAdmin):
     """Admin configuration for Satellite model."""
 
     list_display = [
@@ -805,7 +880,7 @@ class LinkSourceMappingInline(admin.TabularInline):
 
 
 @admin.register(Link)
-class LinkAdmin(admin.ModelAdmin):
+class LinkAdmin(GeneratedModelsMixin, admin.ModelAdmin):
     """Admin configuration for Link model."""
 
     list_display = [
@@ -983,7 +1058,7 @@ class ReferenceTableSatelliteAssignmentInline(admin.TabularInline):
 
 
 @admin.register(ReferenceTable)
-class ReferenceTableAdmin(admin.ModelAdmin):
+class ReferenceTableAdmin(GeneratedModelsMixin, admin.ModelAdmin):
     """Admin configuration for ReferenceTable model."""
 
     list_display = [
@@ -1075,7 +1150,7 @@ class ReferenceTableSatelliteAssignmentAdmin(admin.ModelAdmin):
 
 
 @admin.register(PIT)
-class PITAdmin(admin.ModelAdmin):
+class PITAdmin(GeneratedModelsMixin, admin.ModelAdmin):
     """Admin configuration for PIT model."""
 
     list_display = [
