@@ -57,6 +57,13 @@ The admin is organized into the following sections:
 
 ---
 
+## Several projects in one workspace
+
+Projects often share column and entity names, e.g. two projects importing the same source. Every dropdown
+and search list that picks a column or an entity names its project: `[source] Customer.C_NAME · shop`. On
+the page of an existing object, it offers only the items of that object's project. On an add page the project
+isn't known yet: it offers every project's items, each labelled.
+
 ## Recommended Entity Creation Order
 
 When building a Data Vault model manually in the admin (rather than importing from Excel), follow this sequence — each entity depends on the ones above it:

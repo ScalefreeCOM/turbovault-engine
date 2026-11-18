@@ -33,8 +33,9 @@ section is completed when the Engine change lands).
 | 20 | [Round trip: what a dbt import reads back; generation fixes](#20-round-trip-what-a-dbt-import-reads-back-generation-fixes) | In review (PR #238) | None required; generated output changes in two places (stage hash key order, models without settings) |
 | 21 | [Generating into an existing dbt project](#21-generating-into-an-existing-dbt-project) | In review (PR #238) | Nothing for zip downloads; new generation options and issue codes; the record file in generated output |
 | 22 | [Output attributes of #235, consolidated](#22-output-attributes-of-235-consolidated) | In review (PR #238) | Code written against #235 (on `main`): use `ModelOutput` rows instead of the `generation_config` fields; `--standard-folders` instead of `--standard-paths`; the new template helpers |
+| 23 | [Projects in the admin's dropdowns](#23-projects-in-the-admins-dropdowns) | In review (PR #238) | None (Django admin only); Studio's own pickers should do the same |
 
-Background for items 4–22: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
+Background for items 4–23: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
 
 ---
 
@@ -1051,3 +1052,30 @@ keeps the design the dbt import builds on and takes over #235's format and safet
 - Use `--standard-folders` / `use_model_folders` where #235's option was offered.
 - If the template editor lists variables, list `model_config` and `model_tags` instead of #235's `model_*`
   variables.
+
+---
+
+## 23. Projects in the admin's dropdowns
+
+**Status:** In review (Engine PR #238). Django admin only; no data model, generation or API change.
+
+A workspace holds several projects, and their columns and entities often share names (two projects importing
+the same source). Before, the admin's dropdowns listed every project's items with identical labels, so a Hub
+column's input mapping could not tell `Customer.C_NAME` of one project from that of another.
+
+- **Labels:** every select and autocomplete list in the admin names the item's project:
+  `[source] Customer.C_NAME · shop`.
+- **Filtering:** on an existing object's page, the dropdowns offer only the items of that object's project
+  (for inlines too: the page's object decides). On an add page the project isn't known yet: every project's
+  items are offered, labelled, ordered by project.
+- **Code:** `engine/admin_projects.py` (`ProjectFieldsMixin` on every admin and inline,
+  `ProjectAutocompleteJsonView` as the admin site's autocomplete view). `project_path(model)` gives the lookup
+  from any Engine model to its project (`project`, `source_table__project`, `hub_column__hub__project`, ...).
+
+The Engine doesn't reject a reference across projects (a Hub column of one project mapped to a staging column of
+another); the admin now makes it hard to create one by accident.
+
+### Studio
+
+- Nothing required. Studio's own pickers (input columns, Hubs of a Link, ...) should likewise offer only the
+  current project's items.

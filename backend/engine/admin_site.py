@@ -159,3 +159,14 @@ def custom_get_app_list(
 
 # Monkey-patch the admin site to use our custom get_app_list
 admin.site.get_app_list = custom_get_app_list.__get__(admin.site, admin.site.__class__)
+
+
+def project_autocomplete_view(request: Any) -> Any:
+    """Autocomplete results named with their project, limited to the project
+    of the page that asks (engine.admin_projects)."""
+    from engine.admin_projects import ProjectAutocompleteJsonView
+
+    return ProjectAutocompleteJsonView.as_view(admin_site=admin.site)(request)
+
+
+admin.site.autocomplete_view = project_autocomplete_view
