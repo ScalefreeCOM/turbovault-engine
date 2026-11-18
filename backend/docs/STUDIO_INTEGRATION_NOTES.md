@@ -23,7 +23,7 @@ section is completed when the Engine change lands).
 | 10 | [Hub, Link, PIT and snapshot control options; delivery method](#10-hub-link-pit-and-snapshot-control-options-delivery-method) | In progress | Fields on Hubs, Links, mappings, Satellites, source systems/tables, PITs and snapshot controls; two project settings |
 | 11 | [Custom models](#11-custom-models) | Postponed | List, view and edit custom models |
 | 12 | [Layer folders renumbered](#12-layer-folders-renumbered) | In progress | Use the new folder names wherever Studio shows or builds model paths |
-| 13 | [JSON export and import of the new settings; snapshot controls](#13-json-export-and-import-of-the-new-settings-snapshot-controls) | In progress | Show the new `snapshot_control` plan entities; keep `model_outputs` when Studio builds or edits exports |
+| 13 | [JSON export and import of the new settings; snapshot controls](#13-json-export-and-import-of-the-new-settings-snapshot-controls) | In progress | Show the new `snapshot_control` plan entities; keep `generation_config` when Studio builds or edits exports |
 | 14 | [Links select their dependent child keys](#14-links-select-their-dependent-child-keys) | In progress | Template editor: new variable `dependent_child_keys`; tell users their links gain columns |
 | 15 | [Snapshot control logic as datavault4dbt reads it](#15-snapshot-control-logic-as-datavault4dbt-reads-it) | In progress | Offer the components datavault4dbt computes; show `SNAP_002`; template editor variables |
 | 16 | [An imported dbt_project.yml comes back](#16-an-imported-dbt_projectyml-comes-back) | In progress | Store two new project settings and pass them to generation; reconcile with the manual dbt_project.yml |
@@ -32,8 +32,9 @@ section is completed when the Engine change lands).
 | 19 | [Project settings a dbt project suggests; packages](#19-project-settings-a-dbt-project-suggests-packages) | In progress | Show the suggestions after a dry run, apply the accepted ones to the project's settings; store the packages |
 | 20 | [Round trip: what a dbt import reads back; generation fixes](#20-round-trip-what-a-dbt-import-reads-back-generation-fixes) | In progress | None required; generated output changes in two places (stage hash key order, models without settings) |
 | 21 | [Generating into an existing dbt project](#21-generating-into-an-existing-dbt-project) | In progress | Nothing for zip downloads; new generation options and issue codes; the record file in generated output |
+| 22 | [Output attributes of #235, consolidated](#22-output-attributes-of-235-consolidated) | In progress | Code written against #235 (on `main`): use `ModelOutput` rows instead of the `generation_config` fields; `--standard-folders` instead of `--standard-paths`; the new template helpers |
 
-Background for items 4–21: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
+Background for items 4–22: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
 
 ---
 
@@ -339,7 +340,7 @@ One row per entity and kind of model, only where something differs from the defa
 | `stage` | `source_table` | project pattern `stage_naming` (new) |
 | `prestage` | `source_table` | project pattern `prestage_naming` (new); the name of the dbt project's model the stage reads |
 | `hub` | `hub` | the hub's physical name (`model_name` not allowed) |
-| `effectivity_satellite` | `hub` | `effectivity_satellite_naming` |
+| `effectivity_satellite` | `hub` or `link` | `effectivity_satellite_naming` |
 | `record_tracking_satellite` | `hub` or `link` | `record_tracking_satellite_naming` |
 | `link` | `link` | the link's physical name (`model_name` not allowed) |
 | `satellite_v0`, `satellite_v1` | `satellite` | `satellite_v0_naming`, `satellite_v1_naming` |
@@ -351,12 +352,13 @@ One row per entity and kind of model, only where something differs from the defa
 |-------|------|-------|
 | `project` | FK | Set from the entity on save; read-only in forms. |
 | `kind` | choice | Labels: "Stage", "Pre-stage", "Hub", "Link", "Satellite (v0)", "Satellite (v1 view)", "Effectivity satellite", "Record-tracking satellite", "PIT", "Reference table", "Snapshot control table (v0)", "Snapshot control logic (v1)". |
+| `framework` | choice | `dbt` (default; the only one so far). Another output, e.g. SQLMesh, gets rows of its own. A model is unique per entity, `framework` and `kind`. |
 | `source_table` / `hub` / `link` / `satellite` / `pit` / `reference_table` / `snapshot_control` | FK, nullable | Exactly one is set (database check constraint `model_output_one_entity`); unique per entity and `kind`. |
 | `model_name` | text, nullable | The model's (and file's) name. |
 | `folder` | text, nullable | Relative to the dbt project, e.g. `models/raw_vault/hubs`; stored with `/` and without outer slashes. |
 | `alias`, `schema_name`, `database_name`, `materialized` | text, nullable | `config(alias=…, schema=…, database=…, materialized=…)`. |
 | `tags` | JSON list of strings, nullable | The model's own tags, **added** to TurboVault's default tags (spec D26; was "replace"). The project setting `add_default_tags` (item 17) turns the default tags off. |
-| `config` | JSON object, nullable | Further `config()` keys written as they are, e.g. `unique_key`, `post_hook`, `on_schema_change`. |
+| `config` | JSON object, nullable | Further `config()` keys written as they are, e.g. `unique_key`, `post_hook`, `on_schema_change`. Keys are identifiers, as a `config()` call takes them: `post_hook`, not `post-hook` (the dbt import converts). Not the keys that have their own field. |
 
 `ModelOutput.clean()` messages (show them on the field):
 
@@ -637,10 +639,16 @@ changes nothing.
 
 ### Export format
 
-- **`model_outputs`** (new) on source tables, hubs, links, satellites, PITs, reference tables and snapshot
-  controls: the stored settings of the entity's models by kind (`stage`, `hub`, `satellite_v1`, ...), each with
-  the `ModelOutput` fields (`model_name`, `folder`, `alias`, `schema_name`, `database_name`, `materialized`,
-  `tags`, `config`), all nullable. Models without stored values are left out, so most entities have `{}`.
+- **`generation_config`** (new; the format of issue #442 and #235) on source tables, hubs, links, satellites,
+  PITs, reference tables and snapshot controls: the stored settings of the entity's models, keyed by framework
+  (`dbt`) and kind (`stage`, `hub`, `satellite_v1`, ...). Each kind holds any of `model_name`, `file_path`,
+  `alias`, `schema`, `database`, `materialized`, `tags`, `custom_config_json`; unset ones are left out, and so
+  are kinds without stored values, so most entities have `{}`. Mapping onto `ModelOutput`:
+  - `file_path`: the model's `.sql` file relative to `models/` (`raw_vault/hubs/hub_customer.sql`), i.e. the
+    `folder` without `models/` plus the model's name. A folder outside `models/` (another dbt model path) can't
+    be written this way and is left out of the export (logged).
+  - `schema` / `database` / `custom_config_json`: `schema_name` / `database_name` / `config`.
+  - `tags`: the model's own tags, added to the default ones (not #235's "replace").
 - The resolved models (`output`, `v0_output`, `v1_output`, `effectivity_satellite_output`, ...) stay as they
   are. They are what generation uses and are not read back.
 
@@ -653,9 +661,13 @@ changes nothing.
   mapping's `stage_hashkey_name`), the hub/link/satellite high-water mark and effectivity options, the link's
   `union_strategy`, the satellite's hash diff alias and v1 options, the PIT's `use_snapshot_optimization` and
   `include_business_objects_before_appearance`, and the snapshot control's `sdts_alias` and end date.
-- An entity gets exactly the `model_outputs` the file lists: a kind the file leaves out is removed. A stored
-  setting that fails `ModelOutput.clean()` (bad name or folder, a name another model has) is reported as
-  `entity.invalid_configuration`, with the `clean()` message, and not stored; the entity is still imported.
+- An entity gets exactly the `generation_config` the file lists: a kind the file leaves out is removed; a file
+  without the key (an older export) leaves the stored outputs alone. A `file_path`'s file name is stored as
+  `model_name` only where it isn't the name TurboVault derives (`model_name` wins), so a round trip stores
+  nothing new. A stored setting that fails `ModelOutput.clean()` (e.g. a name another model has) is reported as
+  `entity.invalid_configuration`, with the `clean()` message, and not stored; the entity is still imported. A
+  value that breaks the format's rules (a `file_path` leaving `models/`, a config key that isn't an identifier)
+  makes the file invalid (`source.invalid_json`).
 - `hashdiff_name` in the export is the generated hash diff column. The import stores it on the satellite only
   where it differs from the importing project's `hashdiff_naming` pattern.
 - The PIT's `custom_record_source` is now read (a JSON import used to clear it).
@@ -664,11 +676,11 @@ changes nothing.
 
 - Before, a JSON import never stored the export's snapshot controls (PITs got a new control with default
   dates instead). Now they are created and updated, with dates, daily time, `sdts_alias`, logic patterns and
-  `model_outputs`, before the reference tables and PITs.
+  model outputs (`generation_config`), before the reference tables and PITs.
 - Matched by base name: `control_snap`, `control_snap_v0` and `control_snap_v1` are one control; an existing
   control keeps its name. Logic patterns are added and updated, never removed. Snapshot controls are never
   deleted, not even by `replace_all`, since PITs and reference tables may read them.
-- PITs and reference tables find their control by its v1 model name, also when `model_outputs` renamed it.
+- PITs and reference tables find their control by its v1 model name, also when a stored model name renamed it.
   Snapshot-based reference tables now get their snapshot control and logic set on import (they had none).
 - **Plan:** a new entity type `snapshot_control` (`create`, `update`, `unchanged`, or `skip` with
   `skip_snapshots` / `update_only`). Change paths: the control's own fields (`snapshot_start_date`,
@@ -682,7 +694,7 @@ changes nothing.
 ### Studio
 
 - If Studio shows the import plan by entity type, add `snapshot_control` ("Snapshot control").
-- If Studio builds or edits JSON exports itself, carry `model_outputs` through unchanged.
+- If Studio builds or edits JSON exports itself, carry `generation_config` through unchanged.
 
 ---
 
@@ -1003,3 +1015,31 @@ project's models (pre-stages).
   integration), pass `write_project_files=None` and show the issues above, and offer "remove files TurboVault
   no longer generates" as `remove_stale_files`.
 
+---
+
+## 22. Output attributes of #235, consolidated
+
+**Status:** In progress (dbt import branch). Spec D29. Relevant if Studio code was written against #235 (merged
+to `main`, unreleased).
+
+#235 and this branch both implemented issue #442 (per-model output attributes). `main` has #235; this branch
+keeps the design the dbt import builds on and takes over #235's format and safety parts.
+
+| Topic | #235 (on `main`) | Now |
+|-------|------------------|-----|
+| Storage | `generation_config` JSON field on 7 entity tables (migration `0019`) | `ModelOutput` rows (item 5) with a `framework` column. Migration `0026` moves stored values onto rows and drops the fields. |
+| JSON format | `generation_config` | Unchanged: `generation_config` (item 13). Tags add to the default ones. |
+| Location | `file_path` | Stored as the row's `folder`; `file_path` in JSON. |
+| Back to the standard layout | `--standard-paths` / `GenerationOptions.use_original_paths` drops every stored attribute | `--standard-folders` / `use_model_folders` (item 18): only the folders change; names and settings stay. |
+| Templates | Variables `model_alias`, `model_schema`, `model_database`, `model_tags`, `model_custom_config`, `v0_name`, `v1_name`, `satellite_v0_names` | Helpers `model_config(...)` and `model_tags(...)` write the `config()` block and tags; references `v0_name`, `v1_name`, `satellite_models`, `satellites[].model_name` (admin guide). #235's filters `quoted_list`, `config_literal`, `yaml_json` stay. |
+| Template refresh | Migration `0020` updates unedited workspace copies of earlier bundled versions | Kept; migration `0027` also updates unedited copies of #235's version. |
+| Collisions | `write.path_collision` before rendering | `validate.model.duplicate_name` for model names; `write.path_collision` for any two files of one path, before anything is written; `write.path_outside_output` kept. |
+| Pre-stages | Stored config written into the pre-stage's `.yml`; `validate.prestage.ephemeral` with a stored materialization | Pre-stages have no SQL in TurboVault (item 1): only their name is stored. |
+| Snapshot controls in a JSON import | Info / warning issues (`execute.snapshot_control_*`) | A plan entity (item 13); the two issue codes are gone. |
+
+### Studio
+
+- Read and write a model's settings as `ModelOutput` rows (item 5), not as `generation_config` on the entity.
+- Use `--standard-folders` / `use_model_folders` where #235's option was offered.
+- If the template editor lists variables, list `model_config` and `model_tags` instead of #235's `model_*`
+  variables.

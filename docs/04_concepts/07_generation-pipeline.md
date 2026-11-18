@@ -196,36 +196,6 @@ Explicit `--output`, `--sqlmesh-output`, `--json-output`, or `--dbml-output` alw
 The fallback `./output/<slug>` is only used when the project has no
 `project_directory` configured (e.g. ad-hoc or test projects).
 
-### Model paths, names and configs inside a dbt project
-
-By default each model goes into its layer folder (`models/00_control`,
-`02_staging/<source system>`, `03_raw_vault/<group>`,
-`04_business_vault/pits/<group>`) and is named by the entity or the
-configured naming pattern (`satellite_v0_naming`, `satellite_v1_naming`, …).
-
-A model with stored [output attributes](01_domain-model.md#output-attributes),
-e.g. one imported from an existing dbt project, is written to its stored
-`file_path` under its stored `model_name`, with its `alias`, `schema`,
-`database`, `materialized`, `tags` and any further `custom_config_json`
-settings in `config()`. Everything not stored is
-derived as above. Before rendering, generation resolves the name and file of
-every model, so:
-
-- every reference to a model — stages in `source_models`, `sat_v0` of v1
-  views and PITs, `sat_v1` of reference tables, the hub of a reference table,
-  the tracked hub/link and snapshot control of a PIT — uses its actual name;
-- a model outside its layer's folder gets that layer's schema and
-  materialization in its own `config()`, as `dbt_project.yml` configures
-  layers by folder;
-- two models with the same name or file (case-insensitive) fail with
-  `write.path_collision`, and nothing is written.
-
-`--standard-paths` (`GenerationOptions.use_original_paths=False`) ignores the
-stored attributes and gives every model the standard layout. SQLMesh output
-ignores them for now.
-
----
-
 ## dbt project settings
 
 Embedded callers (such as Studio) shape the generated `dbt_project.yml`
@@ -391,17 +361,24 @@ default tags, which the project setting `add_default_tags` turns off. With
 nothing stored, the block is exactly the one written before model outputs
 existed.
 
-> **Templates copied before model outputs** write a fixed `config()` block and
-> append `_v0`/`_v1` to satellite names. They keep working for models without
-> stored settings. When a model has stored settings or names they ignore,
-> generation reports `render.template_outdated` on it; refresh the copies with
-> `python manage.py populate_templates --overwrite` (which replaces their
-> customizations).
+> **Workspace copies of the templates.** A workspace copies the bundled
+> templates into its database once, and those copies win. Migrations `0020`
+> and `0027` replace unedited copies of earlier bundled versions with the
+> current ones. An edited copy keeps its fixed `config()` block and `_v0`/`_v1`
+> names: it works for models without stored settings, and generation reports
+> `render.template_outdated` on a model whose stored settings or name it
+> ignores. Compare it with the bundled file, or reset it with
+> `python manage.py populate_templates --overwrite` (which discards the edits).
 
-Validation rejects two models of one name (`validate.model.duplicate_name`;
-pre-stages count, being models of the dbt project) and names or folders that
-would leave the project (`validate.model.invalid_name`,
-`validate.model.invalid_folder`). Generation never writes such a file.
+Validation rejects two models of one name (`validate.model.duplicate_name`,
+compared case-insensitively; pre-stages count, being models of the dbt project)
+and names or folders that would leave the project
+(`validate.model.invalid_name`, `validate.model.invalid_folder`). Before
+writing, generation also compares every file's path, case-insensitively as
+dbt, Windows and macOS do: two files of one path, e.g. a model named and placed
+like a sources file, fail with `write.path_collision`, and nothing is written.
+A file that would land outside the output folder is refused
+(`write.path_outside_output`).
 
 ### Optional profiles.yml
 

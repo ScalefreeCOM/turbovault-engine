@@ -36,10 +36,10 @@ The JSON export contains every piece of metadata stored in the project:
 | `reference_tables` | Reference table definitions |
 | `pits` | Point-in-Time structure definitions |
 
-Every entity also carries the settings of its dbt models: `model_outputs`
+Every entity also carries the settings of its dbt models: `generation_config`
 holds what the project stores (see [Model settings](#model-settings)), and
 `output`, `v0_output`, `v1_output` and the like hold the models as they are
-generated. The import reads `model_outputs`; the generated models, like the
+generated. The import reads `generation_config`; the generated models, like the
 `stages` and `prestages` lists, are derived and not read back.
 
 ## Usage
@@ -129,33 +129,47 @@ pattern gives, so the satellite keeps following the pattern.
 
 ### Model settings
 
-`model_outputs` maps each of an entity's dbt models with stored settings to
-those settings, by kind: `stage` and `prestage` on a source table; `hub`,
-`effectivity_satellite` and `record_tracking_satellite` on hubs and links;
-`satellite_v0` and `satellite_v1` on satellites; `pit`, `reference_table`,
-`snapshot_control_v0` and `snapshot_control_v1`. Each holds the stored
-`model_name`, `folder`, `alias`, `schema_name`, `database_name`,
-`materialized`, `tags` and further `config` keys; a value that is `null`
-follows TurboVault's defaults.
+`generation_config` holds what the project stores for an entity's dbt models
+(issue #442), keyed by framework (`dbt`) and then by kind: `stage` and
+`prestage` on a source table; `hub`, `effectivity_satellite` and
+`record_tracking_satellite` on hubs and links; `satellite_v0` and
+`satellite_v1` on satellites; `pit`, `reference_table`, `snapshot_control_v0`
+and `snapshot_control_v1`. Each kind holds any of `model_name`, `file_path`,
+`alias`, `schema`, `database`, `materialized`, `tags` and
+`custom_config_json`; what is missing follows TurboVault's defaults. Kinds
+without stored settings are left out.
 
 ```json
-"model_outputs": {
-  "stage": {
-    "model_name": "stg_crm_customer",
-    "folder": "models/staging/crm",
-    "materialized": "view",
-    "tags": ["crm"],
-    "config": {"on_schema_change": "sync_all_columns"},
-    "alias": null, "schema_name": null, "database_name": null
+"generation_config": {
+  "dbt": {
+    "stage": {
+      "model_name": "stg_crm_customer",
+      "file_path": "staging/crm/stg_crm_customer.sql",
+      "materialized": "view",
+      "tags": ["crm"],
+      "custom_config_json": {"on_schema_change": "sync_all_columns"}
+    }
   }
 }
 ```
 
-The import gives each entity exactly the settings its `model_outputs` lists:
-a model the file leaves out goes back to the defaults. A setting that can't be
-stored, such as a folder outside the dbt project or a model name another model
-already has, is reported as `entity.invalid_configuration` and left as it is;
-the entity itself is imported.
+- `file_path` is the model's `.sql` file relative to `models/`, with `/`. Its
+  file name is the model's name: the import stores it as the model's name only
+  where it isn't the name TurboVault derives, so a round trip changes nothing.
+  `model_name` wins where both are given. A model stored in a folder outside
+  `models/` (another dbt model path) is exported without its folder, with a
+  warning.
+- `tags` are the model's own tags, added to TurboVault's default tags.
+- `custom_config_json` holds further `config()` settings; its keys are
+  identifiers (`post_hook`) and can't be one of the attributes above.
+
+The import gives each entity exactly the settings its `generation_config`
+lists: a model the file leaves out goes back to the defaults, and a file
+without `generation_config` (an older export) leaves them alone. A setting
+that can't be stored, such as a model name another model already has, is
+reported as `entity.invalid_configuration` and left as it is; the entity
+itself is imported. A `file_path` that leaves `models/` makes the file invalid
+(`source.invalid_json`).
 
 ### Snapshot controls
 
@@ -192,6 +206,6 @@ For a JSON file produced by `turbovault generate --type json`, validation issues
 |------|---------|
 | `source.invalid_json` | The file is not valid JSON or does not match the Turbovault export schema. |
 | `entity.missing_reference` | The JSON references a hub, satellite or other entity that doesn't exist (rare; can happen when manually editing exports). |
-| `entity.invalid_configuration` | A model setting in `model_outputs` can't be stored: an invalid model name or folder, or a model name another model of the project has. The entity is imported without it. |
+| `entity.invalid_configuration` | A model setting in `generation_config` can't be stored, e.g. a model name another model of the project has. The entity is imported without it. |
 
 The full catalog lives in [Import Pipeline → Issue codes](06_import-pipeline.md#issue-codes).

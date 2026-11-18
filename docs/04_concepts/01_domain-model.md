@@ -790,7 +790,7 @@ TurboVault derives it.
 | ---------------- | ----------------------------------------------------------- | ------------ |
 | source table     | `stage`, `prestage` (the dbt project's model the stage reads) | `stage_naming` / `prestage_naming` patterns |
 | hub              | `hub`, `effectivity_satellite`, `record_tracking_satellite` | the physical name; the satellite naming patterns |
-| link             | `link`, `record_tracking_satellite`                         | the physical name; the record-tracking pattern |
+| link             | `link`, `effectivity_satellite`, `record_tracking_satellite` | the physical name; the satellite naming patterns |
 | satellite        | `satellite_v0`, `satellite_v1`                              | `satellite_v0_naming` / `satellite_v1_naming` |
 | PIT              | `pit`                                                       | the physical name |
 | reference table  | `reference_table`                                           | the physical name |
@@ -801,6 +801,7 @@ TurboVault derives it.
 | model_output_id   | identifier | PK       | Unique identifier. |
 | project_id        | identifier | ✓ (FK)   | Set from the entity. |
 | kind              | string     | ✓        | Which of the entity's models (table above). |
+| framework         | string     | ✓        | The output the model belongs to: `dbt` (default). Another output, e.g. SQLMesh, gets rows of its own. A model is unique per entity, framework and kind. |
 | source_table_id, hub_id, link_id, satellite_id, pit_id, reference_table_id, snapshot_control_id | identifier | exactly one | The entity. |
 | model_name        | string     |          | The model's name, and its file's. Not for hubs, links, PITs and reference tables: their physical name is their model name. No spaces, dots or slashes; unique in the project. |
 | folder            | string     |          | Folder of the model's files, relative to the dbt project (e.g. `models/raw_vault/hubs`). Must stay inside the project. Empty: TurboVault's layer folder. |
@@ -809,7 +810,7 @@ TurboVault derives it.
 | database_name     | string     |          | `config(database=...)`. |
 | materialized      | string     |          | `config(materialized=...)`; empty: the layer's (or the model kind's own, e.g. views for satellite v1). |
 | tags              | list       |          | The model's own tags, added to TurboVault's default tags (`['hub', 'raw_vault', <group>]`, ...). The project setting `add_default_tags` turns the default tags off. |
-| config            | mapping    |          | Further `config()` keys, written as they are (`unique_key`, `post_hook`, `on_schema_change`, ...). Not the keys above. |
+| config            | mapping    |          | Further `config()` keys, written as they are (`unique_key`, `post_hook`, `on_schema_change`, ...). Keys are identifiers, as a `config()` call takes them (`post_hook`, not `post-hook`); not the keys above. Values are any JSON values. |
 | created_at, updated_at | datetime | ✓     | Timestamps. |
 
 A pre-stage's model belongs to the dbt project: only its `model_name` is
@@ -820,6 +821,46 @@ without a folder of its own goes to its v0 table's folder, an effectivity or
 record-tracking satellite to its parent's, a snapshot control's logic to its
 table's. See the [generation pipeline](07_generation-pipeline.md#model-names-folders-and-settings)
 for how generation writes them.
+
+Generation writes every value through escaping literals, so names, schemas,
+aliases and tags aren't restricted to identifiers: an imported model keeps
+e.g. a schema given as a Jinja expression. The rules live in
+`engine.models.output_attributes`, shared with the JSON format.
+
+#### In the JSON export: `generation_config` (issue #442)
+
+The JSON export carries an entity's model outputs as its `generation_config`,
+keyed by framework and then by kind. Only `dbt` is defined; another framework
+gets its own key next to it.
+
+```json
+{
+  "dbt": {
+    "satellite_v0": {"file_path": "raw_vault/satellites/customer_details.sql"},
+    "satellite_v1": {
+      "model_name": "customer_details_current",
+      "alias": "customer",
+      "custom_config_json": {"persist_docs": {"relation": true}}
+    }
+  }
+}
+```
+
+| JSON attribute       | Field          | Notes |
+| -------------------- | -------------- | ----- |
+| `model_name`         | `model_name`   | Only where it isn't the derived name. |
+| `file_path`          | `folder`       | The model's `.sql` file relative to `models/`, with `/`; its file name is the model's name. On export, a folder outside `models/` (another dbt model path) can't be written this way: it's left out, with a warning. On import, the file name is stored as `model_name` only where it isn't the name TurboVault derives. |
+| `alias`, `materialized`, `tags` | same | `tags` are the model's own, added to the default tags. |
+| `schema`, `database` | `schema_name`, `database_name` | |
+| `custom_config_json` | `config`       | |
+
+A kind without stored values is left out; an export without
+`generation_config` leaves the stored model outputs alone, one with an empty
+one removes them. A `file_path` that leaves `models/` makes the export invalid.
+
+The first implementation of #442 stored these attributes in a
+`generation_config` JSON field on each entity (migration `0019`); migration
+`0026` moved them onto `model_output` rows and dropped the fields.
 
 ---
 
