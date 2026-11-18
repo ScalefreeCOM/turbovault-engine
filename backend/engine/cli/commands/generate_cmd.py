@@ -621,15 +621,19 @@ def _project_files_choice(project, output_path: Path | None) -> bool | None:
 
     The workspace's exports folder is TurboVault's own (generated before it
     kept a record): written. Elsewhere it is a dbt project's own: kept. In a
-    terminal the user decides, with that as the default answer. None: the
-    folder has no such file (generation decides).
+    terminal the user decides, with that as the default answer, once: a
+    generation that kept them records it, and later runs keep them without
+    asking. None: the folder has no such file (generation decides).
     """
-    from engine.services.generation.dbt_target import read_record
+    from engine.services.generation.dbt_target import project_files_kept, read_record
 
     if output_path is None or not (output_path / "dbt_project.yml").is_file():
         return None
     if "dbt_project.yml" in read_record(output_path):
         return None
+    # Kept last time: asked once (--write-project-files replaces them)
+    if project_files_kept(output_path):
+        return False
     exports = _project_exports_dir(project)
     own = exports is not None and (
         output_path.resolve() == (exports / "dbt_project").resolve()

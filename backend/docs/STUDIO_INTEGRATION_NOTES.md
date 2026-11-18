@@ -989,7 +989,9 @@ project's models (pre-stages).
 
 - **The record:** every generated folder gets `.turbovault/generated.json`, listing the files TurboVault wrote
   and their checksums. ZIP downloads include it. Keep it: it lets a later generation into the unzipped folder
-  tell TurboVault's own files apart and report the ones it no longer generates.
+  tell TurboVault's own files apart and report the ones it no longer generates. A generation that kept a dbt
+  project's own `dbt_project.yml` and `packages.yml` notes `"project_files": "kept"` in it; the CLI then keeps
+  them without asking again (`--write-project-files` still replaces them).
 - **New options** (`GenerationOptions`):
   - `write_project_files: bool | None = None`: None is automatic, True always writes the project files,
     False never does.

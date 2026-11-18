@@ -489,7 +489,8 @@ before TurboVault kept a record is handled like this:
 - the workspace's exports folder counts as TurboVault's own;
 - in a terminal, without `--write-project-files` or `--keep-project-files`, the
   CLI asks whether to replace the folder's files. The default answer is yes for
-  the exports folder and no for other folders. It also reports the
+  the exports folder and no for other folders. A "no" is recorded, and later
+  runs keep the files without asking. It also reports the
 files TurboVault generated before and no longer generates (e.g. after renaming
 an entity). They are deleted only with `--remove-stale-files`, and only while
 unchanged since TurboVault wrote them. Skip the source definitions with

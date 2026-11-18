@@ -83,6 +83,9 @@ def test_an_empty_folder_gets_a_complete_project_and_a_record(project, tmp_path)
     # Its own files: generated again
     again = _generate(project, tmp_path)
     assert not _issues(again, "render.project_files_kept")
+    from engine.services.generation.dbt_target import project_files_kept
+
+    assert not project_files_kept(_dbt(tmp_path))
 
 
 def test_an_existing_dbt_project_keeps_its_project_files(project, tmp_path):
@@ -98,6 +101,10 @@ def test_an_existing_dbt_project_keeps_its_project_files(project, tmp_path):
     assert not _issues(report, "render.project_needs_package")
     record = _record(tmp_path)
     assert "dbt_project.yml" not in record
+    # Kept: recorded, so the CLI doesn't ask again
+    from engine.services.generation.dbt_target import project_files_kept
+
+    assert project_files_kept(root)
     # Its folder settings apply: the raw vault's give the hub its settings
     assert "schema=" not in _config_block(root / "models/30_raw_vault/CUSTOMER_H.sql")
     # Where they give none, a model carries its layer's

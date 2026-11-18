@@ -27,13 +27,14 @@ from pathlib import Path
 
 import yaml
 
-from engine.services.generation.dbt_target import checksum as file_checksum
 from engine.services.generation.dbt_target import (
+    PROJECT_FILES,
     defined_twice,
     kept_sources,
     read_record,
     write_record,
 )
+from engine.services.generation.dbt_target import checksum as file_checksum
 from engine.services.generation.errors import Code, make_issue
 from engine.services.generation.types import (
     GeneratedArtifact,
@@ -248,8 +249,11 @@ def _write_project(
                 ),
             )
         )
+    # A dbt project whose own dbt_project.yml was kept: noted, so the CLI
+    # doesn't ask again next time
+    kept = (output_path / PROJECT_FILES[0]).is_file() and PROJECT_FILES[0] not in record
     try:
-        write_record(output_path, record)
+        write_record(output_path, record, project_files_kept=kept)
     except OSError as exc:
         issues.append(
             make_issue(

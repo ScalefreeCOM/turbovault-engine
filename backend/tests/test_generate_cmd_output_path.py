@@ -174,3 +174,18 @@ def test_in_a_terminal_the_user_decides(workspace_root, monkeypatch):
         True,
         [False],
     )
+
+
+def test_project_files_kept_before_are_kept_without_asking(workspace_root, monkeypatch):
+    from engine.services.generation.dbt_target import write_record
+
+    project = _dbt_project(None)
+    theirs = workspace_root / "their_dbt"
+    theirs.mkdir()
+    (theirs / "dbt_project.yml").write_text("name: theirs\n", encoding="utf-8")
+    write_record(theirs, {"models/hub.sql": "abc"}, project_files_kept=True)
+
+    assert _choice(project, theirs, monkeypatch, terminal=True, answer=True) == (
+        False,
+        [],
+    )

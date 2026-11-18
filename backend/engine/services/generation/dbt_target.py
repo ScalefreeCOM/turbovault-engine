@@ -46,22 +46,33 @@ def read_record(root: Path) -> dict[str, str]:
     return {str(k): str(v) for k, v in files.items()} if isinstance(files, dict) else {}
 
 
-def write_record(root: Path, files: dict[str, str]) -> None:
+def project_files_kept(root: Path) -> bool:
+    """Whether the last generation into ``root`` kept the dbt project's own
+    ``dbt_project.yml`` and ``packages.yml`` (recorded, so the CLI doesn't
+    ask again)."""
+    try:
+        data = json.loads((root / RECORD).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and data.get("project_files") == "kept"
+
+
+def write_record(
+    root: Path, files: dict[str, str], *, project_files_kept: bool = False
+) -> None:
+    """Record the files TurboVault wrote into ``root``, and whether it kept the
+    dbt project's own project files."""
     path = root / RECORD
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "generator": "TurboVault Engine",
-                "note": "The files TurboVault generated here; it reports those "
-                "it no longer generates.",
-                "files": dict(sorted(files.items())),
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    record: dict = {
+        "generator": "TurboVault Engine",
+        "note": "The files TurboVault generated here; it reports those "
+        "it no longer generates.",
+    }
+    if project_files_kept:
+        record["project_files"] = "kept"
+    record["files"] = dict(sorted(files.items()))
+    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
 
 
 def _yaml(path: Path) -> dict[str, Any]:
