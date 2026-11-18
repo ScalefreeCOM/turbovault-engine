@@ -1,7 +1,7 @@
 # dbt Project Import — Specification
 
-**Status:** Draft 3, 2026-11-14. Decisions D1–D28 recorded in §2; Phases 0–5 and 7 are built on one
-branch, `feat/dbt-project-import` (D15); Phase 6 is postponed (D19).
+**Status:** In review (Engine PR #238), 2026-11-18. Decisions D1–D29 recorded in §2; Phases 0–5 and 7 are
+built on one branch, `feat/dbt-project-import` (D15); Phase 6 is postponed (D19).
 **Tracking:** `product_development_milestones` #460 (import); related #442 (per-model output attributes)
 and #461 (custom models). The issue texts were initial ideas; this document supersedes them where they
 differ.
