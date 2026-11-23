@@ -66,7 +66,6 @@ class ModelTemplate(models.Model):
         """Entity types that can be templated."""
 
         # Staging
-        PRESTAGE = "prestage", "Pre-Stage"
         STAGE = "stage", "Stage"
 
         # Raw Vault - Hubs

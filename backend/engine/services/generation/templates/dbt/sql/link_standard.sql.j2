@@ -1,24 +1,8 @@
 [# Standard Link Template #]
 [# Generates a link model using datavault4dbt.link() macro with yaml_metadata #]
 
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-[% if model_alias %]
-    alias='[[ model_alias ]]',
-[% endif %]
-[% if model_schema %]
-    schema='[[ model_schema ]]',
-[% endif %]
-[% if model_database %]
-    database='[[ model_database ]]',
-[% endif %]
-[% for key, value in (model_custom_config | default({})).items() %]
-    [[ key ]]=[[ value | config_literal ]],
-[% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['link', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
-) }}
+[# model_config: the config() block; the link's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['link', 'raw_vault', group]) ]]
 
 {%- set yaml_metadata -%}
 source_models:
@@ -39,6 +23,19 @@ foreign_hashkeys:
 [% for fk in foreign_hashkeys %]
     - [[ fk ]]
 [% endfor %]
+[# Dependent child keys: selected into the link after the hub hash keys #]
+[% for dck in dependent_child_keys %]
+    - [[ dck ]]
+[% endfor %]
+[% if additional_columns %]
+additional_columns:
+[% for col in additional_columns %]
+    - [[ col ]]
+[% endfor %]
+[% endif %]
+[% if disable_hwm %]
+disable_hwm: true
+[% endif %]
 {%- endset -%}
 
 {{ datavault4dbt.link(yaml_metadata=yaml_metadata) }}

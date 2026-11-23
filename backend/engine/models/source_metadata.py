@@ -4,7 +4,7 @@ Source metadata models for TurboVault Engine.
 These models represent upstream source systems and their physical schemas:
 - SourceSystem: A source database/schema
 - SourceTable: A table within a source system: a physical table, or a
-  pre-stage (a dbt model that prepares a table's data for its stage)
+  pre-stage (a dbt model of the project that prepares data for a stage)
 - SourceColumn: A column within a source table
 """
 
@@ -12,11 +12,25 @@ from __future__ import annotations
 
 import uuid
 
-from django.core.exceptions import ValidationError
 from django.db import models
 
-from engine.models.output_attributes import generation_config_field
 from engine.models.project import Project
+
+
+class DeliveryMethod(models.TextChoices):
+    """How a source delivers its data, for datavault4dbt's source_is_single_batch."""
+
+    SINGLE_BATCH = "single_batch", "Single batch"
+    MULTI_BATCH = "multi_batch", "Multi batch"
+
+
+_DELIVERY_METHOD_HELP = (
+    "single_batch: each load holds at most one version per key; multi_batch: a "
+    "load may hold several (e.g. deltas over time). With the project's delivery "
+    "method switch on, models loading only single-batch data use "
+    "datavault4dbt's faster single-batch logic (source_is_single_batch). Empty "
+    "inherits"
+)
 
 
 class SourceSystem(models.Model):
@@ -85,6 +99,35 @@ class SourceSystem(models.Model):
         help_text="Load date of this system's tables that set none",
     )
 
+    # Stage options of this system's tables that set none. Empty: the project's.
+    include_source_columns = models.BooleanField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text=(
+            "Whether the stages of this system's tables pass all source columns "
+            "on. Empty: the project's setting"
+        ),
+    )
+
+    enable_ghost_records = models.BooleanField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text=(
+            "Whether the stages of this system's tables add ghost records. "
+            "Empty: the project's setting"
+        ),
+    )
+
+    delivery_method = models.CharField(
+        max_length=20,
+        choices=DeliveryMethod.choices,
+        blank=True,
+        null=True,
+        help_text=_DELIVERY_METHOD_HELP,
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the source system was created"
     )
@@ -107,10 +150,11 @@ class SourceTable(models.Model):
     Represents a source table within a source system.
 
     Most are physical tables of the source system, which the stage reads as a
-    dbt source. A pre-stage is a dbt model instead: SQL that prepares data the
-    stage can't load directly (parsing JSON, pivoting, ...). It reads the
-    system's physical tables, and its stage reads it with ``ref()``. Columns,
-    mappings, derived columns and prejoins work on both alike.
+    dbt source. A pre-stage is a dbt model instead, one that prepares data the
+    stage can't load directly (parsing JSON, pivoting, ...). The model belongs
+    to the dbt project and its developers: TurboVault doesn't generate it, the
+    stage reads it with ``ref()``. Columns, mappings, derived columns and
+    prejoins work on both alike.
 
     Includes Data Vault-specific configuration such as record source values
     and load date expressions.
@@ -155,16 +199,8 @@ class SourceTable(models.Model):
         default=TableType.PHYSICAL,
         help_text=(
             "physical: a table of the source system, read as a dbt source. "
-            "prestage: a dbt model that prepares data for the stage"
-        ),
-    )
-
-    prestage_sql = models.TextField(
-        blank=True,
-        null=True,
-        help_text=(
-            "The pre-stage's dbt model, written to the project as it is. "
-            "Empty: the model is maintained outside TurboVault"
+            "prestage: a dbt model of the project that prepares data for the "
+            "stage; the dbt project maintains it"
         ),
     )
 
@@ -199,13 +235,47 @@ class SourceTable(models.Model):
         help_text="Load date: a column or SQL. Empty inherits",
     )
 
+    # Stage options. Empty inherits: from the source system, then the project.
+    include_source_columns = models.BooleanField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text=(
+            "Whether the stage passes all source columns on (datavault4dbt's "
+            "include_source_columns). Empty inherits"
+        ),
+    )
+
+    enable_ghost_records = models.BooleanField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text="Whether the stage adds ghost records. Empty inherits",
+    )
+
+    sequence_column = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=(
+            "Column holding a sequence number from the extraction "
+            "(datavault4dbt's sequence)"
+        ),
+    )
+
+    delivery_method = models.CharField(
+        max_length=20,
+        choices=DeliveryMethod.choices,
+        blank=True,
+        null=True,
+        help_text=_DELIVERY_METHOD_HELP,
+    )
+
     description = models.TextField(
         blank=True,
         null=True,
         help_text="Optional description of the source table, written to the generated dbt docs",
     )
-
-    generation_config = generation_config_field("SourceTable")
 
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the source table was created"
@@ -224,19 +294,6 @@ class SourceTable(models.Model):
     def is_prestage(self) -> bool:
         """Whether this table is a pre-stage, i.e. a dbt model."""
         return self.table_type == self.TableType.PRESTAGE
-
-    def clean(self) -> None:
-        """Only a pre-stage has SQL."""
-        super().clean()
-        if not self.is_prestage and (self.prestage_sql or "").strip():
-            raise ValidationError(
-                {
-                    "prestage_sql": (
-                        "Only a pre-stage has SQL. Set the table type to "
-                        "pre-stage, or clear the SQL."
-                    )
-                }
-            )
 
     def __str__(self) -> str:
         return self.physical_table_name
@@ -275,6 +332,15 @@ class SourceColumn(models.Model):
         blank=True,
         null=True,
         help_text="Optional description of the column. Raw Vault columns loaded from it inherit it unless they set their own",
+    )
+
+    is_missing = models.BooleanField(
+        default=False,
+        help_text=(
+            "The column no longer exists in the source: the stage adds it with "
+            "NULL values of its data type (datavault4dbt's missing_columns), so "
+            "mappings, hash diffs and payloads keep working"
+        ),
     )
 
     created_at = models.DateTimeField(

@@ -146,19 +146,20 @@ def test_a_derived_column_is_a_staging_column(derived_project):
     assert str(staging) == "[derived] customer.FULL_NAME"
 
 
-def test_a_derived_column_cannot_shadow_a_source_column(derived_project):
+def test_a_derived_column_may_shadow_a_source_column(derived_project):
+    """The stage replaces the source column with the derived value."""
     from engine.models import DerivedColumn, SourceTable
 
     customer = SourceTable.objects.get(project=derived_project)
-    duplicate = DerivedColumn(
+    shadowing = DerivedColumn(
         project=derived_project,
         source_table=customer,
         column_name="c_custkey",
-        expression="1",
+        expression="TRIM(C_CUSTKEY)",
     )
-    with pytest.raises(ValidationError) as error:
-        duplicate.full_clean()
-    assert "column_name" in error.value.message_dict
+
+    shadowing.full_clean()
+    assert shadowing.shadowed_column.source_column_physical_name == "C_CUSTKEY"
 
 
 def test_a_derived_column_needs_an_expression(derived_project):

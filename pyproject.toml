@@ -18,6 +18,7 @@ packages = [
     "engine.services.generation.renderers",
     "engine.services.generation.stages",
     "engine.services.imports",
+    "engine.services.imports.dbt",
     "engine.services.imports.parsers",
     "engine.services.imports.validation",
     "engine.utils",
@@ -78,6 +79,12 @@ dev = [
     "pytest>=8.0",
     "pytest-django>=4.5",
     "pre-commit>=3.0",
+]
+# `dbt parse` for local dbt projects without a manifest (CLI --dbt-parse) and
+# for the dbt import's round-trip tests. Parsing doesn't connect to a database.
+dbt = [
+    "dbt-core>=1.8,<2.0",
+    "dbt-postgres>=1.8,<2.0",
 ]
 
 [project.urls]

@@ -1,23 +1,7 @@
 [# Record Tracking Satellite Template #]
 [# Tracks the presence/absence of business objects in source systems #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-[% if model_alias %]
-    alias='[[ model_alias ]]',
-[% endif %]
-[% if model_schema %]
-    schema='[[ model_schema ]]',
-[% endif %]
-[% if model_database %]
-    database='[[ model_database ]]',
-[% endif %]
-[% for key, value in (model_custom_config | default({})).items() %]
-    [[ key ]]=[[ value | config_literal ]],
-[% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['satellite', 'record_tracking', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
-) }}
+[# model_config: the config() block; the satellite's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['satellite', 'record_tracking', 'raw_vault', group]) ]]
 
 {%- set yaml_metadata -%}
 source_models:

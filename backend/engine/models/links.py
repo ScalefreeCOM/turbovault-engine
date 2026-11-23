@@ -17,7 +17,6 @@ from django.db import models
 from django.db.models import Max
 
 from engine.models.hubs import Hub, HubColumn
-from engine.models.output_attributes import generation_config_field
 from engine.models.project import Project
 
 
@@ -77,13 +76,60 @@ class Link(models.Model):
         help_text="If true, a record-tracking satellite should be generated for this link",
     )
 
+    create_effectivity_satellite = models.BooleanField(
+        default=False,
+        help_text="If true, an effectivity satellite is generated for this link",
+    )
+
+    disable_hwm = models.BooleanField(
+        default=False,
+        help_text=(
+            "Load without the high-water mark: every run reads all of the stage "
+            "(datavault4dbt disable_hwm)"
+        ),
+    )
+
+    class UnionStrategy(models.TextChoices):
+        ALL = "all", "UNION ALL"
+        DISTINCT = "distinct", "UNION (distinct)"
+
+    union_strategy = models.CharField(
+        max_length=10,
+        choices=UnionStrategy.choices,
+        blank=True,
+        null=True,
+        help_text=(
+            "Non-historized links: how their sources are unioned. Empty: "
+            "datavault4dbt's default (all)"
+        ),
+    )
+
+    effectivity_is_active_alias = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=(
+            "Name of the effectivity satellite's is_active column. Empty: "
+            "datavault4dbt's default"
+        ),
+    )
+
+    effectivity_disable_hwm = models.BooleanField(
+        default=False,
+        help_text="The effectivity satellite loads without the high-water mark",
+    )
+
+    effectivity_additional_columns = models.JSONField(
+        blank=True,
+        null=True,
+        help_text="Further stage columns the effectivity satellite carries (a list)",
+    )
+
     description = models.TextField(
         blank=True,
         null=True,
         help_text="Optional description of the link, written to the generated dbt docs",
     )
-
-    generation_config = generation_config_field("Link")
 
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp when the link was created"

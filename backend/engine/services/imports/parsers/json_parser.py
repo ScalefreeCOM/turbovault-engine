@@ -8,23 +8,15 @@ a DomainModel directly. The export schema is owned by
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from engine.services.export.models import (
-    HubDefinition,
-    LinkDefinition,
-    PITDefinition,
-    PrestageDefinition,
-    ProjectExport,
-    ReferenceTableDefinition,
-    SatelliteDefinition,
-    SnapshotControlDefinition,
-    StageDefinition,
-)
+from engine.models.output_attributes import file_path_folder
+from engine.services.export.models import ModelOutputAttributes, ProjectExport
 from engine.services.imports.domain import (
+    CLEAR,
     DPIT,
     DDerivedColumn,
     DHub,
@@ -35,6 +27,7 @@ from engine.services.imports.domain import (
     DLinkHubReference,
     DLinkHubSourceMapping,
     DLinkSourceMapping,
+    DModelOutput,
     DomainModel,
     DPrejoin,
     DPrejoinExtractionColumn,
@@ -119,45 +112,94 @@ def parse_json(path: Path) -> DomainModel:
 
 
 # ---------------------------------------------------------------------------
-# Conversion
+# Fields newer exports carry
 # ---------------------------------------------------------------------------
+#
+# A field an export doesn't have (written before the field existed) reads as
+# None: the project keeps its value. One it has is restored, an empty value
+# included (CLEAR).
 
 
-def _generation_config(
-    definition: (
-        HubDefinition
-        | LinkDefinition
-        | SatelliteDefinition
-        | StageDefinition
-        | PrestageDefinition
-        | PITDefinition
-        | ReferenceTableDefinition
-        | SnapshotControlDefinition
-    ),
-) -> dict[str, Any] | None:
-    """The definition's ``generation_config`` as stored, or None when it has none.
+def _given(definition: BaseModel, field: str) -> Any:
+    """The field's value, or None when the export doesn't have the field."""
+    if field not in definition.model_fields_set:
+        return None
+    return getattr(definition, field)
 
-    Exports from before output attributes existed don't carry the field; None
-    then keeps what the project has.
-    """
+
+def _optional(definition: BaseModel, field: str) -> Any:
+    """Like ``_given``, with an empty value (None, "", []) read as CLEAR."""
+    if field not in definition.model_fields_set:
+        return None
+    value = getattr(definition, field)
+    if value is None or (isinstance(value, str | list) and not value):
+        return CLEAR
+    return value
+
+
+def _outputs(definition: BaseModel) -> dict[str, DModelOutput] | None:
+    """The entity's stored model outputs (its ``generation_config``), or None
+    for exports without them."""
     if "generation_config" not in definition.model_fields_set:
         return None
-    return definition.generation_config.as_stored()
-
-
-def _merged_generation_config(
-    current: dict[str, Any] | None, part: dict[str, Any]
-) -> dict[str, Any]:
-    """Add one definition's part of a source table's ``generation_config``.
-
-    A source table's stage and pre-stage each export their own output kind;
-    together they are the table's value.
-    """
-    by_kind = {
-        **((current or {}).get("dbt") or {}),
-        **(part.get("dbt") or {}),
+    return {
+        kind: _output(kind, attributes)
+        for kind, attributes in definition.generation_config.dbt.items()
     }
-    return {"dbt": by_kind} if by_kind else {}
+
+
+def _output(kind: str, attributes: ModelOutputAttributes) -> DModelOutput:
+    """One output kind's attributes as stored values: a ``file_path`` gives
+    the folder, and its file name the model's name (see ``DModelOutput``)."""
+    folder = file_name = None
+    if attributes.file_path:
+        folder = file_path_folder(attributes.file_path)
+        file_name = PurePosixPath(attributes.file_path).name.removesuffix(".sql")
+    return DModelOutput(
+        kind=kind,
+        model_name=attributes.model_name,
+        folder=folder,
+        file_name=file_name,
+        alias=attributes.alias,
+        schema_name=attributes.schema_name,
+        database_name=attributes.database,
+        materialized=attributes.materialized,
+        tags=list(attributes.tags) if attributes.tags is not None else None,
+        config=(
+            dict(attributes.custom_config_json)
+            if attributes.custom_config_json
+            else None
+        ),
+    )
+
+
+def _effectivity_options(entity: Any, definition: BaseModel) -> None:
+    """Copy an export's effectivity satellite options onto a hub or link."""
+    if "effectivity_options" not in definition.model_fields_set:
+        return
+    options = definition.effectivity_options
+    entity.effectivity_is_active_alias = options.is_active_alias or CLEAR
+    entity.effectivity_disable_hwm = options.disable_hwm
+    entity.effectivity_additional_columns = list(options.additional_columns) or CLEAR
+
+
+def _snapshot_controls_by_model(export: ProjectExport) -> dict[str, str]:
+    """Snapshot control names by the names of their models.
+
+    PITs and reference tables name the control's logic model (v1), which a
+    stored model name may have renamed.
+    """
+    names: dict[str, str] = {}
+    for ctrl in export.snapshot_controls:
+        for output in (ctrl.v0_output, ctrl.v1_output):
+            if output is not None:
+                names.setdefault(output.model_name, ctrl.name)
+    return names
+
+
+# ---------------------------------------------------------------------------
+# Conversion
+# ---------------------------------------------------------------------------
 
 
 def _project_export_to_domain(export: ProjectExport) -> DomainModel:
@@ -194,6 +236,9 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                 sys_def.static_part_of_record_source
             ),
             load_date_value=written_value(sys_def.load_date),
+            include_source_columns=_optional(sys_def, "include_source_columns"),
+            enable_ghost_records=_optional(sys_def, "enable_ghost_records"),
+            delivery_method=_optional(sys_def, "delivery_method"),
         )
         for table_def in sys_def.tables:
             identifier = f"{sys_def.name}|{table_def.table_name}"
@@ -207,19 +252,23 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                 ),
                 load_date_value=written_value(table_def.load_date),
                 description=table_def.description,
+                include_source_columns=_optional(table_def, "include_source_columns"),
+                enable_ghost_records=_optional(table_def, "enable_ghost_records"),
+                sequence_column=_optional(table_def, "sequence_column"),
+                delivery_method=_optional(table_def, "delivery_method"),
+                outputs=_outputs(table_def),
             )
-            # Exports from before pre-stages existed don't carry these; the
-            # table then keeps its type and SQL.
+            # Exports from before pre-stages existed don't carry it; the table
+            # then keeps its type.
             if "table_type" in table_def.model_fields_set:
                 table.table_type = table_def.table_type
                 model.describes_prestages = True
-            if "prestage_sql" in table_def.model_fields_set:
-                table.prestage_sql = table_def.prestage_sql or ""
             for col in table_def.columns:
                 table.columns[col.column_name.lower()] = DSourceColumn(
                     name=col.column_name,
                     datatype=col.datatype or "",
                     description=col.description,
+                    is_missing=_given(col, "is_missing"),
                 )
             # Exports from before derived columns existed don't list them;
             # leave the table's derived columns alone for those.
@@ -248,8 +297,10 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             create_effectivity_satellite=hub_def.create_effectivity_satellite,
             group_name=hub_def.group,
             description=hub_def.description,
-            generation_config=_generation_config(hub_def),
+            disable_hwm=_given(hub_def, "disable_hwm"),
+            outputs=_outputs(hub_def),
         )
+        _effectivity_options(hub, hub_def)
         for i, col_name in enumerate(hub_def.business_key_columns):
             hub.columns.append(
                 DHubColumn(name=col_name, column_type="business_key", sort_order=i + 1)
@@ -299,6 +350,8 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
                         source_table_identifier=table_id,
                         source_column_name=col_mapping.source_column,
                         is_primary_source=src_info.is_primary_source,
+                        # The stage hash key of a role-playing source
+                        stage_hashkey_name=_optional(src_info, "hk_column"),
                     )
                 )
         model.hubs[hub_def.hub_name] = hub
@@ -316,8 +369,14 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             create_record_tracking_satellite=link_def.create_record_tracking_satellite,
             group_name=link_def.group,
             description=link_def.description,
-            generation_config=_generation_config(link_def),
+            create_effectivity_satellite=_given(
+                link_def, "create_effectivity_satellite"
+            ),
+            disable_hwm=_given(link_def, "disable_hwm"),
+            union_strategy=_optional(link_def, "union_strategy"),
+            outputs=_outputs(link_def),
         )
+        _effectivity_options(link, link_def)
         for i, ref in enumerate(link_def.hub_references):
             link.hub_references.append(
                 DLinkHubReference(
@@ -482,7 +541,16 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             source_table_identifier=f"{sat_def.source_system}|{sat_def.source_table}",
             group_name=sat_def.group,
             description=sat_def.description,
-            generation_config=_generation_config(sat_def),
+            # The resolved name: the import stores it only where it differs
+            # from the project's naming pattern.
+            hashdiff_name=sat_def.hashdiff_name or None,
+            hashdiff_alias=_optional(sat_def, "hashdiff_alias"),
+            create_v1_view=_optional(sat_def, "create_v1_view"),
+            v1_ledts_alias=_optional(sat_def, "v1_ledts_alias"),
+            v1_add_is_current_flag=_given(sat_def, "v1_add_is_current_flag"),
+            v1_include_payload=_given(sat_def, "v1_include_payload"),
+            disable_hwm=_given(sat_def, "disable_hwm"),
+            outputs=_outputs(sat_def),
         )
         for i, col_def in enumerate(sat_def.columns):
             sat.columns.append(
@@ -504,9 +572,11 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
         sc = DSnapshotControl(
             name=ctrl.name,
             start_date=ctrl.start_date,
-            end_date=ctrl.end_date,
+            # No end date: snapshots run up to the current date
+            end_date=ctrl.end_date or CLEAR,
             daily_time=ctrl.daily_time,
-            generation_config=_generation_config(ctrl),
+            sdts_alias=_optional(ctrl, "sdts_alias"),
+            outputs=_outputs(ctrl),
         )
         for pattern in ctrl.logic_patterns:
             sc.logic_rules.append(
@@ -520,17 +590,23 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             )
         model.snapshot_controls[ctrl.name] = sc
 
+    # Reference tables and PITs name their snapshot control's logic model
+    controls_by_model = _snapshot_controls_by_model(export)
+
     # Reference tables
     for rt_def in export.reference_tables:
         model.reference_tables[rt_def.table_name] = DReferenceTable(
             physical_name=rt_def.table_name,
             reference_hub_name=rt_def.reference_hub_name,
             historization_type=rt_def.historization_type or "latest",
-            snapshot_control_name=rt_def.snapshot_control_table,
+            snapshot_control_name=(
+                controls_by_model.get(rt_def.snapshot_control_table or "")
+                or rt_def.snapshot_control_table
+            ),
             snapshot_logic_column=rt_def.snapshot_logic_column,
             group_name=rt_def.group,
             description=rt_def.description,
-            generation_config=_generation_config(rt_def),
+            outputs=_outputs(rt_def),
             satellite_assignments=[
                 DRefSatAssignment(
                     satellite_name=s.satellite_name,
@@ -543,8 +619,9 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
 
     # PITs
     for pit_def in export.pits:
-        # The export uses v1 control names; the engine stores v0.
-        snapshot_v0 = (
+        # The export names the control's logic model. Older exports without
+        # the control's models: its name with the suffix replaced.
+        snapshot_v0 = controls_by_model.get(pit_def.snapshot_control_name) or (
             pit_def.snapshot_control_name.removesuffix("_v1").removesuffix("_v0")
             + "_v0"
         )
@@ -559,28 +636,14 @@ def _project_export_to_domain(export: ProjectExport) -> DomainModel:
             snapshot_logic_column=pit_def.snapshot_logic_column,
             dimension_key_column_name=pit_def.dimension_key_column,
             pit_type=pit_def.pit_type,
+            custom_record_source=pit_def.custom_record_source,
             group_name=pit_def.group,
-            generation_config=_generation_config(pit_def),
+            use_snapshot_optimization=_optional(pit_def, "use_snapshot_optimization"),
+            include_business_objects_before_appearance=_given(
+                pit_def, "include_business_objects_before_appearance"
+            ),
+            outputs=_outputs(pit_def),
         )
-
-    # The output attributes of a stage and of a pre-stage belong to their
-    # source table; a pre-stage table carries both.
-    for definition, system_name, table_name in (
-        *((stage, stage.source_system, stage.source_table) for stage in export.stages),
-        *(
-            (prestage, prestage.source_system, prestage.table_name)
-            for prestage in export.prestages
-        ),
-    ):
-        generation_config = _generation_config(definition)
-        if generation_config is None:
-            continue
-        system = model.source_systems.get(system_name)
-        table = system.tables.get(table_name) if system else None
-        if table is not None:
-            table.generation_config = _merged_generation_config(
-                table.generation_config, generation_config
-            )
 
     # Prejoins are embedded in stage definitions in JSON exports.
     for stage in export.stages:

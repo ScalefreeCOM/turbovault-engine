@@ -69,10 +69,15 @@ class Code:
     VALIDATE_SOURCE_NO_TABLES = "validate.source.no_tables"
     VALIDATE_STAGE_NO_SOURCE_TABLE = "validate.stage.no_source_table"
     VALIDATE_STAGE_NO_KEYS = "validate.stage.no_keys"
+    VALIDATE_STAGE_DUPLICATE_HASHDIFF = "validate.stage.duplicate_hashdiff"
+    VALIDATE_REFERENCE_TABLE_SATELLITE_WITHOUT_V1 = (
+        "validate.reference_table.satellite_without_v1"
+    )
 
-    # Validate stage — pre-stages
-    VALIDATE_PRESTAGE_EPHEMERAL = "validate.prestage.ephemeral"
-    VALIDATE_PRESTAGE_UNKNOWN_SOURCE = "validate.prestage.unknown_source"
+    # Validate stage — model names and folders
+    VALIDATE_MODEL_DUPLICATE_NAME = "validate.model.duplicate_name"
+    VALIDATE_MODEL_INVALID_NAME = "validate.model.invalid_name"
+    VALIDATE_MODEL_INVALID_FOLDER = "validate.model.invalid_folder"
 
     # Validate stage — hubs
     VALIDATE_HUB_MISSING_HASHKEY = "validate.hub.missing_hashkey"
@@ -82,6 +87,7 @@ class Code:
     # Validate stage — links
     VALIDATE_LINK_MISSING_HASHKEY = "validate.link.missing_hashkey"
     VALIDATE_LINK_TOO_FEW_HUBS = "validate.link.too_few_hubs"
+    VALIDATE_LINK_NH_WITHOUT_PAYLOAD = "validate.link.nh_without_payload"
     VALIDATE_LINK_NO_SOURCES = "validate.link.no_sources"
 
     # Validate stage — satellites
@@ -113,12 +119,23 @@ class Code:
     RENDER_INVALID_PROFILES = "render.invalid_profiles"
     RENDER_LITERAL_SECRET_IN_PROFILE = "render.literal_secret_in_profile"
     RENDER_INVALID_MATERIALIZATION = "render.invalid_materialization"
+    RENDER_PRESTAGE_MAINTAINED_IN_DBT = "render.prestage.maintained_in_dbt"
+    RENDER_PROJECT_FILES_KEPT = "render.project_files_kept"
+    RENDER_PROJECT_NEEDS_PACKAGE = "render.project_needs_package"
+    RENDER_PROJECT_NEEDS_VARS = "render.project_needs_vars"
 
     # Write stage
     WRITE_IO_ERROR = "write.io_error"
     WRITE_PATH_COLLISION = "write.path_collision"
     WRITE_PATH_OUTSIDE_OUTPUT = "write.path_outside_output"
     WRITE_ZIP_FAILED = "write.zip_failed"
+    WRITE_STALE_FILE = "write.stale_file"
+    WRITE_STALE_FILE_REMOVED = "write.stale_file_removed"
+    WRITE_STALE_FILE_CHANGED = "write.stale_file_changed"
+    WRITE_FILES_REPLACED = "write.files_replaced"
+    WRITE_SOURCES_KEPT = "write.sources_kept"
+    WRITE_MODEL_DEFINED_TWICE = "write.model_defined_twice"
+    WRITE_SOURCE_DEFINED_TWICE = "write.source_defined_twice"
 
     # SQLMesh render stage — unsupported entity types
     SQLMESH_UNSUPPORTED_REFERENCE_HUB = "render.sqlmesh.unsupported.reference_hub"

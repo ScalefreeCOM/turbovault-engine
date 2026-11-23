@@ -61,15 +61,18 @@ turbovault generate --project my_project --skip-validation
 | Code | Entity | Rule | How to Fix |
 |------|--------|------|------------|
 | `SAT_001` | Satellite | Must have a parent entity (hub or link) | Set either `parent_hub` or `parent_link` in Django Admin → Satellites |
+| `STG_005` | Stage | Satellites of one stage may share a hash diff name only if they hash the same columns (`validate.stage.duplicate_hashdiff`) | Give one satellite its own `hashdiff_name` |
+| `REF_001` | Reference table | Each satellite it reads must get a v1 view (warning, `validate.reference_table.satellite_without_v1`) | Turn the satellite's v1 view on (`create_v1_view`, or the project's `generate_satellite_v1_views`) |
 
 ---
 
-### Pre-stage Rules
+### Model Name Rules
 
 | Code | Entity | Rule | How to Fix |
 |------|--------|------|------------|
-| `PST_001` | Pre-stage | Must not be materialized as `ephemeral`: its stage reads the pre-stage's columns from the database (error, `validate.prestage.ephemeral`) | Remove `materialized='ephemeral'` from the pre-stage's `config()`, or set `view` / `table` |
-| `PST_002` | Pre-stage | Every `source()` it reads must be a source the project defines (warning, `validate.prestage.unknown_source`). Not checked when the project doesn't generate its sources (`export_sources` off) | Fix the source or table name; dbt matches both exactly, and the message suggests the right spelling when only the case differs |
+| `MDL_001` | Any model | No two models of the project share a name, compared case-insensitively; pre-stages count (`validate.model.duplicate_name`) | Rename one: its model output's name, or the entity |
+| `MDL_002` | Any model | A model name must name a file inside the project: no slashes or `..` (`validate.model.invalid_name`) | Rename the model or the entity |
+| `MDL_003` | Any model | A stored folder must be relative to the dbt project and stay inside it (`validate.model.invalid_folder`) | Use a folder such as `models/raw_vault/hubs` |
 
 ---
 
@@ -78,7 +81,8 @@ turbovault generate --project my_project --skip-validation
 | Code | Entity | Rule | How to Fix |
 |------|--------|------|------------|
 | `YML_001` | Model | SQL model was generated but YAML schema is missing | Check that the corresponding YAML template exists in Django Admin → Model Templates |
-| `TPL_003` | Stage | The stage template doesn't read a pre-stage model or prejoin one: it predates pre-stages (warning, `render.template_outdated`) | Update the stage template; `python manage.py populate_templates --overwrite` refreshes the workspace's copies (and replaces their customizations) |
+| `TPL_003` | Any model | The template predates something the model needs (warning, `render.template_outdated`): a stage template that doesn't read a pre-stage model or prejoin one; a template that doesn't write the model's stored `config()` settings, its stored tags, or the stored names of the models it references (e.g. a v1 view's v0 table) | Update the template; `python manage.py populate_templates --overwrite` refreshes the workspace's copies (and replaces their customizations) |
+| `PST_001` | Pre-stage | Each dbt generation reminds that the pre-stage's model belongs to the dbt project: TurboVault doesn't generate it, and its stage reads it with `ref()` (warning, `render.prestage.maintained_in_dbt`) | Nothing to fix: generate into the dbt project that contains the model |
 
 ---
 

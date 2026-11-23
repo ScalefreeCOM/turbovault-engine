@@ -31,6 +31,7 @@ Unsupported entities produce warnings and are skipped:
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 import textwrap  # used by _render_readme and _MODELS_INIT
@@ -156,6 +157,15 @@ def render_sqlmesh(
         template_resolver = TemplateResolver(
             use_db_templates=False, framework="sqlmesh"
         )
+    # SQLMesh models are named schema.model: a layer without a custom schema
+    # (dbt's target schema) uses the layer's name.
+    runtime_config = dataclasses.replace(
+        runtime_config,
+        stage_schema=runtime_config.get_schema("stage"),
+        rdv_schema=runtime_config.get_schema("rdv"),
+        bdv_schema=runtime_config.get_schema("bdv"),
+        control_schema=runtime_config.get_schema("control"),
+    )
     artifacts: list[GeneratedArtifact] = []
     issues: list[Issue] = []
 
@@ -240,7 +250,9 @@ def render_sqlmesh(
         if artifact:
             artifacts.append(artifact)
             rendered_sat_names.add(sat.satellite_name)
-            if options.generate_satellite_v1_views and sat.satellite_type == "standard":
+            if sat.satellite_type == "standard" and sat.gets_v1_view(
+                options.generate_satellite_v1_views
+            ):
                 artifacts.append(
                     _render_satellite_v1(sat, runtime_config, template_resolver)
                 )
@@ -680,6 +692,8 @@ def _render_stage(
     for hk in stage.hashkeys:
         if hk.hashkey_name in gaps.hashkeys:
             continue
+        if hk.hashkey_name.lower() in {name.lower() for name in hashed_columns}:
+            continue  # the first of a name (dbt's too; STG_006)
         if hk.entity_type == "hub" and hk.target_entity not in rendered_hub_names:
             continue
         if hk.entity_type == "link" and hk.target_entity not in rendered_link_names:

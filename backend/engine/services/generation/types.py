@@ -161,10 +161,18 @@ class GenerationOptions(BaseModel):
     skip_validation: bool = False
     create_zip: bool = False
     generate_satellite_v1_views: bool = True
-    # dbt: write models with their stored output attributes (file path, model
-    # name, alias, schema, materialization, tags) where set. False gives
-    # Turbovault's standard folder structure and naming for every model.
-    use_original_paths: bool = True
+    # Write models into the folders stored for them (ModelOutput.folder); off:
+    # every model goes to the project's folder patterns, keeping its original
+    # folder's settings. Names stay either way. None: the project's setting
+    # (runtime config use_model_folders).
+    use_model_folders: bool | None = None
+    # dbt: whether to write dbt_project.yml and packages.yml (spec D17). None:
+    # unless the output folder holds a dbt project whose dbt_project.yml
+    # TurboVault didn't write (its record, .turbovault/generated.json).
+    write_project_files: bool | None = None
+    # Delete the files TurboVault generated earlier and no longer generates
+    # (while unchanged since); off: they are reported.
+    remove_stale_files: bool = False
     # Preserve the legacy resolver contract: active DB templates precede files.
     use_db_templates: bool = True
     entity_selection: EntitySelection | None = None

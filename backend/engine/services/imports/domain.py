@@ -21,6 +21,55 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+
+class _Clear:
+    """The source sets a value to empty, so the stored one is cleared.
+
+    For fields whose empty value means something (inherit from the source
+    system or the project, use datavault4dbt's default), where None already
+    means "the format has no place for it, keep what the project has".
+    """
+
+    _instance: _Clear | None = None
+
+    def __new__(cls) -> _Clear:
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:
+        return "CLEAR"
+
+    def __deepcopy__(self, memo: dict) -> _Clear:
+        return self
+
+
+CLEAR: Any = _Clear()
+
+
+@dataclass(slots=True)
+class DModelOutput:
+    """A stored model output (``engine.models.ModelOutput``) of an entity.
+
+    Its fields are the stored values; None stores nothing. An entity whose
+    ``outputs`` is a dict has exactly those outputs (the others are removed),
+    keyed by kind; None leaves the entity's outputs alone.
+    """
+
+    kind: str
+    model_name: str | None = None
+    folder: str | None = None
+    # The file name of a JSON import's file_path: the model's name, stored
+    # where it isn't the one TurboVault derives (model_name wins)
+    file_name: str | None = None
+    alias: str | None = None
+    schema_name: str | None = None
+    database_name: str | None = None
+    materialized: str | None = None
+    tags: list[str] | None = None
+    config: dict[str, Any] | None = None
+
+
 # ---------------------------------------------------------------------------
 # Source metadata
 # ---------------------------------------------------------------------------
@@ -39,6 +88,9 @@ class DSourceColumn:
     # a database import collected.
     datatype: str | None = None
     description: str | None = None
+    # Whether the column is listed in the stage's missing_columns. None when
+    # the format has no place for it: the column keeps its flag.
+    is_missing: bool | None = None
 
 
 @dataclass(slots=True)
@@ -65,16 +117,18 @@ class DSourceTable:
     # "physical" or "prestage". None when the format has no place for it: the
     # table keeps its type (a new one is physical).
     table_type: str | None = None
-    # A pre-stage's SQL. None: the format has no place for it, so the table
-    # keeps its SQL. "" : the source says the table has none.
-    prestage_sql: str | None = None
+    # Stage options and the delivery method. None keeps what the table has;
+    # CLEAR inherits from the source system and the project.
+    include_source_columns: Any = None
+    enable_ghost_records: Any = None
+    sequence_column: Any = None
+    delivery_method: Any = None
+    # The stage's or pre-stage's stored model outputs (see DModelOutput).
+    outputs: dict[str, DModelOutput] | None = None
     columns: dict[str, DSourceColumn] = field(default_factory=dict)
     # Keyed by lowercased name. None when the format carries no derived
     # columns, so the table's existing ones are left alone.
     derived_columns: dict[str, DDerivedColumn] | None = None
-    # Stored generation_config ({"dbt": {output kind: attributes}}); None: the
-    # format carries none, keep the stored one.
-    generation_config: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -87,6 +141,10 @@ class DSourceSystem:
     record_source_value: str | None = None
     static_part_of_record_source: str | None = None
     load_date_value: str | None = None
+    # None keeps what the system has; CLEAR inherits from the project.
+    include_source_columns: Any = None
+    enable_ghost_records: Any = None
+    delivery_method: Any = None
     tables: dict[str, DSourceTable] = field(default_factory=dict)
 
 
@@ -106,6 +164,10 @@ class DHubSourceMapping:
     source_table_identifier: str
     source_column_name: str
     is_primary_source: bool = False
+    # The stage hash key the mapping loads, when it isn't the hub's own
+    # (role-playing business keys). None keeps what the mapping has; CLEAR:
+    # the hub's hash key.
+    stage_hashkey_name: Any = None
 
 
 @dataclass(slots=True)
@@ -128,10 +190,13 @@ class DHub:
     create_effectivity_satellite: bool = False
     group_name: str | None = None
     description: str | None = None
+    # None keeps what the hub has; CLEAR empties a value that may be empty.
+    disable_hwm: bool | None = None
+    effectivity_is_active_alias: Any = None
+    effectivity_disable_hwm: bool | None = None
+    effectivity_additional_columns: Any = None
+    outputs: dict[str, DModelOutput] | None = None
     columns: list[DHubColumn] = field(default_factory=list)
-    # Stored generation_config ({"dbt": {output kind: attributes}}); None: the
-    # format carries none, keep the stored one.
-    generation_config: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -199,12 +264,17 @@ class DLink:
     create_record_tracking_satellite: bool = False
     group_name: str | None = None
     description: str | None = None
+    # None keeps what the link has; CLEAR empties a value that may be empty.
+    create_effectivity_satellite: bool | None = None
+    disable_hwm: bool | None = None
+    union_strategy: Any = None
+    effectivity_is_active_alias: Any = None
+    effectivity_disable_hwm: bool | None = None
+    effectivity_additional_columns: Any = None
+    outputs: dict[str, DModelOutput] | None = None
     hub_references: list[DLinkHubReference] = field(default_factory=list)
     columns: list[DLinkColumn] = field(default_factory=list)
     hub_source_mappings: list[DLinkHubSourceMapping] = field(default_factory=list)
-    # Stored generation_config ({"dbt": {output kind: attributes}}); None: the
-    # format carries none, keep the stored one.
-    generation_config: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -236,10 +306,18 @@ class DSatellite:
     source_table_identifier: str = ""
     group_name: str | None = None
     description: str | None = None
+    # None keeps what the satellite has; CLEAR empties a value that may be
+    # empty (the stored hash diff name, the alias, the v1 view's project
+    # default, the v1 end-date alias).
+    hashdiff_name: Any = None
+    hashdiff_alias: Any = None
+    create_v1_view: Any = None
+    v1_ledts_alias: Any = None
+    v1_add_is_current_flag: bool | None = None
+    v1_include_payload: bool | None = None
+    disable_hwm: bool | None = None
+    outputs: dict[str, DModelOutput] | None = None
     columns: list[DSatelliteColumn] = field(default_factory=list)
-    # Stored generation_config ({"dbt": {output kind: attributes}}); None: the
-    # format carries none, keep the stored one.
-    generation_config: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -256,16 +334,31 @@ class DSnapshotControlLogic:
     forever: bool = False
 
 
+def snapshot_base_name(name: str) -> str:
+    """Base name of a snapshot control: trailing _v0/_v1 stripped, lowercased.
+
+    ``control_snap``, ``control_snap_v0`` and ``Control_Snap_v1`` name one
+    control.
+    """
+    lowered = (name or "").lower()
+    for suffix in ("_v0", "_v1"):
+        if lowered.endswith(suffix):
+            return lowered[: -len(suffix)]
+    return lowered
+
+
 @dataclass(slots=True)
 class DSnapshotControl:
     name: str = "control_snap"
-    start_date: str | None = None  # ISO date
-    end_date: str | None = None
-    daily_time: str | None = None  # ISO time
+    # ISO values. None keeps what the control has (a new one gets the
+    # defaults); CLEAR removes the end date: snapshots run up to today.
+    start_date: str | None = None
+    end_date: Any = None
+    daily_time: str | None = None
+    # None keeps what the snapshot control has; CLEAR empties it.
+    sdts_alias: Any = None
+    outputs: dict[str, DModelOutput] | None = None
     logic_rules: list[DSnapshotControlLogic] = field(default_factory=list)
-    # Stored generation_config ({"dbt": {output kind: attributes}}); None: the
-    # format carries none, keep the stored one.
-    generation_config: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -284,10 +377,8 @@ class DReferenceTable:
     snapshot_logic_column: str | None = None
     group_name: str | None = None
     description: str | None = None
+    outputs: dict[str, DModelOutput] | None = None
     satellite_assignments: list[DRefSatAssignment] = field(default_factory=list)
-    # Stored generation_config ({"dbt": {output kind: attributes}}); None: the
-    # format carries none, keep the stored one.
-    generation_config: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -302,9 +393,10 @@ class DPIT:
     pit_type: str | None = None
     custom_record_source: str | None = None
     group_name: str | None = None
-    # Stored generation_config ({"dbt": {output kind: attributes}}); None: the
-    # format carries none, keep the stored one.
-    generation_config: dict[str, Any] | None = None
+    # None keeps what the PIT has; CLEAR empties it (datavault4dbt's default).
+    use_snapshot_optimization: Any = None
+    include_business_objects_before_appearance: bool | None = None
+    outputs: dict[str, DModelOutput] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +409,7 @@ SkipReason = Literal[
     "missing_parent",
     "missing_source_table",
     "depends_on_skipped",
+    "invalid_configuration",
 ]
 
 
@@ -329,7 +422,7 @@ class DSkipped:
     project's copy of it under `replace_all`.
     """
 
-    entity_type: str  # "link" | "satellite" | "reference_table" | "pit"
+    entity_type: str  # "hub" | "link" | "satellite" | "reference_table" | "pit"
     name: str
     reason: SkipReason
 
@@ -380,8 +473,26 @@ class DomainModel:
     # them). One that can't — Excel, SQLite, IRiS, a database's catalog —
     # never lists them, so `replace_all` must not take that as a deletion.
     describes_prestages: bool = False
+    # Settings the source suggests for the project (types.ProjectSettings),
+    # reported, not applied
+    project_settings: Any = None
 
     # ---------------- helpers ----------------
+
+    def is_empty(self) -> bool:
+        """Whether the model holds no entity at all."""
+        return not any(
+            (
+                self.source_systems,
+                self.hubs,
+                self.links,
+                self.satellites,
+                self.snapshot_controls,
+                self.reference_tables,
+                self.pits,
+                self.prejoins,
+            )
+        )
 
     def get_source_table(
         self, identifier: str

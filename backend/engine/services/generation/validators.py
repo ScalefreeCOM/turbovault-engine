@@ -11,23 +11,21 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from engine.services.prestage_sql import (
-    configured_materialization,
-    dbt_source_name,
-    referenced_sources,
-)
 from engine.services.source_values import ValueKind, classify
 
 if TYPE_CHECKING:
     from engine.services.export.models import (
         HubDefinition,
         LinkDefinition,
+        ModelOutputDef,
         PITDefinition,
         ProjectExport,
         SatelliteDefinition,
         SnapshotControlDefinition,
         SourceDefinition,
         StageDefinition,
+        StageHashdiffDef,
+        StageHashkeyDef,
     )
 
 
@@ -125,7 +123,7 @@ def validate_export(
     project_export: ProjectExport,
     *,
     keeps_load_columns: bool = False,
-    use_original_paths: bool = True,
+    generate_satellite_v1_views: bool = True,
 ) -> ValidationResult:
     """
     Validate a project export before generation.
@@ -135,8 +133,8 @@ def validate_export(
         keeps_load_columns: Whether the stages keep the columns their record
             source and load date are read from (datavault4dbt's
             ``copy_rsrc_ldts_input_columns``); by default they drop them.
-        use_original_paths: Whether generation applies the models' stored
-            output attributes (``generation_config``).
+        generate_satellite_v1_views: Whether satellites get their v1 views,
+            whose names then count among the project's model names.
 
     Returns:
         ValidationResult with any errors and warnings found.
@@ -146,12 +144,17 @@ def validate_export(
     if not keeps_load_columns:
         result.merge(_validate_load_columns_unused(project_export))
 
+    # Model names and folders: one model per name, files inside the project
+    result.merge(_validate_models(project_export, generate_satellite_v1_views))
+
+    # Reference tables read v1 views
+    result.merge(
+        _validate_reference_tables(project_export, generate_satellite_v1_views)
+    )
+
     # Validate sources
     for source in project_export.sources:
         result.merge(_validate_source(source))
-
-    # Validate pre-stages
-    result.merge(_validate_prestages(project_export, use_original_paths))
 
     # Validate stages
     for stage in project_export.stages:
@@ -180,6 +183,142 @@ def validate_export(
     return result
 
 
+def _project_models(
+    project_export: ProjectExport, generate_satellite_v1_views: bool
+) -> list[tuple[str, str, ModelOutputDef | None, str]]:
+    """Every dbt model of the project: (entity type, entity, output, name).
+
+    Pre-stages count too: they are models of the dbt project. Entities whose
+    export carries no resolved output (older exports) are left out.
+    """
+    models: list[tuple[str, str, ModelOutputDef | None, str]] = []
+    for stage in project_export.stages:
+        models.append(("stage", stage.stage_name, stage.output, stage.stage_name))
+    for prestage in project_export.prestages:
+        models.append(("prestage", prestage.model_name, None, prestage.model_name))
+    for hub in project_export.hubs:
+        if hub.output:
+            models.append(("hub", hub.hub_name, hub.output, hub.output.model_name))
+        for flag, output in (
+            (hub.create_effectivity_satellite, hub.effectivity_satellite_output),
+            (
+                hub.create_record_tracking_satellite,
+                hub.record_tracking_satellite_output,
+            ),
+        ):
+            if flag and output:
+                models.append(("hub", hub.hub_name, output, output.model_name))
+    for link in project_export.links:
+        if link.output:
+            models.append(("link", link.link_name, link.output, link.output.model_name))
+        for flag, output in (
+            (link.create_effectivity_satellite, link.effectivity_satellite_output),
+            (
+                link.create_record_tracking_satellite,
+                link.record_tracking_satellite_output,
+            ),
+        ):
+            if flag and output:
+                models.append(("link", link.link_name, output, output.model_name))
+    for sat in project_export.satellites:
+        if sat.v0_output:
+            models.append(
+                (
+                    "satellite",
+                    sat.satellite_name,
+                    sat.v0_output,
+                    sat.v0_output.model_name,
+                )
+            )
+        if sat.v1_output and sat.gets_v1_view(generate_satellite_v1_views):
+            models.append(
+                (
+                    "satellite",
+                    sat.satellite_name,
+                    sat.v1_output,
+                    sat.v1_output.model_name,
+                )
+            )
+    for pit in project_export.pits:
+        if pit.output:
+            models.append(("pit", pit.pit_name, pit.output, pit.output.model_name))
+    for table in project_export.reference_tables:
+        if table.output:
+            models.append(
+                (
+                    "reference_table",
+                    table.table_name,
+                    table.output,
+                    table.output.model_name,
+                )
+            )
+    for control in project_export.snapshot_controls:
+        for output in (control.v0_output, control.v1_output):
+            if output:
+                models.append(
+                    ("snapshot_control", control.name, output, output.model_name)
+                )
+    return models
+
+
+def _validate_models(
+    project_export: ProjectExport, generate_satellite_v1_views: bool
+) -> ValidationResult:
+    """Each model name names one model, and every file stays in the project.
+
+    dbt refuses two models of one name. A name or folder that leaves the
+    project (slashes, '..', absolute paths) would write outside it.
+    """
+    from engine.models.model_output import folder_error
+
+    result = ValidationResult()
+    seen: dict[str, tuple[str, str]] = {}
+    for entity_type, entity_name, output, model_name in _project_models(
+        project_export, generate_satellite_v1_views
+    ):
+        if (
+            not model_name
+            or model_name in (".", "..")
+            or any(char in model_name for char in "/\\\x00")
+        ):
+            result.add_error(
+                entity_type=entity_type,
+                entity_name=entity_name,
+                field="model_name",
+                message=(
+                    f"'{model_name}' can't name a dbt model file: no slashes or '..'"
+                ),
+                code="MDL_002",
+            )
+            continue
+        if output is not None and output.folder:
+            if error := folder_error(output.folder):
+                result.add_error(
+                    entity_type=entity_type,
+                    entity_name=entity_name,
+                    field="folder",
+                    message=f"{error} (model '{model_name}')",
+                    code="MDL_003",
+                )
+        key = model_name.lower()
+        if key in seen:
+            other_type, other_name = seen[key]
+            result.add_error(
+                entity_type=entity_type,
+                entity_name=entity_name,
+                field="model_name",
+                message=(
+                    f"Model '{model_name}' of {entity_type} '{entity_name}' has "
+                    f"the name of a model of {other_type} '{other_name}': dbt "
+                    "needs a name per model. Rename one of them."
+                ),
+                code="MDL_001",
+            )
+        else:
+            seen[key] = (entity_type, entity_name)
+    return result
+
+
 def _validate_source(source: SourceDefinition) -> ValidationResult:
     """Validate a source definition."""
     result = ValidationResult()
@@ -201,83 +340,6 @@ def _validate_source(source: SourceDefinition) -> ValidationResult:
             message="Source has no tables defined",
             code="SRC_002",
         )
-
-    return result
-
-
-def _validate_prestages(
-    project_export: ProjectExport, use_original_paths: bool = True
-) -> ValidationResult:
-    """Check a pre-stage's SQL for what fails in dbt before it runs.
-
-    - Its stage reads the pre-stage's columns from the database, so the model
-      can't be ephemeral (error): neither by its SQL's own config() nor, when
-      the SQL sets none, by its stored ``materialized`` output attribute.
-    - A source it reads must be one the project defines; dbt doesn't compile
-      the model otherwise (warning). Not checked when the project doesn't
-      generate its sources (``export_sources`` off): they're defined elsewhere.
-
-    A pre-stage without SQL is maintained outside TurboVault: nothing to check.
-    """
-    result = ValidationResult()
-
-    # dbt looks sources up by their exact names; the lowercased index finds
-    # the spelling to suggest.
-    defined: set[tuple[str, str]] = set()
-    by_lowercase: dict[tuple[str, str], tuple[str, str]] = {}
-    for system in project_export.sources:
-        for table in system.tables:
-            if table.table_type == "prestage":
-                continue
-            name = (dbt_source_name(system.name), table.table_name)
-            defined.add(name)
-            by_lowercase[(name[0].lower(), name[1].lower())] = name
-
-    for prestage in project_export.prestages:
-        if not prestage.sql:
-            continue
-
-        materialization = configured_materialization(prestage.sql)
-        if materialization is None and use_original_paths:
-            # The SQL's config() ranks above the .yml the stored value goes to.
-            stored = prestage.generation_config.dbt.get("prestage")
-            materialization = stored.materialized if stored else None
-        if materialization == "ephemeral":
-            result.add_error(
-                entity_type="prestage",
-                entity_name=prestage.model_name,
-                field="sql",
-                message=(
-                    "The pre-stage is materialized as ephemeral, but its stage "
-                    "reads the pre-stage's columns from the database, where an "
-                    "ephemeral model doesn't exist. Materialize it as a view or "
-                    "table"
-                ),
-                code="PST_001",
-            )
-
-        if not project_export.export_sources:
-            continue
-        for source_name, table_name in referenced_sources(prestage.sql):
-            if (source_name, table_name) in defined:
-                continue
-            spelled = by_lowercase.get((source_name.lower(), table_name.lower()))
-            hint = (
-                f" Did you mean source('{spelled[0]}', '{spelled[1]}')?"
-                if spelled
-                else ""
-            )
-            result.add_warning(
-                entity_type="prestage",
-                entity_name=prestage.model_name,
-                field="sql",
-                message=(
-                    f"The pre-stage reads source('{source_name}', '{table_name}'), "
-                    "which the project doesn't define, so dbt won't compile it."
-                    f"{hint}"
-                ),
-                code="PST_002",
-            )
 
     return result
 
@@ -321,6 +383,74 @@ def _validate_stage(stage: StageDefinition) -> ValidationResult:
                 code="STG_003",
             )
 
+    # One hash key column per name: hubs and links naming theirs alike get it
+    # once, for the first (entities sharing a key hash the same columns).
+    hashkeys: dict[str, StageHashkeyDef] = {}
+    for hashkey in stage.hashkeys:
+        first = hashkeys.setdefault(hashkey.hashkey_name.lower(), hashkey)
+        if first is not hashkey and first.business_key_columns != (
+            hashkey.business_key_columns
+        ):
+            result.add_warning(
+                entity_type="stage",
+                entity_name=stage.stage_name,
+                field="hashkeys",
+                message=(
+                    f"{first.entity_type.capitalize()} '{first.target_entity}' and "
+                    f"{hashkey.entity_type} '{hashkey.target_entity}' both name "
+                    f"their hash key '{hashkey.hashkey_name}' but hash different "
+                    f"columns: the stage computes it once, for "
+                    f"'{first.target_entity}'. Give one of them its own hash key "
+                    "name."
+                ),
+                code="STG_006",
+            )
+
+    # One hash diff column per name: satellites may share one only if they hash
+    # the same columns (a stored hash diff name can make two collide).
+    hashdiffs: dict[str, StageHashdiffDef] = {}
+    for hashdiff in stage.hashdiffs:
+        other = hashdiffs.setdefault(hashdiff.hashdiff_name.lower(), hashdiff)
+        if other is not hashdiff and other.columns != hashdiff.columns:
+            result.add_error(
+                entity_type="stage",
+                entity_name=stage.stage_name,
+                field="hashdiffs",
+                message=(
+                    f"Satellites '{other.satellite_name}' and "
+                    f"'{hashdiff.satellite_name}' both name their hash diff "
+                    f"'{hashdiff.hashdiff_name}' but hash different columns. "
+                    "Give one of them its own hash diff name."
+                ),
+                code="STG_005",
+            )
+
+    return result
+
+
+def _validate_reference_tables(
+    project_export: ProjectExport, generate_satellite_v1_views: bool
+) -> ValidationResult:
+    """A reference table reads its satellites' v1 views, which must exist."""
+    result = ValidationResult()
+    satellites = {sat.satellite_name: sat for sat in project_export.satellites}
+    for table in project_export.reference_tables:
+        for assignment in table.satellites:
+            satellite = satellites.get(assignment.satellite_name)
+            if satellite is not None and not satellite.gets_v1_view(
+                generate_satellite_v1_views
+            ):
+                result.add_warning(
+                    entity_type="reference_table",
+                    entity_name=table.table_name,
+                    field="satellites",
+                    message=(
+                        f"Reference table '{table.table_name}' reads the v1 view "
+                        f"of satellite '{assignment.satellite_name}', which gets "
+                        "none. Turn on its v1 view."
+                    ),
+                    code="REF_001",
+                )
     return result
 
 
@@ -459,6 +589,23 @@ def _validate_link(link: LinkDefinition) -> ValidationResult:
                 "can be created"
             ),
             code="LNK_003",
+        )
+
+    # datavault4dbt's nh_link requires a payload: the link's dependent child
+    # keys and payload columns
+    if link.link_type == "non_historized" and not (
+        link.payload_columns or link.dependent_child_keys
+    ):
+        result.add_error(
+            entity_type="link",
+            entity_name=link.link_name,
+            field="payload_columns",
+            message=(
+                "A non-historized link needs at least one payload column or "
+                "dependent child key: datavault4dbt can't build it without a "
+                "payload"
+            ),
+            code="LNK_004",
         )
 
     return result

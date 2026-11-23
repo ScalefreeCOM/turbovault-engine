@@ -32,6 +32,8 @@ def custom_get_app_list(
         "sourcesystem",
         "sourcetable",
         "sourcecolumn",
+        "stagingcolumn",
+        "derivedcolumn",
         "snapshotcontroltable",
         "snapshotcontrollogic",
     }
@@ -54,7 +56,8 @@ def custom_get_app_list(
         "prejoinextractioncolumn",
     }
 
-    dbt_metadata_models = {"templatecategory", "modeltemplate"}
+    # Templates, and the models an entity generates (name, folder, config())
+    dbt_metadata_models = {"templatecategory", "modeltemplate", "modeloutput"}
 
     # Extract models from the engine app
     engine_app = app_dict.get("engine", {})
@@ -114,13 +117,36 @@ def custom_get_app_list(
             }
         )
 
+    # Engine models no group lists stay reachable rather than disappearing
+    grouped = base_metadata_models | data_vault_models | dbt_metadata_models
+    other_models = [
+        model
+        for model in engine_models
+        if model.get("object_name", "").lower() not in grouped
+    ]
+    if other_models:
+        custom_apps.append(
+            {
+                "name": "Other Engine Models",
+                "app_label": "other_engine_models",
+                "app_url": "/admin/engine/",
+                "has_module_perms": True,
+                "models": sorted(other_models, key=lambda x: x["name"]),
+            }
+        )
+
     # Add any other apps (auth, etc.) that aren't from engine
     for app_label_key, app_data in app_dict.items():
         if app_label_key != "engine":
             custom_apps.append(app_data)
 
     # Sort apps: custom groups first, then others
-    custom_group_names = {"base_metadata", "data_vault_metadata", "dbt_metadata"}
+    custom_group_names = {
+        "base_metadata",
+        "data_vault_metadata",
+        "dbt_metadata",
+        "other_engine_models",
+    }
     custom_groups = [
         app for app in custom_apps if app.get("app_label") in custom_group_names
     ]
@@ -133,3 +159,14 @@ def custom_get_app_list(
 
 # Monkey-patch the admin site to use our custom get_app_list
 admin.site.get_app_list = custom_get_app_list.__get__(admin.site, admin.site.__class__)
+
+
+def project_autocomplete_view(request: Any) -> Any:
+    """Autocomplete results named with their project, limited to the project
+    of the page that asks (engine.admin_projects)."""
+    from engine.admin_projects import ProjectAutocompleteJsonView
+
+    return ProjectAutocompleteJsonView.as_view(admin_site=admin.site)(request)
+
+
+admin.site.autocomplete_view = project_autocomplete_view

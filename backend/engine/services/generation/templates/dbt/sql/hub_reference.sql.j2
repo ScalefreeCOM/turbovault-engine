@@ -1,23 +1,7 @@
 [# Reference Hub Template #]
 [# Generates a reference hub model using datavault4dbt.ref_hub() macro #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-[% if model_alias %]
-    alias='[[ model_alias ]]',
-[% endif %]
-[% if model_schema %]
-    schema='[[ model_schema ]]',
-[% endif %]
-[% if model_database %]
-    database='[[ model_database ]]',
-[% endif %]
-[% for key, value in (model_custom_config | default({})).items() %]
-    [[ key ]]=[[ value | config_literal ]],
-[% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['hub', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
-) }}
+[# model_config: the config() block; the hub's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['hub', 'reference', 'raw_vault', group]) ]]
 
 {%- set yaml_metadata -%}
 source_models:
@@ -37,6 +21,12 @@ ref_keys:
 [% for rk in reference_key_columns %]
     - [[ rk ]]
 [% endfor %]
+[% if additional_columns %]
+additional_columns:
+[% for col in additional_columns %]
+    - [[ col ]]
+[% endfor %]
+[% endif %]
 {%- endset -%}
 
 {{ datavault4dbt.ref_hub(yaml_metadata=yaml_metadata) }}

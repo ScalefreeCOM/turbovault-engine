@@ -1,23 +1,7 @@
 [# Reference Satellite Template #]
 [# Generates a satellite for reference/lookup data #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-[% if model_alias %]
-    alias='[[ model_alias ]]',
-[% endif %]
-[% if model_schema %]
-    schema='[[ model_schema ]]',
-[% endif %]
-[% if model_database %]
-    database='[[ model_database ]]',
-[% endif %]
-[% for key, value in (model_custom_config | default({})).items() %]
-    [[ key ]]=[[ value | config_literal ]],
-[% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['satellite', 'reference', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
-) }}
+[# model_config: the config() block; the satellite's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['satellite', 'reference', 'raw_vault', group]) ]]
 
 {%- set yaml_metadata -%}
 source_model: [[ stage_name ]]
@@ -25,11 +9,25 @@ parent_ref_keys:
 [% for bk in parent_business_keys %]
     - [[ bk ]]
 [% endfor %]
+[# hashdiff_alias: the hash diff's name inside the satellite, when it differs from the stage's #]
+[% if hashdiff_alias %]
+src_hashdiff:
+    source_column: [[ hashdiff_name ]]
+    alias: [[ hashdiff_alias ]]
+[% else %]
 src_hashdiff: [[ hashdiff_name ]]
+[% endif %]
 src_payload:
 [% for col in columns %]
     - [[ col.target_column_name if col.target_column_name else col.source_column ]]
 [% endfor %]
+[% if disable_hwm %]
+disable_hwm: true
+[% endif %]
+[# source_is_single_batch: the stage delivers single batches (delivery method) #]
+[% if source_is_single_batch %]
+source_is_single_batch: true
+[% endif %]
 {%- endset -%}
 
 {{ datavault4dbt.ref_sat_v0(yaml_metadata=yaml_metadata) }}

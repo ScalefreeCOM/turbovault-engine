@@ -189,6 +189,34 @@ import would create.
 
 ---
 
+## The project's settings
+
+`import_metadata(..., runtime_config=config)` passes the project's
+settings (`EngineRuntimeConfig`) for callers that keep them outside the
+project's `config.yml`, as the Studio does. Its naming patterns name the hash
+keys and hash diffs the import derives, and a dbt project import stores a
+model's name only where it differs from what they give. Without it the
+import reads the project's `config.yml`, else the defaults.
+
+A dbt project import also suggests settings, and applies none of them. These
+are the values most of the project's models follow, plus copies of its
+`dbt_project.yml` and package files:
+
+- naming patterns, layer schemas and materializations, folder patterns
+- the tables' default record source, load date and static part
+- stage options, the delivery method and default tags
+- the dbt project's `dbt_project.yml` and packages
+
+The report lists them in `project_settings.suggestions`, keyed by setting.
+Each one has its value and how many models follow it, and gets a
+`dbt.setting_suggested` info. Models, tables and source systems store only
+what differs from the settings the import was given. After you apply the
+suggestions, importing again stores less. The CLI offers to apply them after a
+dry run (`--apply-settings`). `EngineRuntimeConfig.with_settings()` applies
+them to a runtime config.
+
+---
+
 ## The ImportReport
 
 Every invocation of the pipeline returns an `ImportReport`. The same
@@ -290,7 +318,9 @@ Each issue carries:
 
 `location` is populated for parse/validate issues; `entity` is populated
 for resolve/execute issues; both may be present for the most useful
-context.
+context. Issues of a dbt project import locate a model by its dbt node
+(`"node_id": "model.shop.hub_customer"`), its file (`file`) and the macro
+parameter concerned (`"parameter": "src_hashdiff"`).
 
 ### Issue codes
 
@@ -315,14 +345,12 @@ messages and link to fix-it docs.
 | Resolve | `entity.missing_reference` | A link, reference table or PIT references a hub/link that is not defined. |
 | Resolve | `entity.missing_source_table` | A mapping references a source table identifier that does not exist. |
 | Resolve | `entity.missing_source_column` | A mapping references a column that is not present in its source table. |
-| Resolve | `entity.invalid_configuration` | An entity is internally inconsistent. |
+| Resolve, Execute | `entity.invalid_configuration` | An entity is internally inconsistent, or one of its model settings can't be stored (left out; the entity is imported). |
 | Resolve | `entity.depends_on_skipped` | An entity is left out because something it depends on was skipped (warning). |
 | Plan | `plan.would_create` / `would_update` / `would_delete` / `would_skip` | Dry-run hints — informational only. |
 | Plan | `plan.rejected` | The caller's `on_plan` callback stopped the import before anything was written. |
 | Execute | `execute.constraint_violation` | A database constraint blocked a write. |
 | Execute | `execute.unexpected_error` | An unexpected runtime error during execute. |
-| Execute | `execute.snapshot_control_attributes_updated` | *Info.* A snapshot control's output attributes changed (snapshot controls have no plan entry). |
-| Execute | `execute.snapshot_control_not_found` | *Warning.* Output attributes for a snapshot control the project doesn't have were not stored. |
 | Internal | `internal.bug` | An unreachable code path was hit. Please file a bug. |
 
 The CLI's Issues table renders every issue with its location and a
@@ -368,6 +396,7 @@ underlying `ImportRun` for richer error rendering than the truncated
 | SQLite | Same column/sheet layout as Excel; tables match Excel sheet names. |
 | JSON | [JSON Import (Round-Trip)](04_json-import.md) — produced by `turbovault generate --type json`. |
 | IRiS | A directory holding the `Source_*` / `DataVault_*` / `Mappings_*` workbooks produced by `turbovault generate --type iris`. Reconstructs the hubs, links, satellites and mappings the files contain. See [IRiS Import (Round-Trip)](../00_index.md#iris-import-round-trip). |
+| dbt | A datavault4dbt project's artifacts (`DbtSource`): its folder, or its `manifest.json` (schema v12) with optional `catalog`, `dbt_project` and `packages` files. The import reads files only, never runs dbt or connects to a warehouse, and reports which artifacts it found (`dbt.*` codes). Stages become source tables, or pre-stages when they read a model of the project; Hubs, Links and Satellites map their columns to the stage's source, derived and prejoined columns; effectivity and record-tracking satellites become their Hub's or Link's. A model's name is stored only where it differs from the project's naming patterns. What can't be mapped is reported on its model (`location.node_id`) and planned as a skip; under `fail_fast`, mapping errors stop the import before anything is written. A project that maps to no TurboVault entity imports nothing (`dbt.nothing_to_import`), so `replace_all` can't empty a project. A dbt project TurboVault generated imports back to the metadata it came from: TurboVault's default descriptions and generated renames aren't taken for the project's own. Walkthrough: [Importing a dbt Project](../02_getting-started/06_dbt-project-import.md). See the [dbt project import specification](https://github.com/ScalefreeCOM/turbovault-engine/blob/main/backend/docs/07_dbt_project_import_specification.md). |
 
 For source-specific format issues (missing sheets, wrong column names),
 read the parse/validate sections above and the format reference for

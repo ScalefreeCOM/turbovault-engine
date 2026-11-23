@@ -5,40 +5,48 @@
 [# Settings fall back to the engine defaults when missing or empty, so a #]
 [# caller rendering this template with only the pre-0.22 variables (e.g. #]
 [# Studio's manual dbt_project.yml prefill) still gets a usable file. #]
+[# An imported dbt project's settings (spec D25): project_version, the paths, #]
+[# clean_targets; models_block (its models: block merged with the layers) and #]
+[# extra_block (its other settings) replace or follow the defaults below. #]
 name: '[[ project_name ]]'
-version: '1.0.0'
+version: '[[ project_version | default('1.0.0', true) ]]'
 config-version: 2
 
 profile: [[ profile_name | default('default', true) | yaml_single_quote ]]
 
-model-paths: ["models"]
-analysis-paths: ["analyses"]
-test-paths: ["tests"]
-seed-paths: ["seeds"]
-macro-paths: ["macros"]
-snapshot-paths: ["snapshots"]
+[# model_paths: "models", plus the top folders of models stored elsewhere #]
+model-paths: [[ (model_paths or ['models']) | tojson ]]
+analysis-paths: [[ (analysis_paths or ['analyses']) | tojson ]]
+test-paths: [[ (test_paths or ['tests']) | tojson ]]
+seed-paths: [[ (seed_paths or ['seeds']) | tojson ]]
+macro-paths: [[ (macro_paths or ['macros']) | tojson ]]
+snapshot-paths: [[ (snapshot_paths or ['snapshots']) | tojson ]]
 
 clean-targets:
-  - "target"
-  - "dbt_packages"
+[% for target in (clean_targets or ['target', 'dbt_packages']) %]
+  - [[ target | tojson ]]
+[% endfor %]
 
-[[ vars_block ]]models:
+[[ vars_block ]][% if models_block %]
+[[ models_block ]][[ extra_block ]][% else %]
+models:
   [[ project_name ]]:
     00_control:
       +schema: [[ control_schema | default('control', true) | yaml_scalar ]]
       +materialized: [[ control_materialization | default('table', true) | yaml_scalar ]]
-[# Only when the project has pre-stage models, so dbt finds no unused path #]
+[# Only when the project has pre-stages: their models (the dbt project's own) placed in 15_prestaging get the staging settings #]
 [% if prestaging_materialization %]
-    01_prestaging:
+    15_prestaging:
       +schema: [[ stage_schema | default('stage', true) | yaml_scalar ]]
       +materialized: [[ prestaging_materialization | yaml_scalar ]]
 [% endif %]
-    02_staging:
+    20_staging:
       +schema: [[ stage_schema | default('stage', true) | yaml_scalar ]]
       +materialized: [[ staging_materialization | default('view', true) | yaml_scalar ]]
-    03_raw_vault:
+    30_raw_vault:
       +schema: [[ rdv_schema | default('rdv', true) | yaml_scalar ]]
       +materialized: [[ raw_vault_materialization | default('incremental', true) | yaml_scalar ]]
-    04_business_vault:
+    40_business_vault:
       +schema: [[ bdv_schema | default('bdv', true) | yaml_scalar ]]
       +materialized: [[ business_vault_materialization | default('table', true) | yaml_scalar ]]
+[[ extra_block ]][% endif %]

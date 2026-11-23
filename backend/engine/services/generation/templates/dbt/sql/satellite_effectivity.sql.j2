@@ -1,29 +1,25 @@
 [# Effectivity Satellite Template #]
 [# Tracks the effectivity (active/inactive status) of relationships #]
-{{ config(
-[% if materialization %]
-    materialized='[[ materialization ]]',
-[% endif %]
-[% if model_alias %]
-    alias='[[ model_alias ]]',
-[% endif %]
-[% if model_schema %]
-    schema='[[ model_schema ]]',
-[% endif %]
-[% if model_database %]
-    database='[[ model_database ]]',
-[% endif %]
-[% for key, value in (model_custom_config | default({})).items() %]
-    [[ key ]]=[[ value | config_literal ]],
-[% endfor %]
-    tags=[% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['satellite', 'effectivity', 'raw_vault'[% if group %], '[[ group ]]'[% endif %]][% endif +%]
-) }}
+[# model_config: the config() block; the satellite's stored settings override these defaults #]
+[[ model_config(materialized=materialization, tags=['satellite', 'effectivity', 'raw_vault', group]) ]]
 
 {%- set yaml_metadata -%}
 source_model: [[ stage_name ]]
 tracked_hashkey: [[ parent_hashkey ]]
-[# Required since datavault4dbt 2.0 (optional in 1.x). false = multi-batch logic, correct whether the stage holds one load or several. #]
-source_is_single_batch: false
+[% if is_active_alias %]
+is_active_alias: [[ is_active_alias ]]
+[% endif %]
+[% if additional_columns %]
+additional_columns:
+[% for col in additional_columns %]
+    - [[ col ]]
+[% endfor %]
+[% endif %]
+[% if disable_hwm %]
+disable_hwm: true
+[% endif %]
+[# Required since datavault4dbt 2.0 (optional in 1.x). false = multi-batch logic, correct whether the stage holds one load or several; true only for single-batch sources (delivery method). #]
+source_is_single_batch: [[ 'true' if source_is_single_batch else 'false' ]]
 {%- endset -%}
 
 {{ datavault4dbt.eff_sat_v0(yaml_metadata=yaml_metadata) }}

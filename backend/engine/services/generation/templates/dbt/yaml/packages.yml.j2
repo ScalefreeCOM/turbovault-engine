@@ -1,3 +1,10 @@
+[# packages.yml Template #]
+[# packages_block: an imported dbt project's packages (spec D28), with #]
+[# datavault4dbt; without it, TurboVault's own. #]
 packages:
+[% if packages_block %]
+[[ packages_block ]]
+[% else %]
   - package: ScalefreeCOM/datavault4dbt
     version: [">=1.0.0", "<3.0.0"]
+[% endif %]

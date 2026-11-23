@@ -27,8 +27,9 @@ from pathlib import Path
 from engine.services.export.exporters.dbml_exporter import DBMLExporter
 from engine.services.export.exporters.json_exporter import JSONExporter
 from engine.services.export.models import ProjectExport
+from engine.services.generation.dbt_target import DbtTarget
 from engine.services.generation.errors import Code, make_issue
-from engine.services.generation.folder_config import GenerationConfig
+from engine.services.generation.folder_config import FolderConfig, GenerationConfig
 from engine.services.generation.generator import DbtProjectGenerator
 from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
 from engine.services.generation.template_resolver import TemplateResolver
@@ -51,16 +52,15 @@ def render(
     output_type: OutputType,
     runtime_config: EngineRuntimeConfig,
     options: GenerationOptions,
-    reference_export: ProjectExport | None = None,
+    target: DbtTarget | None = None,
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
     """Produce artifacts (in memory) and any render-stage issues.
 
-    `project_export` holds the entities to render; `reference_export` is the
-    unfiltered export the dbt renderer resolves cross-model references
-    against (defaults to `project_export`).
+    ``target``: the folder a dbt project goes into (an existing dbt project
+    keeps its dbt_project.yml and packages.yml, spec D17).
     """
     if output_type == "dbt":
-        return _render_dbt(project_export, runtime_config, options, reference_export)
+        return _render_dbt(project_export, runtime_config, options, target)
     if output_type == "json":
         return _render_json(project_export, options)
     if output_type == "dbml":
@@ -90,9 +90,9 @@ def _render_dbt(
     project_export: ProjectExport,
     runtime_config: EngineRuntimeConfig,
     options: GenerationOptions,
-    reference_export: ProjectExport | None = None,
+    target: DbtTarget | None = None,
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
-    config = _build_dbt_config(runtime_config, options)
+    config = _build_dbt_config(runtime_config, options, target)
     template_resolver = TemplateResolver(
         use_db_templates=options.use_db_templates,
         templates_override=options.templates_override,
@@ -110,7 +110,7 @@ def _render_dbt(
             config=config,
             template_resolver=template_resolver,
         )
-        legacy_report = generator.generate(project_export, reference_export)
+        legacy_report = generator.generate(project_export)
 
         artifacts = _collect_dbt_artifacts(temp_root, legacy_report)
         issues = _translate_dbt_issues(legacy_report)
@@ -118,10 +118,17 @@ def _render_dbt(
 
 
 def _build_dbt_config(
-    runtime_config: EngineRuntimeConfig, options: GenerationOptions
+    runtime_config: EngineRuntimeConfig,
+    options: GenerationOptions,
+    target: DbtTarget | None = None,
 ) -> GenerationConfig:
     """Translate runtime config + options into the legacy GenerationConfig
-    the existing renderer still expects."""
+    the existing renderer still expects.
+
+    Into an existing dbt project (``target`` keeps its project files), the
+    project's models: block stands in for TurboVault's layer blocks.
+    """
+    keeps = target is not None and target.keeps_project_files
     project_name = (
         runtime_config.dbt_project_name
         or runtime_config.project_name
@@ -131,7 +138,13 @@ def _build_dbt_config(
         project_name=(project_name or "turbovault_project").lower().replace(" ", "_"),
         profile_name=runtime_config.profile_name,
         generate_satellite_v1_views=options.generate_satellite_v1_views,
-        use_original_paths=options.use_original_paths,
+        use_model_folders=(
+            runtime_config.use_model_folders
+            if options.use_model_folders is None
+            else options.use_model_folders
+        ),
+        folder_config=FolderConfig(dict(runtime_config.folders or {})),
+        add_default_tags=runtime_config.add_default_tags,
         satellite_v0_naming=runtime_config.satellite_v0_naming,
         satellite_v1_naming=runtime_config.satellite_v1_naming,
         record_tracking_satellite_naming=runtime_config.record_tracking_satellite_naming,
@@ -144,6 +157,17 @@ def _build_dbt_config(
         # coercing it here (e.g. `dict(...)`) would turn a reportable bad value
         # into an unhandled TypeError before the renderer ever sees it.
         global_vars=runtime_config.global_vars,
+        dbt_project_models=(
+            target.models_block()
+            if keeps
+            else dict(runtime_config.dbt_project_models or {})
+        ),
+        dbt_project_settings=dict(runtime_config.dbt_project_settings or {}),
+        dbt_packages=[dict(package) for package in runtime_config.dbt_packages or []],
+        write_project_files=not keeps,
+        existing_variables=target.variables() if keeps else {},
+        existing_packages=list(target.packages) if keeps else [],
+        existing_resources=target.resources() if keeps else None,
         control_schema=runtime_config.control_schema,
         control_materialization=runtime_config.control_materialization,
         staging_materialization=runtime_config.staging_materialization,
@@ -213,14 +237,21 @@ _LEGACY_ERROR_CODE_MAP: dict[str, str] = {
     "PRF_001": Code.RENDER_INVALID_PROFILES,
     "PRF_002": Code.RENDER_LITERAL_SECRET_IN_PROFILE,
     "MAT_001": Code.RENDER_INVALID_MATERIALIZATION,
-    "PTH_001": Code.WRITE_PATH_COLLISION,
 }
 
-# Legacy warning codes surfaced as warnings: YML_001 ("SQL but no YAML") and
-# TPL_003 (a stage template that predates pre-stages).
+# Legacy warning codes surfaced as warnings: YML_001 ("SQL but no YAML"),
+# TPL_003 (a stage template that predates pre-stages) and PST_001 (a pre-stage
+# the dbt project must contain).
 _LEGACY_WARNING_CODE_MAP: dict[str, str] = {
     "YML_001": Code.RENDER_TEMPLATE_NOT_FOUND,
     "TPL_003": Code.RENDER_TEMPLATE_OUTDATED,
+    "PST_001": Code.RENDER_PRESTAGE_MAINTAINED_IN_DBT,
+    "PRJ_002": Code.RENDER_PROJECT_NEEDS_PACKAGE,
+    "PRJ_003": Code.RENDER_PROJECT_NEEDS_VARS,
+}
+# Legacy notes surfaced as infos with a code of their own.
+_LEGACY_INFO_CODE_MAP: dict[str, str] = {
+    "PRJ_001": Code.RENDER_PROJECT_FILES_KEPT,
 }
 
 
@@ -246,7 +277,9 @@ def _translate_dbt_issues(legacy_report) -> list[Issue]:
         issues.append(
             make_issue(
                 severity="warning" if warning_code else "info",
-                code=warning_code or Code.RENDER_ENTITY_SKIPPED,
+                code=warning_code
+                or _LEGACY_INFO_CODE_MAP.get(warn.code)
+                or Code.RENDER_ENTITY_SKIPPED,
                 stage="render",
                 message=warn.message,
                 entity=_entity_ref_or_none(warn.entity_type, warn.entity_name),

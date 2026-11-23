@@ -36,6 +36,12 @@ The JSON export contains every piece of metadata stored in the project:
 | `reference_tables` | Reference table definitions |
 | `pits` | Point-in-Time structure definitions |
 
+Every entity also carries the settings of its dbt models: `generation_config`
+holds what the project stores (see [Model settings](#model-settings)), and
+`output`, `v0_output`, `v1_output` and the like hold the models as they are
+generated. The import reads `generation_config`; the generated models, like the
+`stages` and `prestages` lists, are derived and not read back.
+
 ## Usage
 
 ### CLI
@@ -93,26 +99,92 @@ only its own is imported, so an inherited description stays inherited. An
 export from before derived columns existed has no `derived_columns` on its
 tables, and importing it leaves the project's derived columns alone.
 
-[Output attributes](01_domain-model.md#output-attributes) — the stored file
-path, model name and config of each generated model — round-trip as the
-`generation_config` (`{"dbt": {<output kind>: {...}}}`) of stages, pre-stages,
-hubs, links, satellites, PITs, reference tables and snapshot controls. The
-attributes of a stage (`stage`) and of a pre-stage (`prestage`) belong to their
-source table; the import merges them back into the table's value. Unset
-attributes are left out of the export. The import validates them like any
-other input (e.g. a `file_path` outside `models/` is rejected), reports changed
-ones as `generation_config` changes, and an export from before they existed
-leaves the project's attributes alone.
+Pre-stages round-trip as source tables with `table_type: "prestage"`. They
+carry no SQL: the model belongs to the dbt project. A `prestage_sql` field in
+files exported while pre-stages had SQL is ignored. An export from before
+pre-stages existed has no `table_type`, and importing it leaves the project's
+table types alone; a `replace_all` import of such a file doesn't delete
+pre-stages either. The export's `prestages` and `stages` lists are derived from
+the tables and are not read back.
 
-Pre-stages round-trip as source tables with `table_type: "prestage"` and their
-SQL in `prestage_sql`. A `prestage_sql` of `null` clears a pre-stage's SQL (it
-is then maintained outside TurboVault). An export from before pre-stages existed
-has neither field, and importing it leaves the project's table types and SQL
-alone; a `replace_all` import of such a file doesn't delete pre-stages either.
-The export's `prestages` and `stages` lists are derived from the tables and are
-not read back.
+### Options and settings
 
-Snapshot controls embedded in the JSON export are restored as-is. The automatic creation of default snapshot controls (which happens for new empty projects) is skipped when the source type is `json`.
+The options of stages, hubs, links, satellites, PITs and snapshot controls
+round-trip: the stage options and delivery method of source systems and
+tables, missing columns, a satellite's hash diff alias and v1 view options,
+the high-water mark switches, effectivity satellite options, a link's union
+strategy, a PIT's snapshot optimization and custom record source, and a
+snapshot control's `sdts_alias` and end date.
+
+A value the file leaves empty is cleared in the project: `"sequence_column":
+null` removes the table's sequence column, `"create_v1_view": null` makes the
+satellite follow the project's setting again. A field the file doesn't have
+at all, because an older version exported it, leaves the project's value
+alone.
+
+A satellite's `hashdiff_name` is the stage's hash diff column as generated:
+the satellite's own name, or the one the `hashdiff_naming` pattern gives. The
+import stores it only where it differs from what the importing project's
+pattern gives, so the satellite keeps following the pattern.
+
+### Model settings
+
+`generation_config` holds what the project stores for an entity's dbt models
+(issue #442), keyed by framework (`dbt`) and then by kind: `stage` and
+`prestage` on a source table; `hub`, `effectivity_satellite` and
+`record_tracking_satellite` on hubs and links; `satellite_v0` and
+`satellite_v1` on satellites; `pit`, `reference_table`, `snapshot_control_v0`
+and `snapshot_control_v1`. Each kind holds any of `model_name`, `file_path`,
+`alias`, `schema`, `database`, `materialized`, `tags` and
+`custom_config_json`; what is missing follows TurboVault's defaults. Kinds
+without stored settings are left out.
+
+```json
+"generation_config": {
+  "dbt": {
+    "stage": {
+      "model_name": "stg_crm_customer",
+      "file_path": "staging/crm/stg_crm_customer.sql",
+      "materialized": "view",
+      "tags": ["crm"],
+      "custom_config_json": {"on_schema_change": "sync_all_columns"}
+    }
+  }
+}
+```
+
+- `file_path` is the model's `.sql` file relative to `models/`, with `/`. Its
+  file name is the model's name: the import stores it as the model's name only
+  where it isn't the name TurboVault derives, so a round trip changes nothing.
+  `model_name` wins where both are given. A model stored in a folder outside
+  `models/` (another dbt model path) is exported without its folder, with a
+  warning.
+- `tags` are the model's own tags, added to TurboVault's default tags.
+- `custom_config_json` holds further `config()` settings; its keys are
+  identifiers (`post_hook`) and can't be one of the attributes above.
+
+The import gives each entity exactly the settings its `generation_config`
+lists: a model the file leaves out goes back to the defaults, and a file
+without `generation_config` (an older export) leaves them alone. A setting
+that can't be stored, such as a model name another model already has, is
+reported as `entity.invalid_configuration` and left as it is; the entity
+itself is imported. A `file_path` that leaves `models/` makes the file invalid
+(`source.invalid_json`).
+
+### Snapshot controls
+
+Snapshot controls are restored with their dates, daily time, `sdts_alias`,
+logic patterns and model settings, before the PITs and reference tables that
+read them. A control is matched by its base name: `control_snap`,
+`control_snap_v0` and `control_snap_v1` are one control. PITs and reference
+tables find their control by its model, also when a stored model name renamed
+it. The import adds and updates logic patterns but never removes one, and it
+never deletes a snapshot control, `replace_all` included: PITs and reference
+tables the file doesn't describe may read them.
+
+`project init` from a JSON export doesn't create the default snapshot
+controls: the export carries its own. An import with `--skip-snapshots`
+leaves snapshot controls and PITs out.
 
 ## What Is Not Preserved
 
@@ -133,6 +205,7 @@ For a JSON file produced by `turbovault generate --type json`, validation issues
 | Code | Trigger |
 |------|---------|
 | `source.invalid_json` | The file is not valid JSON or does not match the Turbovault export schema. |
-| `entity.missing_reference` | The JSON references a snapshot control table that doesn't exist (rare; can happen when manually editing exports). |
+| `entity.missing_reference` | The JSON references a hub, satellite or other entity that doesn't exist (rare; can happen when manually editing exports). |
+| `entity.invalid_configuration` | A model setting in `generation_config` can't be stored, e.g. a model name another model of the project has. The entity is imported without it. |
 
 The full catalog lives in [Import Pipeline → Issue codes](06_import-pipeline.md#issue-codes).

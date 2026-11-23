@@ -43,14 +43,16 @@ _LEGACY_CODE_MAP: dict[str, str] = {
     "STG_002": "validate.stage.no_keys",
     "STG_003": "validate.stage.derived_column_no_datatype",
     "STG_004": "validate.stage.uses_load_column",
-    "PST_001": "validate.prestage.ephemeral",
-    "PST_002": "validate.prestage.unknown_source",
+    "STG_005": "validate.stage.duplicate_hashdiff",
+    "STG_006": "validate.stage.duplicate_hashkey",
+    "REF_001": "validate.reference_table.satellite_without_v1",
     "HUB_001": "validate.hub.missing_hashkey",
     "HUB_002": "validate.hub.no_business_keys",
     "HUB_003": "validate.hub.no_source_tables",
     "LNK_001": "validate.link.missing_hashkey",
     "LNK_002": "validate.link.too_few_hubs",
     "LNK_003": "validate.link.no_sources",
+    "LNK_004": "validate.link.nh_without_payload",
     "SAT_001": "validate.satellite.no_parent",
     "SAT_002": "validate.satellite.no_stage",
     "SAT_003": "validate.satellite.no_columns",
@@ -61,6 +63,9 @@ _LEGACY_CODE_MAP: dict[str, str] = {
     "SNAP_001": "validate.snapshot.no_name",
     "SNAP_002": "validate.snapshot.no_start_date",
     "SNAP_003": "validate.snapshot.no_logic_patterns",
+    "MDL_001": "validate.model.duplicate_name",
+    "MDL_002": "validate.model.invalid_name",
+    "MDL_003": "validate.model.invalid_folder",
 }
 
 
@@ -92,7 +97,7 @@ def validate(
     result: ValidationResult = validate_export(
         project_export,
         keeps_load_columns=keeps is True or str(keeps).lower() == "true",
-        use_original_paths=options.use_original_paths,
+        generate_satellite_v1_views=options.generate_satellite_v1_views,
     )
     group_lookup = _build_group_lookup(project_export)
 

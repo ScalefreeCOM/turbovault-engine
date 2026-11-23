@@ -6,14 +6,14 @@ models:
   - name: [[ v1_name ]]
     description: "Snapshot control logic (retention patterns)"
     config:
-      tags: [% if model_tags is defined and model_tags is not none %][[ model_tags | quoted_list ]][% else %]['snapshot_control', 'control'][% endif +%]
+      tags: [[ model_tags(['snapshot_control', 'control']) ]]
     columns:
-      - name: sdts
+      - name: [[ sdts_alias or 'sdts' ]]
         description: "Snapshot date timestamp"
         data_tests:
           - unique
           - not_null
-[% for pattern in logic_patterns %]
-      - name: [[ pattern.column_name ]]
-        description: "[[ pattern.component ]] snapshot flag"
+[% for column in log_logic_columns %]
+      - name: [[ column.name ]]
+        description: "Snapshot logic: [[ column.intervals | map(attribute='name') | join(', ') ]]"
 [% endfor %]

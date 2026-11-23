@@ -1,13 +1,12 @@
 """
-Output attributes of generated models.
+Output attributes of generated models: the rules for their values.
 
-An entity can store, per model it generates (its *output kind*), the file
-path, model name and config the generated model should have — e.g. the ones
-of the dbt project it was imported from. Generation derives everything it
-does not find here, as it always has.
-
-The attributes live in a ``generation_config`` JSON field on each entity,
-keyed by framework and then by output kind::
+An entity can store, per model it generates (its *output kind*), the name,
+folder and ``config()`` settings the generated model should have, e.g. the
+ones of the dbt project it was imported from. The project stores them as
+``engine.models.ModelOutput`` rows, one per model. The JSON export carries
+them as each entity's ``generation_config``, keyed by framework and then by
+output kind (issue #442)::
 
     {"dbt": {"satellite_v0": {"model_name": "sat_customer",
                               "file_path": "raw/sat_customer.sql"},
@@ -17,19 +16,21 @@ keyed by framework and then by output kind::
 Only ``dbt`` is defined today; another framework (e.g. SQLMesh) gets its own
 key next to it rather than sharing the dbt attributes.
 
-This module only holds the format rules, shared by the Django field
-validator, the export/import schema and generation. It must not import
-services.
+This module holds the rules both share: what a model name, a folder, a
+``file_path`` and a ``config()`` key may be. Generation writes every value
+through escaping literals, so the rules only keep a model inside the dbt
+project and its ``config()`` call valid; they accept what real dbt projects
+use (e.g. a schema given as a Jinja expression). It must not import services.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from pathlib import PurePosixPath
 from typing import Any
 
 from django.core.exceptions import ValidationError
-from django.db import models
 from django.utils.deconstruct import deconstructible
 
 # Frameworks a generation_config may hold attributes for.
@@ -37,10 +38,10 @@ GENERATION_CONFIG_FRAMEWORKS: tuple[str, ...] = ("dbt",)
 
 # Output kinds each entity generates, by the entity's model name.
 OUTPUT_KINDS_BY_ENTITY: dict[str, tuple[str, ...]] = {
-    # A pre-stage table generates its pre-stage model and (usually) a stage.
+    # A pre-stage table has its pre-stage model and (usually) a stage.
     "SourceTable": ("stage", "prestage"),
     "Hub": ("hub", "record_tracking_satellite", "effectivity_satellite"),
-    "Link": ("link", "record_tracking_satellite"),
+    "Link": ("link", "record_tracking_satellite", "effectivity_satellite"),
     "Satellite": ("satellite_v0", "satellite_v1"),
     "PIT": ("pit",),
     "ReferenceTable": ("reference_table",),
@@ -58,26 +59,90 @@ OUTPUT_ATTRIBUTE_FIELDS: tuple[str, ...] = (
     "custom_config_json",
 )
 
-# config() keys that have their own attribute; custom_config_json may not set
+# config() keys that have their own attribute; the further config may not set
 # them, so each setting has exactly one place.
 DEDICATED_CONFIG_KEYS: frozenset[str] = frozenset(
     {"materialized", "alias", "schema", "database", "tags"}
 )
 
-# dbt names a model after its file, so a model name is also a file stem.
-_MODEL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-# Relation names dbt writes into SQL; `$` is valid in Snowflake/Postgres.
-_RELATION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
-# Databases may also be e.g. BigQuery project ids (`my-project-123`).
-_DATABASE_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_$-]*")
-_MATERIALIZATION = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# The folder a file_path is relative to.
+MODELS_FOLDER = "models"
+
+# A model name is a file name: no path separators, no leading dot, no
+# whitespace or control characters.
+_MODEL_NAME = re.compile(r"[^/\\\s.][^/\\\s]*")
 # config() keys are written as keyword arguments of a dbt config() call.
 _CONFIG_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-# Tags are written into single-quoted SQL and YAML strings, so no quotes,
-# backslashes or whitespace.
-_TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:/-]*")
-# One folder or file name of a model path.
-_PATH_SEGMENT = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
+
+
+def model_name_error(name: str) -> str | None:
+    """Why *name* can't be a model's name, or None when it can."""
+    if not _MODEL_NAME.fullmatch(name) or "\x00" in name:
+        return (
+            f"'{name}' can't name a dbt model: use letters, digits and "
+            "underscores, without spaces, dots or slashes"
+        )
+    return None
+
+
+def normalize_folder(folder: str) -> str:
+    """A folder relative to the dbt project: forward slashes, no outer slashes."""
+    return folder.strip().replace("\\", "/").strip("/")
+
+
+def folder_error(folder: str) -> str | None:
+    """Why *folder* can't hold a model, or None when it can.
+
+    The folder is relative to the dbt project. It must stay inside it: no
+    absolute paths, drive letters or ``..`` segments.
+    """
+    if not folder:
+        return None
+    raw = folder.strip()
+    if raw.startswith(("/", "\\", "~")) or re.match(r"[A-Za-z]:", raw):
+        return f"Folder '{folder}' must be relative to the dbt project"
+    parts = PurePosixPath(normalize_folder(raw)).parts
+    if any(part in ("..", ".") for part in parts) or "\x00" in raw:
+        return f"Folder '{folder}' must stay inside the dbt project (no '..' or '.')"
+    return None
+
+
+def config_key_errors(config: Any) -> list[str]:
+    """What is wrong with further ``config()`` settings (empty if valid).
+
+    Keys are identifiers, as a ``config()`` call takes them (``post_hook``,
+    not ``post-hook``), and none has an attribute of its own.
+    """
+    if not isinstance(config, Mapping):
+        return ["the further config must be a mapping of config() key to value"]
+    errors = []
+    for key in config:
+        if not isinstance(key, str) or not _CONFIG_KEY.fullmatch(key):
+            errors.append(
+                f"config() key {key!r} must be a letter or _ followed by "
+                "letters, digits or _"
+            )
+        elif key in DEDICATED_CONFIG_KEYS:
+            errors.append(f"config() key '{key}' has its own attribute")
+    return errors
+
+
+def file_path_folder(file_path: str) -> str:
+    """The folder of a model's ``file_path``, relative to the dbt project."""
+    parent = PurePosixPath(file_path).parent
+    return MODELS_FOLDER if str(parent) == "." else f"{MODELS_FOLDER}/{parent}"
+
+
+def file_path_of(folder: str, model_name: str) -> str | None:
+    """A model's ``file_path`` (relative to ``models/``), or None when its
+    folder isn't below ``models/``."""
+    folder = normalize_folder(folder)
+    if folder == MODELS_FOLDER:
+        return f"{model_name}.sql"
+    prefix = f"{MODELS_FOLDER}/"
+    if not folder.startswith(prefix):
+        return None
+    return f"{folder[len(prefix):]}/{model_name}.sql"
 
 
 def output_attribute_errors(attributes: Mapping[str, Any]) -> list[str]:
@@ -97,54 +162,33 @@ def output_attribute_errors(attributes: Mapping[str, Any]) -> list[str]:
         for name in attributes
         if name not in OUTPUT_ATTRIBUTE_FIELDS
     ]
-    checks = (
-        ("model_name", _MODEL_NAME, "a letter or _ followed by letters, digits or _"),
-        ("alias", _RELATION_NAME, "a SQL identifier"),
-        ("schema", _RELATION_NAME, "a SQL identifier"),
-        ("database", _DATABASE_NAME, "a database name"),
-        ("materialized", _MATERIALIZATION, "a dbt materialization name"),
-    )
-    for name, pattern, expected in checks:
+    model_name = attributes.get("model_name")
+    if model_name is not None:
+        if not isinstance(model_name, str):
+            errors.append(f"'model_name' must be a string, got {model_name!r}")
+        elif error := model_name_error(model_name):
+            errors.append(error)
+    for name in ("alias", "schema", "database", "materialized"):
         value = attributes.get(name)
-        if value is None:
-            continue
-        if not isinstance(value, str) or not pattern.fullmatch(value):
-            errors.append(f"'{name}' must be {expected}, got {value!r}")
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            errors.append(f"'{name}' must be a non-empty string, got {value!r}")
 
     tags = attributes.get("tags")
-    if tags is not None:
-        if not isinstance(tags, list) or not all(
-            isinstance(tag, str) and _TAG.fullmatch(tag) for tag in tags
-        ):
-            errors.append(
-                "'tags' must be a list of tags made of letters, digits and _ . : / -"
-            )
+    if tags is not None and (
+        not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags)
+    ):
+        errors.append("'tags' must be a list of strings")
 
     custom_config = attributes.get("custom_config_json")
     if custom_config is not None:
-        errors.extend(_custom_config_errors(custom_config))
+        errors.extend(
+            f"'custom_config_json': {error}"
+            for error in config_key_errors(custom_config)
+        )
 
     file_path = attributes.get("file_path")
     if file_path is not None:
-        errors.extend(_file_path_errors(file_path, attributes.get("model_name")))
-    return errors
-
-
-def _custom_config_errors(custom_config: Any) -> list[str]:
-    """Checks for ``custom_config_json``: further ``config()`` settings."""
-    if not isinstance(custom_config, Mapping):
-        return ["'custom_config_json' must be a mapping of config key to value"]
-    errors = []
-    for key in custom_config:
-        if not isinstance(key, str) or not _CONFIG_KEY.fullmatch(key):
-            errors.append(
-                f"'custom_config_json' key {key!r} must be a letter or _ "
-                "followed by letters, digits or _"
-            )
-        elif key in DEDICATED_CONFIG_KEYS:
-            errors.append(
-                f"'custom_config_json' cannot set '{key}': use the '{key}' attribute"
-            )
+        errors.extend(_file_path_errors(file_path, model_name))
     return errors
 
 
@@ -152,24 +196,18 @@ def _file_path_errors(file_path: Any, model_name: Any) -> list[str]:
     """Containment and naming checks for a model's ``file_path``."""
     if not isinstance(file_path, str) or not file_path:
         return ["'file_path' must be a non-empty string"]
-    if "\\" in file_path or file_path.startswith("/") or ":" in file_path:
+    if "\\" in file_path or file_path.startswith(("/", "~")) or ":" in file_path:
         return [
             f"'file_path' must be a relative path with forward slashes, "
             f"got {file_path!r}"
         ]
-    segments = file_path.split("/")
-    if any(
-        segment in ("", ".", "..") or not _PATH_SEGMENT.fullmatch(segment)
-        for segment in segments
-    ):
-        return [
-            f"'file_path' {file_path!r} must stay inside models/ and use only "
-            "letters, digits, _ . - in folder and file names"
-        ]
-    if not segments[-1].endswith(".sql"):
+    if error := folder_error(file_path):
+        return [f"'file_path' {file_path!r} must stay inside models/: {error}"]
+    name = PurePosixPath(file_path).name
+    if not name.endswith(".sql"):
         return [f"'file_path' {file_path!r} must name a .sql file"]
-    stem = segments[-1].removesuffix(".sql")
-    if not _MODEL_NAME.fullmatch(stem):
+    stem = name.removesuffix(".sql")
+    if model_name_error(stem):
         return [f"the file name of 'file_path' {file_path!r} is not a valid model name"]
     if isinstance(model_name, str) and model_name != stem:
         return [
@@ -223,7 +261,11 @@ def generation_config_errors(value: Any, allowed_kinds: tuple[str, ...]) -> list
 
 @deconstructible
 class GenerationConfigValidator:
-    """Django field validator for an entity's ``generation_config``."""
+    """Validator of a ``generation_config`` value.
+
+    The entity fields it validated (migration 0019) moved to
+    ``ModelOutput`` (migration 0026); migration 0019 still names it.
+    """
 
     def __init__(self, allowed_kinds: tuple[str, ...]) -> None:
         self.allowed_kinds = tuple(allowed_kinds)
@@ -238,20 +280,3 @@ class GenerationConfigValidator:
             isinstance(other, GenerationConfigValidator)
             and self.allowed_kinds == other.allowed_kinds
         )
-
-
-def generation_config_field(entity: str) -> models.JSONField:
-    """The ``generation_config`` JSON field for the given entity model."""
-    kinds = OUTPUT_KINDS_BY_ENTITY[entity]
-    return models.JSONField(
-        default=dict,
-        blank=True,
-        validators=[GenerationConfigValidator(kinds)],
-        help_text=(
-            "Output attributes of the generated model(s), keyed by framework "
-            f"(dbt) and output kind ({', '.join(kinds)}): model_name, alias, "
-            "file_path (relative to models/), materialized, tags, schema, "
-            "database, custom_config_json. Generation derives whatever is not "
-            "set."
-        ),
-    )

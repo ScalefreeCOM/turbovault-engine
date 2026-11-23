@@ -68,8 +68,44 @@ class IrisSource(_SourceBase):
     type: Literal["iris"] = "iris"
 
 
+class DbtSource(_SourceBase):
+    """A dbt project's artifacts: a datavault4dbt project to import.
+
+    ``path`` is a dbt project folder (the import finds ``target/manifest.json``
+    or ``manifest.json``, the catalog, ``dbt_project.yml`` and the package
+    files in it) or a ``manifest.json`` file. Files given explicitly win over
+    the ones found. The import reads files only: it never runs dbt or connects
+    to a warehouse. See ``engine.services.imports.dbt``.
+    """
+
+    type: Literal["dbt"] = "dbt"
+    catalog: Path | None = Field(
+        default=None, description="catalog.json: column types (optional)"
+    )
+    dbt_project: Path | None = Field(
+        default=None,
+        description="dbt_project.yml: vars and folder settings (optional)",
+    )
+    packages: Path | None = Field(
+        default=None,
+        description=(
+            "packages.yml, dependencies.yml or package-lock.yml: the "
+            "datavault4dbt version (optional)"
+        ),
+    )
+    import_descriptions: bool = Field(
+        default=True, description="Import the descriptions of models and columns"
+    )
+    import_tags: bool = Field(default=True, description="Import the models' tags")
+
+
 SourceInput = Annotated[
-    ExcelSource | SqliteSource | JsonSource | SourceMetadataSource | IrisSource,
+    ExcelSource
+    | SqliteSource
+    | JsonSource
+    | SourceMetadataSource
+    | IrisSource
+    | DbtSource,
     Field(discriminator="type"),
 ]
 
@@ -157,7 +193,11 @@ PLAN_ACTIONS: tuple[PlanAction, ...] = (
 
 
 class IssueLocation(BaseModel):
-    """Where in the source an issue was detected."""
+    """Where in the source an issue was detected.
+
+    Spreadsheets name a sheet, row and column. A dbt project names the node
+    (``model.my_project.hub_customer``), its file and the macro parameter.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -165,6 +205,8 @@ class IssueLocation(BaseModel):
     sheet: str | None = None
     row: int | None = None
     column: str | None = None
+    node_id: str | None = None
+    parameter: str | None = None
 
 
 class EntityRef(BaseModel):
@@ -298,6 +340,43 @@ ImportStatus = Literal[
 ]
 
 
+class SettingSuggestion(BaseModel):
+    """A project setting a source suggests (spec D22, D28)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # The suggested value of the runtime config field
+    value: Any
+    # For a setting inferred from the source's models: how many follow the
+    # value, out of how many. None for a value copied from the source (e.g.
+    # its dbt_project.yml)
+    matching: int | None = None
+    total: int | None = None
+
+
+class ProjectSettings(BaseModel):
+    """Project settings a source suggests (a dbt project import, D22/D25/D28).
+
+    Keyed by runtime config field (``EngineRuntimeConfig``): naming patterns
+    (``stage_naming``), layer schemas and materializations, defaults
+    (``default_load_date_value``, ``include_source_columns``, ...),
+    ``add_default_tags``, ``use_delivery_method``, and copies of the dbt
+    project's files (``dbt_project_name``, ``profile_name``, ``global_vars``,
+    ``dbt_project_models``, ``dbt_project_settings``, ``dbt_packages``). A
+    dotted key sets one entry of a mapping field (``folders.raw_vault``,
+    ``model_materializations.pit``). Only values that differ from the
+    project's are suggested. The import doesn't apply them: the caller does
+    (the CLI asks and writes config.yml, Studio offers them).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    suggestions: dict[str, SettingSuggestion] = Field(default_factory=dict)
+
+    def is_empty(self) -> bool:
+        return not self.suggestions
+
+
 class ImportReport(BaseModel):
     """The single artifact returned by `import_metadata()`."""
 
@@ -315,6 +394,8 @@ class ImportReport(BaseModel):
     source_name: str
     plan: ImportPlan
     issues: list[Issue] = Field(default_factory=list)
+    # Settings the source suggests for the project (dbt project imports)
+    project_settings: ProjectSettings | None = None
 
     @property
     def error_count(self) -> int:

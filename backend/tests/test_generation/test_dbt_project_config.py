@@ -40,13 +40,13 @@ models:
     00_control:
       +schema: control
       +materialized: table
-    02_staging:
+    20_staging:
       +schema: stage
       +materialized: view
-    03_raw_vault:
+    30_raw_vault:
       +schema: rdv
       +materialized: incremental
-    04_business_vault:
+    40_business_vault:
       +schema: bdv
       +materialized: table
 """
@@ -139,9 +139,9 @@ class TestDbtProjectYml:
         assert parsed["profile"] == "scalefree_dv"
         layers = parsed["models"]["pipeline_e2e"]
         assert layers["00_control"] == {"+schema": "meta", "+materialized": "view"}
-        assert layers["02_staging"]["+materialized"] == "ephemeral"
-        assert layers["03_raw_vault"]["+materialized"] == "table"
-        assert layers["04_business_vault"]["+materialized"] == "view"
+        assert layers["20_staging"]["+materialized"] == "ephemeral"
+        assert layers["30_raw_vault"]["+materialized"] == "table"
+        assert layers["40_business_vault"]["+materialized"] == "view"
 
 
 class TestProfilesYml:
@@ -301,7 +301,7 @@ class TestYamlQuoting:
         parsed = yaml.safe_load((out / "dbt_project.yml").read_text(encoding="utf-8"))
         layers = parsed["models"]["pipeline_e2e"]
         assert layers["00_control"]["+schema"] == name
-        assert layers["02_staging"]["+schema"] == name
+        assert layers["20_staging"]["+schema"] == name
 
     def test_plain_custom_names_stay_unquoted(self, run):
         """Names YAML already reads correctly keep their previous form."""
@@ -360,7 +360,7 @@ class TestModelMaterialization:
         """The point of the setting: nothing in the model overrides the layer."""
         report, out = run(staging_materialization="ephemeral")
         parsed = yaml.safe_load((out / "dbt_project.yml").read_text(encoding="utf-8"))
-        assert parsed["models"]["pipeline_e2e"]["02_staging"]["+materialized"] == (
+        assert parsed["models"]["pipeline_e2e"]["20_staging"]["+materialized"] == (
             "ephemeral"
         )
         for content in _model_sql_by_type(report)["stage"]:
@@ -388,7 +388,7 @@ class TestModelMaterialization:
         assert report.status in ("success", "partial_success")
         parsed = yaml.safe_load((out / "dbt_project.yml").read_text(encoding="utf-8"))
         assert (
-            parsed["models"]["pipeline_e2e"]["04_business_vault"]["+materialized"]
+            parsed["models"]["pipeline_e2e"]["40_business_vault"]["+materialized"]
             == "my_custom_mat"
         )
 
@@ -434,15 +434,20 @@ class TestSpecificMaterializations:
             assert generator._specific_materialization(kind) is None, kind
 
     def test_templates_write_the_value_only_when_given(self, django_setup):
-        """Each specific model's template carries the conditional line."""
+        """Each specific model's template passes its materialization to
+        model_config(), which writes it only when it is set."""
+        from engine.services.generation.model_config import ModelConfig
         from engine.services.generation.template_resolver import TEMPLATES_DIR
 
         for kind in self.EXPECTED:
             source = (TEMPLATES_DIR / "dbt" / "sql" / f"{kind}.sql.j2").read_text(
                 encoding="utf-8"
             )
-            assert "[% if materialization %]" in source, kind
-            assert "materialized='[[ materialization ]]'," in source, kind
+            assert "materialized=materialization" in source, kind
+
+        config = ModelConfig()
+        assert "materialized" not in config.settings(materialized=None, tags=["x"])
+        assert config.settings(materialized="view")["materialized"] == "view"
 
 
 class TestCustomModelMaterializations:
@@ -638,9 +643,9 @@ class TestTemplateFallbacks:
         assert '""' not in content
         layers = yaml.safe_load(content)["models"]["p"]
         assert layers["00_control"] == {"+schema": "control", "+materialized": "table"}
-        assert layers["02_staging"]["+materialized"] == "view"
-        assert layers["03_raw_vault"]["+materialized"] == "incremental"
-        assert layers["04_business_vault"]["+materialized"] == "table"
+        assert layers["20_staging"]["+materialized"] == "view"
+        assert layers["30_raw_vault"]["+materialized"] == "incremental"
+        assert layers["40_business_vault"]["+materialized"] == "table"
 
     def test_old_render_equals_full_default_render(self, django_setup):
         full = {
@@ -660,4 +665,4 @@ class TestTemplateFallbacks:
         )
         parsed = yaml.safe_load(content)
         assert parsed["profile"] == "default"
-        assert parsed["models"]["p"]["02_staging"]["+schema"] == "stage"
+        assert parsed["models"]["p"]["20_staging"]["+schema"] == "stage"

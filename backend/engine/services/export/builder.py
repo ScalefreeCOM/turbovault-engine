@@ -11,16 +11,15 @@ from collections import defaultdict
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from pydantic import ValidationError
-
-from engine.models.output_attributes import (
-    OUTPUT_KINDS_BY_ENTITY,
-    generation_config_errors,
+from engine.services.export.model_outputs import (  # noqa: F401 (re-exported)
+    V1_SATELLITE_TYPES,
+    ModelOutputs,
+    dbt_source_name,
 )
 from engine.services.export.models import (
     ColumnDescriptionDef,
     DerivedColumnDef,
-    GenerationConfigDef,
+    EffectivitySatelliteOptions,
     HashkeyDefinition,
     HubColumnMapping,
     HubDefinition,
@@ -51,11 +50,6 @@ from engine.services.export.models import (
     StageHashdiffDef,
     StageHashkeyDef,
 )
-from engine.services.prestage_sql import (
-    dbt_source_name,
-    referenced_models,
-    referenced_sources,
-)
 from engine.services.runtime_config import (
     EngineRuntimeConfig,
     resolve_runtime_config,
@@ -65,8 +59,6 @@ from engine.services.sql_columns import referenced_columns
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
-
-    from django.db.models import Model
 
     from engine.models import Project, SourceTable, StagingColumn
 
@@ -113,50 +105,6 @@ def _prejoin_origin(staging_column: StagingColumn) -> tuple[str | None, str | No
     return target.physical_table_name, target.source_system.name
 
 
-def _generation_config(
-    entity: Model, label: str, kinds: tuple[str, ...] | None = None
-) -> GenerationConfigDef:
-    """The entity's stored ``generation_config``, checked.
-
-    ``kinds`` keeps only those output kinds, for definitions that carry part
-    of an entity's models (a source table's stage and pre-stage).
-
-    Raises ValueError naming the entity when a stored value is invalid (e.g.
-    written to the database without going through validation).
-    """
-    stored = entity.generation_config or {}
-    # Checked here, kinds included, so a bad value names its entity instead of
-    # failing later in the export schema's validators.
-    errors = generation_config_errors(
-        stored, OUTPUT_KINDS_BY_ENTITY[type(entity).__name__]
-    )
-    if errors:
-        raise ValueError(
-            f"Invalid generation_config on {label} '{entity}': {'; '.join(errors)}"
-        )
-    if kinds is not None:
-        by_kind = (stored.get("dbt") or {}).items()
-        stored = {"dbt": {kind: attrs for kind, attrs in by_kind if kind in kinds}}
-    try:
-        return GenerationConfigDef.model_validate(stored)
-    except ValidationError as exc:
-        raise ValueError(
-            f"Invalid generation_config on {label} '{entity}': {exc}"
-        ) from exc
-
-
-def stage_model_name(table: SourceTable) -> str:
-    """Name of a source table's stage model: ``stg__<system>__<table>``."""
-    system = dbt_source_name(table.source_system.name)
-    return f"stg__{system}__{table.physical_table_name.lower()}"
-
-
-def prestage_model_name(table: SourceTable) -> str:
-    """Name of a pre-stage's dbt model: ``pstg__<system>__<table>``."""
-    system = dbt_source_name(table.source_system.name)
-    return f"pstg__{system}__{table.physical_table_name.lower()}"
-
-
 class ModelBuilder:
     """
     Builds intermediate export models from Django ORM data.
@@ -189,6 +137,14 @@ class ModelBuilder:
         """
         self.project = project
         self.runtime_config = resolve_runtime_config(project, runtime_config)
+        self._outputs: ModelOutputs | None = None
+
+    @property
+    def outputs(self) -> ModelOutputs:
+        """Names and settings of the project's dbt models."""
+        if self._outputs is None:
+            self._outputs = ModelOutputs(self.project, self.runtime_config)
+        return self._outputs
 
     def _source_values(self, table: SourceTable) -> ResolvedSourceValues:
         """The record source, static part and load date the table's stage uses."""
@@ -215,6 +171,7 @@ class ModelBuilder:
         config = runtime_config or self.runtime_config
         if runtime_config is not None:
             self.runtime_config = runtime_config
+            self._outputs = None  # names follow the new config's patterns
         stage_schema = config.stage_schema
         rdv_schema = config.rdv_schema
         bdv_schema = config.bdv_schema
@@ -262,6 +219,7 @@ class ModelBuilder:
                         column_name=col.source_column_physical_name,
                         datatype=col.source_column_datatype,
                         description=col.description or None,
+                        is_missing=col.is_missing,
                     )
                     for col in table.columns.all()
                 ]
@@ -279,16 +237,24 @@ class ModelBuilder:
                     SourceTableDef(
                         table_name=table.physical_table_name,
                         table_type=table.table_type,
-                        prestage_sql=table.prestage_sql or None,
                         alias=table.alias,
                         record_source=table.record_source_value,
                         static_part_of_record_source=(
                             table.static_part_of_record_source
                         ),
                         load_date=table.load_date_value,
+                        include_source_columns=table.include_source_columns,
+                        enable_ghost_records=table.enable_ghost_records,
+                        sequence_column=table.sequence_column or None,
+                        delivery_method=table.delivery_method or None,
                         description=table.description or None,
                         columns=columns,
                         derived_columns=derived_columns,
+                        generation_config=self.outputs.generation_config(
+                            "source_table",
+                            table,
+                            f"source table '{table.physical_table_name}'",
+                        ),
                     )
                 )
 
@@ -303,6 +269,9 @@ class ModelBuilder:
                         source_system.static_part_of_record_source
                     ),
                     load_date=source_system.load_date_value,
+                    include_source_columns=source_system.include_source_columns,
+                    enable_ghost_records=source_system.enable_ghost_records,
+                    delivery_method=source_system.delivery_method or None,
                     tables=tables,
                 )
             )
@@ -390,9 +359,40 @@ class ModelBuilder:
                     source_tables=source_info,
                     create_record_tracking_satellite=hub.create_record_tracking_satellite,
                     create_effectivity_satellite=hub.create_effectivity_satellite,
+                    disable_hwm=hub.disable_hwm,
+                    effectivity_options=EffectivitySatelliteOptions(
+                        is_active_alias=hub.effectivity_is_active_alias or None,
+                        disable_hwm=hub.effectivity_disable_hwm,
+                        additional_columns=list(
+                            hub.effectivity_additional_columns or []
+                        ),
+                        # It reads the stage of the hub's first source that
+                        # loads the hub's own hash key
+                        source_is_single_batch=next(
+                            (
+                                source.source_is_single_batch
+                                for source in source_info
+                                if not source.hk_column
+                            ),
+                            False,
+                        ),
+                    ),
                     description=hub.description or None,
                     column_descriptions=column_descriptions,
-                    generation_config=_generation_config(hub, "hub"),
+                    output=self.outputs.hub(hub),
+                    effectivity_satellite_output=(
+                        self.outputs.effectivity_satellite(hub)
+                        if hub.create_effectivity_satellite
+                        else None
+                    ),
+                    record_tracking_satellite_output=(
+                        self.outputs.record_tracking_satellite(hub)
+                        if hub.create_record_tracking_satellite
+                        else None
+                    ),
+                    generation_config=self.outputs.generation_config(
+                        "hub", hub, f"hub '{hub.hub_physical_name}'"
+                    ),
                 )
             )
 
@@ -407,8 +407,10 @@ class ModelBuilder:
         """
         from engine.models import HubColumn
 
-        # Group mappings by source table
-        source_table_map: dict[str, dict] = defaultdict(
+        # Group mappings by source table and the stage hash key they load: a
+        # table loading the hub under another hash key (role-playing) is a
+        # source of its own.
+        source_table_map: dict[tuple[str, str], dict] = defaultdict(
             lambda: {
                 "source_system": "",
                 "stage_name": "",
@@ -416,16 +418,27 @@ class ModelBuilder:
                 "columns": [],
                 "mappings": [],
                 "is_primary_source": False,
+                "single_batch": False,
             }
         )
+
+        def source_key(mapping) -> tuple[str, str]:
+            table = mapping.staging_column.source_table
+            role = mapping.stage_hashkey_name or ""
+            if role == (hub.hub_hashkey_name or ""):
+                role = ""
+            return (table.physical_table_name, role)
 
         for column in hub.columns.filter(column_type=HubColumn.ColumnType.BUSINESS_KEY):
             for mapping in column.source_mappings.all():
                 table = mapping.staging_column.source_table
-                table_key = table.physical_table_name
+                table_key = source_key(mapping)
 
+                source_table_map[table_key]["single_batch"] = self._single_batch(table)
                 source_table_map[table_key]["source_system"] = table.source_system.name
-                source_table_map[table_key]["stage_name"] = stage_model_name(table)
+                source_table_map[table_key]["stage_name"] = self.outputs.stage(
+                    table
+                ).model_name
                 source_table_map[table_key]["rsrc_static"] = self._source_values(
                     table
                 ).static_part.value
@@ -448,10 +461,13 @@ class ModelBuilder:
         ):
             for mapping in column.source_mappings.all():
                 table = mapping.staging_column.source_table
-                table_key = table.physical_table_name
+                table_key = source_key(mapping)
 
+                source_table_map[table_key]["single_batch"] = self._single_batch(table)
                 source_table_map[table_key]["source_system"] = table.source_system.name
-                source_table_map[table_key]["stage_name"] = stage_model_name(table)
+                source_table_map[table_key]["stage_name"] = self.outputs.stage(
+                    table
+                ).model_name
                 source_table_map[table_key]["rsrc_static"] = self._source_values(
                     table
                 ).static_part.value
@@ -488,8 +504,10 @@ class ModelBuilder:
                     )
                     for m in info["mappings"]
                 ],
+                hk_column=role or None,
+                source_is_single_batch=info["single_batch"],
             )
-            for table_name, info in source_table_map.items()
+            for (table_name, role), info in source_table_map.items()
         ]
 
     def _build_stages(self) -> list[StageDefinition]:
@@ -500,9 +518,7 @@ class ModelBuilder:
         computed from hubs (and future: links) that use this source,
         plus hashdiffs from satellites.
 
-        A pre-stage's stage reads the pre-stage model with ``ref()``. Tables
-        that only pre-stages read get no stage (see
-        ``_tables_read_only_by_prestages``).
+        A pre-stage's stage reads the pre-stage model with ``ref()``.
 
         Returns:
             List of stage definitions with hashkey and hashdiff calculations
@@ -514,13 +530,9 @@ class ModelBuilder:
             .select_related("source_system")
             .prefetch_related("columns", "derived_columns")
         )
-        read_only_by_prestages = self._tables_read_only_by_prestages(source_tables)
 
         result = []
         for table in source_tables:
-            if table.pk in read_only_by_prestages:
-                continue
-
             # Get all hashkeys needed for this source table
             hashkeys = self._get_hashkeys_for_source_table(table)
 
@@ -536,48 +548,57 @@ class ModelBuilder:
             # Derived columns: defined on the table, or from transformations
             derived_columns = self._get_derived_columns_for_source_table(table)
 
-            # Get columns
+            # Get columns; the missing ones the stage adds with NULL values
             columns = [
                 SourceColumnDef(
                     column_name=col.source_column_physical_name,
                     datatype=col.source_column_datatype,
                     description=col.description or None,
+                    is_missing=col.is_missing,
                 )
                 for col in table.columns.all()
             ]
 
             values = self._source_values(table)
+            output = self.outputs.stage(table)
 
             result.append(
                 StageDefinition(
-                    stage_name=stage_model_name(table),
+                    stage_name=output.model_name,
                     source_table=table.physical_table_name,
                     source_schema=table.source_system.schema_name,
                     source_system=table.source_system.name,
                     prestage_model=(
-                        prestage_model_name(table) if table.is_prestage else None
+                        self.outputs.prestage_name(table) if table.is_prestage else None
                     ),
                     record_source=values.record_source.value,
                     load_date=values.load_date.value,
+                    output=output,
                     description=table.description or None,
+                    include_source_columns=self._stage_option(
+                        table, "include_source_columns"
+                    ),
+                    enable_ghost_records=self._stage_option(
+                        table, "enable_ghost_records"
+                    ),
+                    sequence_column=table.sequence_column or None,
+                    missing_columns=[col for col in columns if col.is_missing],
                     hashkeys=hashkeys,
                     hashdiffs=hashdiffs,
                     prejoins=prejoins,
                     multi_active_config=multi_active_config,
                     derived_columns=derived_columns,
                     columns=columns,
-                    generation_config=_generation_config(table, "source table", ("stage",)),
                 )
             )
 
         return result
 
     def _build_prestages(self) -> list[PrestageDefinition]:
-        """Build the pre-stage models: one per source table of type prestage.
+        """Build the pre-stages: one per source table of type prestage.
 
-        A pre-stage without SQL is maintained outside TurboVault: it is listed
-        (its stage still reads it) with ``sql=None``, and generation writes no
-        model for it.
+        The dbt project maintains each pre-stage's model; TurboVault generates
+        no file for it. The list names the models the project must contain.
         """
         from engine.models import SourceTable
 
@@ -590,10 +611,9 @@ class ModelBuilder:
         )
         return [
             PrestageDefinition(
-                model_name=prestage_model_name(table),
+                model_name=self.outputs.prestage_name(table),
                 table_name=table.physical_table_name,
                 source_system=table.source_system.name,
-                sql=table.prestage_sql if (table.prestage_sql or "").strip() else None,
                 description=table.description or None,
                 columns=[
                     SourceColumnDef(
@@ -603,68 +623,9 @@ class ModelBuilder:
                     )
                     for column in table.columns.all()
                 ],
-                generation_config=_generation_config(
-                    table, "source table", ("prestage",)
-                ),
             )
             for table in tables
         ]
-
-    def _tables_read_only_by_prestages(self, tables: list[SourceTable]) -> set:
-        """Primary keys of the tables only pre-stages read.
-
-        A table a pre-stage reads (a JSON landing table, say) needs no stage of
-        its own when nothing in the Raw Vault loads from it: the stage would
-        hash nothing. That holds for physical tables read with ``source()`` and
-        for pre-stages other pre-stages read with ``ref()``. A pre-stage's
-        reads come from scanning its SQL (``engine.services.prestage_sql``).
-        """
-        from engine.models import (
-            HubSourceMapping,
-            LinkHubSourceMapping,
-            LinkSourceMapping,
-            Satellite,
-        )
-
-        physical = {
-            (dbt_source_name(t.source_system.name), t.physical_table_name.lower()): t.pk
-            for t in tables
-            if not t.is_prestage
-        }
-        prestages = {prestage_model_name(t): t.pk for t in tables if t.is_prestage}
-
-        read: set = set()
-        for table in tables:
-            if not table.is_prestage or not table.prestage_sql:
-                continue
-            for source_name, table_name in referenced_sources(table.prestage_sql):
-                pk = physical.get((source_name.lower(), table_name.lower()))
-                if pk is not None:
-                    read.add(pk)
-            for model in referenced_models(table.prestage_sql):
-                pk = prestages.get(model.lower())
-                if pk is not None and pk != table.pk:
-                    read.add(pk)
-        if not read:
-            return set()
-
-        loading: set = set()
-        for mapping_model in (
-            HubSourceMapping,
-            LinkHubSourceMapping,
-            LinkSourceMapping,
-        ):
-            loading.update(
-                mapping_model.objects.filter(
-                    staging_column__source_table__in=read
-                ).values_list("staging_column__source_table", flat=True)
-            )
-        loading.update(
-            Satellite.objects.filter(source_table__in=read).values_list(
-                "source_table", flat=True
-            )
-        )
-        return read - loading
 
     def _get_hashdiffs_for_source_table(
         self, source_table: SourceTable
@@ -691,21 +652,49 @@ class ModelBuilder:
             ]
 
             if hashdiff_columns:
-                # Generate hashdiff name using project pattern
-                sat_name = sat.satellite_physical_name
-                hd_name = self.project.resolve_naming_pattern(
-                    "hashdiff_naming", sat_name, runtime_config=self.runtime_config
-                )
-
                 result.append(
                     StageHashdiffDef(
                         satellite_name=sat.satellite_physical_name,
-                        hashdiff_name=hd_name,
+                        hashdiff_name=self._hashdiff_name(sat),
                         columns=hashdiff_columns,
                     )
                 )
 
         return result
+
+    def _hashdiff_name(self, satellite) -> str:
+        """The stage's hash diff column of a satellite: stored, else the pattern."""
+        return satellite.hashdiff_name or self.project.resolve_naming_pattern(
+            "hashdiff_naming",
+            satellite.satellite_physical_name,
+            runtime_config=self.runtime_config,
+        )
+
+    def _stage_option(self, table: SourceTable, field: str) -> bool:
+        """A stage option: the table's, else its source system's, else the project's."""
+        for value in (
+            getattr(table, field),
+            getattr(table.source_system, field),
+        ):
+            if value is not None:
+                return value
+        return getattr(self.runtime_config, field)
+
+    def _single_batch(self, table: SourceTable | None) -> bool:
+        """Whether models may load *table* with datavault4dbt's single-batch logic.
+
+        Only with the project's delivery method switch on, for a table whose
+        delivery method (its own, else its system's, else the project's) is
+        single_batch.
+        """
+        if table is None or not self.runtime_config.use_delivery_method:
+            return False
+        method = (
+            table.delivery_method
+            or table.source_system.delivery_method
+            or self.runtime_config.delivery_method
+        )
+        return method == "single_batch"
 
     def _get_multi_active_config_for_source_table(
         self, source_table: SourceTable
@@ -815,7 +804,9 @@ class ModelBuilder:
         """
         from engine.models import (
             DerivedColumn,
+            HubColumn,
             HubSourceMapping,
+            LinkColumn,
             LinkHubSourceMapping,
             LinkSourceMapping,
             Satellite,
@@ -835,10 +826,15 @@ class ModelBuilder:
         # Where each derived column defined on the table sits in `result`, so
         # an in-place transformation of it replaces its definition.
         defined_at: dict[str, int] = {}
+        # Derived columns by name. One named like a source column shadows it:
+        # the stage replaces the source column with the derived value, so a
+        # mapping of that source column reads the derived column.
+        derived_by_name: dict[str, DerivedColumn] = {}
 
         for derived in DerivedColumn.objects.filter(source_table=source_table):
             required = referenced_columns(derived.expression, table_columns)
             defined_at[derived.column_name.lower()] = len(result)
+            derived_by_name[derived.column_name.lower()] = derived
             result.append(
                 DerivedColumnDef(
                     target_column_name=derived.column_name,
@@ -858,6 +854,9 @@ class ModelBuilder:
         ) -> None:
             source_col_name = staging_column.physical_name
             derived = staging_column.derived_column
+            if derived is None and staging_column.source_column_id is not None:
+                # A source column a derived column shadows reads the derived value
+                derived = derived_by_name.get(source_col_name.lower())
             if derived is not None:
                 if target_col_name == source_col_name and not transformation:
                     return  # the derived column itself, already defined
@@ -930,6 +929,16 @@ class ModelBuilder:
 
         for mapping in hub_mappings:
             transformation = mapping.hub_column.target_column_transformation
+            if mapping.hub_column.column_type == HubColumn.ColumnType.ADDITIONAL_COLUMN:
+                # datavault4dbt takes additional columns from the stage as they
+                # are: the stage provides them under the hub column's name.
+                add(
+                    mapping.hub_column.column_name,
+                    mapping.staging_column,
+                    transformation,
+                    mapping.hub_column.target_column_datatype,
+                )
+                continue
             if not transformation:
                 continue
             add(
@@ -965,6 +974,34 @@ class ModelBuilder:
 
         for link_mapping in link_source_mappings:
             link_column = link_mapping.link_column
+            if link_column.column_type == LinkColumn.ColumnType.DEPENDENT_CHILD_KEY:
+                staging_name = link_mapping.staging_column.physical_name
+                if link_column.target_column_transformation:
+                    # In place: the link hash key hashes the transformed value
+                    add(
+                        staging_name,
+                        link_mapping.staging_column,
+                        link_column.target_column_transformation,
+                        link_column.target_column_datatype,
+                    )
+                if link_column.column_name != staging_name:
+                    # The link selects it by its own name (foreign_hashkeys)
+                    add(
+                        link_column.column_name,
+                        link_mapping.staging_column,
+                        link_column.target_column_transformation,
+                        link_column.target_column_datatype,
+                    )
+                continue
+            if link_column.column_type == LinkColumn.ColumnType.ADDITIONAL_COLUMN:
+                # Taken from the stage as they are, like a hub's
+                add(
+                    link_column.column_name,
+                    link_mapping.staging_column,
+                    link_column.target_column_transformation,
+                    link_column.target_column_datatype,
+                )
+                continue
             if not link_column.target_column_transformation:
                 continue
             add(
@@ -1037,7 +1074,9 @@ class ModelBuilder:
                     target_table=target.physical_table_name,
                     target_source_system=target.source_system.name,
                     target_model=(
-                        prestage_model_name(target) if target.is_prestage else None
+                        self.outputs.prestage_name(target)
+                        if target.is_prestage
+                        else None
                     ),
                     join_conditions=join_conditions,
                     extraction_columns=extraction_columns,
@@ -1077,19 +1116,31 @@ class ModelBuilder:
         # 1. Process Hub Hashkeys
         # ========================================================================
 
-        # Find all hub source mappings where source column is from this table
-        hub_mappings = HubSourceMapping.objects.filter(
-            staging_column__source_table=source_table
-        ).select_related("hub_column__hub", "staging_column")
+        # Find all hub source mappings where source column is from this table.
+        # Ordered by name: the keys are UUIDs, so the database's own order
+        # changes from one import to the next, and the stage with it.
+        hub_mappings = (
+            HubSourceMapping.objects.filter(staging_column__source_table=source_table)
+            .select_related("hub_column__hub", "staging_column")
+            .order_by(
+                "hub_column__hub__hub_physical_name",
+                "stage_hashkey_name",
+                "hub_column__sort_order",
+                "hub_column__column_name",
+                "staging_column__source_column__source_column_physical_name",
+                "staging_column__derived_column__column_name",
+            )
+        )
 
-        # Group by hub to build hashkey definitions
-        hub_columns_map: dict[str, dict] = defaultdict(
+        # Group by hub and the stage hash key the mappings load: the hub's own,
+        # or another one when this table loads the hub in another role.
+        hub_columns_map: dict[tuple[str, str], dict] = defaultdict(
             lambda: {"hub": None, "source_columns": []}
         )
 
         for mapping in hub_mappings:
             hub = mapping.hub_column.hub
-            hub_key = str(hub.hub_id)
+            hub_key = (str(hub.hub_id), mapping.stage_hashkey_name or "")
 
             hub_columns_map[hub_key]["hub"] = hub
 
@@ -1102,7 +1153,7 @@ class ModelBuilder:
                     }
                 )
 
-        for _hub_key, info in hub_columns_map.items():
+        for (_hub_id, role), info in hub_columns_map.items():
             hub = info["hub"]
 
             # Skip if not a standard hub (no hashkey needed)
@@ -1116,7 +1167,10 @@ class ModelBuilder:
             source_column_names = [c["source_column"] for c in sorted_columns]
 
             if source_column_names:  # Only add if we have business key columns
-                hashkey_name = hub.hub_hashkey_name
+                hashkey_name = role or hub.hub_hashkey_name
+                # A role's hash key once per stage, even if two roles name it alike
+                if role and hashkey_name in generated_hashkeys:
+                    continue
                 result.append(
                     StageHashkeyDef(
                         target_entity=hub.hub_physical_name,
@@ -1132,13 +1186,26 @@ class ModelBuilder:
         # ========================================================================
 
         # Find all link hub source mappings where source column is from this table
-        link_hub_mappings = LinkHubSourceMapping.objects.filter(
-            staging_column__source_table=source_table
-        ).select_related(
-            "link_hub_reference__link",
-            "link_hub_reference__hub",
-            "standard_hub_column",
-            "staging_column",
+        link_hub_mappings = (
+            LinkHubSourceMapping.objects.filter(
+                staging_column__source_table=source_table
+            )
+            .select_related(
+                "link_hub_reference__link",
+                "link_hub_reference__hub",
+                "standard_hub_column",
+                "staging_column",
+            )
+            .order_by(
+                "link_hub_reference__link__link_physical_name",
+                "link_hub_reference__sort_order",
+                "link_hub_reference__hub__hub_physical_name",
+                "link_hub_reference__hub_hashkey_alias_in_link",
+                "standard_hub_column__sort_order",
+                "standard_hub_column__column_name",
+                "staging_column__source_column__source_column_physical_name",
+                "staging_column__derived_column__column_name",
+            )
         )
 
         # Group by link to build link hashkey definitions
@@ -1179,10 +1246,18 @@ class ModelBuilder:
             )
 
         # Now find dependent child keys for each link from this source table
-        link_source_mappings = LinkSourceMapping.objects.filter(
-            staging_column__source_table=source_table,
-            link_column__column_type=LinkColumn.ColumnType.DEPENDENT_CHILD_KEY,
-        ).select_related("link_column__link", "staging_column")
+        link_source_mappings = (
+            LinkSourceMapping.objects.filter(
+                staging_column__source_table=source_table,
+                link_column__column_type=LinkColumn.ColumnType.DEPENDENT_CHILD_KEY,
+            )
+            .select_related("link_column__link", "staging_column")
+            .order_by(
+                "link_column__link__link_physical_name",
+                "link_column__sort_order",
+                "link_column__column_name",
+            )
+        )
 
         for mapping in link_source_mappings:
             link = mapping.link_column.link
@@ -1315,13 +1390,10 @@ class ModelBuilder:
                 # No valid parent
                 continue
 
-            stage_name = stage_model_name(sat.source_table)
+            stage_name = self.outputs.stage(sat.source_table).model_name
 
-            # Generate hashdiff name using project pattern
-            sat_name = sat.satellite_physical_name
-            hashdiff_name = self.project.resolve_naming_pattern(
-                "hashdiff_naming", sat_name, runtime_config=self.runtime_config
-            )
+            # The stage's hash diff column: stored, else the project pattern
+            hashdiff_name = self._hashdiff_name(sat)
 
             # Build column definitions
             columns = []
@@ -1352,9 +1424,24 @@ class ModelBuilder:
                     source_system=sat.source_table.source_system.name,
                     stage_name=stage_name,
                     hashdiff_name=hashdiff_name,
+                    hashdiff_alias=sat.hashdiff_alias or None,
                     columns=columns,
                     description=sat.description or None,
-                    generation_config=_generation_config(sat, "satellite"),
+                    v0_output=self.outputs.satellite_v0(sat),
+                    v1_output=(
+                        self.outputs.satellite_v1(sat)
+                        if sat.satellite_type in V1_SATELLITE_TYPES
+                        else None
+                    ),
+                    create_v1_view=sat.create_v1_view,
+                    v1_ledts_alias=sat.v1_ledts_alias or None,
+                    v1_add_is_current_flag=sat.v1_add_is_current_flag,
+                    v1_include_payload=sat.v1_include_payload,
+                    disable_hwm=sat.disable_hwm,
+                    source_is_single_batch=self._single_batch(sat.source_table),
+                    generation_config=self.outputs.generation_config(
+                        "satellite", sat, f"satellite '{sat.satellite_physical_name}'"
+                    ),
                 )
             )
 
@@ -1413,6 +1500,14 @@ class ModelBuilder:
                 column_type=LinkColumn.ColumnType.ADDITIONAL_COLUMN
             ).values_list("column_name", flat=True)
 
+            dependent_child_keys = list(
+                link.columns.filter(
+                    column_type=LinkColumn.ColumnType.DEPENDENT_CHILD_KEY
+                )
+                .order_by("sort_order", "column_name")
+                .values_list("column_name", flat=True)
+            )
+
             # Build source table map with column mappings
             source_table_map: dict[str, dict] = {}
 
@@ -1427,8 +1522,9 @@ class ModelBuilder:
                     if table_key not in source_table_map:
                         source_table_map[table_key] = {
                             "source_system": table.source_system.name,
-                            "stage_name": stage_model_name(table),
+                            "stage_name": self.outputs.stage(table).model_name,
                             "rsrc_static": self._source_values(table).static_part.value,
+                            "single_batch": self._single_batch(table),
                             "columns": [],
                             "hashkey_mappings": [],
                         }
@@ -1462,8 +1558,9 @@ class ModelBuilder:
                     if table_key not in source_table_map:
                         source_table_map[table_key] = {
                             "source_system": table.source_system.name,
-                            "stage_name": stage_model_name(table),
+                            "stage_name": self.outputs.stage(table).model_name,
                             "rsrc_static": self._source_values(table).static_part.value,
+                            "single_batch": self._single_batch(table),
                             "columns": [],
                         }
 
@@ -1534,6 +1631,7 @@ class ModelBuilder:
                     rsrc_static=info.get("rsrc_static"),
                     columns=info["columns"],
                     hashkey_mappings=info.get("hashkey_mappings", []),
+                    source_is_single_batch=info.get("single_batch", False),
                 )
                 for table_name, info in source_table_map.items()
             ]
@@ -1567,12 +1665,43 @@ class ModelBuilder:
                     foreign_hashkeys=foreign_hashkeys,
                     business_key_columns=business_key_column_names,
                     payload_columns=list(payload_cols),
+                    dependent_child_keys=dependent_child_keys,
                     additional_columns=list(additional_cols),
                     source_tables=source_tables,
                     create_record_tracking_satellite=link.create_record_tracking_satellite,
                     description=link.description or None,
                     column_descriptions=column_descriptions,
-                    generation_config=_generation_config(link, "link"),
+                    disable_hwm=link.disable_hwm,
+                    union_strategy=link.union_strategy or None,
+                    # Single-batch logic only when every source delivers so
+                    source_is_single_batch=bool(source_tables)
+                    and all(source.source_is_single_batch for source in source_tables),
+                    create_effectivity_satellite=link.create_effectivity_satellite,
+                    effectivity_options=EffectivitySatelliteOptions(
+                        is_active_alias=link.effectivity_is_active_alias or None,
+                        disable_hwm=link.effectivity_disable_hwm,
+                        additional_columns=list(
+                            link.effectivity_additional_columns or []
+                        ),
+                        # It reads the link's first source's stage
+                        source_is_single_batch=bool(
+                            source_tables and source_tables[0].source_is_single_batch
+                        ),
+                    ),
+                    output=self.outputs.link(link),
+                    effectivity_satellite_output=(
+                        self.outputs.effectivity_satellite(link)
+                        if link.create_effectivity_satellite
+                        else None
+                    ),
+                    record_tracking_satellite_output=(
+                        self.outputs.record_tracking_satellite(link)
+                        if link.create_record_tracking_satellite
+                        else None
+                    ),
+                    generation_config=self.outputs.generation_config(
+                        "link", link, f"link '{link.link_physical_name}'"
+                    ),
                 )
             )
 
@@ -1612,10 +1741,21 @@ class ModelBuilder:
                 SnapshotControlDefinition(
                     name=control.name,
                     start_date=control.snapshot_start_date.isoformat(),
-                    end_date=control.snapshot_end_date.isoformat(),
+                    end_date=(
+                        control.snapshot_end_date.isoformat()
+                        if control.snapshot_end_date
+                        else None
+                    ),
                     daily_time=control.daily_snapshot_time.isoformat(),
+                    sdts_alias=control.sdts_alias or None,
                     logic_patterns=logic_patterns,
-                    generation_config=_generation_config(control, "snapshot control"),
+                    v0_output=self.outputs.snapshot_control_v0(control),
+                    v1_output=self.outputs.snapshot_control_v1(control),
+                    generation_config=self.outputs.generation_config(
+                        "snapshot_control",
+                        control,
+                        f"snapshot control '{control.name}'",
+                    ),
                 )
             )
 
@@ -1665,6 +1805,9 @@ class ModelBuilder:
                 satellite_assignments.append(
                     ReferenceTableSatelliteAssignment(
                         satellite_name=assignment.reference_satellite.satellite_physical_name,
+                        model_name=self.outputs.satellite_v1(
+                            assignment.reference_satellite
+                        ).model_name,
                         include_columns=include_cols,
                         exclude_columns=exclude_cols,
                     )
@@ -1683,23 +1826,31 @@ class ModelBuilder:
                 satellite_assignments = [
                     ReferenceTableSatelliteAssignment(
                         satellite_name=s.satellite_physical_name,
+                        model_name=self.outputs.satellite_v1(s).model_name,
                         include_columns=[],
                         exclude_columns=[],
                     )
                     for s in ref_sats
                 ]
 
-            # Determine snapshot info
+            # Snapshot-based: the snapshot control's logic model (v1) and the
+            # column that triggers a snapshot, as for PITs
             snapshot_table_name = None
             snapshot_logic_column = None
             if (
                 ref_table.historization_type
                 == ReferenceTable.HistorizationType.SNAPSHOT_BASED
             ):
-                if ref_table.snapshot_control_logic:
-                    snapshot_logic_column = (
-                        ref_table.snapshot_control_logic.snapshot_control_logic_column_name
-                    )
+                logic = ref_table.snapshot_control_logic
+                control = ref_table.snapshot_control_table or (
+                    logic.snapshot_control_table if logic else None
+                )
+                if control is not None:
+                    snapshot_table_name = self.outputs.snapshot_control_v1(
+                        control
+                    ).model_name
+                if logic:
+                    snapshot_logic_column = logic.snapshot_control_logic_column_name
 
             result.append(
                 ReferenceTableDefinition(
@@ -1711,7 +1862,12 @@ class ModelBuilder:
                     snapshot_logic_column=snapshot_logic_column,
                     satellites=satellite_assignments,
                     description=ref_table.description or None,
-                    generation_config=_generation_config(ref_table, "reference table"),
+                    output=self.outputs.reference_table(ref_table),
+                    generation_config=self.outputs.generation_config(
+                        "reference_table",
+                        ref_table,
+                        f"reference table '{ref_table.reference_table_physical_name}'",
+                    ),
                 )
             )
 
@@ -1751,22 +1907,22 @@ class ModelBuilder:
                 tracked_entity_name = pit.tracked_link.link_physical_name
                 tracked_hashkey = pit.tracked_link.link_hashkey_name or ""
 
-            # Get satellite names
-            satellite_names = [
-                sat.satellite_physical_name for sat in pit.satellites.all()
+            # The satellites, and the v0 models the PIT reads
+            satellites = list(pit.satellites.all())
+            satellite_names = [sat.satellite_physical_name for sat in satellites]
+            satellite_models = [
+                self.outputs.satellite_v0(sat).model_name for sat in satellites
             ]
 
-            # Get snapshot control name (v1)
+            # The snapshot control's logic model (v1), which the PIT reads
             snapshot_control_name = ""
             if (
                 pit.snapshot_control_logic
                 and pit.snapshot_control_logic.snapshot_control_table
             ):
-                base_name = pit.snapshot_control_logic.snapshot_control_table.name
-                # Ensure we get the v1 name
-                snapshot_control_name = (
-                    base_name.removesuffix("_v0").removesuffix("_v1") + "_v1"
-                )
+                snapshot_control_name = self.outputs.snapshot_control_v1(
+                    pit.snapshot_control_logic.snapshot_control_table
+                ).model_name
 
             result.append(
                 PITDefinition(
@@ -1776,13 +1932,18 @@ class ModelBuilder:
                     tracked_entity_name=tracked_entity_name,
                     tracked_hashkey=tracked_hashkey,
                     satellites=satellite_names,
+                    satellite_models=satellite_models,
                     snapshot_control_name=snapshot_control_name,
                     snapshot_logic_column=pit.snapshot_control_logic.snapshot_control_logic_column_name,
                     dimension_key_column=pit.dimension_key_column_name,
                     pit_type=pit.pit_type,
                     use_snapshot_optimization=pit.use_snapshot_optimization,
+                    custom_record_source=pit.custom_record_source or None,
                     include_business_objects_before_appearance=pit.include_business_objects_before_appearance,
-                    generation_config=_generation_config(pit, "PIT"),
+                    output=self.outputs.pit(pit),
+                    generation_config=self.outputs.generation_config(
+                        "pit", pit, f"PIT '{pit.pit_physical_name}'"
+                    ),
                 )
             )
 

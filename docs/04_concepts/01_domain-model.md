@@ -87,6 +87,9 @@ Describes a physical source system (database/schema) and a human-readable name.
 | record_source_value | string  |          | Record source of the system's tables that set none. |
 | static_part_of_record_source | string |   | Static part of the record source of the system's tables that set none. |
 | load_date_value  | string     |          | Load date of the system's tables that set none. |
+| include_source_columns | boolean |       | Stage option of the system's tables that set none (see [Stage options](#stage-options)). Empty: the project's. |
+| enable_ghost_records | boolean |         | Stage option of the system's tables that set none. Empty: the project's. |
+| delivery_method  | string     |          | `single_batch` or `multi_batch`, for the system's tables that set none (see [Delivery method](#delivery-method)). Empty: the project's. |
 | created_at       | datetime   | ✓       | Timestamp when the record was created.        |
 | updated_at       | datetime   | ✓       | Timestamp when the record was last updated.   |
 
@@ -108,14 +111,16 @@ prepares data for its stage (see [Pre-stages](#35-pre-stages)).
 | project_id                   | identifier | ✓ (FK)  | FK to `Project`.                                                  |
 | source_system_id             | identifier | ✓ (FK)  | FK to `source_system.source_system_id`.                           |
 | physical_table_name          | string     | ✓       | Physical name of the table in the source system (e.g.`CUSTOMER`). For a pre-stage, the name its model and stage are named after. |
-| table_type                   | string     | ✓       | `physical` (default): a table of the source system, read as a dbt source. `prestage`: a dbt model, read with `ref()`. |
-| prestage_sql                 | string     |          | Only for a pre-stage: its dbt model, written to the project as it is. Empty: the model is maintained outside TurboVault. |
+| table_type                   | string     | ✓       | `physical` (default): a table of the source system, read as a dbt source. `prestage`: a model of the dbt project, read with `ref()`; the dbt project maintains it. |
 | alias                        | string     |          | Optional alias used in generated code/dbt models.                   |
 | record_source_value          | string     |          | The stage's `rsrc`: a column name, SQL, or fixed text after a `!` (e.g. `!CRM`). Empty inherits (see below). |
 | static_part_of_record_source | string     |          | The part of the record source that stays the same across loads, as an SQL `LIKE` pattern (e.g. `SAP/Accounts/%`). Written as the `rsrc_static` of the hubs and links the table loads. Empty inherits. |
 | load_date_value              | string     |          | The stage's `ldts`: a column name or SQL expression (e.g. `sysdate()`). Empty inherits (see below). |
+| include_source_columns       | boolean    |          | Whether the stage passes all source columns on (datavault4dbt `include_source_columns`). Empty inherits (see [Stage options](#stage-options)). |
+| enable_ghost_records         | boolean    |          | Whether the stage adds ghost records. Empty inherits. |
+| sequence_column              | string     |          | Column holding a sequence number from the extraction (datavault4dbt `sequence`). |
+| delivery_method              | string     |          | `single_batch` or `multi_batch`. Empty inherits (see [Delivery method](#delivery-method)). |
 | description                  | string     |          | Optional description; written to `sources.yml` and the stage's model YAML. |
-| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`stage`, `prestage`). Empty: derived. See [Output attributes](#output-attributes). |
 | created_at                   | datetime   | ✓       | Timestamp when the record was created.                              |
 | updated_at                   | datetime   | ✓       | Timestamp when the record was last updated.                         |
 
@@ -138,6 +143,28 @@ table: `![[ source_system ]].[[ source_table ]]` gives `!CRM.CUSTOMER`.
 datavault4dbt reads a record source or load date that starts with `!` as fixed
 text, one that contains `(` and `)`, `::` or `||` (or is wrapped in `'…'`) as
 SQL, and anything else as a column name.
+
+**Stage options**
+
+`include_source_columns` and `enable_ghost_records` inherit like the values
+above: table, then source system, then the project (`include_source_columns`
+and `enable_ghost_records` in `config.yml`, both `true` by default). The stage
+writes an option only where it differs from datavault4dbt's default (`true`),
+so projects that set nothing generate as before. `sequence_column` is per table
+only.
+
+**Delivery method**
+
+`single_batch`: each load of the table holds at most one version per key (a
+full extract per run, for example); `multi_batch`: a load may hold several.
+The value inherits like the stage options (table, source system, project's
+`delivery_method`, default `multi_batch`). It takes effect only with the
+project's `use_delivery_method` switch (default off): then models loading only
+single-batch data use datavault4dbt's faster single-batch logic
+(`source_is_single_batch: true`): standard, multi-active, non-historized and
+reference satellites from their stage; non-historized links when every source
+is single-batch; effectivity satellites from the stage they read.
+
 - `source_table` **has many** `source_column`.
 - `prejoin_definition` references `source_table` as source and target.
 
@@ -154,6 +181,7 @@ Represents a single column in a source table.
 | source_column_physical_name | string     | ✓       | Physical column name in the source table.    |
 | source_column_datatype      | string     | ✓       | Logical or physical data type of the column. |
 | description                 | string     |          | Optional description. Raw Vault columns loaded from this column inherit it unless they set their own (see [Descriptions](#descriptions)). |
+| is_missing                  | boolean    | ✓        | The source no longer has the column (default `false`). The stage adds it with NULL values of its data type (datavault4dbt `missing_columns`), so mappings, hash diffs and payloads keep working; `sources.yml` leaves it out. |
 | created_at                  | datetime   | ✓       | Timestamp when the record was created.       |
 | updated_at                  | datetime   | ✓       | Timestamp when the record was last updated.  |
 
@@ -182,7 +210,7 @@ keys, link keys and payload, satellite payload.
 | derived_column_id | identifier | PK       | Unique identifier of the derived column. |
 | project_id        | identifier | ✓ (FK)   | FK to `Project`. |
 | source_table_id   | identifier | ✓ (FK)   | FK to the `source_table` whose stage computes it. |
-| column_name       | string     | ✓        | Name of the column in the stage. Unique per table, and must not match a source column or a prejoined column of the table. |
+| column_name       | string     | ✓        | Name of the column in the stage. Unique per table; must not match a prejoined column of the table. It may match a source column of the table: it then shadows it (below). |
 | expression        | string     | ✓        | SQL in the target platform's dialect. It may read the table's columns and its prejoined columns, and may use dbt Jinja (`{{ var('x') }}`). |
 | datatype          | string     |          | Data type of the value. datavault4dbt needs it to build ghost records for an expression; generation warns (`validate.stage.derived_column_no_datatype`) without one. |
 | description       | string     |          | Optional description, inherited by Raw Vault columns loaded from it. |
@@ -195,6 +223,13 @@ computes all derived columns in one `SELECT`, so one can't read another: a
 transformation or a renamed satellite column over a derived column inlines its
 expression instead. `src_cols_required` lists the table's columns the
 expression reads.
+
+**Shadowing a source column.** A derived column named like a source column of
+its table (e.g. `C_NAME` with `TRIM(C_NAME)`) shadows it: datavault4dbt's stage
+replaces the source column with the derived value. Everything that maps the
+source column then reads the derived value, and a hub or link transformation
+of it builds on that value (`UPPER((TRIM(C_NAME)))`). The source column stays
+in the metadata: the expression reads it.
 
 **Relationships**
 
@@ -212,39 +247,37 @@ columns and prejoins compute values within one row of the stage; anything more
 needs a model of its own before the stage. That is a pre-stage: a
 `source_table` with `table_type = prestage`.
 
+The model belongs to the dbt project and its developers, not to TurboVault:
+TurboVault stores no SQL for it and generates no file. A pre-stage only
+describes the model's output, so the Raw Vault can be mapped onto it.
+
 A pre-stage is a source table in every other respect. It belongs to a source
-system, has columns (its output, declared like any table's), a record source
-and load date, derived columns and prejoins, and hubs, links and satellites map
-its columns. It gets a stage like any table, which reads the pre-stage model
-with `ref()` instead of a dbt source. A prejoin onto a pre-stage reads it the
-same way (`ref_model`).
+system, has columns (the model's output, declared like any table's), a record
+source and load date, derived columns and prejoins, and hubs, links and
+satellites map its columns. It gets a stage like any table, which reads the
+pre-stage model with `ref()` instead of a dbt source. A prejoin onto a
+pre-stage reads it the same way (`ref_model`).
 
-| Generated | Name | Where |
-| --------- | ---- | ----- |
-| Pre-stage model | `pstg__<system>__<table>` | `models/01_prestaging/<system>/`, with a YAML file documenting its columns |
-| Its stage | `stg__<system>__<table>` | `models/02_staging/<system>/`, as for any table |
+| | Name | Where |
+| - | ---- | ----- |
+| Pre-stage model (the dbt project's own) | `pstg__<system>__<table>` | Anywhere in the dbt project; `models/15_prestaging/` gets the staging layer's settings |
+| Its stage (generated) | `stg__<system>__<table>` | `models/20_staging/<system>/`, as for any table |
 
-`prestage_sql` holds the complete dbt model, written as it is: it reads its
-inputs with `{{ source('crm', 'CUSTOMER_RAW') }}` or
-`{{ ref('pstg__crm__other') }}` and may set its own `{{ config() }}`. The
-`01_prestaging` layer has the staging layer's schema and materialization; the
-model's own `config()` takes precedence. Without SQL, the model is maintained
-outside TurboVault (by hand, or in a dbt package): nothing is generated for it,
-and its stage reads `pstg__<system>__<table>` all the same.
+Consequences:
 
-Constraints:
-
-- **Not ephemeral.** datavault4dbt's stage reads its input's columns from the
-  database, where an ephemeral model doesn't exist. An ephemeral staging layer
-  gives the pre-stage layer views, and a model configured as ephemeral fails
-  validation (`validate.prestage.ephemeral`).
-- **Sources must exist.** A `source()` the project doesn't define fails in dbt;
-  validation reports it first (`validate.prestage.unknown_source`).
-- **Inputs get no stage of their own.** A table that pre-stages read (with
-  `source()` or `ref()`) and that loads nothing into the Raw Vault itself
-  gets no stage: it would hash nothing.
-- **dbt only.** SQLMesh output skips pre-stages, their stages and what loads
-  from them, with a warning.
+- **Generate into the dbt project.** The stage's `ref()` only resolves in the
+  dbt project that contains the model. Every dbt generation warns once per
+  pre-stage (`render.prestage.maintained_in_dbt`).
+- **The `15_prestaging` layer.** When the project has pre-stages,
+  `dbt_project.yml` configures `models/15_prestaging/` with the staging layer's
+  schema and materialization, as views where the staging layer is ephemeral:
+  datavault4dbt's stage reads its input's columns from the database, where an
+  ephemeral model doesn't exist. Models placed there get these settings; a
+  model's own `config()` takes precedence.
+- **Inputs keep their stages.** TurboVault doesn't know what a pre-stage's
+  model reads, so the tables it reads get a stage like any other.
+- **dbt only.** SQLMesh output can't read a dbt model: it skips pre-stages,
+  their stages and what loads from them, with a warning.
 
 Only the JSON export carries pre-stages. Other import formats (Excel, SQLite,
 IRiS, the `source_metadata` format of database imports) have no place for them,
@@ -274,77 +307,6 @@ comments.
 
 ---
 
-### Output attributes
-
-Every entity that generates dbt models stores, per model, the
-file path, name and config the model should have, e.g. the ones of the dbt
-project it was imported from. Generation then writes the model there, so a team
-can switch to Turbovault without restructuring its repository.
-
-They live in the entity's `generation_config` field, keyed first by framework
-and then by output kind, because one entity can generate several models. Only
-`dbt` is defined today; another framework (e.g. SQLMesh) gets its own key next
-to it instead of sharing the dbt attributes. Any other top-level key is
-rejected.
-
-| Entity                   | Output kinds                                                      |
-| ------------------------ | ----------------------------------------------------------------- |
-| `source_table`           | `stage`, `prestage` (pre-stage tables)                            |
-| `hub`                    | `hub`, `record_tracking_satellite`, `effectivity_satellite`       |
-| `link`                   | `link`, `record_tracking_satellite`                               |
-| `satellite`              | `satellite_v0`, `satellite_v1`                                    |
-| `snapshot_control_table` | `snapshot_control_v0`, `snapshot_control_v1`                      |
-| `reference_table`        | `reference_table`                                                 |
-| `pit`                    | `pit`                                                             |
-
-Each output kind holds any of these attributes; whatever is missing is derived
-as before (layer folders, naming patterns, `dbt_project.yml` settings):
-
-| Attribute      | Description |
-| -------------- | ----------- |
-| `model_name`   | Model name, which dbt also uses as the file name. |
-| `file_path`    | Path of the `.sql` file relative to `models/`, with `/` (e.g. `raw_vault/hubs/hub_customer.sql`). The `.yml` goes next to it. Must stay inside `models/`, use only letters, digits, `_`, `.` and `-`, and be named after `model_name` when both are set. |
-| `alias`        | Relation name (`config(alias=...)`). |
-| `schema`       | Custom schema (`config(schema=...)`). |
-| `database`     | Database (`config(database=...)`). |
-| `materialized` | Materialization (`config(materialized=...)`). |
-| `tags`         | Tags. Replace the tags generation would set, in the model's `config()` and `.yml`. |
-| `custom_config_json` | Further `config()` settings by key, written as `key=value` into the model's `config()` (e.g. `{"unique_key": "hk_customer_h", "persist_docs": {"relation": true}}`). Keys are identifiers; the keys above (`materialized`, `alias`, `schema`, `database`, `tags`) must use their own attribute. A PIT's `post_hook` here replaces its default `clean_up_pit` hook. |
-
-```json
-{
-  "dbt": {
-    "satellite_v0": {"file_path": "raw_vault/satellites/customer_details.sql"},
-    "satellite_v1": {
-      "model_name": "customer_details_current",
-      "alias": "customer",
-      "custom_config_json": {"persist_docs": {"relation": true}}
-    }
-  }
-}
-```
-
-Generation honors them unless it runs with `--standard-paths`
-(`GenerationOptions.use_original_paths=False`), and every reference to a model
-(pre-stages read by stages and prejoins, stages in `source_models`, `sat_v0`
-of v1 views and PITs, `sat_v1` of reference tables, the snapshot control of
-PITs) uses its actual name. A model
-placed outside its layer's folder gets that layer's schema and materialization
-in its own `config()`, since `dbt_project.yml` configures layers by folder.
-A pre-stage's SQL is the user's complete model and may call `config()` itself,
-so its stored config (including the layer fallback) goes into the `config:`
-block of its `.yml` instead, which dbt ranks below the model's own `config()`.
-A pre-stage maintained outside Turbovault (no SQL) can store a `model_name`:
-nothing is written for it, but its stage reads it under that name.
-Two models with the same name or file, or a model file that would overwrite a
-generated sources file (`01_sources/source__<system>.yml`), fail generation
-with `write.path_collision` before anything is written.
-
-The SQLMesh output ignores the `dbt` attributes; it can add a `sqlmesh` key
-of its own later.
-
----
-
 ## 4. Hubs & Hub Mappings
 
 These tables define DV hubs and how they map to source data.
@@ -362,8 +324,11 @@ Defines a Data Vault hub entity.
 | hub_hashkey_name                 | string     |          | Name of the hub hashkey column (used only if `hub_type = standard`). |
 | create_record_tracking_satellite | boolean    | ✓       | If true, a record-tracking satellite should be generated for this hub. |
 | create_effectivity_satellite     | boolean    | ✓       | If true, an effectivity satellite should be generated for this hub.    |
+| disable_hwm                      | boolean    | ✓       | Load without the high-water mark: every run reads all of the stage (datavault4dbt `disable_hwm`; default `false`). |
+| effectivity_is_active_alias      | string     |          | Name of the effectivity satellite's `is_active` column. Empty: datavault4dbt's default. |
+| effectivity_disable_hwm          | boolean    | ✓       | The effectivity satellite loads without the high-water mark (default `false`). |
+| effectivity_additional_columns   | list       |          | Further stage columns the effectivity satellite carries. |
 | description                      | string     |          | Optional description, written to the hub's model YAML.                 |
-| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`hub`, `record_tracking_satellite`, `effectivity_satellite`). Empty: derived. See [Output attributes](#output-attributes). |
 | created_at                       | datetime   | ✓       | Timestamp when the record was created.                                 |
 | updated_at                       | datetime   | ✓       | Timestamp when the record was last updated.                            |
 
@@ -414,6 +379,7 @@ Maps hub columns to source columns.
 | hub_column_id         | identifier | ✓ (FK)  | FK to `hub_column.hub_column_id`.                                                     |
 | source_column_id      | identifier | ✓ (FK)  | FK to `source_column.source_column_id`.                                               |
 | is_primary_source     | boolean    | ✓       | Indicates if this mapping is the primary source for the hub (only one per hub allowed). |
+| stage_hashkey_name    | string     |          | The stage's hash key column this mapping loads, when it differs from the hub's hash key. Role-playing: one stage loads the hub twice (a commit's author and committer); mappings of one table with different hash keys become separate `source_models` entries with `hk_column`, and the stage computes each hash key. |
 | created_at            | datetime   | ✓       | Timestamp when the record was created.                                                  |
 | updated_at            | datetime   | ✓       | Timestamp when the record was last updated.                                             |
 
@@ -442,7 +408,11 @@ Defines a Data Vault link entity.
 | link_hashkey_name  | string     | ✓       | Name of the link hashkey column (e.g.`lk_customer_order`). |
 | link_type          | string     | ✓       | `standard` or `non-historized`.                          |
 | description        | string     |          | Optional description, written to the link's model YAML.      |
-| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`link`, `record_tracking_satellite`). Empty: derived. See [Output attributes](#output-attributes). |
+| create_record_tracking_satellite | boolean | ✓ | If true, a record-tracking satellite is generated for this link. |
+| create_effectivity_satellite | boolean | ✓ | If true, an effectivity satellite is generated for this link (default `false`). It tracks the link's hash key in its first source's stage. |
+| disable_hwm        | boolean    | ✓        | Load without the high-water mark (default `false`). |
+| union_strategy     | string     |          | Non-historized links: `all` or `distinct`, how their sources are unioned. Empty: datavault4dbt's default (`all`). |
+| effectivity_is_active_alias, effectivity_disable_hwm, effectivity_additional_columns | | | As on `hub`, for the link's effectivity satellite. |
 | created_at         | datetime   | ✓       | Timestamp when the record was created.                       |
 | updated_at         | datetime   | ✓       | Timestamp when the record was last updated.                  |
 
@@ -611,11 +581,21 @@ Represents a Data Vault satellite attached to either a hub or a link.
 | parent_entity_id        | identifier | ✓       | Identifier of the parent entity (hub or link).                                                                                                                        |
 | satellite_type          | string     | ✓       | `standard` (default for standard hub & link), `reference` (default for reference hub), `non-historized` (default for non-historized link), or `multi-active`. |
 | description             | string     |          | Optional description, written to the satellite's model YAML. |
-| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`satellite_v0`, `satellite_v1`). Empty: derived. See [Output attributes](#output-attributes). |
+| hashdiff_name           | string     |          | The stage's hash diff column for this satellite. Empty: the project's `hashdiff_naming` pattern. Not for non-historized satellites. |
+| hashdiff_alias          | string     |          | The hash diff column's name inside the satellite when it differs from the stage's, e.g. one uniform `hashdiff` in every satellite (datavault4dbt `src_hashdiff: {source_column, alias}`). The v1 view reads the alias. |
+| create_v1_view          | boolean    |          | Whether the satellite gets a v1 view (load end dates). Empty: the project's `generate_satellite_v1_views`. Standard, multi-active and reference satellites only. |
+| v1_ledts_alias          | string     |          | The v1 view's load end date column (`ledts_alias`). Empty: datavault4dbt's variable. |
+| v1_add_is_current_flag  | boolean    | ✓        | Whether the v1 view adds an `is_current` flag (default `true`, as always generated). |
+| v1_include_payload      | boolean    | ✓        | Whether the v1 view of a standard satellite includes the payload (default `true`). |
 | created_at              | datetime   | ✓       | Timestamp when the record was created.                                                                                                                                |
 | updated_at              | datetime   | ✓       | Timestamp when the record was last updated.                                                                                                                           |
 
 > In implementation, `parent_entity_id` will likely be paired with a `parent_entity_type` field (e.g. `hub` / `link`) or modeled via two separate FKs to `hub` and `link` with constraints.
+
+Two satellites of one stage may name the same hash diff only if they hash the
+same columns (`validate.stage.duplicate_hashdiff`). A reference table reads its
+satellites' v1 views; generation warns when one has none
+(`validate.reference_table.satellite_without_v1`).
 
 **Relationships**
 
@@ -668,9 +648,9 @@ Stores global snapshot configuration.
 | snapshot_control_table_id | identifier | PK       | Unique identifier of the snapshot control table.                                                       |
 | project_id                | identifier | ✓ (FK)  | FK to `Project`.                                                                                     |
 | snapshot_start_date       | date       | ✓       | Start date of snapshot range (default: beginning of (year of today - 5 years); format `YYYY-MM-DD`). |
-| snapshot_end_date         | date       | ✓       | End date of snapshot range (default: end of (year of today + 5 years); format `YYYY-MM-DD`).         |
+| snapshot_end_date         | date       |          | Last date of the snapshot range (datavault4dbt `end_date`; format `YYYY-MM-DD`). Empty (the default): the range runs up to the current date. |
 | daily_snapshot_time       | time       | ✓       | Daily snapshot time (default:`08:00:00`; format `hh:mm:ss`).                                       |
-| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`snapshot_control_v0`, `snapshot_control_v1`). Empty: derived. See [Output attributes](#output-attributes). |
+| sdts_alias                | string     |          | Name of the snapshot date column. Empty: datavault4dbt's `sdts_alias` variable. |
 | created_at                | datetime   | ✓       | Timestamp when the record was created.                                                                 |
 | updated_at                | datetime   | ✓       | Timestamp when the record was last updated.                                                            |
 
@@ -684,13 +664,19 @@ Defines reusable snapshot logic patterns.
 | ---------------------------------- | ---------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | snapshot_control_logic_id          | identifier | PK       | Unique identifier of the snapshot logic entry.                                                                                                                                            |
 | snapshot_control_table_id          | identifier | ✓ (FK)  | FK to `snapshot_control_table.snapshot_control_table_id`.                                                                                                                               |
-| snapshot_control_logic_column_name | string     | ✓       | Name of the derived/logic column to be produced in the snapshot context.                                                                                                                  |
-| snapshot_component                 | string     | ✓       | One of:`daily`, `beginning_of_week`, `end_of_week`, `beginning_of_month`, `end_of_month`, `beginning_of_quarter`, `end_of_quarter`, `beginning_of_year`, `end_of_year`. |
+| snapshot_control_logic_column_name | string     | ✓       | Name of the logic column the snapshot control's logic model computes; PITs and reference tables select snapshots by it (`snapshot_trigger_column`). Rules with the same column name make one column. |
+| snapshot_component                 | string     | ✓       | One of:`daily`, `beginning_of_week`, `end_of_week`, `beginning_of_month`, `end_of_month`, `beginning_of_quarter`, `end_of_quarter`, `beginning_of_year`, `end_of_year`. Generated as datavault4dbt's `log_logic` intervals: `daily`, `beginning_of_week` (`weekly`), `beginning_of_month` (`monthly`), `beginning_of_year` (`yearly`), one each per column. The other components have no datavault4dbt interval: generation leaves them out with a `SNAP_002` warning. |
 | snapshot_duration                  | int        |          | Duration value for the snapshot window (e.g. 3, 6, 12).                                                                                                                                   |
 | snapshot_unit                      | string     |          | Unit for duration:`DAY`, `WEEK`, `MONTH`, `QUARTER`, `YEAR`.                                                                                                                    |
 | snapshot_forever                   | boolean    | ✓       | If `true`, `snapshot_duration` and `snapshot_unit` must be `NULL` and snapshot is open-ended.                                                                                     |
 | created_at                         | datetime   | ✓       | Timestamp when the record was created.                                                                                                                                                    |
 | updated_at                         | datetime   | ✓       | Timestamp when the record was last updated.                                                                                                                                               |
+
+A control whose rules form one column named like the `datavault4dbt.snapshot_trigger_column` variable
+(default `is_active`) is generated as a `log_logic` mapping, which every datavault4dbt version reads.
+Several columns are generated as a list of `{column: {...}}` entries, which newer datavault4dbt versions
+read (1.18 does, 1.0 doesn't). A new project's default snapshot control has one `is_active` column: daily
+snapshots for 3 months, weekly for a year, monthly for 5 years, yearly forever.
 
 **Relationships**
 
@@ -711,11 +697,10 @@ Represents a reference table based on a reference hub.
 | project_id                    | identifier | ✓ (FK)  | FK to `Project`.                                                                                                 |
 | reference_table_physical_name | string     | ✓       | Physical name of the reference table.                                                                              |
 | reference_hub_id              | identifier | ✓ (FK)  | FK to `hub.hub_id`; must refer to a hub with `hub_type = reference`.                                           |
-| historization_type            | string     | ✓       | Historization strategy:`latest`, `full`, or `snapshot_based`.                                                |
+| historization_type            | string     | ✓       | Historization strategy:`latest`, `full`, or `snapshot_based` (generated as `historized: 'snapshot'` with the snapshot control's logic model as `snapshot_relation` and its logic column as `snapshot_trigger_column`). |
 | snapshot_table_id             | identifier |          | FK to `snapshot_control_table.snapshot_control_table_id` when `historization_type` requires snapshot handling. |
 | snapshot_control_logic_id     | identifier |          | FK to `snapshot_control_logic.snapshot_control_logic_id` when snapshot-based logic is used.                      |
 | description                   | string     |          | Optional description, written to the reference table's model YAML. |
-| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`reference_table`). Empty: derived. See [Output attributes](#output-attributes). |
 | created_at                    | datetime   | ✓       | Timestamp when the record was created.                                                                             |
 | updated_at                    | datetime   | ✓       | Timestamp when the record was last updated.                                                                        |
 
@@ -771,11 +756,10 @@ Defines Point-in-Time structures over satellites for a tracked hub or link.
 | snapshot_control_logic_id                  | identifier |          | FK to `snapshot_control_logic.snapshot_control_logic_id`.                                        |
 | dimension_key_column_name                  | string     |          | Optional name of the dimension key column generated in the PIT.                                    |
 | pit_type                                   | string     |          | Optional PIT type (implementation-specific classification).                                        |
-| custom_record_source                       | string     |          | Optional custom record source value for the PIT.                                                   |
-| use_snapshot_optimization                  | boolean    | ✓       | If `true`, snapshot optimization techniques are applied (default: `true`).                     |
+| custom_record_source                       | string     |          | Optional custom record source value for the PIT, written as `custom_rsrc`.                       |
+| use_snapshot_optimization                  | boolean    |          | datavault4dbt `snapshot_optimization`, written only when set. Empty (the default): datavault4dbt's default (off). |
 | include_business_objects_before_appearance | boolean    | ✓       | If `true`, includes business keys before their first appearance in the PIT (default: `false`). |
 | satellite_ids                              | list[id]   | ✓       | List of `satellite.satellite_id` entries included in the PIT structure.                          |
-| generation_config | JSON |  | File path, name and config of the generated model(s), by framework (`dbt`) and output kind (`pit`). Empty: derived. See [Output attributes](#output-attributes). |
 | created_at                                 | datetime   | ✓       | Timestamp when the record was created.                                                             |
 | updated_at                                 | datetime   | ✓       | Timestamp when the record was last updated.                                                        |
 
@@ -788,6 +772,95 @@ Defines Point-in-Time structures over satellites for a tracked hub or link.
   - optional `snapshot_control_table`,
   - optional `snapshot_control_logic`,
   - many `satellite` entries via `satellite_ids`.
+
+---
+
+## 10. Model Outputs
+
+### 10.1 `model_output`
+
+How one dbt model of an entity is generated. Every entity becomes one or more
+dbt models; a `model_output` stores what differs from TurboVault's defaults for
+one of them: its name, the folder its files go to, and the settings of its
+`config()` block. An imported dbt project keeps its models' names, folders and
+settings this way. Without a row, or with empty fields, a model is generated as
+TurboVault derives it.
+
+| Entity           | Kinds of model (`kind`)                                     | Derived name |
+| ---------------- | ----------------------------------------------------------- | ------------ |
+| source table     | `stage`, `prestage` (the dbt project's model the stage reads) | `stage_naming` / `prestage_naming` patterns |
+| hub              | `hub`, `effectivity_satellite`, `record_tracking_satellite` | the physical name; the satellite naming patterns |
+| link             | `link`, `effectivity_satellite`, `record_tracking_satellite` | the physical name; the satellite naming patterns |
+| satellite        | `satellite_v0`, `satellite_v1`                              | `satellite_v0_naming` / `satellite_v1_naming` |
+| PIT              | `pit`                                                       | the physical name |
+| reference table  | `reference_table`                                           | the physical name |
+| snapshot control | `snapshot_control_v0`, `snapshot_control_v1`                | `<name>_v0` / `<name>_v1` |
+
+| Field             | Type       | Required | Description |
+| ----------------- | ---------- | -------- | ----------- |
+| model_output_id   | identifier | PK       | Unique identifier. |
+| project_id        | identifier | ✓ (FK)   | Set from the entity. |
+| kind              | string     | ✓        | Which of the entity's models (table above). |
+| framework         | string     | ✓        | The output the model belongs to: `dbt` (default). Another output, e.g. SQLMesh, gets rows of its own. A model is unique per entity, framework and kind. |
+| source_table_id, hub_id, link_id, satellite_id, pit_id, reference_table_id, snapshot_control_id | identifier | exactly one | The entity. |
+| model_name        | string     |          | The model's name, and its file's. Not for hubs, links, PITs and reference tables: their physical name is their model name. No spaces, dots or slashes; unique in the project. |
+| folder            | string     |          | Folder of the model's files, relative to the dbt project (e.g. `models/raw_vault/hubs`). Must stay inside the project. Empty: TurboVault's layer folder. |
+| alias             | string     |          | `config(alias=...)`. |
+| schema_name       | string     |          | `config(schema=...)`. |
+| database_name     | string     |          | `config(database=...)`. |
+| materialized      | string     |          | `config(materialized=...)`; empty: the layer's (or the model kind's own, e.g. views for satellite v1). |
+| tags              | list       |          | The model's own tags, added to TurboVault's default tags (`['hub', 'raw_vault', <group>]`, ...). The project setting `add_default_tags` turns the default tags off. |
+| config            | mapping    |          | Further `config()` keys, written as they are (`unique_key`, `post_hook`, `on_schema_change`, ...). Keys are identifiers, as a `config()` call takes them (`post_hook`, not `post-hook`); not the keys above. Values are any JSON values. |
+| created_at, updated_at | datetime | ✓     | Timestamps. |
+
+A pre-stage's model belongs to the dbt project: only its `model_name` is
+stored. Every reference between models follows the resolved names: a stage in
+its hubs, links and satellites, a v0 table in its v1 view, satellites and the
+snapshot control in a PIT, v1 views in a reference table. A satellite's v1 view
+without a folder of its own goes to its v0 table's folder, an effectivity or
+record-tracking satellite to its parent's, a snapshot control's logic to its
+table's. See the [generation pipeline](07_generation-pipeline.md#model-names-folders-and-settings)
+for how generation writes them.
+
+Generation writes every value through escaping literals, so names, schemas,
+aliases and tags aren't restricted to identifiers: an imported model keeps
+e.g. a schema given as a Jinja expression. The rules live in
+`engine.models.output_attributes`, shared with the JSON format.
+
+#### In the JSON export: `generation_config` (issue #442)
+
+The JSON export carries an entity's model outputs as its `generation_config`,
+keyed by framework and then by kind. Only `dbt` is defined; another framework
+gets its own key next to it.
+
+```json
+{
+  "dbt": {
+    "satellite_v0": {"file_path": "raw_vault/satellites/customer_details.sql"},
+    "satellite_v1": {
+      "model_name": "customer_details_current",
+      "alias": "customer",
+      "custom_config_json": {"persist_docs": {"relation": true}}
+    }
+  }
+}
+```
+
+| JSON attribute       | Field          | Notes |
+| -------------------- | -------------- | ----- |
+| `model_name`         | `model_name`   | Only where it isn't the derived name. |
+| `file_path`          | `folder`       | The model's `.sql` file relative to `models/`, with `/`; its file name is the model's name. On export, a folder outside `models/` (another dbt model path) can't be written this way: it's left out, with a warning. On import, the file name is stored as `model_name` only where it isn't the name TurboVault derives. |
+| `alias`, `materialized`, `tags` | same | `tags` are the model's own, added to the default tags. |
+| `schema`, `database` | `schema_name`, `database_name` | |
+| `custom_config_json` | `config`       | |
+
+A kind without stored values is left out; an export without
+`generation_config` leaves the stored model outputs alone, one with an empty
+one removes them. A `file_path` that leaves `models/` makes the export invalid.
+
+The first implementation of #442 stored these attributes in a
+`generation_config` JSON field on each entity (migration `0019`); migration
+`0026` moved them onto `model_output` rows and dropped the fields.
 
 ---
 

@@ -92,3 +92,43 @@ def test_current_bundled_versions_are_not_listed_as_superseded(django_setup):
                 (framework, template.entity_type, template.template_type), ()
             )
             assert current not in superseded, template.path
+
+
+# Migration 0027: unedited copies of #235's templates get the current ones.
+
+
+def _refresh_after_235():
+    return importlib.import_module("engine.migrations.0027_refresh_templates_after_235")
+
+
+def test_copies_of_235s_templates_are_refreshed(django_setup, monkeypatch):
+    from django.apps import apps
+
+    module = _refresh_after_235()
+    monkeypatch.setitem(
+        module.SUPERSEDED_BUNDLED_HASHES,
+        ("dbt", "pit", "sql"),
+        frozenset({_hash(OLD_PIT_SQL)}),
+    )
+    row = _pit_template("pit (SQL)", OLD_PIT_SQL)
+    edited = _pit_template("pit (custom)", OLD_PIT_SQL + "-- my change\n")
+
+    module.refresh_bundled_templates(apps, None)
+
+    row.refresh_from_db()
+    edited.refresh_from_db()
+    assert row.sql_template_content == _bundled_pit_sql()
+    assert edited.sql_template_content == OLD_PIT_SQL + "-- my change\n"
+
+
+def test_the_current_bundle_is_not_listed_as_235s(django_setup):
+    from engine.services.generation.template_resolver import bundled_templates
+
+    module = _refresh_after_235()
+    for framework in ("dbt", "sqlmesh"):
+        for template in bundled_templates(framework):
+            current = module._content_hash(template.path.read_text(encoding="utf-8"))
+            superseded = module.SUPERSEDED_BUNDLED_HASHES.get(
+                (framework, template.entity_type, template.template_type), ()
+            )
+            assert current not in superseded, template.path
