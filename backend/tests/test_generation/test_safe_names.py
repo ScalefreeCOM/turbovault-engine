@@ -232,11 +232,10 @@ class TestJinjaString:
         """The PIT clean-up hook is a string literal in config() holding a Jinja
         call: dbt reads it back to the snapshot control's name, also when the
         template renders with autoescape (DB templates, loaded from strings)."""
-        from jinja2 import Environment
-
         from engine.services.generation.template_resolver import (
             build_jinja_environment,
         )
+        from jinja2 import Environment
 
         environment = build_jinja_environment()
         environment.autoescape = autoescape
