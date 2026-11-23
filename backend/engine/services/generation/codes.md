@@ -44,9 +44,13 @@ deep-link errors; the CLI groups them in summary tables.
 | `validate.snapshot.no_name` | A snapshot control has no name. | Provide a name for the snapshot control. |
 | `validate.snapshot.no_start_date` | A snapshot control has no start date. | Set the snapshot range's start date. |
 | `validate.snapshot.no_logic_patterns` | A snapshot control has no logic patterns (warning). | Add at least one snapshot logic pattern. |
-| `validate.name.invalid` | A Data Vault name (Hub, Link, Satellite, PIT, reference table, snapshot control, hash key, hashdiff, key/alias column, derived column) is not a plain identifier `^[A-Za-z_][A-Za-z0-9_]*$`. | Rename it using only letters, digits and `_`, starting with a letter or `_`. |
+| `validate.name.invalid` | A Data Vault name (Hub, Link, Satellite, PIT, reference table, snapshot control, hash key, hashdiff, key/alias column, derived column, table alias, stage/raw vault schema) is not a plain identifier `^[A-Za-z_][A-Za-z0-9_]*$`. | Rename it using only letters, digits and `_`, starting with a letter or `_`. |
 | `validate.name.case_collision` | Two entity names, or two columns of one stage or satellite, differ only in case. | Give them names that differ in more than case. |
 | `validate.name.source_needs_quoting` | *Warning.* A source table or column name only works quoted (special characters, reserved word, mixed case). TurboVault quotes such tables and columns in `sources.yml`; datavault4dbt escapes columns itself and may change their case. One warning per table. | Check the generated stage compiles; rename in the source if it doesn't. |
+| `validate.name.reserved_word` | *Warning.* A Data Vault name is an SQL reserved word (`order`, `group`, `user`, …); it only works where the generated code quotes it. | Rename it, e.g. add a prefix or suffix. |
+| `validate.name.too_long` | *Warning.* A Data Vault name is longer than 63 characters, which Postgres truncates. | Shorten it if the project runs on Postgres. |
+| `validate.name.invalid_source_name` | A source schema, database, table or column name contains a control character, leading or trailing whitespace, or a quote character (`"` or `` ` ``); no quoting can carry it. | Fix the name in the metadata; it must match the source exactly. |
+| `validate.name.unusual_display_name` | *Warning.* A source system or subject area name contains characters other than letters, digits, spaces, `-`, `_` and `.`. Its technical name is still derived safely, but TurboVault Studio rejects such names. | Rename it, e.g. `Sales & Ops` → `Sales and Ops`. |
 
 ## Plan stage
 

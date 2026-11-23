@@ -116,6 +116,11 @@ class Code:
     ENTITY_INVALID_NAME = "entity.invalid_name"
     ENTITY_NAME_CASE_COLLISION = "entity.name_case_collision"
     ENTITY_UNUSUAL_SOURCE_NAME = "entity.unusual_source_name"
+    # Studio's naming rules (#451)
+    ENTITY_INVALID_SOURCE_NAME = "entity.invalid_source_name"
+    ENTITY_NAME_RESERVED_WORD = "entity.name_reserved_word"
+    ENTITY_NAME_TOO_LONG = "entity.name_too_long"
+    ENTITY_UNUSUAL_DISPLAY_NAME = "entity.unusual_display_name"
 
     # Plan stage
     PLAN_WOULD_CREATE = "plan.would_create"

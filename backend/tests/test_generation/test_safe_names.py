@@ -39,7 +39,11 @@ class TestTechnicalName:
             ("SAP ERP", "sap_erp"),
             ("SAP-ERP", "sap_erp"),
             ("Sales & Ops", "sales_ops"),
-            ("Müller GmbH", "muller_gmbh"),
+            ("Müller GmbH", "mueller_gmbh"),
+            ("Müller Straße", "mueller_strasse"),
+            ("ÄRZTE ÖL ÜBER STRASSE", "aerzte_oel_ueber_strasse"),
+            ("GROẞ", "gross"),
+            ("Café Señor", "cafe_senor"),
             ("already_snake_case", "already_snake_case"),
             ("double__underscore", "double__underscore"),
             ("../../etc", "_etc"),
@@ -140,6 +144,64 @@ class TestSourceNames:
         assert needs_identifier_quoting("order-id")
         assert not needs_identifier_quoting("order")
         assert not needs_identifier_quoting("CustomerId")
+
+    @pytest.mark.parametrize(
+        ("name", "rejected"),
+        [
+            ("Order Date", False),
+            ("order-id", False),
+            ("CustomerId", False),
+            ("Müller", False),
+            ("order\tid", True),  # control character
+            ("order\x00id", True),
+            (" order_id", True),  # leading / trailing whitespace
+            ("order_id ", True),
+            ('order"id', True),  # quote characters
+            ("order`id", True),
+        ],
+    )
+    def test_rule_b_rejects_what_no_quoting_carries(self, name, rejected):
+        from engine.services.naming import invalid_source_name_reason
+
+        assert (invalid_source_name_reason(name) is not None) is rejected
+
+
+class TestDisplayNames:
+    @pytest.mark.parametrize(
+        ("name", "valid"),
+        [
+            ("SAP-ERP", True),
+            ("Sales and Ops", True),
+            ("crm_v2.1", True),
+            ("Müller Straße", True),  # letters of any script
+            ("Sales & Ops", False),
+            ("a/b", False),
+            ("it's", False),
+            ('say "hi"', False),
+            ("", False),
+            ("   ", False),
+        ],
+    )
+    def test_rule_c(self, name, valid):
+        from engine.services.naming import is_display_name
+
+        assert is_display_name(name) is valid
+
+
+class TestRiskyDvNames:
+    def test_reserved_words_ignore_case(self):
+        from engine.services.naming import is_reserved_word
+
+        assert is_reserved_word("order")
+        assert is_reserved_word("ORDER")
+        assert not is_reserved_word("order_id")
+
+    def test_postgres_length_limit(self):
+        from engine.services.naming import MAX_IDENTIFIER_LENGTH, is_too_long
+
+        assert MAX_IDENTIFIER_LENGTH == 63
+        assert not is_too_long("x" * 63)
+        assert is_too_long("x" * 64)
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +490,63 @@ class TestDvNameValidation:
             project_export
         )
 
+    @pytest.mark.parametrize(
+        ("mutate", "expected"),
+        [
+            (
+                lambda e: setattr(e, "stage_schema", "stage area"),
+                ("NAM_001", "pipeline_test", "stage_schema"),
+            ),
+            (
+                lambda e: setattr(e.sources[0].tables[0], "alias", "cust-alias"),
+                ("NAM_001", "crm.customer", "alias"),
+            ),
+            (
+                lambda e: setattr(e.sources[0], "schema_name", "crm_raw "),
+                ("NAM_006", "crm", "schema_name"),
+            ),
+            (
+                lambda e: setattr(e.sources[0].tables[0], "table_name", 'cust"omer'),
+                ("NAM_006", 'crm.cust"omer', "table_name"),
+            ),
+            (
+                lambda e: setattr(
+                    e.sources[0].tables[0].columns[0], "column_name", "id\tx"
+                ),
+                ("NAM_006", "crm.customer", "columns"),
+            ),
+        ],
+    )
+    def test_rule_a_and_b_errors(self, project_export, mutate, expected):
+        mutate(project_export)
+        assert expected in self._codes(project_export)
+
+    def _warnings(self, export):
+        from engine.services.generation.validators import validate_export
+
+        result = validate_export(export)
+        return [(w.code, w.entity_name, w.field) for w in result.warnings]
+
+    def test_reserved_word_is_a_warning(self, project_export):
+        project_export.satellites[0].hashdiff_name = "order"
+        assert ("NAM_004", "sat_customer_details", "hashdiff_name") in self._warnings(
+            project_export
+        )
+        assert not [c for c in self._codes(project_export) if c[0].startswith("NAM")]
+
+    def test_long_name_is_a_warning(self, project_export):
+        project_export.satellites[0].hashdiff_name = "hd_" + "x" * 61
+        assert ("NAM_005", "sat_customer_details", "hashdiff_name") in self._warnings(
+            project_export
+        )
+
+    def test_unusual_display_names_are_warnings(self, awkward_export):
+        warnings = self._warnings(awkward_export)
+        assert ("NAM_007", "Sales & Ops", "name") in warnings
+        # SAP-ERP follows rule C
+        assert not [w for w in warnings if w[0] == "NAM_007" and w[1] == "SAP-ERP"]
+        assert not [c for c in self._codes(awkward_export) if c[0].startswith("NAM")]
+
     def test_invalid_name_blocks_generation(self, run, project_export):
         project_export.hubs[0].hub_name = "hub customer"
         report, out = run(project_export, error_strategy="fail_fast")
@@ -578,6 +697,40 @@ class TestImportNameChecks:
         table.columns["Order Date"] = DSourceColumn(name="Order Date")
         table.columns["order-id"] = DSourceColumn(name="order-id")
         assert self._codes(domain) == [("entity.unusual_source_name", "warning")]
+
+    def test_source_name_no_quoting_carries_is_an_error(self):
+        from engine.services.imports.domain import DSourceColumn
+
+        domain = self._domain()
+        table = domain.source_systems["crm"].tables["customer"]
+        table.columns['say "hi"'] = DSourceColumn(name='say "hi"')
+        codes = self._codes(domain)
+        assert codes[0] == ("entity.invalid_source_name", "error")
+
+    def test_invalid_table_alias_is_an_error(self):
+        domain = self._domain()
+        domain.source_systems["crm"].tables["customer"].alias = "cust alias"
+        assert self._codes(domain) == [("entity.invalid_name", "error")]
+
+    def test_reserved_and_long_names_are_warnings(self):
+        from engine.services.imports.domain import DHubColumn
+
+        domain = self._domain()
+        domain.hubs["hub_customer"].columns.append(DHubColumn(name="user"))
+        domain.hubs["hub_customer"].hashkey_name = "hk_" + "x" * 61
+        assert sorted(self._codes(domain)) == [
+            ("entity.name_reserved_word", "warning"),
+            ("entity.name_too_long", "warning"),
+        ]
+
+    def test_unusual_display_names_are_warnings(self):
+        domain = self._domain()
+        domain.hubs["hub_customer"].group_name = "Sales & Ops"
+        domain.source_systems["crm"].name = "CRM/ERP"
+        assert self._codes(domain) == [
+            ("entity.unusual_display_name", "warning"),
+            ("entity.unusual_display_name", "warning"),
+        ]
 
 
 # ---------------------------------------------------------------------------

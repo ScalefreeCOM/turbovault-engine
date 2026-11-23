@@ -110,6 +110,11 @@ class Code:
     VALIDATE_NAME_INVALID = "validate.name.invalid"
     VALIDATE_NAME_CASE_COLLISION = "validate.name.case_collision"
     VALIDATE_NAME_SOURCE_NEEDS_QUOTING = "validate.name.source_needs_quoting"
+    # Studio's naming rules (#451)
+    VALIDATE_NAME_RESERVED_WORD = "validate.name.reserved_word"
+    VALIDATE_NAME_TOO_LONG = "validate.name.too_long"
+    VALIDATE_NAME_INVALID_SOURCE_NAME = "validate.name.invalid_source_name"
+    VALIDATE_NAME_UNUSUAL_DISPLAY_NAME = "validate.name.unusual_display_name"
 
     # Plan stage
     PLAN_UNSUPPORTED_OUTPUT_TYPE = "plan.unsupported_output_type"

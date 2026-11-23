@@ -81,8 +81,13 @@ left out is planned as a skip, so `replace_all` keeps the project's copy.
 | `entity.invalid_name` | A Data Vault name (Hub, Link, Satellite, PIT, reference table, snapshot control, hash key, column, alias, derived column) is not a plain identifier `^[A-Za-z_][A-Za-z0-9_]*$`. Checked for every import source. | Rename it using only letters, digits and `_`, starting with a letter or `_`. |
 | `entity.name_case_collision` | Two entity names differ only in case (`hub_Customer`, `HUB_CUSTOMER`); they would become the same dbt model on most warehouses and file systems. | Give each entity a name that differs in more than case. |
 | `entity.unusual_source_name` | *Warning.* A source table or column name only works quoted: spaces, hyphens or other special characters, an SQL reserved word, or mixed case. One warning per table. | No change needed if the name is right; check the generated stage compiles. |
+| `entity.invalid_source_name` | A source schema, database, table or column name contains a control character, leading or trailing whitespace, or a quote character (`"` or `` ` ``); no quoting can carry it. | Fix the name in the metadata; it must match the source. |
+| `entity.name_reserved_word` | *Warning.* A Data Vault name is an SQL reserved word (`order`, `group`, `user`, …). | Rename it, e.g. add a prefix or suffix. |
+| `entity.name_too_long` | *Warning.* A Data Vault name is longer than 63 characters, which Postgres truncates. | Shorten it if the project runs on Postgres. |
+| `entity.unusual_display_name` | *Warning.* A source system or subject area name contains characters other than letters, digits, spaces, `-`, `_` and `.`. Its technical name is derived safely, but TurboVault Studio rejects it. | Rename it, e.g. `Sales & Ops` → `Sales and Ops`. |
 
-Invalid names and case collisions are reported, never renamed. With
+These follow TurboVault Studio's naming rules (#451). Invalid names, invalid
+source names and case collisions are reported, never renamed. With
 `error_strategy="fail_fast"` they stop the import before the plan; in
 `best_effort` the entities are imported and generation reports them again
 (`validate.name.*`) until they are renamed.

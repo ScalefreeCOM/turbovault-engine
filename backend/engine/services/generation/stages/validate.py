@@ -69,6 +69,10 @@ _LEGACY_CODE_MAP: dict[str, str] = {
     "NAM_001": "validate.name.invalid",
     "NAM_002": "validate.name.case_collision",
     "NAM_003": "validate.name.source_needs_quoting",
+    "NAM_004": "validate.name.reserved_word",
+    "NAM_005": "validate.name.too_long",
+    "NAM_006": "validate.name.invalid_source_name",
+    "NAM_007": "validate.name.unusual_display_name",
 }
 
 

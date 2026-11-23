@@ -540,6 +540,8 @@ validate.satellite.no_parent          validate.satellite.no_stage        validat
 validate.pit.no_satellites            validate.pit.no_snapshot_logic     validate.pit.no_tracked_entity
 validate.snapshot.no_name             validate.snapshot.no_start_date    validate.snapshot.no_logic_patterns
 validate.name.invalid                 validate.name.case_collision       validate.name.source_needs_quoting
+validate.name.reserved_word           validate.name.too_long             validate.name.invalid_source_name
+validate.name.unusual_display_name
 
 plan.unsupported_output_type          plan.empty_project
 

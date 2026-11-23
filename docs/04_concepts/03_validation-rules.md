@@ -79,19 +79,31 @@ turbovault generate --project my_project --skip-validation
 ### Naming Rules
 
 Every name the Engine writes into SQL, YAML or a file path is checked before
-generation. TurboVault Studio applies the same rules.
+generation and on import. The rules are TurboVault Studio's naming rules
+(#451), so CLI, API and Studio users get the same checks.
 
-- **Data Vault names** — Hub, Link, Satellite, PIT, reference table and
-  snapshot control names; hash keys, hashdiffs, key, alias and derived
-  columns — must match `^[A-Za-z_][A-Za-z0-9_]*$` and be unique ignoring case.
-- **Source names** — physical source tables and columns — are used as they
-  are. Names that only work quoted are reported as a warning. Tables and
+- **Data Vault names** (rule A) — Hub, Link, Satellite, PIT, reference table
+  and snapshot control names; hash keys, hashdiffs, key, alias and derived
+  columns; table aliases; the stage and raw vault schemas — must match
+  `^[A-Za-z_][A-Za-z0-9_]*$` and be unique ignoring case. SQL reserved words
+  and names longer than 63 characters (Postgres truncates them) are warnings.
+- **Source names** (rule B) — physical source schemas, databases, tables and
+  columns — are used as they are, so spaces, hyphens and mixed case are
+  allowed. Names with control characters, leading or trailing whitespace or a
+  quote character (`"`, `` ` ``) are errors. Names that only work quoted are
+  reported as a warning. Tables and
   columns with special characters get dbt's quoting in `sources.yml`
   (`quoting.identifier` / `quote: true`). datavault4dbt escapes column names
   in its macros and may change their case (lowercase on Postgres/Redshift,
   uppercase on Snowflake/Exasol by default).
+- **Display names** (rule C) — source system and subject area names — should
+  contain only letters, digits, spaces, `-`, `_` and `.`. Studio rejects
+  anything else; the Engine only warns, because the technical name below is
+  derived safely from any display name.
 - **Derived technical names** — one rule turns display names into technical
-  names: lowercase, accents dropped, every run of other characters becomes
+  names: lowercase, German letters spelled out (`ä`→`ae`, `ö`→`oe`,
+  `ü`→`ue`, `ß`→`ss`, so `Müller Straße` gives `mueller_strasse`), other
+  accents dropped (`Café` gives `cafe`), every run of other characters becomes
   `_`. Source system `SAP-ERP` gives the dbt source `sap_erp`, the folder
   `sap_erp` and the stage `stg__sap_erp__orders`; subject area `Sales & Ops`
   gives the folder and tag `sales_ops`; project `2024 DWH` gives the dbt project
@@ -102,9 +114,15 @@ generation. TurboVault Studio applies the same rules.
 | `NAM_001` | Any | A Data Vault name is not a plain identifier (error, `validate.name.invalid`) | Rename it using only letters, digits and `_`, starting with a letter or `_` |
 | `NAM_002` | Any | Two entity names, or two columns of one stage or satellite, differ only in case (error, `validate.name.case_collision`) | Give them names that differ in more than case |
 | `NAM_003` | Source | A source table or column name only works quoted: special characters, reserved word or mixed case (warning, `validate.name.source_needs_quoting`) | Check the generated stage compiles; rename in the source if it doesn't |
+| `NAM_004` | Any | A Data Vault name is an SQL reserved word (warning, `validate.name.reserved_word`) | Rename it, e.g. add a prefix or suffix |
+| `NAM_005` | Any | A Data Vault name is longer than 63 characters (warning, `validate.name.too_long`) | Shorten it if the project runs on Postgres |
+| `NAM_006` | Source | A source schema, database, table or column name has a control character, leading or trailing whitespace or a quote character (error, `validate.name.invalid_source_name`) | Fix the name in the metadata; it must match the source |
+| `NAM_007` | Source system, subject area | A display name has characters other than letters, digits, spaces, `-`, `_` and `.` (warning, `validate.name.unusual_display_name`) | Rename it, e.g. `Sales & Ops` → `Sales and Ops` |
 
 The import reports the same problems as `entity.invalid_name`,
-`entity.name_case_collision` and `entity.unusual_source_name`.
+`entity.name_case_collision`, `entity.unusual_source_name`,
+`entity.name_reserved_word`, `entity.name_too_long`,
+`entity.invalid_source_name` and `entity.unusual_display_name`.
 
 ---
 

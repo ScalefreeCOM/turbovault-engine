@@ -1,5 +1,5 @@
 """
-Name checks on a resolved import (#450).
+Name checks on a resolved import (#450), following Studio's rules (#451).
 
 Run on the `DomainModel` of every import source (Excel, SQLite, JSON, IRiS,
 source metadata), so the same rules apply however metadata arrives:
@@ -7,8 +7,15 @@ source metadata), so the same rules apply however metadata arrives:
 - ``entity.invalid_name`` (error): a Data Vault name is not a plain
   identifier (``^[A-Za-z_][A-Za-z0-9_]*$``).
 - ``entity.name_case_collision`` (error): two entity names differ only in case.
+- ``entity.invalid_source_name`` (error): a source schema, database, table or
+  column name holds a control character, leading or trailing whitespace or a
+  quote character.
+- ``entity.name_reserved_word`` / ``entity.name_too_long`` (warnings): a Data
+  Vault name is an SQL reserved word or longer than Postgres keeps.
 - ``entity.unusual_source_name`` (warning): a source table or column name only
   works quoted (spaces, hyphens, reserved words, mixed case).
+- ``entity.unusual_display_name`` (warning): a source system or subject area
+  name holds characters other than letters, digits, spaces, ``-``, ``_``, ``.``.
 
 Names are reported, never renamed. The rules live in
 ``engine.services.naming``, shared with generation and TurboVault Studio.
@@ -23,8 +30,14 @@ from engine.services.imports.domain import DomainModel
 from engine.services.imports.errors import Code, make_issue
 from engine.services.imports.types import EntityRef, EntityType, Issue
 from engine.services.naming import (
+    DISPLAY_NAME_RULE,
     DV_NAME_RULE,
+    MAX_IDENTIFIER_LENGTH,
+    invalid_source_name_reason,
+    is_display_name,
     is_dv_name,
+    is_reserved_word,
+    is_too_long,
     source_name_quoting_reason,
 )
 
@@ -38,12 +51,20 @@ def check_names(domain: DomainModel) -> list[Issue]:
     return [
         *_invalid_names(domain),
         *_case_collisions(domain),
+        *_invalid_source_names(domain),
+        *_risky_dv_names(domain),
         *_unusual_source_names(domain),
+        *_unusual_display_names(domain),
     ]
 
 
 def _dv_names(domain: DomainModel) -> Iterator[tuple[EntityType, str, str, str]]:
     """Every Data Vault name as (entity type, entity name, what it names, name)."""
+    for system in domain.source_systems.values():
+        for table in system.tables.values():
+            if table.alias:
+                yield "source_table", table.physical_name, "table alias", table.alias
+
     for hub in domain.hubs.values():
         yield "hub", hub.physical_name, "Hub name", hub.physical_name
         if hub.hashkey_name:
@@ -126,6 +147,105 @@ def _invalid_names(domain: DomainModel) -> Iterator[Issue]:
             message=f"The {label} {name!r} of {entity_name!r} {DV_NAME_RULE}.",
             entity=EntityRef(type=entity_type, name=entity_name),
             suggestion=_SUGGESTION_INVALID,
+        )
+
+
+def _risky_dv_names(domain: DomainModel) -> Iterator[Issue]:
+    """Valid Data Vault names that are reserved words or too long (warnings)."""
+    seen: set[tuple[str, str, str]] = set()
+    for entity_type, entity_name, label, name in _dv_names(domain):
+        if not is_dv_name(name) or (entity_type, entity_name, name) in seen:
+            continue
+        seen.add((entity_type, entity_name, name))
+        entity = EntityRef(type=entity_type, name=entity_name)
+        if is_reserved_word(name):
+            yield make_issue(
+                severity="warning",
+                code=Code.ENTITY_NAME_RESERVED_WORD,
+                stage="resolve",
+                message=(
+                    f"The {label} {name!r} of {entity_name!r} is an SQL reserved "
+                    "word; it only works where the generated code quotes it."
+                ),
+                entity=entity,
+                suggestion="Rename it, e.g. add a prefix or suffix.",
+            )
+        if is_too_long(name):
+            yield make_issue(
+                severity="warning",
+                code=Code.ENTITY_NAME_TOO_LONG,
+                stage="resolve",
+                message=(
+                    f"The {label} {name!r} of {entity_name!r} has {len(name)} "
+                    f"characters; Postgres truncates names after "
+                    f"{MAX_IDENTIFIER_LENGTH}."
+                ),
+                entity=entity,
+                suggestion="Shorten it if the project runs on Postgres.",
+            )
+
+
+def _invalid_source_names(domain: DomainModel) -> Iterator[Issue]:
+    """Source names no quoting can carry (errors)."""
+    for system in domain.source_systems.values():
+        system_names = [
+            ("source_system", system.name, "schema", system.schema_name),
+            ("source_system", system.name, "database", system.database_name),
+        ]
+        table_names = [
+            ("source_table", table.physical_name, label, name)
+            for table in system.tables.values()
+            for label, name in (
+                ("table name", table.physical_name),
+                *(("column", column.name) for column in table.columns.values()),
+            )
+        ]
+        for entity_type, entity_name, label, name in [*system_names, *table_names]:
+            if not name or (reason := invalid_source_name_reason(name)) is None:
+                continue
+            yield make_issue(
+                severity="error",
+                code=Code.ENTITY_INVALID_SOURCE_NAME,
+                stage="resolve",
+                message=(
+                    f"The source {label} {name!r} of {entity_name!r} {reason}, "
+                    "which no quoting can carry."
+                ),
+                entity=EntityRef(type=entity_type, name=entity_name),
+                suggestion="Fix the name in the metadata; it must match the source.",
+            )
+
+
+def _unusual_display_names(domain: DomainModel) -> Iterator[Issue]:
+    """Source system and subject area names outside rule C (warnings)."""
+    display_names: dict[str, tuple[EntityType, str]] = {}
+    for system in domain.source_systems.values():
+        display_names.setdefault(system.name, ("source_system", "source system"))
+    groups = set(domain.groups)
+    for entities in (
+        domain.hubs,
+        domain.links,
+        domain.satellites,
+        domain.reference_tables,
+        domain.pits,
+    ):
+        groups.update(e.group_name for e in entities.values() if e.group_name)
+    for group in sorted(groups):
+        display_names.setdefault(group, ("group", "subject area"))
+
+    for name, (entity_type, label) in display_names.items():
+        if is_display_name(name):
+            continue
+        yield make_issue(
+            severity="warning",
+            code=Code.ENTITY_UNUSUAL_DISPLAY_NAME,
+            stage="resolve",
+            message=(
+                f"The {label} name {name!r} {DISPLAY_NAME_RULE}. Its technical "
+                "name is derived safely, but TurboVault Studio rejects it."
+            ),
+            entity=EntityRef(type=entity_type, name=name),
+            suggestion="Rename it, e.g. 'Sales & Ops' to 'Sales and Ops'.",
         )
 
 
