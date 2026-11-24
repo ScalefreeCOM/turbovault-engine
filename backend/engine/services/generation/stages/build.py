@@ -51,3 +51,23 @@ def build_export(
                 ),
             )
         ) from exc
+
+
+def entity_counts(project_export: ProjectExport) -> dict[str, int]:
+    """What the export holds, by entity type (every type present).
+
+    Named as `GenerationPlan.by_entity_type` names them: ``source`` counts
+    source systems.
+    """
+    return {
+        "source": len(project_export.sources),
+        "source_table": sum(len(system.tables) for system in project_export.sources),
+        "prestage": len(project_export.prestages),
+        "stage": len(project_export.stages),
+        "hub": len(project_export.hubs),
+        "link": len(project_export.links),
+        "satellite": len(project_export.satellites),
+        "pit": len(project_export.pits),
+        "reference_table": len(project_export.reference_tables),
+        "snapshot_control": len(project_export.snapshot_controls),
+    }

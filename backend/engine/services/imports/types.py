@@ -427,10 +427,40 @@ ProgressStatus = Literal["started", "in_progress", "done", "failed"]
 
 
 class ProgressEvent(BaseModel):
-    """Lifecycle event emitted between pipeline stages.
+    """Lifecycle event emitted as the pipeline runs.
 
-    Used by the CLI to drive a progress bar and by Studio's Celery task to
-    update `Job.current_step` mid-import.
+    Every stage emits `started` and `done`. The execute stage also emits one
+    `in_progress` event per entity it applies, with `current` (1-based) and
+    `total`. `message` is a short, plain sentence; `detail` holds small
+    JSON-serializable values (str, int, float, bool, None, and lists and
+    dicts of those) for logs and progress bars.
+
+    `detail` by stage and status:
+
+    - `parse` / `done`: ``{"read": {<kind>: count}}``, what the source holds
+      as the parser models it. Excel and SQLite sources are read as sheets
+      of rows: the keys are the sheet names (``source_data``,
+      ``standard_hub``, ...), the counts their rows; the sheets become
+      entities in the validate stage. The other sources are read as
+      entities: ``source_system``, ``source_table``, ``source_column``,
+      ``hub``, ``link``, ``satellite``, ``pit``, ``reference_table``,
+      ``snapshot_control`` and ``prejoin``, every key present.
+    - `validate` / `done`: ``{"errors": n, "warnings": n}``, the issues the
+      validate stage found.
+    - `plan` / `done`: ``{"totals": {...}, "by_entity_type": {...}}``, the
+      planned actions as `PlanCounts` has them.
+    - `execute` / `in_progress`: one per planned entity the executor applies
+      (deletes first, then the rest in plan order; planned skips aren't
+      applied), ``{"entity_type", "name", "action"}``. ``action`` is what
+      applying it did, as the report's plan names it: ``create``,
+      ``update``, ``unchanged``, ``delete``, or ``skip`` if writing it
+      failed. A dry run reports the same, and says "Would create ...".
+    - `execute` / `done`: ``{"applied": n}``, the entities the import
+      created, updated or deleted (0 for a dry run or a rolled-back run).
+
+    Other events have no `detail`. A caller can drive a progress bar from
+    these events; Studio's Celery task updates `Job.current_step` mid-import
+    and keeps a run's detailed log.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -440,3 +470,4 @@ class ProgressEvent(BaseModel):
     message: str
     current: int | None = None
     total: int | None = None
+    detail: dict[str, Any] | None = None

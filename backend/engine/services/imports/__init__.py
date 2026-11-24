@@ -28,6 +28,7 @@ import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from engine.models import Project
 from engine.services.imports.dbt.parser import parse_dbt
@@ -43,7 +44,7 @@ from engine.services.imports.parsers.source_metadata import (
 )
 from engine.services.imports.parsers.sqlite import parse_sqlite
 from engine.services.imports.planner import build_plan
-from engine.services.imports.progress import emit
+from engine.services.imports.progress import emit, read_counts
 from engine.services.imports.reporting import (
     build_report,
     now_utc,
@@ -132,8 +133,15 @@ def import_metadata(
     differs from what they give. Without it the project's ``config.yml`` (or
     the defaults) applies.
 
-    The only path that does NOT return is a programming bug — those become
-    `internal.bug` issues in the report.
+    ``progress`` receives a `ProgressEvent` per stage transition and per
+    entity the execute stage applies (see `ProgressEvent` for the `detail`
+    of each). An `Exception` it raises is ignored. A `BaseException` stops
+    the import and propagates unchanged: raised during execute, it rolls the
+    transaction back, so the project stays as it was. The run then has no
+    report and no `ImportRun` row.
+
+    Apart from that and ``on_plan``, the only path that does NOT return is a
+    programming bug — those become `internal.bug` issues in the report.
     """
     options = options or ImportOptions()
     project_settings: ProjectSettings | None = None
@@ -236,11 +244,22 @@ def import_metadata(
             )
 
         timings["parse"] = _ms(t0)
-        emit(progress, stage="parse", status="done", message="Parse complete")
+        emit(
+            progress,
+            stage="parse",
+            status="done",
+            message="Parse complete",
+            detail=(
+                {"read": read_counts(ir_doc, None if had_ir else domain)}
+                if progress is not None
+                else None
+            ),
+        )
 
         # ----------------------- 2/3. Validate + Resolve -----------------
         emit(progress, stage="validate", status="started", message="Validating schema")
         t0 = time.perf_counter()
+        issues_before_validate = len(issues)
 
         if had_ir:
             schema_issues = validate_schema(ir_doc, options)
@@ -290,7 +309,17 @@ def import_metadata(
         # else: JSON path — domain is already populated; minimal validation.
 
         timings["validate"] = _ms(t0)
-        emit(progress, stage="validate", status="done", message="Validation complete")
+        emit(
+            progress,
+            stage="validate",
+            status="done",
+            message="Validation complete",
+            detail=(
+                _issue_counts(issues[issues_before_validate:])
+                if progress is not None
+                else None
+            ),
+        )
 
         # ----------------------- 4. Plan -----------------------
         emit(progress, stage="plan", status="started", message="Computing diff")
@@ -303,7 +332,13 @@ def import_metadata(
         )
         plan_for_report = public_plan
         timings["plan"] = _ms(t0)
-        emit(progress, stage="plan", status="done", message="Plan ready")
+        emit(
+            progress,
+            stage="plan",
+            status="done",
+            message="Plan ready",
+            detail=public_plan.counts.model_dump() if progress is not None else None,
+        )
 
         if on_plan is not None:
             try:
@@ -341,6 +376,7 @@ def import_metadata(
                     skip_snapshots=options.skip_snapshots,
                     dry_run=options.dry_run,
                     runtime_config=runtime_config,
+                    progress=progress,
                 )
                 issues.extend(result.issues)
                 # Only now is every action final: an entity that exists is
@@ -358,7 +394,17 @@ def import_metadata(
             except PipelineAbort as abort:
                 issues.append(abort.issue)
             timings["execute"] = _ms(t0)
-            emit(progress, stage="execute", status="done", message="Execute complete")
+            emit(
+                progress,
+                stage="execute",
+                status="done",
+                message="Execute complete",
+                detail=(
+                    {"applied": _applied(public_plan) if executor_committed else 0}
+                    if progress is not None
+                    else None
+                ),
+            )
 
     except PipelineAbort as abort:
         # Catch-all for stages that throw PipelineAbort after the parse stage.
@@ -447,6 +493,20 @@ def _finalize(
 
 def _ms(start_perf: float) -> int:
     return int((time.perf_counter() - start_perf) * 1000)
+
+
+def _issue_counts(issues: list[Issue]) -> dict[str, Any]:
+    """A stage's errors and warnings, for its `done` event."""
+    return {
+        "errors": sum(1 for i in issues if i.severity == "error"),
+        "warnings": sum(1 for i in issues if i.severity == "warning"),
+    }
+
+
+def _applied(plan: ImportPlan) -> int:
+    """The entities the import created, updated or deleted."""
+    totals = plan.counts.totals
+    return totals.get("create", 0) + totals.get("update", 0) + totals.get("delete", 0)
 
 
 def _filter_bad_sheets(doc: IRDocument, schema_errors: list[Issue]) -> IRDocument:

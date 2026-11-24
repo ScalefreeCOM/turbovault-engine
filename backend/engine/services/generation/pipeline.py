@@ -14,18 +14,19 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from engine.models import GenerationRun, Project
 from engine.services.config_loader import ConfigValidationError
 from engine.services.generation.dbt_target import inspect_target
 from engine.services.generation.errors import Code, PipelineAbort, make_issue
 from engine.services.generation.progress import ProgressCallback, emit
-from engine.services.generation.stages.build import build_export
+from engine.services.generation.stages.build import build_export, entity_counts
 from engine.services.generation.stages.plan import build_plan
 from engine.services.generation.stages.render import render
 from engine.services.generation.stages.validate import validate
 from engine.services.generation.sqlmesh_dialect import check_kept_scaffold_files
-from engine.services.generation.stages.write import write_artifacts
+from engine.services.generation.stages.write import write_artifacts, written_files
 from engine.services.generation.types import (
     GeneratedArtifact,
     GenerationOptions,
@@ -63,6 +64,10 @@ def run_pipeline(
     The function never raises (modulo programming bugs that route into
     an `internal.bug` issue). Callers inspect `report.status` /
     `report.issues` to decide what to do next.
+
+    The exception: a `BaseException` raised by the `progress` callback (to
+    stop the run at a safe point) propagates unchanged. The run then has no
+    report and no `GenerationRun` row, and files already written stay.
     """
     options = options or GenerationOptions()
     started_at = _now()
@@ -86,7 +91,17 @@ def run_pipeline(
             project=project, runtime_config=runtime_config, options=options
         )
         timings["build"] = _ms(t0)
-        emit(progress, stage="build", status="done", message="Build complete")
+        emit(
+            progress,
+            stage="build",
+            status="done",
+            message="Build complete",
+            detail=(
+                {"entities": entity_counts(project_export)}
+                if progress is not None
+                else None
+            ),
+        )
 
         # -------------------- 2. Validate --------------------
         emit(progress, stage="validate", status="started", message="Validating model")
@@ -98,7 +113,13 @@ def run_pipeline(
         )
         issues.extend(validate_issues)
         timings["validate"] = _ms(t0)
-        emit(progress, stage="validate", status="done", message="Validation complete")
+        emit(
+            progress,
+            stage="validate",
+            status="done",
+            message="Validation complete",
+            detail=_issue_counts(validate_issues) if progress is not None else None,
+        )
 
         if options.error_strategy == "fail_fast" and any(
             i.severity == "error" for i in validate_issues
@@ -129,7 +150,20 @@ def run_pipeline(
         plan_for_report = plan
         issues.extend(plan_issues)
         timings["plan"] = _ms(t0)
-        emit(progress, stage="plan", status="done", message="Plan ready")
+        emit(
+            progress,
+            stage="plan",
+            status="done",
+            message="Plan ready",
+            detail=(
+                {
+                    "files_planned": plan.files_planned,
+                    "by_entity_type": dict(plan.by_entity_type),
+                }
+                if progress is not None
+                else None
+            ),
+        )
 
         if options.error_strategy == "fail_fast" and any(
             i.severity == "error" for i in plan_issues
@@ -169,11 +203,18 @@ def run_pipeline(
             runtime_config=runtime_config,
             options=options,
             target=target,
+            progress=progress,
         )
         artifacts = rendered
         issues.extend(render_issues)
         timings["render"] = _ms(t0)
-        emit(progress, stage="render", status="done", message="Render complete")
+        emit(
+            progress,
+            stage="render",
+            status="done",
+            message="Render complete",
+            detail={"files": len(rendered)} if progress is not None else None,
+        )
 
         # A rejected project-level input (vars block, profiles) means the
         # renderer produced nothing, so writing would only zip an earlier
@@ -224,10 +265,17 @@ def run_pipeline(
             output_type=output_type,
             output_path=output_path,
             options=options,
+            progress=progress,
         )
         issues.extend(write_issues)
         timings["write"] = _ms(t0)
-        emit(progress, stage="write", status="done", message="Write complete")
+        emit(
+            progress,
+            stage="write",
+            status="done",
+            message="Write complete",
+            detail=_write_summary(artifacts, options) if progress is not None else None,
+        )
 
     except PipelineAbort as abort:
         issues.append(abort.issue)
@@ -361,3 +409,21 @@ def _ms(start_perf: float) -> int:
 def _rendered_content(artifacts: list[GeneratedArtifact], path: str) -> str | None:
     """Return the rendered content of the artifact at relative *path*, if any."""
     return next((a.content for a in artifacts if a.path == path), None)
+
+
+def _issue_counts(issues: list[Issue]) -> dict[str, Any]:
+    """A stage's errors and warnings, for its `done` event."""
+    return {
+        "errors": sum(1 for i in issues if i.severity == "error"),
+        "warnings": sum(1 for i in issues if i.severity == "warning"),
+    }
+
+
+def _write_summary(
+    artifacts: list[GeneratedArtifact], options: GenerationOptions
+) -> dict[str, Any]:
+    """The files the write stage wrote and their bytes (none on a dry run)."""
+    if options.dry_run:
+        return {"files": 0, "size_bytes": 0}
+    files = written_files(artifacts)
+    return {"files": len(files), "size_bytes": sum(a.size_bytes for a in files)}

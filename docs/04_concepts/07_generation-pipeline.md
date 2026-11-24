@@ -559,7 +559,9 @@ for backwards-compatible dashboards.
 ## Audit trail: GenerationRun
 
 Every pipeline invocation — including dry-runs and failed runs — is
-persisted as a `GenerationRun` row on the project. List recent runs:
+persisted as a `GenerationRun` row on the project, except a run its
+progress callback [stopped](#stopping-a-run-from-the-callback). List recent
+runs:
 
 ```bash
 turbovault generation-history --project my_project
@@ -592,19 +594,71 @@ forthcoming Generation overhaul.
 ## Live progress
 
 The pipeline accepts an optional `progress` callback that fires
-`ProgressEvent`s at each stage transition (`started` → `done`). The CLI
-uses these to render a progress indicator; the Studio's Celery task
-forwards each event's `message` into `Job.current_step` so polling
-clients see live "Building project export" / "Validating model" /
-"Rendering dbt" / "Writing files" / … updates instead of a single
-static "Preparing generation".
+`ProgressEvent`s as it runs. Every stage emits `started` and `done`; the
+render and write stages also emit one `in_progress` event per file, with
+`current` (1-based) and `total`. The Studio's Celery task forwards each
+event's `message` into `Job.current_step` so polling clients see live
+"Building project export" / "Validating model" / "Rendering dbt" /
+"Writing files" / … updates, and turns the events into a run's detailed
+log and progress bars.
 
 ```python
 def on_progress(event: ProgressEvent) -> None:
-    print(f"[{event.stage}] {event.status}: {event.message}")
+    print(f"[{event.stage}] {event.status}: {event.message}", event.detail or "")
 
 generate(project=p, output_type="dbt", progress=on_progress)
 ```
+
+For the bundled TPC-H sample this prints, among others:
+
+```
+[build] started: Building project export
+[build] done: Build complete {'entities': {'source': 1, 'source_table': 8, 'prestage': 0, 'stage': 8, 'hub': 10, 'link': 6, 'satellite': 12, 'pit': 1, 'reference_table': 1, 'snapshot_control': 1}}
+...
+[render] in_progress: Rendered models/30_raw_vault/customers/CUSTOMER_H.sql {'path': 'models/30_raw_vault/customers/CUSTOMER_H.sql', 'kind': 'sql_model', 'entity_type': 'hub_standard', 'entity_name': 'CUSTOMER_H'}
+...
+[write] done: Write complete {'files': 109, 'size_bytes': 61399}
+[report] done: Generation success
+```
+
+### Event details
+
+`ProgressEvent.detail` holds small JSON values (strings, numbers, booleans,
+`None`, and lists and dicts of those). `message` is a short sentence for
+people; read `detail` in code.
+
+| Stage | Status | `detail` |
+|-------|--------|----------|
+| `build` | `done` | `{"entities": {<entity_type>: count}}`: what the export holds. Every key is present: `source` (source systems), `source_table`, `prestage`, `stage`, `hub`, `link`, `satellite`, `pit`, `reference_table`, `snapshot_control`. |
+| `validate` | `done` | `{"errors": n, "warnings": n}`: the issues the validate stage found. |
+| `plan` | `done` | `{"files_planned": n, "by_entity_type": {...}}`: the `GenerationPlan` fields. |
+| `render` | `in_progress` | One per artifact rendered: `{"path", "kind", "entity_type", "entity_name"}`, as on `GeneratedArtifact`. `path` is relative to the output folder; a field is `None` where unknown (a JSON or DBML export has no path). |
+| `render` | `done` | `{"files": n}`: the artifacts rendered. |
+| `write` | `in_progress` | One per file written (none on a dry run): `{"path", "size_bytes"}`, `path` relative to the output folder (a JSON or DBML export: its file name). |
+| `write` | `done` | `{"files": n, "size_bytes": total}`: the files written and their bytes, not counting the ZIP. `{"files": 0, "size_bytes": 0}` on a dry run. |
+
+The other events carry no `detail`, and only `in_progress` events carry
+`current` and `total`. Messages read "Rendered `<path>`" and "Wrote `<path>`".
+
+- **Render** events follow once the renderer has produced the artifacts:
+  the dbt and SQLMesh renderers build the whole project before handing any
+  file over. `total` is the number of artifacts rendered, which can differ
+  from the plan's `files_planned`, an estimate.
+- **Write** events follow each file as it lands. A write-once file that
+  already exists (SQLMesh's `config.yaml`, `config.json`,
+  `requirements.txt`) is kept, not written, and doesn't count. A file that
+  can't be written is an error issue and gets no event, so `current` then
+  stops short of `total`.
+- **Without a callback** nothing is built for it: the CLI and other callers
+  pay nothing.
+
+### Stopping a run from the callback
+
+An `Exception` raised by the callback is ignored: a broken progress consumer
+never fails a run. Any other `BaseException` (the Studio raises one to stop a
+run at a safe point, and `KeyboardInterrupt` is one too) propagates out of
+`generate()` unchanged. The run then has no report and no `GenerationRun`
+row, and the files the write stage wrote before the stop stay on disk.
 
 ---
 
