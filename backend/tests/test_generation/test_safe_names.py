@@ -520,6 +520,91 @@ class TestDvNameValidation:
         mutate(project_export)
         assert expected in self._codes(project_export)
 
+    @pytest.mark.parametrize(
+        ("mutate", "expected"),
+        [
+            (
+                lambda e: setattr(e, "bdv_schema", "business vault"),
+                ("NAM_001", "pipeline_test", "bdv_schema"),
+            ),
+            (
+                lambda e: setattr(e.hubs[0].source_tables[0], "hk_column", "hk-buyer"),
+                ("NAM_001", "hub_customer", "hk_column"),
+            ),
+            (
+                lambda e: setattr(
+                    e.hubs[0].effectivity_options, "is_active_alias", "is active"
+                ),
+                ("NAM_001", "hub_customer", "is_active_alias"),
+            ),
+            (
+                lambda e: setattr(
+                    e.links[0].effectivity_options, "is_active_alias", "active:"
+                ),
+                ("NAM_001", "lnk_customer_order", "is_active_alias"),
+            ),
+            (
+                lambda e: setattr(e.links[0], "dependent_child_keys", ["line no"]),
+                ("NAM_001", "lnk_customer_order", "dependent_child_keys"),
+            ),
+            (
+                lambda e: setattr(e.satellites[0], "hashdiff_alias", "hd x"),
+                ("NAM_001", "sat_customer_details", "hashdiff_alias"),
+            ),
+            (
+                lambda e: setattr(e.satellites[0], "v1_ledts_alias", "ledts-x"),
+                ("NAM_001", "sat_customer_details", "v1_ledts_alias"),
+            ),
+            (
+                lambda e: setattr(e.sources[0].tables[0], "sequence_column", "seq "),
+                ("NAM_006", "crm.customer", "sequence_column"),
+            ),
+            (
+                lambda e: setattr(
+                    e.hubs[0].effectivity_options, "additional_columns", ['valid "to"']
+                ),
+                ("NAM_006", "hub_customer", "additional_columns"),
+            ),
+        ],
+    )
+    def test_fields_from_dbt_imports_are_checked(
+        self, project_export, mutate, expected
+    ):
+        """The fields #238 added follow the same rules."""
+        mutate(project_export)
+        assert expected in self._codes(project_export)
+
+    def test_snapshot_date_alias_is_checked(self, project_export):
+        from engine.services.export.models import SnapshotControlDefinition
+
+        project_export.snapshot_controls.append(
+            SnapshotControlDefinition(
+                name="control_snap",
+                start_date="2024-01-01",
+                daily_time="08:00:00",
+                sdts_alias="snapshot date",
+            )
+        )
+        assert ("NAM_001", "control_snap", "sdts_alias") in self._codes(project_export)
+
+    def test_effectivity_source_columns_only_need_quoting(self, run, project_export):
+        """A further column with a space is a source name: valid, and the
+        effectivity satellite's metadata stays valid YAML."""
+        project_export.hubs[0].effectivity_options.additional_columns = [
+            "Valid To",
+            "note: x #y",
+        ]
+        assert not [c for c in self._codes(project_export) if c[0].startswith("NAM")]
+        report, out = run(project_export)
+        assert report.status == "success", report.issues
+        [eff_sat] = [
+            sql
+            for sql in (p.read_text(encoding="utf-8") for p in out.rglob("*.sql"))
+            if "eff_sat_v0" in sql
+        ]
+        metadata = _metadata(eff_sat)
+        assert metadata["additional_columns"] == ["Valid To", "note: x #y"]
+
     def _warnings(self, export):
         from engine.services.generation.validators import validate_export
 
@@ -722,6 +807,87 @@ class TestImportNameChecks:
             ("entity.name_too_long", "warning"),
         ]
 
+    @pytest.mark.parametrize(
+        ("mutate", "expected"),
+        [
+            (
+                lambda d: setattr(
+                    d.hubs["hub_customer"], "effectivity_is_active_alias", "is active"
+                ),
+                "entity.invalid_name",
+            ),
+            (
+                lambda d: setattr(
+                    d.hubs["hub_customer"].columns[0],
+                    "source_mappings",
+                    [_hub_mapping("hk-buyer")],
+                ),
+                "entity.invalid_name",
+            ),
+            (
+                lambda d: setattr(
+                    d.satellites["sat_customer"], "hashdiff_name", "hd x"
+                ),
+                "entity.invalid_name",
+            ),
+            (
+                lambda d: setattr(
+                    d.satellites["sat_customer"], "hashdiff_alias", "hd-alias"
+                ),
+                "entity.invalid_name",
+            ),
+            (
+                lambda d: setattr(
+                    d.satellites["sat_customer"], "v1_ledts_alias", "end date"
+                ),
+                "entity.invalid_name",
+            ),
+            (
+                lambda d: d.snapshot_controls.__setitem__(
+                    "control_snap", _snapshot_control(sdts_alias="snap date")
+                ),
+                "entity.invalid_name",
+            ),
+            (
+                lambda d: setattr(
+                    d.source_systems["crm"].tables["customer"],
+                    "sequence_column",
+                    "seq ",
+                ),
+                "entity.invalid_source_name",
+            ),
+            (
+                lambda d: setattr(
+                    d.hubs["hub_customer"],
+                    "effectivity_additional_columns",
+                    [" valid_to"],
+                ),
+                "entity.invalid_source_name",
+            ),
+        ],
+    )
+    def test_fields_from_dbt_imports_are_checked(self, mutate, expected):
+        """The fields #238 added follow the same rules."""
+        domain = self._domain()
+        mutate(domain)
+        assert self._codes(domain) == [(expected, "error")]
+
+    def test_cleared_fields_are_skipped(self):
+        from engine.services.imports.domain import CLEAR
+
+        domain = self._domain()
+        hub = domain.hubs["hub_customer"]
+        hub.effectivity_is_active_alias = CLEAR
+        hub.effectivity_additional_columns = CLEAR
+        domain.satellites["sat_customer"].hashdiff_alias = CLEAR
+        domain.source_systems["crm"].tables["customer"].sequence_column = CLEAR
+        assert self._codes(domain) == []
+
+    def test_effectivity_source_columns_only_need_quoting(self):
+        domain = self._domain()
+        domain.hubs["hub_customer"].effectivity_additional_columns = ["Valid To"]
+        assert self._codes(domain) == []
+
     def test_unusual_display_names_are_warnings(self):
         domain = self._domain()
         domain.hubs["hub_customer"].group_name = "Sales & Ops"
@@ -730,6 +896,22 @@ class TestImportNameChecks:
             ("entity.unusual_display_name", "warning"),
             ("entity.unusual_display_name", "warning"),
         ]
+
+
+def _hub_mapping(stage_hashkey_name: str):
+    from engine.services.imports.domain import DHubSourceMapping
+
+    return DHubSourceMapping(
+        source_table_identifier="crm.customer",
+        source_column_name="customer_id",
+        stage_hashkey_name=stage_hashkey_name,
+    )
+
+
+def _snapshot_control(**fields):
+    from engine.services.imports.domain import DSnapshotControl
+
+    return DSnapshotControl(name="control_snap", **fields)
 
 
 # ---------------------------------------------------------------------------

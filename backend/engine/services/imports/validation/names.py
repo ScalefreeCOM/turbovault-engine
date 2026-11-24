@@ -9,7 +9,8 @@ source metadata), so the same rules apply however metadata arrives:
 - ``entity.name_case_collision`` (error): two entity names differ only in case.
 - ``entity.invalid_source_name`` (error): a source schema, database, table or
   column name holds a control character, leading or trailing whitespace or a
-  quote character.
+  quote character. So does a stage's sequence column or a further column of
+  an effectivity satellite: both name stage columns taken from the source.
 - ``entity.name_reserved_word`` / ``entity.name_too_long`` (warnings): a Data
   Vault name is an SQL reserved word or longer than Postgres keeps.
 - ``entity.unusual_source_name`` (warning): a source table or column name only
@@ -25,6 +26,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterator
+from typing import Any
 
 from engine.services.imports.domain import DomainModel
 from engine.services.imports.errors import Code, make_issue
@@ -52,10 +54,16 @@ def check_names(domain: DomainModel) -> list[Issue]:
         *_invalid_names(domain),
         *_case_collisions(domain),
         *_invalid_source_names(domain),
+        *_invalid_effectivity_columns(domain),
         *_risky_dv_names(domain),
         *_unusual_source_names(domain),
         *_unusual_display_names(domain),
     ]
+
+
+def _given(value: Any) -> str | None:
+    """A name the source sets: None and CLEAR (keep, empty) set none."""
+    return value if isinstance(value, str) and value else None
 
 
 def _dv_names(domain: DomainModel) -> Iterator[tuple[EntityType, str, str, str]]:
@@ -71,6 +79,11 @@ def _dv_names(domain: DomainModel) -> Iterator[tuple[EntityType, str, str, str]]
             yield "hub", hub.physical_name, "hash key", hub.hashkey_name
         for column in hub.columns:
             yield "hub", hub.physical_name, "column", column.name
+            for mapping in column.source_mappings:
+                if stage_hashkey := _given(mapping.stage_hashkey_name):
+                    yield "hub", hub.physical_name, "stage hash key", stage_hashkey
+        if is_active := _given(hub.effectivity_is_active_alias):
+            yield "hub", hub.physical_name, "is_active alias", is_active
 
     for link in domain.links.values():
         yield "link", link.physical_name, "Link name", link.physical_name
@@ -86,10 +99,19 @@ def _dv_names(domain: DomainModel) -> Iterator[tuple[EntityType, str, str, str]]
                 )
         for column in link.columns:
             yield "link", link.physical_name, "column", column.name
+        if is_active := _given(link.effectivity_is_active_alias):
+            yield "link", link.physical_name, "is_active alias", is_active
 
     for satellite in domain.satellites.values():
         name = satellite.physical_name
         yield "satellite", name, "Satellite name", name
+        for label, value in (
+            ("hash diff", satellite.hashdiff_name),
+            ("hash diff alias", satellite.hashdiff_alias),
+            ("v1 load end date alias", satellite.v1_ledts_alias),
+        ):
+            if given := _given(value):
+                yield "satellite", name, label, given
         for column in satellite.columns:
             if column.target_column_name:
                 yield "satellite", name, "column alias", column.target_column_name
@@ -110,6 +132,8 @@ def _dv_names(domain: DomainModel) -> Iterator[tuple[EntityType, str, str, str]]
 
     for control in domain.snapshot_controls.values():
         yield "snapshot_control", control.name, "snapshot control name", control.name
+        if sdts_alias := _given(control.sdts_alias):
+            yield "snapshot_control", control.name, "snapshot date alias", sdts_alias
         for rule in control.logic_rules:
             yield "snapshot_control", control.name, "logic column", rule.column_name
 
@@ -198,6 +222,7 @@ def _invalid_source_names(domain: DomainModel) -> Iterator[Issue]:
             for label, name in (
                 ("table name", table.physical_name),
                 *(("column", column.name) for column in table.columns.values()),
+                ("sequence column", _given(table.sequence_column)),
             )
         ]
         for entity_type, entity_name, label, name in [*system_names, *table_names]:
@@ -213,6 +238,41 @@ def _invalid_source_names(domain: DomainModel) -> Iterator[Issue]:
                 ),
                 entity=EntityRef(type=entity_type, name=entity_name),
                 suggestion="Fix the name in the metadata; it must match the source.",
+            )
+
+
+def _invalid_effectivity_columns(domain: DomainModel) -> Iterator[Issue]:
+    """The further stage columns an effectivity satellite carries keep their
+    source names, so they follow the source rule (errors)."""
+    entities: list[tuple[EntityType, str, Any]] = [
+        *(
+            ("hub", hub.physical_name, hub.effectivity_additional_columns)
+            for hub in domain.hubs.values()
+        ),
+        *(
+            ("link", link.physical_name, link.effectivity_additional_columns)
+            for link in domain.links.values()
+        ),
+    ]
+    for entity_type, entity_name, columns in entities:
+        if not isinstance(columns, list):
+            continue  # None keeps, CLEAR empties: no names to check
+        for name in columns:
+            if (
+                not isinstance(name, str)
+                or (reason := invalid_source_name_reason(name)) is None
+            ):
+                continue
+            yield make_issue(
+                severity="error",
+                code=Code.ENTITY_INVALID_SOURCE_NAME,
+                stage="resolve",
+                message=(
+                    f"The effectivity satellite column {name!r} of {entity_name!r} "
+                    f"{reason}, which no quoting can carry."
+                ),
+                entity=EntityRef(type=entity_type, name=entity_name),
+                suggestion="Fix the name in the metadata; it must match the stage.",
             )
 
 

@@ -12,7 +12,7 @@ is_active_alias: [[ is_active_alias ]]
 [% if additional_columns %]
 additional_columns:
 [% for col in additional_columns %]
-    - [[ col ]]
+    - [[ col | yaml_scalar ]]
 [% endfor %]
 [% endif %]
 [% if disable_hwm %]

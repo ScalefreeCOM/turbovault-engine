@@ -12,6 +12,8 @@ Name checks run before generation (#450), following Studio's rules (#451).
   Postgres keeps (``NAM_005``) are warnings.
 - Source schema, database, table and column names with control characters,
   leading or trailing whitespace or quote characters (``NAM_006``, error).
+  The same goes for a stage's sequence column and the further columns an
+  effectivity satellite carries: both name stage columns taken from the source.
 - Source system and subject area names outside letters, digits, spaces,
   ``-``, ``_`` and ``.`` (``NAM_007``, warning): their technical names are
   still derived safely.
@@ -61,6 +63,7 @@ def validate_names(project_export: ProjectExport, result: ValidationResult) -> N
     _check_entity_collisions(project_export, result)
     _check_column_collisions(project_export, result)
     _check_source_names(project_export, result)
+    _check_effectivity_columns(project_export, result)
     _check_display_names(project_export, result)
 
 
@@ -72,7 +75,7 @@ def validate_names(project_export: ProjectExport, result: ValidationResult) -> N
 def _dv_names(export: ProjectExport) -> Iterator[DvName]:
     """Every Data Vault name of the export, with where it is defined."""
     project_name = export.project_name or "project"
-    for field_name in ("stage_schema", "rdv_schema"):
+    for field_name in ("stage_schema", "rdv_schema", "bdv_schema"):
         schema = getattr(export, field_name)
         if schema:
             yield DvName("project", project_name, field_name, schema)
@@ -95,6 +98,16 @@ def _dv_names(export: ProjectExport) -> Iterator[DvName]:
         ):
             for column in getattr(hub, field_name):
                 yield DvName("hub", hub.hub_name, field_name, column)
+        for source in hub.source_tables:
+            if source.hk_column:
+                yield DvName("hub", hub.hub_name, "hk_column", source.hk_column)
+        if hub.effectivity_options.is_active_alias:
+            yield DvName(
+                "hub",
+                hub.hub_name,
+                "is_active_alias",
+                hub.effectivity_options.is_active_alias,
+            )
 
     for link in export.links:
         yield DvName("link", link.link_name, "link_name", link.link_name)
@@ -104,10 +117,18 @@ def _dv_names(export: ProjectExport) -> Iterator[DvName]:
             "foreign_hashkeys",
             "business_key_columns",
             "payload_columns",
+            "dependent_child_keys",
             "additional_columns",
         ):
             for column in getattr(link, field_name):
                 yield DvName("link", link.link_name, field_name, column)
+        if link.effectivity_options.is_active_alias:
+            yield DvName(
+                "link",
+                link.link_name,
+                "is_active_alias",
+                link.effectivity_options.is_active_alias,
+            )
         for reference in link.hub_references:
             if reference.hub_hashkey_alias_in_link:
                 yield DvName(
@@ -120,8 +141,10 @@ def _dv_names(export: ProjectExport) -> Iterator[DvName]:
     for satellite in export.satellites:
         name = satellite.satellite_name
         yield DvName("satellite", name, "satellite_name", name)
-        if satellite.hashdiff_name:
-            yield DvName("satellite", name, "hashdiff_name", satellite.hashdiff_name)
+        for field_name in ("hashdiff_name", "hashdiff_alias", "v1_ledts_alias"):
+            value = getattr(satellite, field_name)
+            if value:
+                yield DvName("satellite", name, field_name, value)
         # A renamed column gets a Data Vault name; one kept as it is stays a
         # source name, checked with the source names.
         for column in satellite.columns:
@@ -164,6 +187,10 @@ def _dv_names(export: ProjectExport) -> Iterator[DvName]:
         if not control.name:
             continue  # SNAP_001 reports the missing name
         yield DvName("snapshot_control", control.name, "name", control.name)
+        if control.sdts_alias:
+            yield DvName(
+                "snapshot_control", control.name, "sdts_alias", control.sdts_alias
+            )
         for pattern in control.logic_patterns:
             yield DvName(
                 "snapshot_control", control.name, "logic_patterns", pattern.column_name
@@ -315,6 +342,9 @@ def _check_source_names(export: ProjectExport, result: ValidationResult) -> None
                 _check_source_name(
                     "source", table_ref, "columns", column.column_name, result
                 )
+            _check_source_name(
+                "source", table_ref, "sequence_column", table.sequence_column, result
+            )
             if table.table_type == "prestage":
                 continue
             unusual = [
@@ -336,6 +366,20 @@ def _check_source_names(export: ProjectExport, result: ValidationResult) -> None
                     "Snowflake/Exasol), so check the generated stage compiles"
                 ),
                 code="NAM_003",
+            )
+
+
+def _check_effectivity_columns(export: ProjectExport, result: ValidationResult) -> None:
+    """The further stage columns an effectivity satellite carries keep their
+    source names, so they follow the source rule."""
+    entities = [
+        *(("hub", hub.hub_name, hub.effectivity_options) for hub in export.hubs),
+        *(("link", link.link_name, link.effectivity_options) for link in export.links),
+    ]
+    for entity_type, entity_name, options in entities:
+        for column in options.additional_columns:
+            _check_source_name(
+                entity_type, entity_name, "additional_columns", column, result
             )
 
 

@@ -83,15 +83,20 @@ generation and on import. The rules are TurboVault Studio's naming rules
 (#451), so CLI, API and Studio users get the same checks.
 
 - **Data Vault names** (rule A) — Hub, Link, Satellite, PIT, reference table
-  and snapshot control names; hash keys, hashdiffs, key, alias and derived
-  columns; table aliases; the stage and raw vault schemas — must match
+  and snapshot control names; hash keys (also a stage's own hash key for a
+  role-playing hub source), hashdiffs and their aliases, key, alias and derived
+  columns, dependent child keys; the `is_active` alias of effectivity
+  satellites, the v1 load end date alias, the snapshot date alias; table
+  aliases; the stage, raw vault and business vault schemas — must match
   `^[A-Za-z_][A-Za-z0-9_]*$` and be unique ignoring case. SQL reserved words
   and names longer than 63 characters (Postgres truncates them) are warnings.
 - **Source names** (rule B) — physical source schemas, databases, tables and
   columns — are used as they are, so spaces, hyphens and mixed case are
   allowed. Names with control characters, leading or trailing whitespace or a
   quote character (`"`, `` ` ``) are errors. Names that only work quoted are
-  reported as a warning. Tables and
+  reported as a warning. A stage's sequence column and the further columns an
+  effectivity satellite carries are stage columns taken from the source, so
+  they follow this rule too. Tables and
   columns with special characters get dbt's quoting in `sources.yml`
   (`quoting.identifier` / `quote: true`). datavault4dbt escapes column names
   in its macros and may change their case (lowercase on Postgres/Redshift,
@@ -116,7 +121,7 @@ generation and on import. The rules are TurboVault Studio's naming rules
 | `NAM_003` | Source | A source table or column name only works quoted: special characters, reserved word or mixed case (warning, `validate.name.source_needs_quoting`) | Check the generated stage compiles; rename in the source if it doesn't |
 | `NAM_004` | Any | A Data Vault name is an SQL reserved word (warning, `validate.name.reserved_word`) | Rename it, e.g. add a prefix or suffix |
 | `NAM_005` | Any | A Data Vault name is longer than 63 characters (warning, `validate.name.too_long`) | Shorten it if the project runs on Postgres |
-| `NAM_006` | Source | A source schema, database, table or column name has a control character, leading or trailing whitespace or a quote character (error, `validate.name.invalid_source_name`) | Fix the name in the metadata; it must match the source |
+| `NAM_006` | Source, Hub, Link | A source schema, database, table or column name, a stage's sequence column or a further column of an effectivity satellite has a control character, leading or trailing whitespace or a quote character (error, `validate.name.invalid_source_name`) | Fix the name in the metadata; it must match the source |
 | `NAM_007` | Source system, subject area | A display name has characters other than letters, digits, spaces, `-`, `_` and `.` (warning, `validate.name.unusual_display_name`) | Rename it, e.g. `Sales & Ops` → `Sales and Ops` |
 
 The import reports the same problems as `entity.invalid_name`,
