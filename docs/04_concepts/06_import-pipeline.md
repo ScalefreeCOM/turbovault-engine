@@ -189,6 +189,74 @@ import would create.
 
 ---
 
+## Live progress
+
+`import_metadata(..., progress=callback)` calls `callback` with a
+`ProgressEvent` as the import runs. Every stage emits `started` and
+`done`; the execute stage also emits one `in_progress` event per entity it
+applies, with `current` (1-based) and `total`. A caller can drive a progress
+bar from these; the Studio forwards each `message` into `Job.current_step`
+and turns the events into a run's detailed log and progress bars.
+
+```python
+def on_progress(event: ProgressEvent) -> None:
+    print(f"[{event.stage}] {event.status}: {event.message}", event.detail or "")
+
+import_metadata(project=p, source=ExcelSource(path=path), progress=on_progress)
+```
+
+For the bundled TPC-H workbook this prints, among others:
+
+```
+[parse] done: Parse complete {'read': {'source_data': 8, 'standard_hub': 13, 'standard_link': 12, 'standard_satellite': 26, ...}}
+...
+[execute] in_progress: Created source system TPCH {'entity_type': 'source_system', 'name': 'TPCH', 'action': 'create'}
+[execute] in_progress: Created source table Customer {'entity_type': 'source_table', 'name': 'Customer', 'action': 'create'}
+...
+[execute] done: Execute complete {'applied': 39}
+[report] done: Import success
+```
+
+### Event details
+
+`ProgressEvent.detail` holds small JSON values (strings, numbers, booleans,
+`None`, and lists and dicts of those). `message` is a short sentence for
+people; read `detail` in code.
+
+| Stage | Status | `detail` |
+|-------|--------|----------|
+| `parse` | `done` | `{"read": {<kind>: count}}`: what the source holds, as the parser models it. An Excel workbook or SQLite database is read as sheets of rows: the keys are its sheet names (`source_data`, `standard_hub`, …), the counts their rows; the validate stage turns them into entities. Every other source is read as entities, with every key present: `source_system`, `source_table`, `source_column`, `hub`, `link`, `satellite`, `pit`, `reference_table`, `snapshot_control`, `prejoin`. |
+| `validate` | `done` | `{"errors": n, "warnings": n}`: the issues the validate stage found. |
+| `plan` | `done` | `{"totals": {...}, "by_entity_type": {...}}`: the planned actions, as the plan's `counts` has them before the executor ran. |
+| `execute` | `in_progress` | One per entity applied: `{"entity_type", "name", "action"}`. |
+| `execute` | `done` | `{"applied": n}`: the entities the import created, updated or deleted. `0` for a dry run, and for a `fail_fast` import that rolled back. |
+
+The other events carry no `detail`, and only `in_progress` events carry
+`current` and `total`.
+
+- **Execute** events follow each entity as it is applied: deletes first,
+  then the rest in plan order. Planned skips aren't applied and get no
+  event, so `total` is the number of entities the executor applies.
+  `action` is what applying the entity did, as the report's plan names it:
+  `create`, `update`, `unchanged`, `delete`, or `skip` if writing it
+  failed. Messages read "Created hub CUSTOMER_H", "Updated …",
+  "No changes to …", "Deleted …", "Skipped …".
+- **A dry run** reports the same actions, since it applies the plan before
+  rolling back, and says "Would create hub CUSTOMER_H".
+- **Without a callback** nothing is built for it: the CLI and other callers
+  pay nothing.
+
+### Stopping an import from the callback
+
+An `Exception` raised by the callback is ignored: a broken progress consumer
+never fails an import. Any other `BaseException` (the Studio raises one to
+stop a run at a safe point, and `KeyboardInterrupt` is one too) propagates
+out of `import_metadata()` unchanged. Raised during the execute stage, it
+rolls the import's transaction back, so the project stays as it was. The
+import then has no report and no `ImportRun` row.
+
+---
+
 ## The project's settings
 
 `import_metadata(..., runtime_config=config)` passes the project's
@@ -362,7 +430,9 @@ job's error UI.
 ## Audit trail: ImportRun
 
 Every pipeline invocation — including dry-runs and failed runs — is
-persisted as an `ImportRun` row on the project. List recent runs with:
+persisted as an `ImportRun` row on the project, except an import its
+progress callback [stopped](#stopping-an-import-from-the-callback). List
+recent runs with:
 
 ```bash
 turbovault import-history --project my_project

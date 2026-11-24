@@ -13,7 +13,7 @@ render both kinds of run reports with shared components.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -268,12 +268,41 @@ ProgressStatus = Literal["started", "in_progress", "done", "failed"]
 
 
 class ProgressEvent(BaseModel):
-    """Lifecycle event emitted between pipeline stages.
+    """Lifecycle event emitted as the pipeline runs.
 
-    The CLI drives a progress bar from these events; the Studio Celery
-    task forwards `message` into `Job.current_step` so polling clients see
-    "Building project export" / "Validating model" / etc. instead of a
-    static "Preparing generation".
+    Every stage emits `started` and `done`. The render and write stages
+    also emit one `in_progress` event per file, with `current` (1-based)
+    and `total`. `message` is a short, plain sentence; `detail` holds small
+    JSON-serializable values (str, int, float, bool, None, and lists and
+    dicts of those) for logs and progress bars.
+
+    `detail` by stage and status:
+
+    - `build` / `done`: ``{"entities": {<entity_type>: count}}``, what the
+      export holds: ``source`` (source systems), ``source_table``,
+      ``prestage``, ``stage``, ``hub``, ``link``, ``satellite``, ``pit``,
+      ``reference_table``, ``snapshot_control``. Every key is present.
+    - `validate` / `done`: ``{"errors": n, "warnings": n}``, the issues
+      the validate stage found.
+    - `plan` / `done`: ``{"files_planned": n, "by_entity_type": {...}}``,
+      the `GenerationPlan` fields.
+    - `render` / `in_progress`: one per rendered artifact,
+      ``{"path", "kind", "entity_type", "entity_name"}`` as on
+      `GeneratedArtifact` (``path`` relative to the output folder; None
+      where unknown, e.g. for a JSON or DBML export). Emitted once the
+      renderer has produced the artifacts.
+    - `render` / `done`: ``{"files": n}``, the artifacts rendered.
+    - `write` / `in_progress`: one per file written (none on a dry run),
+      ``{"path", "size_bytes"}`` with ``path`` relative to the output
+      folder. Write-once files that already exist are kept, not written,
+      and don't count. A file that can't be written is an error issue and
+      gets no event, so `current` then stops short of `total`.
+    - `write` / `done`: ``{"files": n, "size_bytes": total}``, the files
+      written and their bytes, the ZIP aside (both 0 on a dry run).
+
+    Other events have no `detail`. A caller can drive a progress bar from
+    these events; the Studio Celery task forwards `message` into
+    `Job.current_step` and turns the events into a run's detailed log.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -283,3 +312,4 @@ class ProgressEvent(BaseModel):
     message: str
     current: int | None = None
     total: int | None = None
+    detail: dict[str, Any] | None = None

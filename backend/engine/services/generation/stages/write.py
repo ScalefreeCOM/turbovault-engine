@@ -36,6 +36,7 @@ from engine.services.generation.dbt_target import (
 )
 from engine.services.generation.dbt_target import checksum as file_checksum
 from engine.services.generation.errors import Code, make_issue
+from engine.services.generation.progress import ProgressCallback, emit
 from engine.services.generation.types import (
     GeneratedArtifact,
     GenerationOptions,
@@ -52,11 +53,13 @@ def write_artifacts(
     output_type: OutputType,
     output_path: Path | None,
     options: GenerationOptions,
+    progress: ProgressCallback | None = None,
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
     """Persist (or simulate persisting) each rendered artifact.
 
     Returns the artifact list with `path`, `size_bytes`, `checksum`, and
-    `content` finalized, plus any write-stage issues.
+    `content` finalized, plus any write-stage issues. ``progress`` gets one
+    `in_progress` event per file written.
     """
     if options.dry_run:
         return _finalize_dry_run(artifacts, options), []
@@ -78,11 +81,43 @@ def write_artifacts(
         )
 
     if output_type in ("dbt", "sqlmesh"):
-        written, issues = _write_project(artifacts, output_path, options)
+        written, issues = _write_project(artifacts, output_path, options, progress)
         if output_type == "dbt":
             issues.extend(_defined_twice(written, output_path))
         return written, issues
-    return _write_single_file(artifacts, output_path, output_type, options)
+    return _write_single_file(artifacts, output_path, output_type, options, progress)
+
+
+def written_files(artifacts: list[GeneratedArtifact]) -> list[GeneratedArtifact]:
+    """The files this stage wrote: the artifacts it gave a checksum.
+
+    Write-once files that already existed were kept, not written (no
+    checksum); the ZIP archives the written files, so it doesn't count.
+    """
+    return [a for a in artifacts if a.checksum is not None and a.kind != "zip"]
+
+
+class _WriteProgress:
+    """Emits one `in_progress` event per file written, numbered 1..total."""
+
+    def __init__(self, progress: ProgressCallback | None, total: int) -> None:
+        self.progress = progress
+        self.total = total
+        self.current = 0
+
+    def wrote(self, relative_path: str, size_bytes: int) -> None:
+        if self.progress is None:
+            return
+        self.current += 1
+        emit(
+            self.progress,
+            stage="write",
+            status="in_progress",
+            message=f"Wrote {relative_path}",
+            current=self.current,
+            total=self.total,
+            detail={"path": relative_path, "size_bytes": size_bytes},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +153,7 @@ def _write_project(
     artifacts: list[GeneratedArtifact],
     output_path: Path,
     options: GenerationOptions,
+    progress: ProgressCallback | None = None,
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
     # Two files of one path (however cased: dbt, Windows and macOS ignore
     # case) would overwrite each other: nothing is written
@@ -146,6 +182,9 @@ def _write_project(
     previous = read_record(output_path)
     record: dict[str, str] = {}
     replaced: list[str] = []
+    reporter = _WriteProgress(
+        progress, _files_to_write(artifacts, output_path) if progress is not None else 0
+    )
 
     for a in artifacts:
         if not a.path or a.content is None:
@@ -219,6 +258,7 @@ def _write_project(
                 }
             )
         )
+        reporter.wrote(relative, size)
         # Only config.yaml carries placeholder connection values; other
         # write-once files (e.g. requirements.txt) are complete as generated.
         if not a.overwrite and a.path == "config.yaml":
@@ -271,6 +311,18 @@ def _write_project(
             written.append(zip_artifact)
 
     return written, issues
+
+
+def _files_to_write(artifacts: list[GeneratedArtifact], output_path: Path) -> int:
+    """How many files the project writer will write: every artifact with a
+    path and content, except write-once files that already exist (kept)."""
+    return sum(
+        1
+        for a in artifacts
+        if a.path
+        and a.content is not None
+        and (a.overwrite or not (output_path / a.path).exists())
+    )
 
 
 def _colliding_paths(artifacts: list[GeneratedArtifact]) -> list[list[str]]:
@@ -465,6 +517,7 @@ def _write_single_file(
     output_path: Path,
     output_type: OutputType,
     options: GenerationOptions,
+    progress: ProgressCallback | None = None,
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
     if not artifacts:
         return [], []
@@ -502,4 +555,5 @@ def _write_single_file(
             }
         )
     ]
+    _WriteProgress(progress, 1).wrote(target.name, size)
     return written, []

@@ -118,6 +118,11 @@ def generate(
     `runtime_config` is resolved from the project's stored config when
     not supplied. `options` defaults to `GenerationOptions()`
     (`error_strategy="best_effort"`, no dry-run, no selection).
+
+    `progress` receives a `ProgressEvent` per stage transition and per file
+    rendered and written (see `ProgressEvent` for the `detail` of each). An
+    `Exception` it raises is ignored; a `BaseException` stops the run and
+    propagates, without a report or `GenerationRun` row.
     """
     return run_pipeline(
         project=project,

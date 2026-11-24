@@ -82,14 +82,18 @@ from engine.services.imports.planner import (
     CreateOp,
     DeleteOp,
     ExecutionPlan,
+    PlanOp,
+    SkipOp,
     UpdateOp,
 )
+from engine.services.imports.progress import ProgressCallback, emit
 from engine.services.imports.staging_helpers import get_or_create_staging_column
 from engine.services.imports.types import (
     EntityRef,
     ErrorStrategy,
     ImportPlan,
     Issue,
+    PlanAction,
     PlanCounts,
     PlanState,
 )
@@ -143,6 +147,7 @@ def execute_plan(
     skip_snapshots: bool,
     dry_run: bool = False,
     runtime_config: EngineRuntimeConfig | None = None,
+    progress: ProgressCallback | None = None,
 ) -> ExecutionResult:
     """Apply the plan to the database; return the issues and what each op did.
 
@@ -151,6 +156,10 @@ def execute_plan(
     On `best_effort` the executor continues past per-entity errors and the
     transaction commits at the end with whatever succeeded. A dry run
     always rolls back.
+
+    ``progress`` gets one `in_progress` event per op applied (planned skips
+    aren't). A `BaseException` it raises rolls the transaction back and
+    propagates.
     """
     executor = _Executor(
         project=project,
@@ -159,6 +168,8 @@ def execute_plan(
         error_strategy=error_strategy,
         skip_snapshots=skip_snapshots,
         runtime_config=runtime_config,
+        progress=progress,
+        dry_run=dry_run,
     )
     with transaction.atomic():
         executor.run()
@@ -215,31 +226,67 @@ def apply_outcomes(
     for entity, op, outcome in zip(plan.entities, exec_plan.ops, outcomes, strict=True):
         if outcome is None:
             continue
-        if outcome.failed is not None:
-            entity.action = "skip"
-            entity.skip_reason = outcome.failed
-            entity.changes = []
-        elif isinstance(op, DeleteOp):
+        action = outcome_action(op, outcome)
+        if action == "delete":
             continue
-        elif not outcome.touched:
-            entity.action = "skip"
-            entity.skip_reason = next(
-                (
-                    _SKIP_REASON_BY_CODE[code]
-                    for code in outcome.error_codes
-                    if code in _SKIP_REASON_BY_CODE
-                ),
-                "execute_failed",
+        entity.action = action
+        if action == "skip":
+            entity.skip_reason = (
+                outcome.failed
+                if outcome.failed is not None
+                else next(
+                    (
+                        _SKIP_REASON_BY_CODE[code]
+                        for code in outcome.error_codes
+                        if code in _SKIP_REASON_BY_CODE
+                    ),
+                    "execute_failed",
+                )
             )
             entity.changes = []
-        elif outcome.created:
-            entity.action = "create"
+        elif action == "create":
             entity.changes = []
         else:
-            entity.action = "update" if outcome.changes else "unchanged"
             entity.changes = list(outcome.changes)
     plan.counts = PlanCounts.from_entities(plan.entities)
     plan.state = state
+
+
+def outcome_action(op: PlanOp, outcome: OpOutcome) -> PlanAction:
+    """What applying *op* did, as the plan names it.
+
+    One that could not be written is a `skip`; an entity that exists is
+    `update` only if something about it changed, else `unchanged`.
+    """
+    if outcome.failed is not None:
+        return "skip"
+    if isinstance(op, DeleteOp):
+        return "delete"
+    if not outcome.touched:
+        return "skip"
+    if outcome.created:
+        return "create"
+    return "update" if outcome.changes else "unchanged"
+
+
+# How an applied op reads in a progress message, by action: done and, for a
+# dry run, what the import would do.
+_APPLIED_VERBS: dict[str, tuple[str, str]] = {
+    "create": ("Created", "Would create"),
+    "update": ("Updated", "Would update"),
+    "unchanged": ("No changes to", "No changes to"),
+    "delete": ("Deleted", "Would delete"),
+    "skip": ("Skipped", "Would skip"),
+}
+
+
+def _applied_message(
+    action: PlanAction, entity_type: str, name: str, dry_run: bool
+) -> str:
+    """E.g. "Created hub customer_h", or "Would create ..." for a dry run."""
+    done, would = _APPLIED_VERBS[action]
+    label = "PIT" if entity_type == "pit" else entity_type.replace("_", " ")
+    return f"{would if dry_run else done} {label} {name}"
 
 
 _MISSING: Any = object()
@@ -255,8 +302,19 @@ class _Executor:
         error_strategy: ErrorStrategy,
         skip_snapshots: bool,
         runtime_config: EngineRuntimeConfig | None = None,
+        progress: ProgressCallback | None = None,
+        dry_run: bool = False,
     ):
         self.project = project
+        # Progress: one event per op applied, numbered 1..total.
+        self.progress = progress
+        self.dry_run = dry_run
+        self._applied = 0
+        self._to_apply = (
+            sum(1 for op in plan.ops if not isinstance(op, SkipOp))
+            if progress is not None
+            else 0
+        )
         # The project's settings: naming patterns name hash keys and diffs.
         self.runtime_config = runtime_config
         # The project's naming settings, resolved when a stored name needs them
@@ -736,6 +794,23 @@ class _Executor:
         finally:
             self._current = None
             self._journal = []
+        self._report_applied(op, outcome)
+
+    def _report_applied(self, op: Any, outcome: OpOutcome) -> None:
+        """Emit the `in_progress` event of an op just applied."""
+        if self.progress is None:
+            return
+        self._applied += 1
+        action = outcome_action(op, outcome)
+        emit(
+            self.progress,
+            stage="execute",
+            status="in_progress",
+            message=_applied_message(action, op.entity_type, op.name, self.dry_run),
+            current=self._applied,
+            total=self._to_apply,
+            detail={"entity_type": op.entity_type, "name": op.name, "action": action},
+        )
 
     def _fail(
         self,

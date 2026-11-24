@@ -31,6 +31,7 @@ from engine.services.generation.dbt_target import DbtTarget
 from engine.services.generation.errors import Code, make_issue
 from engine.services.generation.folder_config import FolderConfig, GenerationConfig
 from engine.services.generation.generator import DbtProjectGenerator
+from engine.services.generation.progress import ProgressCallback, emit
 from engine.services.generation.renderers.sqlmesh_renderer import render_sqlmesh
 from engine.services.generation.template_resolver import TemplateResolver
 from engine.services.generation.types import (
@@ -53,20 +54,57 @@ def render(
     runtime_config: EngineRuntimeConfig,
     options: GenerationOptions,
     target: DbtTarget | None = None,
+    progress: ProgressCallback | None = None,
 ) -> tuple[list[GeneratedArtifact], list[Issue]]:
     """Produce artifacts (in memory) and any render-stage issues.
 
     ``target``: the folder a dbt project goes into (an existing dbt project
     keeps its dbt_project.yml and packages.yml, spec D17).
+
+    ``progress`` gets one `in_progress` event per artifact once the renderer
+    has produced them (the renderers build the whole project at once).
     """
     if output_type == "dbt":
-        return _render_dbt(project_export, runtime_config, options, target)
-    if output_type == "json":
-        return _render_json(project_export, options)
-    if output_type == "dbml":
-        return _render_dbml(project_export, options)
-    if output_type == "sqlmesh":
-        return _render_sqlmesh(project_export, runtime_config, options)
+        rendered = _render_dbt(project_export, runtime_config, options, target)
+    elif output_type == "json":
+        rendered = _render_json(project_export, options)
+    elif output_type == "dbml":
+        rendered = _render_dbml(project_export, options)
+    elif output_type == "sqlmesh":
+        rendered = _render_sqlmesh(project_export, runtime_config, options)
+    else:
+        return _unsupported_output_type(output_type)
+    _report_rendered(rendered[0], progress)
+    return rendered
+
+
+def _report_rendered(
+    artifacts: list[GeneratedArtifact], progress: ProgressCallback | None
+) -> None:
+    """Emit one `in_progress` event per rendered artifact."""
+    if progress is None:
+        return
+    total = len(artifacts)
+    for current, artifact in enumerate(artifacts, start=1):
+        emit(
+            progress,
+            stage="render",
+            status="in_progress",
+            message=f"Rendered {artifact.path or artifact.kind.replace('_', ' ')}",
+            current=current,
+            total=total,
+            detail={
+                "path": artifact.path,
+                "kind": artifact.kind,
+                "entity_type": artifact.entity_type,
+                "entity_name": artifact.entity_name,
+            },
+        )
+
+
+def _unsupported_output_type(
+    output_type: str,
+) -> tuple[list[GeneratedArtifact], list[Issue]]:
     # Defensive: plan stage already rejects unsupported types.
     return (
         [],
