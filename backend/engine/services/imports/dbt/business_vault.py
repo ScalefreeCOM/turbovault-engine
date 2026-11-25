@@ -330,6 +330,33 @@ class BusinessVaultMapping:
 
     # -- PITs -----------------------------------------------------------------
 
+    def _flag_satellites_dropped(self, model: DbtModel, names: list[str]) -> None:
+        """Say that a PIT no longer reads the flag-generated satellites it lists.
+
+        As the workbook import does: the PIT is imported with its other
+        satellites. TurboVault's PITs track satellites of their own; an
+        effectivity or record-tracking satellite is generated from its parent's
+        flag instead.
+        """
+        described = [
+            "'{}' (the {} satellite of {} '{}')".format(
+                name, *self._flag_satellites[name.lower()]
+            )
+            for name in names
+        ]
+        self._issue(
+            model,
+            "warning",
+            Code.ENTITY_IMPORTED_DIFFERENTLY,
+            f"PIT '{model.name}' reads {', '.join(described)}, which TurboVault "
+            "generates from "
+            + ("its parent's flag" if len(names) == 1 else "their parents' flags")
+            + ", not as a satellite a PIT can track: the PIT is imported without "
+            + ("it" if len(names) == 1 else "them"),
+            parameter="sat_names",
+            suggestion="Track the PIT's other satellites.",
+        )
+
     def _map_pit(self, model: DbtModel) -> None:
         params = model.call.params
         tracked = _ref(params.get("tracked_entity")) or ""
@@ -368,7 +395,13 @@ class BusinessVaultMapping:
             )
 
         satellites: list[str] = []
+        # Effectivity and record-tracking satellites TurboVault generates from
+        # their parent's flag: not satellites a PIT can track (``_map_pit``).
+        flagged: list[str] = []
         for name in normalize_sat_names(params.get("sat_names")):
+            if name.lower() in self._flag_satellites:
+                flagged.append(name)
+                continue
             satellite = self._satellite_of(name)
             if satellite is None:
                 if self._skipped_satellite(name):
@@ -388,6 +421,8 @@ class BusinessVaultMapping:
                     self._skip("pit", model.name, "missing_reference")
                 return
             satellites.append(satellite)
+        if flagged:
+            self._flag_satellites_dropped(model, flagged)
 
         base = self._control_for(model, "snapshot_relation")
         if base is None:

@@ -274,8 +274,9 @@ def test_a_prejoin_of_an_unknown_table_is_an_error(project, workbook_factory):
 
 
 @pytest.mark.django_db
-def test_two_tables_are_prejoined_one_way(project, workbook_factory):
-    second_link = [
+def _second_link(alias: str) -> list:
+    """Another link taking the customer's key through customer_ref = legacy_id."""
+    return [
         "link_order_customer_2",
         "l_oc2",
         "h_cust",
@@ -286,25 +287,105 @@ def test_two_tables_are_prejoined_one_way(project, workbook_factory):
         "crm.customers",
         "legacy_id",
         "customer_no",
-        "customer_no_of_order",
+        alias,
     ]
-    path = workbook_factory(_sheets(ORDER_ROW, _customer_row(), second_link))
+
+
+def test_two_tables_can_be_prejoined_two_ways(project, workbook_factory):
+    """As datavault4dbt's prejoined_columns allow: a role-playing join."""
+    path = workbook_factory(
+        _sheets(ORDER_ROW, _customer_row(), _second_link("customer_no_by_ref"))
+    )
 
     report = _run(project, path)
 
-    # The second link also connects one hub only: that is a warning of its own.
-    [issue] = [
-        issue
-        for issue in _issues(report, "entity.invalid_configuration")
-        if issue.severity == "error"
-    ]
-    assert issue.entity.name == "link_order_customer_2"
-    assert "joins these tables on orders.customer_id = customers.id" in issue.message
-    prejoin = PrejoinDefinition.objects.get(project=project)
+    assert not [i for i in report.issues if i.severity == "error"], report.issues
+    joins = {
+        (
+            tuple(
+                c.source_column_physical_name
+                for c in pj.prejoin_condition_source_column.all()
+            ),
+            tuple(
+                c.source_column_physical_name
+                for c in pj.prejoin_condition_target_column.all()
+            ),
+            tuple(e.prejoin_target_column_alias for e in pj.extraction_columns.all()),
+        )
+        for pj in PrejoinDefinition.objects.filter(project=project)
+    }
+    assert joins == {
+        (("customer_id",), ("id",), ("customer_no_of_order",)),
+        (("customer_ref",), ("legacy_id",), ("customer_no_by_ref",)),
+    }
+    assert _hub_key_columns(project, "link_order_customer_2") == {
+        "hub_customer": "customer_no_by_ref"
+    }
+    names = {e.ref.name for e in report.plan.entities if e.ref.type == "prejoin"}
+    assert names == {
+        "orders->customers (customer_id = id)",
+        "orders->customers (customer_ref = legacy_id)",
+    }
+
+    again = _run(project, path)
+    totals = again.plan.counts.totals
+    assert (totals["create"], totals["update"], totals["delete"]) == (0, 0, 0)
+
+
+def test_a_prejoin_the_file_no_longer_has_goes_with_replace_all_only(
+    project, workbook_factory
+):
+    both = workbook_factory(
+        _sheets(ORDER_ROW, _customer_row(), _second_link("customer_no_by_ref")),
+        filename="both.xlsx",
+    )
+    _run(project, both)
+    first_only = workbook_factory(
+        _sheets(ORDER_ROW, _customer_row()), filename="first.xlsx"
+    )
+
+    merged = _run(project, first_only)
+    assert PrejoinDefinition.objects.filter(project=project).count() == 2
+    replaced = _run(project, first_only, conflict_strategy="replace_all")
+
+    prejoins = {
+        (e.ref.name, e.action)
+        for e in replaced.plan.entities
+        if e.ref.type == "prejoin"
+    }
+    assert prejoins == {
+        ("orders->customers (customer_id = id)", "unchanged"),
+        ("orders->customers (customer_ref = legacy_id)", "delete"),
+    }
     assert [
         c.source_column_physical_name
-        for c in prejoin.prejoin_condition_target_column.all()
-    ] == ["id"]
+        for pj in PrejoinDefinition.objects.filter(project=project)
+        for c in pj.prejoin_condition_source_column.all()
+    ] == ["customer_id"]
+    assert not [i for i in merged.issues if i.severity == "error"]
+
+
+def test_two_prejoins_cant_give_a_stage_column_the_same_name(project, workbook_factory):
+    path = workbook_factory(
+        _sheets(ORDER_ROW, _customer_row(), _second_link("customer_no_of_order"))
+    )
+
+    report = _run(project, path)
+
+    [issue] = [
+        issue
+        for issue in report.issues
+        if issue.severity == "error" and issue.code == "entity.invalid_configuration"
+    ]
+    assert issue.message == (
+        "Link 'link_order_customer_2' takes customers.customer_no as "
+        "'customer_no_of_order', a name another prejoin of 'orders' already gives "
+        "(joined on orders.customer_id = customers.id): the stage can select only "
+        "one column by that name."
+    )
+    # A link's mapping names the column, not the join: not bound to the other one
+    assert PrejoinDefinition.objects.filter(project=project).count() == 1
+    assert "hub_customer" not in _hub_key_columns(project, "link_order_customer_2")
 
 
 @pytest.mark.django_db

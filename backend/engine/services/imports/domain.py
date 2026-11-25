@@ -512,3 +512,36 @@ class DomainModel:
             return None
         _, table = result
         return table.columns.get(column_name.lower())
+
+
+def link_hub_problem(link: DLink) -> str | None:
+    """What a link lacks in hubs or key, if anything.
+
+    A standard link usually connects two or more hubs (one hub connected twice
+    counts twice); one is allowed, none is not. A non-historized link may
+    connect any number, none too, but its hash key is then hashed from its
+    dependent child keys alone, so it needs one. Every import says so the same
+    way.
+    """
+    connections = len(link.hub_references)
+    if link.link_type == "non_historized":
+        has_child_keys = any(
+            column.column_type == "dependent_child_key" for column in link.columns
+        )
+        if connections == 0 and not has_child_keys:
+            return (
+                f"Non-historized link '{link.physical_name}' connects no hubs and has "
+                "no dependent child key, so its hash key has nothing to hash."
+            )
+        return None
+    if connections == 0:
+        return (
+            f"Link '{link.physical_name}' connects no hubs; a link connects at least "
+            "one."
+        )
+    if connections == 1:
+        return (
+            f"Link '{link.physical_name}' connects only one hub; a link usually "
+            "connects two or more."
+        )
+    return None

@@ -747,6 +747,235 @@ def test_a_prejoined_column_loads_a_satellite(tmp_path, project):
     assert extraction.prejoin_target_column_alias == "CUSTOMER_COUNTRY"
 
 
+COUNTRY = source("crm", "country", ["CODE", "ISO3", "COUNTRY_NAME", "CURRENCY"])
+
+
+def _customer_stage(prejoins: str) -> tuple[str, dict[str, Any]]:
+    return model(
+        "stg__crm__customer",
+        STG_CUSTOMER[1]["raw_code"].replace(
+            "hashed_columns:",
+            "prejoined_columns:\n"
+            + textwrap.indent(textwrap.dedent(prejoins), "    ")
+            + "hashed_columns:",
+        ),
+        folder="models/staging",
+    )
+
+
+def _country_satellite(*columns: str) -> tuple[str, dict[str, Any]]:
+    return model(
+        "customer_country_s_v0",
+        dv(
+            "sat_v0",
+            f"""
+            source_model: stg__crm__customer
+            parent_hashkey: hk_customer_h
+            src_hashdiff: hd_customer_s
+            src_payload: [{", ".join(columns)}]
+            """,
+        ),
+    )
+
+
+def test_a_stage_prejoins_one_table_two_ways(tmp_path, project):
+    """A customer's country by its code and its currency by its ISO code: two
+    joins to one table, as datavault4dbt's prejoined_columns allow."""
+    from engine.models import PrejoinDefinition, SatelliteColumn, SourceColumn
+
+    stage = _customer_stage("""\
+        - extract_columns: [COUNTRY_NAME]
+          aliases: [CUSTOMER_COUNTRY]
+          src_name: crm
+          src_table: country
+          this_column_name: [COUNTRY]
+          ref_column_name: [CODE]
+        - extract_columns: [CURRENCY]
+          aliases: [CUSTOMER_CURRENCY]
+          src_name: crm
+          src_table: country
+          this_column_name: [NAME]
+          ref_column_name: [ISO3]
+        """)
+    sat = _country_satellite("CUSTOMER_COUNTRY", "CUSTOMER_CURRENCY")
+    path = write_manifest(
+        tmp_path,
+        [stage, STG_ORDERS, CUSTOMER_H, ORDER_H, sat],
+        [CUSTOMER, ORDERS, COUNTRY],
+    )
+
+    report = import_shop(project, path)
+
+    assert report.status in ("success", "partial_success"), report.issues
+    joins = {
+        (
+            tuple(
+                c.source_column_physical_name
+                for c in pj.prejoin_condition_source_column.all()
+            ),
+            tuple(e.prejoin_target_column_alias for e in pj.extraction_columns.all()),
+        )
+        for pj in PrejoinDefinition.objects.filter(project=project)
+    }
+    assert joins == {
+        (("COUNTRY",), ("CUSTOMER_COUNTRY",)),
+        (("NAME",), ("CUSTOMER_CURRENCY",)),
+    }
+    for column in SatelliteColumn.objects.filter(
+        satellite__satellite_physical_name="customer_country_s"
+    ):
+        assert column.staging_column.prejoin_column is not None
+    # No column of that name is invented on the customer table
+    assert not SourceColumn.objects.filter(
+        source_table__physical_table_name="customer",
+        source_column_physical_name__in=["CUSTOMER_COUNTRY", "CUSTOMER_CURRENCY"],
+    ).exists()
+
+
+def test_two_prejoins_cant_give_a_stage_column_the_same_name(tmp_path, project):
+    """datavault4dbt would select both: the second one is reported, left out."""
+    from engine.models import PrejoinDefinition
+
+    region = source("crm", "region", ["CODE", "LABEL"])
+    stage = _customer_stage("""\
+        - extract_columns: [COUNTRY_NAME]
+          aliases: [LABEL]
+          src_name: crm
+          src_table: country
+          this_column_name: [COUNTRY]
+          ref_column_name: [CODE]
+        - extract_columns: [LABEL]
+          src_name: crm
+          src_table: region
+          this_column_name: [COUNTRY]
+          ref_column_name: [CODE]
+        """)
+    path = write_manifest(
+        tmp_path,
+        [stage, STG_ORDERS, CUSTOMER_H, ORDER_H],
+        [CUSTOMER, ORDERS, COUNTRY, region],
+    )
+
+    report = import_shop(project, path)
+
+    (issue,) = [i for i in report.issues if "can select only one column" in i.message]
+    assert issue.severity == "error"
+    assert issue.message == (
+        "Prejoin 'customer->region' brings in 'LABEL', a name another prejoin of "
+        "'customer' already gives 'country.COUNTRY_NAME': the stage can select only "
+        "one column by that name."
+    )
+    assert {
+        (pj.prejoin_target_table.physical_table_name, pj.extraction_columns.count())
+        for pj in PrejoinDefinition.objects.filter(project=project)
+    } == {("country", 1), ("region", 0)}
+
+
+def test_entries_with_the_same_join_are_one_prejoin(tmp_path):
+    stage = _customer_stage("""\
+        - extract_columns: [COUNTRY_NAME]
+          aliases: [CUSTOMER_COUNTRY]
+          src_name: crm
+          src_table: country
+          this_column_name: [COUNTRY]
+          ref_column_name: [CODE]
+        - extract_columns: [CURRENCY]
+          aliases: [CUSTOMER_CURRENCY]
+          src_name: crm
+          src_table: country
+          this_column_name: [COUNTRY]
+          ref_column_name: [CODE]
+        """)
+    path = write_manifest(
+        tmp_path, [stage, STG_ORDERS, CUSTOMER_H, ORDER_H], [CUSTOMER, ORDERS, COUNTRY]
+    )
+
+    domain, _ = map_manifest(path)
+
+    (prejoin,) = domain.prejoins
+    assert [(e.source_column_name, e.alias) for e in prejoin.extraction_columns] == [
+        ("COUNTRY_NAME", "CUSTOMER_COUNTRY"),
+        ("CURRENCY", "CUSTOMER_CURRENCY"),
+    ]
+
+
+def _effectivity(name: str) -> tuple[str, dict[str, Any]]:
+    return model(
+        name,
+        dv(
+            "eff_sat_v0",
+            """
+            source_model: stg__crm__customer
+            tracked_hashkey: hk_customer_h
+            """,
+        ),
+    )
+
+
+def test_a_pit_is_imported_without_an_effectivity_satellite_it_reads(tmp_path):
+    pit = model(
+        "customer_pit",
+        CUSTOMER_PIT[1]["raw_code"].replace(
+            "- customer_s_v1", "- customer_s_v1\n    - customer_es"
+        ),
+        folder="models/business_vault",
+    )
+    domain, issues = map_manifest(
+        shop(tmp_path, CONTROL_V0, CONTROL_V1, _effectivity("customer_es"), pit)
+    )
+
+    assert domain.pits["customer_pit"].satellite_names == ["customer_s"]
+    (issue,) = [i for i in issues if i.code == "entity.imported_differently"]
+    assert issue.severity == "warning"
+    assert issue.message == (
+        "PIT 'customer_pit' reads 'customer_es' (the effectivity satellite of hub "
+        "'customer_h'), which TurboVault generates from its parent's flag, not as a "
+        "satellite a PIT can track: the PIT is imported without it"
+    )
+
+
+def test_a_second_effectivity_satellite_of_a_hub_is_reported(tmp_path):
+    domain, issues = map_manifest(
+        shop(tmp_path, _effectivity("customer_es"), _effectivity("customer_status_es"))
+    )
+
+    assert domain.hubs["customer_h"].create_effectivity_satellite
+    (issue,) = [i for i in issues if i.code == "entity.imported_differently"]
+    assert issue.message == (
+        "'customer_status_es' is a second effectivity satellite of hub 'customer_h': "
+        "TurboVault generates one per hub or link, with the settings of "
+        "'customer_es'. 'customer_status_es' is not imported"
+    )
+    assert "dbt.model_not_mapped" not in codes(issues)
+
+
+def test_a_link_with_one_hub_is_imported_with_a_warning(tmp_path):
+    single = model(
+        "order_only_l",
+        dv(
+            "link",
+            """
+            link_hashkey: hk_order_customer_l
+            foreign_hashkeys: [hk_order_h]
+            source_models: stg__crm__orders
+            """,
+        ),
+    )
+    domain, issues = map_manifest(shop(tmp_path, single))
+
+    assert "order_only_l" in domain.links
+    (issue,) = [
+        i
+        for i in issues
+        if i.code == "entity.invalid_configuration" and "order_only_l" in i.message
+    ]
+    assert issue.severity == "warning"
+    assert issue.message == (
+        "Link 'order_only_l' connects only one hub; a link usually connects two or "
+        "more."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Through the pipeline
 # ---------------------------------------------------------------------------
