@@ -73,6 +73,8 @@ _LEGACY_CODE_MAP: dict[str, str] = {
     "NAM_005": "validate.name.too_long",
     "NAM_006": "validate.name.invalid_source_name",
     "NAM_007": "validate.name.unusual_display_name",
+    "NAM_008": "validate.name.technical_name_collision",
+    "NAM_009": "validate.name.invalid_display_name",
 }
 
 

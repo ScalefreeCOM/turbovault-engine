@@ -432,10 +432,10 @@ Placeholders:
 
 | Placeholder | Value |
 |-------------|-------|
-| `[[ group ]]` | the entity's group, lowercase with spaces and dashes as `_` |
-| `[[ group_name ]]` | the group as it is named (spaces as `_`) |
-| `[[ source_system ]]` | the model's source system, lowercase with spaces and dashes as `_` |
-| `[[ source_system_name ]]` | the source system as it is named |
+| `[[ group ]]` | the entity's group as a technical name: lowercase, other characters as one `_` (`Sales & Ops` → `sales_ops`) |
+| `[[ group_name ]]` | the group as it is named, with `/` and `\` as `_` (a name starting with `.` is an error, `NAM_009`) |
+| `[[ source_system ]]` | the model's source system as a technical name (`SAP-ERP` → `sap_erp`) |
+| `[[ source_system_name ]]` | the source system as it is named, with `/` and `\` as `_` (a name starting with `.` is an error, `NAM_009`) |
 
 A model's source system:
 

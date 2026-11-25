@@ -115,6 +115,11 @@ class Code:
     VALIDATE_NAME_TOO_LONG = "validate.name.too_long"
     VALIDATE_NAME_INVALID_SOURCE_NAME = "validate.name.invalid_source_name"
     VALIDATE_NAME_UNUSUAL_DISPLAY_NAME = "validate.name.unusual_display_name"
+    VALIDATE_NAME_TECHNICAL_NAME_COLLISION = "validate.name.technical_name_collision"
+    VALIDATE_NAME_INVALID_DISPLAY_NAME = "validate.name.invalid_display_name"
+    # best_effort: an entity left out because of a name error (its own or one
+    # it depends on)
+    VALIDATE_NAME_ENTITY_LEFT_OUT = "validate.name.entity_left_out"
 
     # Plan stage
     PLAN_UNSUPPORTED_OUTPUT_TYPE = "plan.unsupported_output_type"

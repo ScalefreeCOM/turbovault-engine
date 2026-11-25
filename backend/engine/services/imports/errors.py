@@ -121,6 +121,7 @@ class Code:
     ENTITY_NAME_RESERVED_WORD = "entity.name_reserved_word"
     ENTITY_NAME_TOO_LONG = "entity.name_too_long"
     ENTITY_UNUSUAL_DISPLAY_NAME = "entity.unusual_display_name"
+    ENTITY_INVALID_DISPLAY_NAME = "entity.invalid_display_name"
 
     # Plan stage
     PLAN_WOULD_CREATE = "plan.would_create"

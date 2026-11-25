@@ -92,8 +92,11 @@ generation and on import. The rules are TurboVault Studio's naming rules
   and names longer than 63 characters (Postgres truncates them) are warnings.
 - **Source names** (rule B) — physical source schemas, databases, tables and
   columns — are used as they are, so spaces, hyphens and mixed case are
-  allowed. Names with control characters, leading or trailing whitespace or a
-  quote character (`"`, `` ` ``) are errors. Names that only work quoted are
+  allowed. Names with control characters, invisible format characters (a
+  byte-order mark left at the start of a CSV header, a zero-width space),
+  Jinja markers (`{{`, `{%`, `{#`: dbt would run them inside the generated
+  metadata), leading or trailing whitespace or a quote character (`"`,
+  `` ` ``) are errors. Names that only work quoted are
   reported as a warning. A stage's sequence column and the further columns an
   effectivity satellite carries are stage columns taken from the source, so
   they follow this rule too. Tables and
@@ -104,12 +107,20 @@ generation and on import. The rules are TurboVault Studio's naming rules
 - **Display names** (rule C) — source system and subject area names — should
   contain only letters, digits, spaces, `-`, `_` and `.`. Studio rejects
   anything else; the Engine only warns, because the technical name below is
-  derived safely from any display name.
+  derived safely from any display name. A name starting with `.` (a hidden
+  folder, or `..`, where a folder pattern spells it out with `[[ group_name ]]`
+  or `[[ source_system_name ]]`) or holding characters no generated code can
+  carry is an error. The spelled placeholders replace `/` and `\` with `_`.
 - **Derived technical names** — one rule turns display names into technical
   names: lowercase, German letters spelled out (`ä`→`ae`, `ö`→`oe`,
   `ü`→`ue`, `ß`→`ss`, so `Müller Straße` gives `mueller_strasse`), other
   accents dropped (`Café` gives `cafe`), every run of other characters becomes
-  `_`. Source system `SAP-ERP` gives the dbt source `sap_erp`, the folder
+  `_`, repeated `_` collapse to one and none is kept at either end (`Sales (EU)`
+  gives `sales_eu`, not `sales_eu_`: `__` separates the parts of a stage name).
+  Two source systems, or two tables of one system, that give the same technical
+  name are errors (their sources and stages would overwrite each other); two
+  subject areas that do are a warning (their models share a folder and tag).
+  Source system `SAP-ERP` gives the dbt source `sap_erp`, the folder
   `sap_erp` and the stage `stg__sap_erp__orders`; subject area `Sales & Ops`
   gives the folder and tag `sales_ops`; project `2024 DWH` gives the dbt project
   `project_2024_dwh` (dbt project names must start with a letter).
@@ -121,13 +132,27 @@ generation and on import. The rules are TurboVault Studio's naming rules
 | `NAM_003` | Source | A source table or column name only works quoted: special characters, reserved word or mixed case (warning, `validate.name.source_needs_quoting`) | Check the generated stage compiles; rename in the source if it doesn't |
 | `NAM_004` | Any | A Data Vault name is an SQL reserved word (warning, `validate.name.reserved_word`) | Rename it, e.g. add a prefix or suffix |
 | `NAM_005` | Any | A Data Vault name is longer than 63 characters (warning, `validate.name.too_long`) | Shorten it if the project runs on Postgres |
-| `NAM_006` | Source, Hub, Link | A source schema, database, table or column name, a stage's sequence column or a further column of an effectivity satellite has a control character, leading or trailing whitespace or a quote character (error, `validate.name.invalid_source_name`) | Fix the name in the metadata; it must match the source |
+| `NAM_006` | Source, Hub, Link | A source schema, database, table or column name, a stage's sequence column or a further column of an effectivity satellite has a control or invisible format character, a Jinja marker, leading or trailing whitespace or a quote character (error, `validate.name.invalid_source_name`) | Fix the name in the metadata; it must match the source |
 | `NAM_007` | Source system, subject area | A display name has characters other than letters, digits, spaces, `-`, `_` and `.` (warning, `validate.name.unusual_display_name`) | Rename it, e.g. `Sales & Ops` → `Sales and Ops` |
+| `NAM_008` | Source system, source table, subject area | Two display names give the same technical name: source systems or tables of one system (error), subject areas (warning) (`validate.name.technical_name_collision`) | Rename one of them |
+| `NAM_009` | Source system, subject area | A display name starts with `.` or holds a control or invisible format character or a Jinja marker (error, `validate.name.invalid_display_name`) | Rename it |
+
+Templates rely on these rules, so name errors keep their entities out of the
+output in every error strategy. `fail_fast` stops the run. `best_effort`
+leaves out each entity with a name error and every entity that depends on it
+(the Satellites and Links of a Hub, the Hubs, Links and Satellites loaded from
+a source table, the PITs and reference tables reading them, ...), reports each
+as `validate.name.entity_left_out` (warning) and generates the rest
+(`partial_success`). An invalid stage, raw vault or business vault schema
+leaves nothing to generate.
 
 The import reports the same problems as `entity.invalid_name`,
 `entity.name_case_collision`, `entity.unusual_source_name`,
 `entity.name_reserved_word`, `entity.name_too_long`,
-`entity.invalid_source_name` and `entity.unusual_display_name`.
+`entity.invalid_source_name`, `entity.unusual_display_name` and
+`entity.invalid_display_name`. In `best_effort` an import leaves out the
+entities with `entity.invalid_name` or `entity.name_case_collision` and their
+dependents (skips with reason `invalid_name` / `depends_on_skipped`).
 
 ---
 

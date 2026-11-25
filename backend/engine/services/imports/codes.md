@@ -81,16 +81,21 @@ left out is planned as a skip, so `replace_all` keeps the project's copy.
 | `entity.invalid_name` | A Data Vault name (Hub, Link, Satellite, PIT, reference table, snapshot control, hash key, column, alias, derived column) is not a plain identifier `^[A-Za-z_][A-Za-z0-9_]*$`. Checked for every import source. | Rename it using only letters, digits and `_`, starting with a letter or `_`. |
 | `entity.name_case_collision` | Two entity names differ only in case (`hub_Customer`, `HUB_CUSTOMER`); they would become the same dbt model on most warehouses and file systems. | Give each entity a name that differs in more than case. |
 | `entity.unusual_source_name` | *Warning.* A source table or column name only works quoted: spaces, hyphens or other special characters, an SQL reserved word, or mixed case. One warning per table. | No change needed if the name is right; check the generated stage compiles. |
-| `entity.invalid_source_name` | A source schema, database, table or column name contains a control character, leading or trailing whitespace, or a quote character (`"` or `` ` ``); no quoting can carry it. | Fix the name in the metadata; it must match the source. |
+| `entity.invalid_source_name` | A source schema, database, table or column name contains a control character, an invisible format character (byte-order mark, zero-width space), a Jinja marker (`{{`, `{%`, `{#`), leading or trailing whitespace, or a quote character (`"` or `` ` ``); no quoting can carry it. | Fix the name in the metadata; it must match the source. |
 | `entity.name_reserved_word` | *Warning.* A Data Vault name is an SQL reserved word (`order`, `group`, `user`, …). | Rename it, e.g. add a prefix or suffix. |
 | `entity.name_too_long` | *Warning.* A Data Vault name is longer than 63 characters, which Postgres truncates. | Shorten it if the project runs on Postgres. |
 | `entity.unusual_display_name` | *Warning.* A source system or subject area name contains characters other than letters, digits, spaces, `-`, `_` and `.`. Its technical name is derived safely, but TurboVault Studio rejects it. | Rename it, e.g. `Sales & Ops` → `Sales and Ops`. |
+| `entity.invalid_display_name` | A source system or subject area name starts with `.` (a hidden folder or `..` where a folder pattern spells it out), or contains a control or invisible format character or a Jinja marker. | Rename it. |
 
 These follow TurboVault Studio's naming rules (#451). Invalid names, invalid
 source names and case collisions are reported, never renamed. With
-`error_strategy="fail_fast"` they stop the import before the plan; in
-`best_effort` the entities are imported and generation reports them again
-(`validate.name.*`) until they are renamed.
+`error_strategy="fail_fast"` they stop the import before the plan. In
+`best_effort` a Hub, Link, Satellite, PIT, reference table or snapshot control
+with `entity.invalid_name` or `entity.name_case_collision` is left out (a skip
+with reason `invalid_name`), and so are the entities that depend on it
+(`entity.depends_on_skipped`); the rest is imported. Source and display name
+errors are only reported: generation leaves their output out
+(`validate.name.*`) until they are fixed.
 
 An entity that can't be imported is left out rather than imported
 half-resolved, and appears in the plan as a skip with one of these
@@ -103,6 +108,7 @@ half-resolved, and appears in the plan as a skip with one of these
 | `missing_source_table` | A satellite's or prejoin's source table is not defined. |
 | `depends_on_skipped` | Something the entity depends on was skipped. |
 | `invalid_configuration` | The entity is inconsistent, e.g. a prejoin whose source and target join columns don't line up, or a PIT whose rows track different hubs or links. |
+| `invalid_name` | `best_effort` only: the entity's name breaks the naming rules (`entity.invalid_name`) or differs from another only in case (`entity.name_case_collision`). |
 | `execute_failed` | Writing the entity failed (see the `execute.*` issue). Only that entity was rolled back. |
 | `skip_snapshots` | A PIT, while the import runs with `skip_snapshots`: it needs a snapshot control. An existing PIT is kept. |
 | `update_only` | The entity is new and the strategy is `update_only`. |

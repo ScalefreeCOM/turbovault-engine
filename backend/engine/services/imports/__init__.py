@@ -70,6 +70,7 @@ from engine.services.imports.types import (
     SourceMetadataSource,
     SqliteSource,
 )
+from engine.services.imports.validation.name_skips import leave_out_invalid_names
 from engine.services.imports.validation.names import check_names
 from engine.services.imports.validation.resolver import resolve
 from engine.services.imports.validation.schema_validator import validate_schema
@@ -332,6 +333,10 @@ def import_metadata(
                 executor_committed=False,
                 progress=progress,
             )
+        if options.error_strategy == "best_effort":
+            # The generated code relies on valid names: leave those entities,
+            # and what depends on them, out instead of storing them.
+            issues.extend(leave_out_invalid_names(domain, name_issues))
 
         timings["validate"] = _ms(t0)
         emit(

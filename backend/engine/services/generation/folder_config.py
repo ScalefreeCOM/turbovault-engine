@@ -14,14 +14,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from engine.services.naming import technical_name
+from engine.services.naming import spelled_folder_name, technical_name
 
 # Where each kind of model goes: patterns relative to the dbt project, like
 # the naming patterns (spec D27). [[ group ]] and [[ source_system ]] stand for
-# the entity's group and its source system as folder names (lowercase, spaces
-# and dashes as underscores); [[ group_name ]] and [[ source_system_name ]] as
-# they are spelled. A stage's source system is its table's; an entity's that
-# of its (primary) source tables (main_source_system). A part whose
+# the entity's group and its source system as folder names (technical_name:
+# lowercase, other characters as underscores); [[ group_name ]] and
+# [[ source_system_name ]] as they are spelled, with / and \ as underscores
+# (names starting with "." are rejected by validation, NAM_009). A stage's
+# source system is its table's; an entity's that of its (primary) source
+# tables (main_source_system). A part whose
 # placeholder has no value (an entity without a group) is left out. The
 # defaults are TurboVault's layer folders (D12).
 DEFAULT_FOLDERS: dict[str, str] = {
@@ -152,9 +154,11 @@ class FolderConfig:
         """A model's folder, relative to the project: its pattern filled in."""
         values = {
             "group": folder_name(group) if group else "",
-            "group_name": group or "",
+            "group_name": spelled_folder_name(group) if group else "",
             "source_system": folder_name(source_system) if source_system else "",
-            "source_system_name": source_system or "",
+            "source_system_name": (
+                spelled_folder_name(source_system) if source_system else ""
+            ),
         }
         parts = []
         for part in self.pattern(key).split("/"):

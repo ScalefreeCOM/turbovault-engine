@@ -646,6 +646,8 @@ class _PlanBuilder:
                 self._record(
                     CreateOp(entity_type="snapshot_control", name=d.name, payload=d)
                 )
+        # Left out for an invalid name; never deleted anyway (see above).
+        self._plan_left_out("snapshot_control")
 
     # --------------------------------------------------------- ref tables
     def _plan_reference_tables(self) -> None:

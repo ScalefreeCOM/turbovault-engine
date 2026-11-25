@@ -17,14 +17,16 @@ source metadata), so the same rules apply however metadata arrives:
   works quoted (spaces, hyphens, reserved words, mixed case).
 - ``entity.unusual_display_name`` (warning): a source system or subject area
   name holds characters other than letters, digits, spaces, ``-``, ``_``, ``.``.
+- ``entity.invalid_display_name`` (error): a source system or subject area
+  name starts with ``.`` or holds characters no generated code can carry.
 
-Names are reported, never renamed. The rules live in
+Names are reported, never renamed. In ``best_effort`` the entities with an
+invalid name or a case collision are left out (``leave_out_invalid_names``). The rules live in
 ``engine.services.naming``, shared with generation and TurboVault Studio.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Iterator
 from typing import Any
 
@@ -35,6 +37,8 @@ from engine.services.naming import (
     DISPLAY_NAME_RULE,
     DV_NAME_RULE,
     MAX_IDENTIFIER_LENGTH,
+    case_insensitive_collisions,
+    invalid_display_name_reason,
     invalid_source_name_reason,
     is_display_name,
     is_dv_name,
@@ -294,6 +298,16 @@ def _unusual_display_names(domain: DomainModel) -> Iterator[Issue]:
         display_names.setdefault(group, ("group", "subject area"))
 
     for name, (entity_type, label) in display_names.items():
+        if reason := invalid_display_name_reason(name):
+            yield make_issue(
+                severity="error",
+                code=Code.ENTITY_INVALID_DISPLAY_NAME,
+                stage="resolve",
+                message=f"The {label} name {name!r} {reason}.",
+                entity=EntityRef(type=entity_type, name=name),
+                suggestion="Rename it.",
+            )
+            continue
         if is_display_name(name):
             continue
         yield make_issue(
@@ -309,33 +323,53 @@ def _unusual_display_names(domain: DomainModel) -> Iterator[Issue]:
         )
 
 
+# The DomainModel dicts holding Data Vault entities, by entity type.
+DV_ENTITY_DICTS: tuple[tuple[EntityType, str], ...] = (
+    ("hub", "hubs"),
+    ("link", "links"),
+    ("satellite", "satellites"),
+    ("pit", "pits"),
+    ("reference_table", "reference_tables"),
+    ("snapshot_control", "snapshot_controls"),
+)
+
+
+def entity_name(entity: Any) -> str:
+    """A domain entity's name: its physical name (a snapshot control's name)."""
+    return getattr(entity, "physical_name", None) or entity.name
+
+
+def dv_entities(domain: DomainModel) -> list[tuple[EntityType, str, Any]]:
+    """Every Data Vault entity once, as (entity type, name, entity).
+
+    Hubs and links are also keyed by their identifiers, so the dicts' keys
+    are not their names.
+    """
+    entities: list[tuple[EntityType, str, Any]] = []
+    for entity_type, attribute in DV_ENTITY_DICTS:
+        seen: set[int] = set()
+        for entity in getattr(domain, attribute).values():
+            if id(entity) not in seen:
+                seen.add(id(entity))
+                entities.append((entity_type, entity_name(entity), entity))
+    return entities
+
+
 def _case_collisions(domain: DomainModel) -> Iterator[Issue]:
     """Entity names become model names: unique however they are cased."""
-    entities: list[tuple[EntityType, str]] = [
-        *(("hub", name) for name in domain.hubs),
-        *(("link", name) for name in domain.links),
-        *(("satellite", name) for name in domain.satellites),
-        *(("pit", name) for name in domain.pits),
-        *(("reference_table", name) for name in domain.reference_tables),
-        *(("snapshot_control", name) for name in domain.snapshot_controls),
-    ]
-    by_folded: dict[str, list[tuple[EntityType, str]]] = defaultdict(list)
-    for entity in entities:
-        by_folded[entity[1].casefold()].append(entity)
-
-    for group in by_folded.values():
-        if len(group) < 2:
-            continue
+    entities = [(entity_type, name) for entity_type, name, _ in dv_entities(domain)]
+    # One issue per entity, so best_effort can leave each of them out
+    for group in case_insensitive_collisions(entities, key=lambda entity: entity[1]):
         described = ", ".join(f"{kind} '{name}'" for kind, name in group)
-        first_type, first_name = group[0]
-        yield make_issue(
-            severity="error",
-            code=Code.ENTITY_NAME_CASE_COLLISION,
-            stage="resolve",
-            message=f"Names that differ only in case collide: {described}.",
-            entity=EntityRef(type=first_type, name=first_name),
-            suggestion="Give each entity a name that differs in more than case.",
-        )
+        for entity_type, name in group:
+            yield make_issue(
+                severity="error",
+                code=Code.ENTITY_NAME_CASE_COLLISION,
+                stage="resolve",
+                message=f"Names that differ only in case collide: {described}.",
+                entity=EntityRef(type=entity_type, name=name),
+                suggestion="Give each entity a name that differs in more than case.",
+            )
 
 
 def _unusual_source_names(domain: DomainModel) -> Iterator[Issue]:

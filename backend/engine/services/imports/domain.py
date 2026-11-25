@@ -410,6 +410,9 @@ SkipReason = Literal[
     "missing_source_table",
     "depends_on_skipped",
     "invalid_configuration",
+    # A Data Vault name that breaks the naming rules (#450), its own or a
+    # case collision
+    "invalid_name",
 ]
 
 

@@ -32,7 +32,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 # A Data Vault name: letter or underscore first, then letters, digits, _.
 DV_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -45,6 +45,10 @@ MAX_IDENTIFIER_LENGTH = 63
 
 # Quote characters of the supported platforms: no quoting can carry them.
 SOURCE_QUOTE_CHARACTERS = ('"', "`")
+
+# Jinja's expression, statement and comment openers: dbt renders the
+# generated models, so a name holding one would run as Jinja.
+JINJA_MARKERS = ("{{", "{%", "{#")
 
 DISPLAY_NAME_RULE = "should contain only letters, digits, spaces, -, _ and ."
 
@@ -98,20 +102,53 @@ def is_too_long(name: str) -> bool:
     return len(name) > MAX_IDENTIFIER_LENGTH
 
 
+def _unsafe_characters_reason(name: str) -> str | None:
+    """Why ``name`` can't go into generated code whatever its quoting, or None.
+
+    Control characters break YAML and SQL; invisible format characters (a
+    byte-order mark left at the start of a CSV header, a zero-width space)
+    make two names that look the same differ; Jinja markers are run by dbt
+    inside the templates' ``{% set yaml_metadata %}`` blocks, and ``{#``
+    comments out the rest of the metadata.
+    """
+    categories = {unicodedata.category(char) for char in name}
+    if "Cc" in categories:
+        return "contains a control character"
+    if "Cf" in categories:
+        return "contains an invisible format character (e.g. a byte-order mark)"
+    if any(marker in name for marker in JINJA_MARKERS):
+        return "contains a Jinja marker ({{, {% or {#)"
+    return None
+
+
 def invalid_source_name_reason(name: str) -> str | None:
     """Why a source schema, database, table or column name can't be used, or None.
 
     Rule B: anything that exists in the source is accepted except what no
-    quoting can carry — control characters, leading or trailing whitespace
-    and the platforms' quote characters.
+    quoting can carry — control and invisible format characters, Jinja
+    markers, leading or trailing whitespace and the platforms' quote
+    characters.
     """
-    if any(unicodedata.category(char) == "Cc" for char in name):
-        return "contains a control character"
+    if reason := _unsafe_characters_reason(name):
+        return reason
     if name != name.strip():
         return "starts or ends with whitespace"
     if any(quote in name for quote in SOURCE_QUOTE_CHARACTERS):
         return 'contains a quote character (" or `)'
     return None
+
+
+def invalid_display_name_reason(name: str) -> str | None:
+    """Why a source system or subject area name can't be used at all, or None.
+
+    Stricter than a rule C warning: the spelled placeholders
+    ``[[ group_name ]]`` / ``[[ source_system_name ]]`` put the name into a
+    folder as it is spelled, where a leading ``.`` gives a hidden folder or
+    ``..``. Characters no generated code can carry are rejected too.
+    """
+    if name.startswith("."):
+        return "starts with '.', which can't name a folder"
+    return _unsafe_characters_reason(name)
 
 
 def is_display_name(name: str) -> bool:
@@ -158,8 +195,11 @@ def technical_name(display_name: str | None) -> str:
     letters are spelled out (``Müller Straße`` → ``mueller_strasse``), other
     accents are dropped (``Café`` → ``cafe``) and every run of other
     characters becomes one ``_``: ``SAP-ERP`` → ``sap_erp``,
-    ``Sales & Ops`` → ``sales_ops``. The result can never hold a path
-    separator or ``..``, so it is safe as a folder or file name.
+    ``Sales & Ops`` → ``sales_ops``. Repeated ``_`` collapse to one and none
+    is kept at either end (``Sales (EU)`` → ``sales_eu``), as ``__``
+    separates the parts of a stage name (``stg__sap_erp__orders``). The
+    result can never hold a path separator or ``..``, so it is safe as a
+    folder or file name.
     """
     spelled_out = (display_name or "").lower().translate(_TRANSLITERATIONS)
     ascii_name = (
@@ -167,10 +207,8 @@ def technical_name(display_name: str | None) -> str:
         .encode("ascii", "ignore")
         .decode("ascii")
     )
-    collapsed = re.sub(r"[^a-z0-9_]+", "_", ascii_name)
-    if not collapsed.strip("_"):
-        return _EMPTY_TECHNICAL_NAME
-    return collapsed
+    collapsed = re.sub(r"[^a-z0-9]+", "_", ascii_name).strip("_")
+    return collapsed or _EMPTY_TECHNICAL_NAME
 
 
 def dbt_project_name(
@@ -179,26 +217,41 @@ def dbt_project_name(
     """The dbt project name derived from a project's display name.
 
     dbt requires a project name that starts with a letter, so a name starting
-    with a digit or ``_`` gets a ``project_`` prefix.
+    with a digit gets a ``project_`` prefix.
     """
     if not display_name or not display_name.strip():
         return default
     name = technical_name(display_name)
-    if not name[0].isalpha():
-        name = f"project_{name.lstrip('_')}"
-    return name
+    return name if name[0].isalpha() else f"project_{name}"
 
 
-def case_insensitive_collisions(names: Iterable[str]) -> list[list[str]]:
-    """Groups of distinct names that are equal ignoring case.
+def spelled_folder_name(display_name: str) -> str:
+    """A display name as spelled, usable as one folder.
+
+    For the spelled placeholders ``[[ group_name ]]`` and
+    ``[[ source_system_name ]]``: path separators become ``_`` so the name
+    stays one folder. Names starting with ``.`` are rejected by validation
+    (``invalid_display_name_reason``).
+    """
+    return display_name.replace("/", "_").replace("\\", "_")
+
+
+def case_insensitive_collisions[T](
+    items: Iterable[T], key: Callable[[T], str] = str
+) -> list[list[T]]:
+    """Groups of items whose names (``key``) are equal ignoring case.
 
     ``["hub_Customer", "HUB_CUSTOMER", "hub_order"]`` gives
-    ``[["hub_Customer", "HUB_CUSTOMER"]]``. Exact duplicates are not reported
-    here; they are caught where the names are defined.
+    ``[["hub_Customer", "HUB_CUSTOMER"]]``. Items whose names are exactly
+    equal count once (the first one): duplicates are caught where the names
+    are defined.
     """
-    by_folded: dict[str, list[str]] = defaultdict(list)
-    for name in names:
-        spellings = by_folded[name.casefold()]
-        if name not in spellings:
-            spellings.append(name)
-    return [spellings for spellings in by_folded.values() if len(spellings) > 1]
+    by_folded: dict[str, dict[str, T]] = defaultdict(dict)
+    for item in items:
+        name = key(item)
+        by_folded[name.casefold()].setdefault(name, item)
+    return [
+        list(spellings.values())
+        for spellings in by_folded.values()
+        if len(spellings) > 1
+    ]

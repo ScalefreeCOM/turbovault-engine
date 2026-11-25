@@ -73,7 +73,7 @@ Controls what happens when individual entities fail to render.
 
 | Strategy | Behaviour |
 |----------|-----------|
-| `best_effort` *(default)* | Skip the failing entity, record a `render.*` issue, keep going. Final status is `partial_success` if anything was written. |
+| `best_effort` *(default)* | Skip the failing entity, record a `render.*` issue, keep going. Final status is `partial_success` if anything was written. Entities with a name error (`validate.name.*`), and the entities that depend on them, are left out before the plan (`validate.name.entity_left_out`): the templates rely on valid names. An invalid stage/raw vault/business vault schema stops the run. |
 | `fail_fast` | Abort at the first error in any stage; nothing is written. |
 
 CLI flag: `--mode lenient` (maps to `best_effort`) or `--mode strict`
@@ -304,8 +304,9 @@ models:
 
 To use this, add the subfolder entries to `dbt_project.yml` yourself — in
 Studio through the manual `dbt_project.yml`; a CLI run regenerates the file and
-drops them. Folder names are the sanitized group / source system names
-(lowercase, underscores). A model's own materialization in its `config()`
+drops them. Folder names are the technical names of the group / source
+system (lowercase, underscores; see the naming rules in
+[Validation Rules](03_validation-rules.md)). A model's own materialization in its `config()`
 block still takes precedence, so the model-specific materializations above
 (satellite `_v1`, reference tables, PITs, snapshot controls) ignore subfolder
 settings unless `model_specific_materializations` is off.

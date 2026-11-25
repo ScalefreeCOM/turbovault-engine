@@ -20,6 +20,10 @@ from engine.models import GenerationRun, Project
 from engine.services.config_loader import ConfigValidationError
 from engine.services.generation.dbt_target import inspect_target
 from engine.services.generation.errors import Code, PipelineAbort, make_issue
+from engine.services.generation.name_skips import (
+    blocks_generation,
+    leave_out_name_errors,
+)
 from engine.services.generation.progress import ProgressCallback, emit
 from engine.services.generation.stages.build import build_export, entity_counts
 from engine.services.generation.stages.plan import build_plan
@@ -121,8 +125,17 @@ def run_pipeline(
             detail=_issue_counts(validate_issues) if progress is not None else None,
         )
 
-        if options.error_strategy == "fail_fast" and any(
-            i.severity == "error" for i in validate_issues
+        # Templates rely on valid names: best_effort leaves out what has, or
+        # depends on, a name error; an invalid schema leaves nothing.
+        if options.error_strategy == "best_effort":
+            project_export, left_out_issues = leave_out_name_errors(
+                project_export, validate_issues
+            )
+            issues.extend(left_out_issues)
+
+        if blocks_generation(validate_issues) or (
+            options.error_strategy == "fail_fast"
+            and any(i.severity == "error" for i in validate_issues)
         ):
             return _finalize(
                 project=project,

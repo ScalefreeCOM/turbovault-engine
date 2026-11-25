@@ -16,7 +16,15 @@ Name checks run before generation (#450), following Studio's rules (#451).
   effectivity satellite carries: both name stage columns taken from the source.
 - Source system and subject area names outside letters, digits, spaces,
   ``-``, ``_`` and ``.`` (``NAM_007``, warning): their technical names are
-  still derived safely.
+  still derived safely. Names starting with ``.`` or holding characters no
+  generated code can carry are errors (``NAM_009``).
+- Display names that give the same technical name (``NAM_008``): an error
+  for two source systems (one dbt source name, one staging folder) or two
+  tables of one system (one stage name), a warning for two subject areas
+  (they share a folder and tag).
+
+With ``error_strategy="best_effort"`` the entities with name errors are left
+out of the output (``engine.services.generation.name_skips``).
 
 The rules themselves live in ``engine.services.naming`` so the import pipeline
 and TurboVault Studio apply the same ones.
@@ -25,20 +33,24 @@ and TurboVault Studio apply the same ones.
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from engine.services.export.model_outputs import dbt_source_name
 from engine.services.naming import (
     DISPLAY_NAME_RULE,
     DV_NAME_RULE,
     MAX_IDENTIFIER_LENGTH,
+    case_insensitive_collisions,
+    invalid_display_name_reason,
     invalid_source_name_reason,
     is_display_name,
     is_dv_name,
     is_reserved_word,
     is_too_long,
     source_name_quoting_reason,
+    technical_name,
 )
 
 if TYPE_CHECKING:
@@ -65,6 +77,7 @@ def validate_names(project_export: ProjectExport, result: ValidationResult) -> N
     _check_source_names(project_export, result)
     _check_effectivity_columns(project_export, result)
     _check_display_names(project_export, result)
+    _check_technical_name_collisions(project_export, result)
 
 
 # ---------------------------------------------------------------------------
@@ -250,13 +263,9 @@ def _check_entity_collisions(export: ProjectExport, result: ValidationResult) ->
             if control.name
         ),
     ]
-    by_folded: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    for entity in entities:
-        by_folded[entity[1].casefold()].append(entity)
-
-    for group in by_folded.values():
-        if len(group) < 2:
-            continue
+    # Exactly equal names are no case collision: validate.model.duplicate_name
+    # reports them.
+    for group in case_insensitive_collisions(entities, key=lambda entity: entity[1]):
         described = ", ".join(f"{kind} '{name}'" for kind, name in group)
         for kind, name in group:
             result.add_error(
@@ -299,14 +308,7 @@ def _check_column_collisions(export: ProjectExport, result: ValidationResult) ->
 def _report_column_collisions(
     entity_type: str, entity_name: str, columns: list[str], result: ValidationResult
 ) -> None:
-    by_folded: dict[str, list[str]] = defaultdict(list)
-    for column in columns:
-        spellings = by_folded[column.casefold()]
-        if column not in spellings:
-            spellings.append(column)
-    for spellings in by_folded.values():
-        if len(spellings) < 2:
-            continue
+    for spellings in case_insensitive_collisions(columns):
         result.add_error(
             entity_type=entity_type,
             entity_name=entity_name,
@@ -406,11 +408,19 @@ def _check_source_name(
 # ---------------------------------------------------------------------------
 
 
-def _check_display_names(export: ProjectExport, result: ValidationResult) -> None:
-    """Warn once per source system or subject area name outside rule C."""
+def _display_names(export: ProjectExport) -> dict[str, tuple[str, str]]:
+    """Every source system and subject area name: name -> (entity type, label)."""
     display_names: dict[str, tuple[str, str]] = {}
     for system in export.sources:
         display_names.setdefault(system.name, ("source", "source system"))
+    for group in _groups(export):
+        display_names.setdefault(group, ("group", "subject area"))
+    return display_names
+
+
+def _groups(export: ProjectExport) -> list[str]:
+    """The subject areas of the export's entities, in order of appearance."""
+    groups: dict[str, None] = {}
     for entities in (
         export.hubs,
         export.links,
@@ -419,11 +429,24 @@ def _check_display_names(export: ProjectExport, result: ValidationResult) -> Non
         export.reference_tables,
     ):
         for entity in entities:
-            group = getattr(entity, "group", None)
-            if group:
-                display_names.setdefault(group, ("group", "subject area"))
+            if group := getattr(entity, "group", None):
+                groups.setdefault(group)
+    return list(groups)
 
-    for name, (entity_type, label) in display_names.items():
+
+def _check_display_names(export: ProjectExport, result: ValidationResult) -> None:
+    """Source system and subject area names: errors for names no folder or
+    generated code can carry, one warning per name outside rule C."""
+    for name, (entity_type, label) in _display_names(export).items():
+        if reason := invalid_display_name_reason(name):
+            result.add_error(
+                entity_type=entity_type,
+                entity_name=name,
+                field="name",
+                message=f"The {label} name {name!r} {reason}",
+                code="NAM_009",
+            )
+            continue
         if is_display_name(name):
             continue
         result.add_warning(
@@ -435,4 +458,80 @@ def _check_display_names(export: ProjectExport, result: ValidationResult) -> Non
                 f"name is derived safely, but TurboVault Studio rejects it"
             ),
             code="NAM_007",
+        )
+
+
+def _check_technical_name_collisions(
+    export: ProjectExport, result: ValidationResult
+) -> None:
+    """Display names that give one technical name.
+
+    Two source systems would share a dbt source name and staging folder, two
+    tables of one system a stage name: errors on each of them. Two subject
+    areas only share a folder and tag: a warning.
+    """
+    for names in _shared_technical_names(
+        [system.name for system in export.sources], dbt_source_name
+    ):
+        _report_shared_technical_name(
+            "source", names, names, dbt_source_name(names[0]), "error", result
+        )
+
+    for system in export.sources:
+        tables = [table.table_name for table in system.tables]
+        for names in _shared_technical_names(tables, technical_name):
+            _report_shared_technical_name(
+                "source",
+                [f"{system.name}.{name}" for name in names],
+                names,
+                technical_name(names[0]),
+                "error",
+                result,
+                what="stage name part",
+            )
+
+    for names in _shared_technical_names(_groups(export), technical_name):
+        _report_shared_technical_name(
+            "group", names, names, technical_name(names[0]), "warning", result
+        )
+
+
+def _shared_technical_names(
+    names: Iterable[str], derive: Callable[[str], str]
+) -> list[list[str]]:
+    """Groups of distinct names that derive the same technical name."""
+    by_technical: dict[str, list[str]] = defaultdict(list)
+    for name in names:
+        group = by_technical[derive(name)]
+        if name not in group:
+            group.append(name)
+    return [group for group in by_technical.values() if len(group) > 1]
+
+
+def _report_shared_technical_name(
+    entity_type: str,
+    entity_names: list[str],
+    names: list[str],
+    shared: str,
+    severity: str,
+    result: ValidationResult,
+    what: str = "technical name",
+) -> None:
+    described = ", ".join(repr(name) for name in names)
+    consequence = (
+        "their models share a folder and tag"
+        if severity == "warning"
+        else "their generated models and sources would overwrite each other"
+    )
+    for entity_name in entity_names:
+        add = result.add_error if severity == "error" else result.add_warning
+        add(
+            entity_type=entity_type,
+            entity_name=entity_name,
+            field="name",
+            message=(
+                f"{described} all give the {what} {shared!r}; {consequence}. "
+                "Rename one of them"
+            ),
+            code="NAM_008",
         )
