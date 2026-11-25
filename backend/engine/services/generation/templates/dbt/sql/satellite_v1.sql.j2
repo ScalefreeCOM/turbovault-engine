@@ -5,7 +5,7 @@
 [# The v0 table's hash diff column is its alias, if it has one #]
 [# v1_ledts_alias, v1_add_is_current_flag, v1_include_payload: the view's options #]
 [# model_config: the config() block; the view's stored settings override these defaults #]
-[[ model_config(materialized=materialization, tags=['satellite', 'v1', 'raw_vault', group]) ]]
+[[ model_config(materialized=materialization, tags=['satellite', 'v1', 'raw_vault', (group | technical_name) if group else none]) ]]
 
 [# Determine which macro to use based on satellite_type #]
 [% if satellite_type == 'reference' %]
@@ -14,7 +14,7 @@
 ref_sat_v0: [[ v0_name ]]
 ref_keys:
 [% for bk in parent_business_keys %]
-    - [[ bk ]]
+    - [[ bk | yaml_scalar ]]
 [% endfor %]
 hashdiff: [[ hashdiff_alias or hashdiff_name ]]
 [% if v1_ledts_alias %]
@@ -33,7 +33,7 @@ hashkey: [[ parent_hashkey ]]
 hashdiff: [[ hashdiff_alias or hashdiff_name ]]
 ma_attribute:
 [% for col in columns if col.is_multi_active_key %]
-    - [[ col.target_column_name if col.target_column_name else col.source_column ]]
+    - [[ (col.target_column_name if col.target_column_name else col.source_column) | yaml_scalar ]]
 [% endfor %]
 [% if v1_ledts_alias %]
 ledts_alias: [[ v1_ledts_alias ]]

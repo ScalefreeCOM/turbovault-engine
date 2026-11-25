@@ -73,7 +73,7 @@ Controls what happens when individual entities fail to render.
 
 | Strategy | Behaviour |
 |----------|-----------|
-| `best_effort` *(default)* | Skip the failing entity, record a `render.*` issue, keep going. Final status is `partial_success` if anything was written. |
+| `best_effort` *(default)* | Skip the failing entity, record a `render.*` issue, keep going. Final status is `partial_success` if anything was written. Entities with a name error (`validate.name.*`), and the entities that depend on them, are left out before the plan (`validate.name.entity_left_out`): the templates rely on valid names. An invalid stage/raw vault/business vault schema stops the run. |
 | `fail_fast` | Abort at the first error in any stage; nothing is written. |
 
 CLI flag: `--mode lenient` (maps to `best_effort`) or `--mode strict`
@@ -324,8 +324,9 @@ models:
 
 To use this, add the subfolder entries to `dbt_project.yml` yourself — in
 Studio through the manual `dbt_project.yml`; a CLI run regenerates the file and
-drops them. Folder names are the sanitized group / source system names
-(lowercase, underscores). A model's own materialization in its `config()`
+drops them. Folder names are the technical names of the group / source
+system (lowercase, underscores; see the naming rules in
+[Validation Rules](03_validation-rules.md)). A model's own materialization in its `config()`
 block still takes precedence, so the model-specific materializations above
 (satellite `_v1`, reference tables, PITs, snapshot controls) ignore subfolder
 settings unless `model_specific_materializations` is off.
@@ -560,13 +561,17 @@ validate.link.nh_without_payload      validate.link.no_hashkey_input
 validate.satellite.no_parent          validate.satellite.no_stage        validate.satellite.no_columns       validate.satellite.no_hashdiff
 validate.pit.no_satellites            validate.pit.no_snapshot_logic     validate.pit.no_tracked_entity
 validate.snapshot.no_name             validate.snapshot.no_start_date    validate.snapshot.no_logic_patterns
+validate.name.invalid                 validate.name.case_collision       validate.name.source_needs_quoting
+validate.name.reserved_word           validate.name.too_long             validate.name.invalid_source_name
+validate.name.unusual_display_name
 
 plan.unsupported_output_type          plan.empty_project
 
 render.template_not_found             render.template_render_failed      render.entity_skipped
-render.template_outdated              render.prestage.maintained_in_dbt
+render.template_outdated              render.prestage.maintained_in_dbt  render.unsafe_path
 
 write.io_error                        write.path_collision               write.zip_failed
+write.path_outside_output
 
 internal.bug
 ```

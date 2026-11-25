@@ -4,12 +4,12 @@
 [[ model_config(
     materialized=materialization,
     tags=['pit', 'business_vault'],
-    post_hook="{{ datavault4dbt.clean_up_pit('" ~ snapshot_control_name ~ "') }}"
+    post_hook="{{ datavault4dbt.clean_up_pit(" ~ (snapshot_control_name | jinja_string) ~ ") }}"
 ) ]]
 
 {%- set yaml_metadata -%}
 [% if pit_type %]
-pit_type: '[[ pit_type ]]'
+pit_type: [[ pit_type | yaml_single_quote ]]
 [% endif %]
 tracked_entity: [[ tracked_entity_name ]]
 hashkey: [[ tracked_hashkey ]]
@@ -25,9 +25,9 @@ sat_names:
 [% endfor %]
 [% endif %]
 snapshot_relation: [[ snapshot_control_name ]]
-snapshot_trigger_column: [[ snapshot_logic_column ]]
+snapshot_trigger_column: [[ snapshot_logic_column | yaml_scalar ]]
 [% if dimension_key_column %]
-dimension_key: [[ dimension_key_column ]]
+dimension_key: [[ dimension_key_column | yaml_scalar ]]
 [% endif %]
 [% if custom_record_source %]
 custom_rsrc: [[ custom_record_source | yaml_quote ]]

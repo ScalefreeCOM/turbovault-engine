@@ -1,0 +1,1300 @@
+"""Safe names in generated output (#450).
+
+Generated files must stay inside the output folder, Data Vault names must be
+plain identifiers that differ in more than case, source names with spaces or
+hyphens must still give valid YAML and quoted dbt sources, user values must be
+escaped wherever they land in YAML or Jinja, and every technical name derived
+from a display name must follow one rule.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+import yaml
+
+pytestmark = pytest.mark.django_db
+
+TEMPLATES_DIR = (
+    Path(__file__).resolve().parents[2] / "engine/services/generation/templates"
+)
+
+YAML_METADATA = re.compile(
+    r"\{%- set yaml_metadata -%\}\n(.*?)\{%- endset -%\}", re.DOTALL
+)
+
+
+# ---------------------------------------------------------------------------
+# Naming rules
+# ---------------------------------------------------------------------------
+
+
+class TestTechnicalName:
+    @pytest.mark.parametrize(
+        ("display_name", "expected"),
+        [
+            ("crm", "crm"),
+            ("SAP ERP", "sap_erp"),
+            ("SAP-ERP", "sap_erp"),
+            ("Sales & Ops", "sales_ops"),
+            ("Müller GmbH", "mueller_gmbh"),
+            ("Müller Straße", "mueller_strasse"),
+            ("ÄRZTE ÖL ÜBER STRASSE", "aerzte_oel_ueber_strasse"),
+            ("GROẞ", "gross"),
+            ("Café Señor", "cafe_senor"),
+            ("already_snake_case", "already_snake_case"),
+            ("double__underscore", "double_underscore"),
+            ("Sales (EU)", "sales_eu"),
+            ("(EU) Sales", "eu_sales"),
+            ("Sales_&_Ops", "sales_ops"),
+            ("_tmp_", "tmp"),
+            ("../../etc", "etc"),
+            ("a/b\\c", "a_b_c"),
+            ("", "unnamed"),
+            ("&&&", "unnamed"),
+        ],
+    )
+    def test_cases(self, display_name, expected):
+        from engine.services.naming import technical_name
+
+        assert technical_name(display_name) == expected
+
+    @pytest.mark.parametrize("display_name", ["..", "../x", "/abs", "a/../b", "C:\\x"])
+    def test_never_holds_a_path_separator_or_parent_reference(self, display_name):
+        from engine.services.naming import technical_name
+
+        name = technical_name(display_name)
+        assert "/" not in name and "\\" not in name and ".." not in name
+
+    def test_folder_source_name_and_stage_prefix_agree(self):
+        """One display name gives the same name everywhere it is derived."""
+        from engine.services.export.model_outputs import dbt_source_name
+        from engine.services.generation.folder_config import FolderConfig
+
+        folders = FolderConfig()
+        assert dbt_source_name("SAP-ERP") == "sap_erp"
+        assert folders.folder("staging", source_system="SAP-ERP").endswith("/sap_erp")
+        assert folders._sanitize_name("SAP-ERP") == "sap_erp"
+        assert folders.folder("raw_vault", group="Sales & Ops").endswith("/sales_ops")
+
+
+class TestDbtProjectName:
+    @pytest.mark.parametrize(
+        ("display_name", "expected"),
+        [
+            ("My Project", "my_project"),
+            ("Sales-DWH", "sales_dwh"),
+            ("2024 DWH", "project_2024_dwh"),
+            ("_hidden", "hidden"),
+            ("_2024", "project_2024"),
+            ("", "turbovault_project"),
+            (None, "turbovault_project"),
+        ],
+    )
+    def test_starts_with_a_letter(self, display_name, expected):
+        from engine.services.naming import dbt_project_name
+
+        assert dbt_project_name(display_name) == expected
+
+
+class TestDvNames:
+    @pytest.mark.parametrize("name", ["hub_customer", "_x", "HK_1", "a"])
+    def test_valid(self, name):
+        from engine.services.naming import is_dv_name
+
+        assert is_dv_name(name)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["", "1hub", "hub customer", "hub-customer", "hub/x", "../x", "hub_x\n", None],
+    )
+    def test_invalid(self, name):
+        from engine.services.naming import is_dv_name
+
+        assert not is_dv_name(name)
+
+    def test_case_insensitive_collisions(self):
+        from engine.services.naming import case_insensitive_collisions
+
+        assert case_insensitive_collisions(
+            ["hub_Customer", "HUB_CUSTOMER", "hub_order", "hub_order"]
+        ) == [["hub_Customer", "HUB_CUSTOMER"]]
+
+    def test_case_insensitive_collisions_by_key(self):
+        from engine.services.naming import case_insensitive_collisions
+
+        entities = [("hub", "hub_Customer"), ("link", "HUB_CUSTOMER"), ("pit", "p")]
+        assert case_insensitive_collisions(entities, key=lambda e: e[1]) == [
+            [("hub", "hub_Customer"), ("link", "HUB_CUSTOMER")]
+        ]
+
+
+class TestSourceNames:
+    @pytest.mark.parametrize(
+        ("name", "needs_quoting"),
+        [
+            ("customer_id", False),
+            ("CUSTOMER_ID", False),
+            ("Order Date", True),
+            ("order-id", True),
+            ("order", True),  # reserved word
+            ("CustomerId", True),  # mixed case
+        ],
+    )
+    def test_quoting_reason(self, name, needs_quoting):
+        from engine.services.naming import source_name_quoting_reason
+
+        assert (source_name_quoting_reason(name) is not None) is needs_quoting
+
+    def test_only_special_characters_force_identifier_quoting(self):
+        """Reserved words and mixed case depend on the warehouse's case folding,
+        so dbt's own quoting settings stay in charge of them."""
+        from engine.services.naming import needs_identifier_quoting
+
+        assert needs_identifier_quoting("Order Date")
+        assert needs_identifier_quoting("order-id")
+        assert not needs_identifier_quoting("order")
+        assert not needs_identifier_quoting("CustomerId")
+
+    @pytest.mark.parametrize(
+        ("name", "rejected"),
+        [
+            ("Order Date", False),
+            ("order-id", False),
+            ("CustomerId", False),
+            ("Müller", False),
+            ("order\tid", True),  # control character
+            ("order\x00id", True),
+            (" order_id", True),  # leading / trailing whitespace
+            ("order_id ", True),
+            ('order"id', True),  # quote characters
+            ("order`id", True),
+            ("a{{ log('x') }}b {# c", True),  # Jinja markers
+            ("a{% set x %}", True),
+            ("a{#b", True),
+            ("{a}", False),  # single braces are fine
+            ("﻿customer_id", True),  # byte-order mark (Cf)
+            ("customer​id", True),  # zero-width space (Cf)
+        ],
+    )
+    def test_rule_b_rejects_what_no_quoting_carries(self, name, rejected):
+        from engine.services.naming import invalid_source_name_reason
+
+        assert (invalid_source_name_reason(name) is not None) is rejected
+
+
+class TestDisplayNames:
+    @pytest.mark.parametrize(
+        ("name", "valid"),
+        [
+            ("SAP-ERP", True),
+            ("Sales and Ops", True),
+            ("crm_v2.1", True),
+            ("Müller Straße", True),  # letters of any script
+            ("Sales & Ops", False),
+            ("a/b", False),
+            ("it's", False),
+            ('say "hi"', False),
+            ("", False),
+            ("   ", False),
+        ],
+    )
+    def test_rule_c(self, name, valid):
+        from engine.services.naming import is_display_name
+
+        assert is_display_name(name) is valid
+
+    @pytest.mark.parametrize(
+        ("name", "rejected"),
+        [
+            ("SAP-ERP", False),
+            ("Sales & Ops", False),  # only a rule C warning
+            ("Finance.EU", False),
+            (".hidden", True),
+            ("..", True),
+            ("../../escaped", True),
+            ("Sales {{ x }}", True),
+            ("Sales​", True),
+        ],
+    )
+    def test_invalid_display_names(self, name, rejected):
+        from engine.services.naming import invalid_display_name_reason
+
+        assert (invalid_display_name_reason(name) is not None) is rejected
+
+    def test_spelled_folder_name_stays_one_folder(self):
+        from engine.services.naming import spelled_folder_name
+
+        assert spelled_folder_name("Sales/Ops") == "Sales_Ops"
+        assert spelled_folder_name(r"a\b") == "a_b"
+        assert spelled_folder_name("Sales & Ops") == "Sales & Ops"
+
+
+class TestRiskyDvNames:
+    def test_reserved_words_ignore_case(self):
+        from engine.services.naming import is_reserved_word
+
+        assert is_reserved_word("order")
+        assert is_reserved_word("ORDER")
+        assert not is_reserved_word("order_id")
+
+    def test_postgres_length_limit(self):
+        from engine.services.naming import MAX_IDENTIFIER_LENGTH, is_too_long
+
+        assert MAX_IDENTIFIER_LENGTH == 63
+        assert not is_too_long("x" * 63)
+        assert is_too_long("x" * 64)
+
+
+# ---------------------------------------------------------------------------
+# Escaping filters
+# ---------------------------------------------------------------------------
+
+
+class TestJinjaString:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("control_snap_v1", "'control_snap_v1'"),
+            ("it's", "'it\\'s'"),
+            ('say "hi"', "'say \\\"hi\\\"'"),
+            ("back\\slash", "'back\\\\slash'"),
+        ],
+    )
+    def test_escapes_quotes_and_backslashes(self, value, expected):
+        from engine.services.generation.template_resolver import jinja_string
+
+        assert str(jinja_string(value)) == expected
+
+    @pytest.mark.parametrize("autoescape", [False, True])
+    @pytest.mark.parametrize(
+        "name", ["control_snap_v1", 'it\'s "x"', "back\\slash", "<a&b>"]
+    )
+    def test_post_hook_survives_a_quote(self, django_setup, autoescape, name):
+        """The PIT clean-up hook is a string literal in config() holding a Jinja
+        call: dbt reads it back to the snapshot control's name, also when the
+        template renders with autoescape (DB templates, loaded from strings)."""
+        from engine.services.generation.template_resolver import (
+            build_jinja_environment,
+        )
+        from jinja2 import Environment
+
+        environment = build_jinja_environment()
+        environment.autoescape = autoescape
+        source = TEMPLATES_DIR.joinpath("dbt/sql/pit.sql.j2").read_text("utf-8")
+        sql = environment.from_string(source).render(
+            snapshot_control_name=name, satellite_v0_names=[]
+        )
+        hook_line = next(line for line in sql.splitlines() if "post_hook" in line)
+        # dbt's Jinja: first the config() argument, then the hook it holds
+        dbt_jinja = Environment()
+        literal = hook_line.split("=", 1)[1]
+        hook = dbt_jinja.from_string("{{ " + literal + " }}").render()
+        argument = hook.split("clean_up_pit(", 1)[1].rsplit(")", 1)[0]
+        assert dbt_jinja.from_string("{{ " + argument + " }}").render() == name
+        if name == "control_snap_v1":
+            assert hook_line == (
+                "    post_hook=\"{{ datavault4dbt.clean_up_pit('control_snap_v1') }}\""
+            )
+
+
+# ---------------------------------------------------------------------------
+# Generation with awkward names
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def engine_project(django_setup, db):
+    from engine.models import Project
+
+    return Project.objects.create(name="safe_names")
+
+
+@pytest.fixture
+def run(django_setup, engine_project, tmp_path, monkeypatch):
+    """Run the dbt pipeline on the given export (bundled templates only)."""
+    from engine.services.generation import GenerationOptions, generate
+    from engine.services.generation import pipeline as pipeline_module
+    from engine.services.generation.stages import build as build_module
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    def _run(export, *, project_name: str = "safe_names", **options):
+        monkeypatch.setattr(build_module, "build_export", lambda **_: export)
+        monkeypatch.setattr(pipeline_module, "build_export", lambda **_: export)
+        out = tmp_path / "out" / "dbt_project"
+        report = generate(
+            project=engine_project,
+            output_type="dbt",
+            output_path=out,
+            runtime_config=EngineRuntimeConfig(project_name=project_name),
+            options=GenerationOptions(use_db_templates=False, **options),
+        )
+        return report, out
+
+    return _run
+
+
+@pytest.fixture
+def awkward_export(project_export):
+    """The conftest export with source system ``SAP-ERP``, subject area
+    ``Sales & Ops`` and source columns ``Order Date``, ``order-id`` and
+    ``note: x #y`` flowing into the stage and the satellite."""
+    from engine.services.export.models import SatelliteColumnDef, SourceColumnDef
+
+    awkward_columns = [
+        SourceColumnDef(column_name="Order Date", datatype="DATE"),
+        SourceColumnDef(
+            column_name="order-id", datatype="STRING", description="Order: id #1"
+        ),
+        SourceColumnDef(column_name="note: x #y", datatype="STRING"),
+    ]
+    source = project_export.sources[0]
+    source.name = "SAP-ERP"
+    source.tables[0].columns.extend(awkward_columns)
+
+    stage = project_export.stages[0]
+    stage.source_system = "SAP-ERP"
+    stage.columns.extend(awkward_columns)
+    stage.hashdiffs[0].columns.extend(["Order Date", "note: x #y"])
+
+    for entity in (
+        project_export.hubs[0],
+        project_export.links[0],
+        project_export.satellites[0],
+    ):
+        entity.group = "Sales & Ops"
+    project_export.satellites[0].columns.extend(
+        [
+            SatelliteColumnDef(source_column="Order Date"),
+            SatelliteColumnDef(source_column="note: x #y"),
+            SatelliteColumnDef(source_column="order-id", target_column_name="order_id"),
+        ]
+    )
+    return project_export
+
+
+def _files(out: Path, pattern: str) -> dict[str, Path]:
+    return {path.relative_to(out).as_posix(): path for path in out.rglob(pattern)}
+
+
+def _metadata(sql: str) -> dict:
+    match = YAML_METADATA.search(sql)
+    assert match, sql
+    return yaml.safe_load(match.group(1))
+
+
+class TestAwkwardNames:
+    def test_generates_valid_yaml_everywhere(self, run, awkward_export):
+        report, out = run(awkward_export)
+        assert report.status == "success", report.issues
+        for path in _files(out, "*.yml").values():
+            yaml.safe_load(path.read_text(encoding="utf-8"))
+        for path in _files(out, "*.sql").values():
+            sql = path.read_text(encoding="utf-8")
+            if "yaml_metadata" in sql:
+                _metadata(sql)
+
+    def test_source_names_reach_the_metadata_unchanged(self, run, awkward_export):
+        _, out = run(awkward_export)
+        stage = _metadata(
+            (out / "models/20_staging/sap_erp/stg__crm__customer.sql").read_text()
+        )
+        assert stage["source_model"] == {"sap_erp": "customer"}
+        assert stage["hashed_columns"]["hd_sat_customer_details"]["columns"] == [
+            "customer_name",
+            "Order Date",
+            "note: x #y",
+        ]
+        satellite = _metadata(
+            (
+                out / "models/30_raw_vault/sales_ops/sat_customer_details_v0.sql"
+            ).read_text()
+        )
+        assert satellite["src_payload"] == [
+            "customer_name",
+            "Order Date",
+            "note: x #y",
+            "order_id",
+        ]
+
+    def test_sources_yml_quotes_what_only_works_quoted(self, run, awkward_export):
+        _, out = run(awkward_export)
+        sources = yaml.safe_load(
+            (out / "models/10_sources/source__sap_erp.yml").read_text()
+        )
+        source = sources["sources"][0]
+        assert source["name"] == "sap_erp"
+        columns = {c["name"]: c for c in source["tables"][0]["columns"]}
+        assert columns["Order Date"]["quote"] is True
+        assert columns["order-id"]["quote"] is True
+        assert columns["note: x #y"]["quote"] is True
+        assert "quote" not in columns["customer_id"]
+        assert "quoting" not in source["tables"][0]
+
+    def test_quoted_table_identifier(self, run, awkward_export):
+        awkward_export.sources[0].tables[0].table_name = "Customer Orders"
+        _, out = run(awkward_export)
+        sources = yaml.safe_load(
+            (out / "models/10_sources/source__sap_erp.yml").read_text()
+        )
+        table = sources["sources"][0]["tables"][0]
+        assert table["name"] == "Customer Orders"
+        assert table["quoting"] == {"identifier": True}
+
+    def test_derived_names_are_consistent(self, run, awkward_export):
+        _, out = run(awkward_export)
+        models = _files(out, "*.sql")
+        assert "models/20_staging/sap_erp/stg__crm__customer.sql" in models
+        assert "models/30_raw_vault/sales_ops/hub_customer.sql" in models
+        hub_sql = models["models/30_raw_vault/sales_ops/hub_customer.sql"].read_text()
+        assert "tags=['hub', 'raw_vault', 'sales_ops']" in hub_sql
+        stage_sql = models[
+            "models/20_staging/sap_erp/stg__crm__customer.sql"
+        ].read_text()
+        assert "tags=['staging', 'sap_erp']" in stage_sql
+
+    def test_project_name_starts_with_a_letter(self, run, awkward_export):
+        _, out = run(awkward_export, project_name="2024 Sales & Ops DWH")
+        project = yaml.safe_load((out / "dbt_project.yml").read_text())
+        assert project["name"] == "project_2024_sales_ops_dwh"
+        assert "project_2024_sales_ops_dwh" in project["models"]
+
+    def test_unusual_source_names_are_a_warning(self, run, awkward_export):
+        report, _ = run(awkward_export)
+        warnings = [
+            i for i in report.issues if i.code == "validate.name.source_needs_quoting"
+        ]
+        assert len(warnings) == 1
+        assert warnings[0].severity == "warning"
+        assert "'Order Date'" in warnings[0].message
+        assert "'order-id'" in warnings[0].message
+
+
+# ---------------------------------------------------------------------------
+# Validation of Data Vault names
+# ---------------------------------------------------------------------------
+
+
+class TestDvNameValidation:
+    def _codes(self, export):
+        from engine.services.generation.validators import validate_export
+
+        result = validate_export(export)
+        return [(e.code, e.entity_name, e.field) for e in result.errors]
+
+    def test_valid_project_has_no_name_errors(self, project_export):
+        assert not [c for c in self._codes(project_export) if c[0].startswith("NAM")]
+
+    @pytest.mark.parametrize(
+        ("mutate", "expected"),
+        [
+            (
+                lambda e: setattr(e.hubs[0], "hub_name", "hub customer"),
+                ("NAM_001", "hub customer", "hub_name"),
+            ),
+            (
+                lambda e: setattr(e.hubs[0].hashkey, "hashkey_name", "hk-customer"),
+                ("NAM_001", "hub_customer", "hashkey"),
+            ),
+            (
+                lambda e: setattr(e.links[0], "link_name", "../lnk"),
+                ("NAM_001", "../lnk", "link_name"),
+            ),
+            (
+                lambda e: setattr(e.satellites[0], "hashdiff_name", "hd x"),
+                ("NAM_001", "sat_customer_details", "hashdiff_name"),
+            ),
+            (
+                lambda e: e.satellites[0].columns.__setitem__(
+                    0,
+                    e.satellites[0]
+                    .columns[0]
+                    .model_copy(update={"target_column_name": "customer name"}),
+                ),
+                ("NAM_001", "sat_customer_details", "target_column_name"),
+            ),
+        ],
+    )
+    def test_invalid_names_are_errors(self, project_export, mutate, expected):
+        mutate(project_export)
+        assert expected in self._codes(project_export)
+
+    def test_case_collision_between_entities(self, project_export):
+        project_export.satellites[0].satellite_name = "HUB_CUSTOMER"
+        codes = self._codes(project_export)
+        assert ("NAM_002", "hub_customer", "name") in codes
+        assert ("NAM_002", "HUB_CUSTOMER", "name") in codes
+
+    def test_case_collision_between_stage_columns(self, project_export):
+        project_export.stages[0].hashdiffs[0].hashdiff_name = "HK_CUSTOMER"
+        assert ("NAM_002", "stg__crm__customer", "columns") in self._codes(
+            project_export
+        )
+
+    @pytest.mark.parametrize(
+        ("mutate", "expected"),
+        [
+            (
+                lambda e: setattr(e, "stage_schema", "stage area"),
+                ("NAM_001", "pipeline_test", "stage_schema"),
+            ),
+            (
+                lambda e: setattr(e.sources[0].tables[0], "alias", "cust-alias"),
+                ("NAM_001", "crm.customer", "alias"),
+            ),
+            (
+                lambda e: setattr(e.sources[0], "schema_name", "crm_raw "),
+                ("NAM_006", "crm", "schema_name"),
+            ),
+            (
+                lambda e: setattr(e.sources[0].tables[0], "table_name", 'cust"omer'),
+                ("NAM_006", 'crm.cust"omer', "table_name"),
+            ),
+            (
+                lambda e: setattr(
+                    e.sources[0].tables[0].columns[0], "column_name", "id\tx"
+                ),
+                ("NAM_006", "crm.customer", "columns"),
+            ),
+        ],
+    )
+    def test_rule_a_and_b_errors(self, project_export, mutate, expected):
+        mutate(project_export)
+        assert expected in self._codes(project_export)
+
+    @pytest.mark.parametrize(
+        ("mutate", "expected"),
+        [
+            (
+                lambda e: setattr(e, "bdv_schema", "business vault"),
+                ("NAM_001", "pipeline_test", "bdv_schema"),
+            ),
+            (
+                lambda e: setattr(e.hubs[0].source_tables[0], "hk_column", "hk-buyer"),
+                ("NAM_001", "hub_customer", "hk_column"),
+            ),
+            (
+                lambda e: setattr(
+                    e.hubs[0].effectivity_options, "is_active_alias", "is active"
+                ),
+                ("NAM_001", "hub_customer", "is_active_alias"),
+            ),
+            (
+                lambda e: setattr(
+                    e.links[0].effectivity_options, "is_active_alias", "active:"
+                ),
+                ("NAM_001", "lnk_customer_order", "is_active_alias"),
+            ),
+            (
+                lambda e: setattr(e.links[0], "dependent_child_keys", ["line no"]),
+                ("NAM_001", "lnk_customer_order", "dependent_child_keys"),
+            ),
+            (
+                lambda e: setattr(e.satellites[0], "hashdiff_alias", "hd x"),
+                ("NAM_001", "sat_customer_details", "hashdiff_alias"),
+            ),
+            (
+                lambda e: setattr(e.satellites[0], "v1_ledts_alias", "ledts-x"),
+                ("NAM_001", "sat_customer_details", "v1_ledts_alias"),
+            ),
+            (
+                lambda e: setattr(e.sources[0].tables[0], "sequence_column", "seq "),
+                ("NAM_006", "crm.customer", "sequence_column"),
+            ),
+            (
+                lambda e: setattr(
+                    e.hubs[0].effectivity_options, "additional_columns", ['valid "to"']
+                ),
+                ("NAM_006", "hub_customer", "additional_columns"),
+            ),
+        ],
+    )
+    def test_fields_from_dbt_imports_are_checked(
+        self, project_export, mutate, expected
+    ):
+        """The fields #238 added follow the same rules."""
+        mutate(project_export)
+        assert expected in self._codes(project_export)
+
+    def test_snapshot_date_alias_is_checked(self, project_export):
+        from engine.services.export.models import SnapshotControlDefinition
+
+        project_export.snapshot_controls.append(
+            SnapshotControlDefinition(
+                name="control_snap",
+                start_date="2024-01-01",
+                daily_time="08:00:00",
+                sdts_alias="snapshot date",
+            )
+        )
+        assert ("NAM_001", "control_snap", "sdts_alias") in self._codes(project_export)
+
+    def test_effectivity_source_columns_only_need_quoting(self, run, project_export):
+        """A further column with a space is a source name: valid, and the
+        effectivity satellite's metadata stays valid YAML."""
+        project_export.hubs[0].effectivity_options.additional_columns = [
+            "Valid To",
+            "note: x #y",
+        ]
+        assert not [c for c in self._codes(project_export) if c[0].startswith("NAM")]
+        report, out = run(project_export)
+        assert report.status == "success", report.issues
+        [eff_sat] = [
+            sql
+            for sql in (p.read_text(encoding="utf-8") for p in out.rglob("*.sql"))
+            if "eff_sat_v0" in sql
+        ]
+        metadata = _metadata(eff_sat)
+        assert metadata["additional_columns"] == ["Valid To", "note: x #y"]
+
+    def _warnings(self, export):
+        from engine.services.generation.validators import validate_export
+
+        result = validate_export(export)
+        return [(w.code, w.entity_name, w.field) for w in result.warnings]
+
+    def test_reserved_word_is_a_warning(self, project_export):
+        project_export.satellites[0].hashdiff_name = "order"
+        assert ("NAM_004", "sat_customer_details", "hashdiff_name") in self._warnings(
+            project_export
+        )
+        assert not [c for c in self._codes(project_export) if c[0].startswith("NAM")]
+
+    def test_long_name_is_a_warning(self, project_export):
+        project_export.satellites[0].hashdiff_name = "hd_" + "x" * 61
+        assert ("NAM_005", "sat_customer_details", "hashdiff_name") in self._warnings(
+            project_export
+        )
+
+    def test_unusual_display_names_are_warnings(self, awkward_export):
+        warnings = self._warnings(awkward_export)
+        assert ("NAM_007", "Sales & Ops", "name") in warnings
+        # SAP-ERP follows rule C
+        assert not [w for w in warnings if w[0] == "NAM_007" and w[1] == "SAP-ERP"]
+        assert not [c for c in self._codes(awkward_export) if c[0].startswith("NAM")]
+
+    def test_invalid_name_blocks_generation(self, run, project_export):
+        project_export.hubs[0].hub_name = "hub customer"
+        report, out = run(project_export, error_strategy="fail_fast")
+        assert report.status == "validation_failed"
+        assert "validate.name.invalid" in [i.code for i in report.issues]
+        assert not out.exists() or not list(out.rglob("*.sql"))
+
+
+# ---------------------------------------------------------------------------
+# Path containment
+# ---------------------------------------------------------------------------
+
+
+class TestPathContainment:
+    @pytest.mark.parametrize(
+        "hub_name", ["../../escaped", "/abs/escaped", "sub/dir", "..\\escaped"]
+    )
+    def test_unsafe_model_name_writes_no_file_even_without_validation(
+        self, run, project_export, tmp_path, hub_name
+    ):
+        """The hub's model is refused; the other models still generate
+        (best-effort error strategy)."""
+        project_export.hubs[0].hub_name = hub_name
+        report, out = run(project_export, skip_validation=True)
+        assert any(
+            "can't name a model file" in i.message
+            for i in report.issues
+            if i.severity == "error"
+        )
+        assert report.status != "success"
+        assert not list(tmp_path.rglob("escaped*"))
+        assert not list(tmp_path.rglob("dir.sql"))
+        assert not list(out.rglob("hub_customer.sql"))
+
+    def test_group_cannot_leave_the_models_folder(self, run, project_export, tmp_path):
+        for entity in (project_export.hubs[0], project_export.satellites[0]):
+            entity.group = "../../../escaped"
+        report, out = run(project_export, skip_validation=True)
+        assert report.status == "success", report.issues
+        assert (out / "models/30_raw_vault/escaped/hub_customer.sql").exists()
+        assert all(out in path.parents for path in tmp_path.rglob("escaped"))
+
+    def test_spelled_group_placeholder_stays_one_folder(self, run, project_export):
+        from engine.services.generation.folder_config import FolderConfig
+
+        folders = FolderConfig({"raw_vault": "models/dv/[[ group_name ]]"})
+        assert folders.folder("hub", group="Sales/Ops") == "models/dv/Sales_Ops"
+        assert folders.folder("hub", group=r"a\..\b") == "models/dv/a_.._b"
+
+    def test_dot_group_is_an_error(self, project_export):
+        from engine.services.generation.validators import validate_export
+
+        project_export.hubs[0].group = ".hidden"
+        errors = validate_export(project_export).errors
+        assert ("NAM_009", ".hidden") in [(e.code, e.entity_name) for e in errors]
+
+    def test_write_stage_refuses_absolute_paths(self, django_setup, tmp_path):
+        from engine.services.generation.stages.write import write_artifacts
+        from engine.services.generation.types import (
+            GeneratedArtifact,
+            GenerationOptions,
+        )
+
+        outside = tmp_path / "outside.sql"
+        written, issues = write_artifacts(
+            artifacts=[
+                GeneratedArtifact(kind="sql_model", path=str(outside), content="x"),
+            ],
+            output_type="dbt",
+            output_path=tmp_path / "project",
+            options=GenerationOptions(),
+        )
+        assert [i.code for i in issues] == ["write.path_outside_output"]
+        assert not outside.exists()
+
+    def test_render_refuses_files_outside_the_temp_tree(self, tmp_path):
+        from types import SimpleNamespace
+
+        from engine.services.generation.stages.render import _collect_dbt_artifacts
+
+        root = tmp_path / "render"
+        (root / "models").mkdir(parents=True)
+        inside = root / "models" / "ok.sql"
+        inside.write_text("ok")
+        outside = tmp_path / "escaped.sql"
+        outside.write_text("x")
+
+        def generated(path: Path) -> SimpleNamespace:
+            return SimpleNamespace(
+                path=path, entity_type="hub", entity_name="h", file_type="sql"
+            )
+
+        report = SimpleNamespace(files=[generated(inside), generated(outside)])
+        artifacts, issues = _collect_dbt_artifacts(root, report)
+        assert [a.path for a in artifacts] == ["models/ok.sql"]
+        assert [i.code for i in issues] == ["write.path_outside_output"]
+
+
+# ---------------------------------------------------------------------------
+# Import
+# ---------------------------------------------------------------------------
+
+
+def _add_independent_hub(export) -> None:
+    """A second hub, hub_product, that no other entity depends on."""
+    hub = export.hubs[0].model_copy(deep=True)
+    hub.hub_name = "hub_product"
+    hub.hashkey.hashkey_name = "hk_product"
+    export.hubs.append(hub)
+    hashkey = export.stages[0].hashkeys[0].model_copy(deep=True)
+    hashkey.target_entity = "hub_product"
+    hashkey.hashkey_name = "hk_product"
+    export.stages[0].hashkeys.append(hashkey)
+
+
+def _rename_hub_customer(export, name: str, hashkey: str) -> None:
+    """Rename hub_customer everywhere the export refers to it."""
+    hub = export.hubs[0]
+    hub.hub_name = name
+    hub.hashkey.hashkey_name = hashkey
+    for satellite in export.satellites:
+        if satellite.parent_entity == "hub_customer":
+            satellite.parent_entity = name
+    for link in export.links:
+        for reference in link.hub_references:
+            if reference.hub_name == "hub_customer":
+                reference.hub_name = name
+    for stage_hashkey in export.stages[0].hashkeys:
+        if stage_hashkey.target_entity == "hub_customer":
+            stage_hashkey.target_entity = name
+            stage_hashkey.hashkey_name = hashkey
+
+
+def _all_text(out: Path) -> str:
+    return "\n".join(
+        path.read_text(encoding="utf-8") for path in out.rglob("*") if path.is_file()
+    )
+
+
+class TestBestEffortLeavesOutNameErrors:
+    """best_effort leaves out what has, or depends on, a name error (#450 review)."""
+
+    def test_hub_with_invalid_names_and_its_dependents_are_left_out(
+        self, run, project_export
+    ):
+        _add_independent_hub(project_export)
+        _rename_hub_customer(project_export, "hub customer", "hk_{{ log('x') }}")
+
+        report, out = run(project_export, error_strategy="best_effort")
+
+        assert report.status == "partial_success", report.issues
+        left_out = {
+            (i.entity.type, i.entity.name)
+            for i in report.issues
+            if i.code == "validate.name.entity_left_out"
+        }
+        assert left_out == {
+            ("hub", "hub customer"),
+            ("satellite", "sat_customer_details"),
+            ("link", "lnk_customer_order"),
+        }
+        assert not list(out.rglob("hub customer*"))
+        assert "log('x')" not in _all_text(out)
+        # The rest is generated; the stage keeps hub_product's hash key only
+        assert list(out.rglob("hub_product.sql"))
+        [stage] = out.rglob("stg__crm__customer.sql")
+        assert "hk_product" in stage.read_text(encoding="utf-8")
+
+    def test_source_column_with_jinja_is_left_out_with_its_table(
+        self, run, project_export
+    ):
+        from engine.services.export.models import SourceColumnDef
+
+        column = SourceColumnDef(column_name="a{{ log('x') }}b {# c", datatype="INT")
+        project_export.sources[0].tables[0].columns.append(column)
+        project_export.stages[0].columns.append(column)
+
+        report, out = run(project_export, error_strategy="best_effort")
+
+        codes = {(i.code, i.entity.name if i.entity else None) for i in report.issues}
+        assert ("validate.name.invalid_source_name", "crm.customer") in codes
+        assert ("validate.name.entity_left_out", "crm.customer") in codes
+        assert ("validate.name.entity_left_out", "hub_customer") in codes
+        assert not list(out.rglob("stg__crm__customer.sql"))
+        assert "log('x')" not in _all_text(out)
+
+    def test_invalid_schema_generates_nothing(self, run, project_export):
+        project_export.stage_schema = "stage area"
+        report, out = run(project_export, error_strategy="best_effort")
+        assert report.status == "validation_failed"
+        assert not out.exists() or not list(out.rglob("*.sql"))
+
+    def test_without_name_errors_the_export_is_unchanged(self, project_export):
+        from engine.services.generation.name_skips import leave_out_name_errors
+
+        assert leave_out_name_errors(project_export, []) == (project_export, [])
+
+
+class TestTechnicalNameCollisions:
+    def _issues(self, export):
+        from engine.services.generation.validators import validate_export
+
+        result = validate_export(export)
+        return [
+            (issue.code, issue.entity_name, severity)
+            for severity, issues in (
+                ("error", result.errors),
+                ("warning", result.warnings),
+            )
+            for issue in issues
+        ]
+
+    def test_two_source_systems_with_one_dbt_source_name(self, project_export):
+        system = project_export.sources[0]
+        system.name = "SAP-ERP"
+        other = system.model_copy(deep=True)
+        other.name = "SAP ERP"
+        project_export.sources.append(other)
+        issues = self._issues(project_export)
+        assert ("NAM_008", "SAP-ERP", "error") in issues
+        assert ("NAM_008", "SAP ERP", "error") in issues
+
+    def test_two_tables_with_one_stage_name(self, project_export):
+        table = project_export.sources[0].tables[0]
+        other = table.model_copy(deep=True)
+        other.table_name = "Customer"
+        project_export.sources[0].tables.append(other)
+        issues = self._issues(project_export)
+        assert ("NAM_008", "crm.customer", "error") in issues
+        assert ("NAM_008", "crm.Customer", "error") in issues
+
+    def test_two_subject_areas_with_one_folder_are_a_warning(self, project_export):
+        project_export.hubs[0].group = "Sales & Ops"
+        project_export.satellites[0].group = "Sales/Ops"
+        issues = self._issues(project_export)
+        assert ("NAM_008", "Sales & Ops", "warning") in issues
+        assert not [i for i in issues if i[0] == "NAM_008" and i[2] == "error"]
+
+
+class TestImportNameChecks:
+    def _domain(self):
+        from engine.services.imports.domain import (
+            DHub,
+            DHubColumn,
+            DomainModel,
+            DSatellite,
+            DSourceColumn,
+            DSourceSystem,
+            DSourceTable,
+        )
+
+        table = DSourceTable(identifier="crm.customer", physical_name="customer")
+        table.columns = {
+            "customer_id": DSourceColumn(name="customer_id"),
+        }
+        domain = DomainModel(
+            source_systems={
+                "crm": DSourceSystem(
+                    name="crm", schema_name="raw", tables={"customer": table}
+                )
+            }
+        )
+        domain.hubs["hub_customer"] = DHub(
+            physical_name="hub_customer",
+            hashkey_name="hk_customer",
+            columns=[DHubColumn(name="customer_id")],
+        )
+        domain.satellites["sat_customer"] = DSatellite(physical_name="sat_customer")
+        return domain
+
+    def _codes(self, domain):
+        from engine.services.imports.validation.names import check_names
+
+        return [(i.code, i.severity) for i in check_names(domain)]
+
+    def test_clean_domain_has_no_issues(self):
+        assert self._codes(self._domain()) == []
+
+    def test_invalid_dv_name_is_an_error(self):
+        from engine.services.imports.domain import DHubColumn
+
+        domain = self._domain()
+        domain.hubs["hub_customer"].columns.append(DHubColumn(name="customer name"))
+        assert self._codes(domain) == [("entity.invalid_name", "error")]
+
+    def test_case_collision_is_an_error(self):
+        from engine.services.imports.domain import DSatellite
+
+        domain = self._domain()
+        domain.satellites["HUB_CUSTOMER"] = DSatellite(physical_name="HUB_CUSTOMER")
+        # One issue per entity, so best_effort can leave each of them out
+        assert self._codes(domain) == [("entity.name_case_collision", "error")] * 2
+
+    def test_identifier_keys_are_no_case_collision(self):
+        """Hubs are also keyed by their identifier, which may differ from the
+        name only in case."""
+        domain = self._domain()
+        domain.hubs["HUB_CUSTOMER"] = domain.hubs["hub_customer"]
+        assert self._codes(domain) == []
+
+    def test_dot_display_name_is_an_error(self):
+        domain = self._domain()
+        domain.hubs["hub_customer"].group_name = "../escaped"
+        assert ("entity.invalid_display_name", "error") in self._codes(domain)
+
+    def test_unusual_source_name_is_a_warning(self):
+        from engine.services.imports.domain import DSourceColumn
+
+        domain = self._domain()
+        table = domain.source_systems["crm"].tables["customer"]
+        table.columns["Order Date"] = DSourceColumn(name="Order Date")
+        table.columns["order-id"] = DSourceColumn(name="order-id")
+        assert self._codes(domain) == [("entity.unusual_source_name", "warning")]
+
+    def test_source_name_no_quoting_carries_is_an_error(self):
+        from engine.services.imports.domain import DSourceColumn
+
+        domain = self._domain()
+        table = domain.source_systems["crm"].tables["customer"]
+        table.columns['say "hi"'] = DSourceColumn(name='say "hi"')
+        codes = self._codes(domain)
+        assert codes[0] == ("entity.invalid_source_name", "error")
+
+    def test_invalid_table_alias_is_an_error(self):
+        domain = self._domain()
+        domain.source_systems["crm"].tables["customer"].alias = "cust alias"
+        assert self._codes(domain) == [("entity.invalid_name", "error")]
+
+    def test_reserved_and_long_names_are_warnings(self):
+        from engine.services.imports.domain import DHubColumn
+
+        domain = self._domain()
+        domain.hubs["hub_customer"].columns.append(DHubColumn(name="user"))
+        domain.hubs["hub_customer"].hashkey_name = "hk_" + "x" * 61
+        assert sorted(self._codes(domain)) == [
+            ("entity.name_reserved_word", "warning"),
+            ("entity.name_too_long", "warning"),
+        ]
+
+    @pytest.mark.parametrize(
+        ("mutate", "expected"),
+        [
+            (
+                lambda d: setattr(
+                    d.hubs["hub_customer"], "effectivity_is_active_alias", "is active"
+                ),
+                "entity.invalid_name",
+            ),
+            (
+                lambda d: setattr(
+                    d.hubs["hub_customer"].columns[0],
+                    "source_mappings",
+                    [_hub_mapping("hk-buyer")],
+                ),
+                "entity.invalid_name",
+            ),
+            (
+                lambda d: setattr(
+                    d.satellites["sat_customer"], "hashdiff_name", "hd x"
+                ),
+                "entity.invalid_name",
+            ),
+            (
+                lambda d: setattr(
+                    d.satellites["sat_customer"], "hashdiff_alias", "hd-alias"
+                ),
+                "entity.invalid_name",
+            ),
+            (
+                lambda d: setattr(
+                    d.satellites["sat_customer"], "v1_ledts_alias", "end date"
+                ),
+                "entity.invalid_name",
+            ),
+            (
+                lambda d: d.snapshot_controls.__setitem__(
+                    "control_snap", _snapshot_control(sdts_alias="snap date")
+                ),
+                "entity.invalid_name",
+            ),
+            (
+                lambda d: setattr(
+                    d.source_systems["crm"].tables["customer"],
+                    "sequence_column",
+                    "seq ",
+                ),
+                "entity.invalid_source_name",
+            ),
+            (
+                lambda d: setattr(
+                    d.hubs["hub_customer"],
+                    "effectivity_additional_columns",
+                    [" valid_to"],
+                ),
+                "entity.invalid_source_name",
+            ),
+        ],
+    )
+    def test_fields_from_dbt_imports_are_checked(self, mutate, expected):
+        """The fields #238 added follow the same rules."""
+        domain = self._domain()
+        mutate(domain)
+        assert self._codes(domain) == [(expected, "error")]
+
+    def test_cleared_fields_are_skipped(self):
+        from engine.services.imports.domain import CLEAR
+
+        domain = self._domain()
+        hub = domain.hubs["hub_customer"]
+        hub.effectivity_is_active_alias = CLEAR
+        hub.effectivity_additional_columns = CLEAR
+        domain.satellites["sat_customer"].hashdiff_alias = CLEAR
+        domain.source_systems["crm"].tables["customer"].sequence_column = CLEAR
+        assert self._codes(domain) == []
+
+    def test_effectivity_source_columns_only_need_quoting(self):
+        domain = self._domain()
+        domain.hubs["hub_customer"].effectivity_additional_columns = ["Valid To"]
+        assert self._codes(domain) == []
+
+    def test_unusual_display_names_are_warnings(self):
+        domain = self._domain()
+        domain.hubs["hub_customer"].group_name = "Sales & Ops"
+        domain.source_systems["crm"].name = "CRM/ERP"
+        assert self._codes(domain) == [
+            ("entity.unusual_display_name", "warning"),
+            ("entity.unusual_display_name", "warning"),
+        ]
+
+
+class TestImportLeavesOutInvalidNames:
+    """best_effort imports leave out entities with name errors (#450 review)."""
+
+    def _domain(self):
+        from engine.services.imports.domain import (
+            DHub,
+            DHubColumn,
+            DLink,
+            DLinkHubReference,
+            DomainModel,
+            DPIT,
+            DSatellite,
+        )
+
+        domain = DomainModel()
+        for name in ("hub customer", "hub_product"):
+            hub = DHub(
+                physical_name=name,
+                hashkey_name="hk_x",
+                columns=[DHubColumn(name="id")],
+            )
+            domain.hubs[name] = hub
+        # Also keyed by its identifier, as the resolver does
+        domain.hubs["H_1"] = domain.hubs["hub customer"]
+        domain.links["lnk_customer_product"] = DLink(
+            physical_name="lnk_customer_product",
+            hub_references=[
+                DLinkHubReference(hub_physical_name="hub customer"),
+                DLinkHubReference(hub_physical_name="hub_product"),
+            ],
+        )
+        domain.satellites["sat_customer"] = DSatellite(
+            physical_name="sat_customer", parent_entity_name="hub customer"
+        )
+        domain.satellites["sat_product"] = DSatellite(
+            physical_name="sat_product", parent_entity_name="hub_product"
+        )
+        domain.pits["pit_link"] = DPIT(
+            physical_name="pit_link",
+            tracked_entity_name="lnk_customer_product",
+            tracked_entity_type="link",
+        )
+        return domain
+
+    def _leave_out(self, domain):
+        from engine.services.imports.validation.name_skips import (
+            leave_out_invalid_names,
+        )
+        from engine.services.imports.validation.names import check_names
+
+        return leave_out_invalid_names(domain, check_names(domain))
+
+    def test_entity_and_dependents_are_left_out(self):
+        domain = self._domain()
+        warnings = self._leave_out(domain)
+
+        assert set(domain.hubs) == {"hub_product"}
+        assert set(domain.links) == set()
+        assert set(domain.satellites) == {"sat_product"}
+        assert set(domain.pits) == set()
+        assert {key: s.reason for key, s in domain.skipped.items()} == {
+            ("hub", "hub customer"): "invalid_name",
+            ("link", "lnk_customer_product"): "depends_on_skipped",
+            ("satellite", "sat_customer"): "depends_on_skipped",
+            ("pit", "pit_link"): "depends_on_skipped",
+        }
+        assert sorted((w.code, w.entity.name) for w in warnings) == [
+            ("entity.depends_on_skipped", "lnk_customer_product"),
+            ("entity.depends_on_skipped", "pit_link"),
+            ("entity.depends_on_skipped", "sat_customer"),
+        ]
+
+    def test_both_case_colliding_entities_are_left_out(self):
+        from engine.services.imports.domain import DSatellite
+
+        domain = self._domain()
+        domain.hubs["hub customer"].physical_name = "hub_customer"
+        domain.hubs["hub_customer"] = domain.hubs.pop("hub customer")
+        domain.satellites["sat_customer"].parent_entity_name = "hub_customer"
+        domain.links["lnk_customer_product"].hub_references[
+            0
+        ].hub_physical_name = "hub_customer"
+        domain.satellites["HUB_PRODUCT"] = DSatellite(
+            physical_name="HUB_PRODUCT", parent_entity_name="hub_customer"
+        )
+        self._leave_out(domain)
+        assert ("hub", "hub_product") in domain.skipped
+        assert ("satellite", "HUB_PRODUCT") in domain.skipped
+        assert "hub_customer" in domain.hubs
+
+    def test_left_out_entities_are_planned_as_skips(self, django_setup, db):
+        from engine.models import Project
+        from engine.services.imports.planner import build_plan
+
+        domain = self._domain()
+        self._leave_out(domain)
+        _, plan = build_plan(
+            project=Project.objects.create(name="names"),
+            domain=domain,
+            strategy="merge",
+        )
+        actions = {(e.ref.type, e.ref.name): e.action for e in plan.entities}
+        assert actions[("hub", "hub customer")] == "skip"
+        assert actions[("satellite", "sat_customer")] == "skip"
+        assert actions[("hub", "hub_product")] == "create"
+
+
+def _hub_mapping(stage_hashkey_name: str):
+    from engine.services.imports.domain import DHubSourceMapping
+
+    return DHubSourceMapping(
+        source_table_identifier="crm.customer",
+        source_column_name="customer_id",
+        stage_hashkey_name=stage_hashkey_name,
+    )
+
+
+def _snapshot_control(**fields):
+    from engine.services.imports.domain import DSnapshotControl
+
+    return DSnapshotControl(name="control_snap", **fields)
+
+
+# ---------------------------------------------------------------------------
+# Template refresh migration
+# ---------------------------------------------------------------------------
+
+
+def _migration():
+    import importlib
+
+    return importlib.import_module(
+        "engine.migrations.0028_refresh_templates_safe_names"
+    )
+
+
+class TestRefreshMigration:
+    def test_every_entry_is_a_bundled_template_and_now_superseded(self, django_setup):
+        from engine.services.generation.template_resolver import bundled_templates
+
+        earlier = __import__("importlib").import_module(
+            "engine.migrations.0020_refresh_bundled_templates"
+        )
+        bundled = {
+            ("dbt", t.entity_type, t.template_type): t for t in bundled_templates("dbt")
+        }
+        for key, hashes in _migration().PRE_450_BUNDLED_HASHES.items():
+            assert key in bundled, key
+            current = earlier._content_hash(bundled[key].path.read_text("utf-8"))
+            assert current not in hashes, f"{key} would be refreshed on every run"
+
+    def test_refreshes_unedited_and_keeps_edited_templates(
+        self, django_setup, db, monkeypatch
+    ):
+        from django.apps import apps
+        from engine.models.templates import ModelTemplate
+        from engine.services.generation.template_resolver import bundled_templates
+
+        migration = _migration()
+        earlier = __import__("importlib").import_module(
+            "engine.migrations.0020_refresh_bundled_templates"
+        )
+        old_content = "[# the pre-#450 stage template #]\n"
+        monkeypatch.setitem(
+            migration.PRE_450_BUNDLED_HASHES,
+            ("dbt", "stage", "sql"),
+            frozenset({earlier._content_hash(old_content)}),
+        )
+        ModelTemplate.objects.filter(entity_type="stage").delete()
+        unedited = ModelTemplate.objects.create(
+            name="stage unedited",
+            entity_type="stage",
+            sql_template_content=old_content.replace("\n", "\r\n"),
+            priority=0,
+        )
+        edited = ModelTemplate.objects.create(
+            name="stage edited",
+            entity_type="stage",
+            sql_template_content="[# my own stage #]\n",
+            priority=1,
+        )
+
+        migration.refresh_bundled_templates(apps, None)
+
+        current = next(
+            t
+            for t in bundled_templates("dbt")
+            if (t.entity_type, t.template_type) == ("stage", "sql")
+        ).path.read_text(encoding="utf-8")
+        unedited.refresh_from_db()
+        edited.refresh_from_db()
+        assert unedited.sql_template_content == current
+        assert edited.sql_template_content == "[# my own stage #]\n"

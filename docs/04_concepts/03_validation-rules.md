@@ -77,6 +77,86 @@ turbovault generate --project my_project --skip-validation
 
 ---
 
+### Naming Rules
+
+Every name the Engine writes into SQL, YAML or a file path is checked before
+generation and on import. The rules are TurboVault Studio's naming rules
+(#451), so CLI, API and Studio users get the same checks.
+
+- **Data Vault names** (rule A) — Hub, Link, Satellite, PIT, reference table
+  and snapshot control names; hash keys (also a stage's own hash key for a
+  role-playing hub source), hashdiffs and their aliases, key, alias and derived
+  columns, dependent child keys; the `is_active` alias of effectivity
+  satellites, the v1 load end date alias, the snapshot date alias; table
+  aliases; the stage, raw vault and business vault schemas — must match
+  `^[A-Za-z_][A-Za-z0-9_]*$` and be unique ignoring case. SQL reserved words
+  and names longer than 63 characters (Postgres truncates them) are warnings.
+- **Source names** (rule B) — physical source schemas, databases, tables and
+  columns — are used as they are, so spaces, hyphens and mixed case are
+  allowed. Names with control characters, invisible format characters (a
+  byte-order mark left at the start of a CSV header, a zero-width space),
+  Jinja markers (`{{`, `{%`, `{#`: dbt would run them inside the generated
+  metadata), leading or trailing whitespace or a quote character (`"`,
+  `` ` ``) are errors. Names that only work quoted are
+  reported as a warning. A stage's sequence column and the further columns an
+  effectivity satellite carries are stage columns taken from the source, so
+  they follow this rule too. Tables and
+  columns with special characters get dbt's quoting in `sources.yml`
+  (`quoting.identifier` / `quote: true`). datavault4dbt escapes column names
+  in its macros and may change their case (lowercase on Postgres/Redshift,
+  uppercase on Snowflake/Exasol by default).
+- **Display names** (rule C) — source system and subject area names — should
+  contain only letters, digits, spaces, `-`, `_` and `.`. Studio rejects
+  anything else; the Engine only warns, because the technical name below is
+  derived safely from any display name. A name starting with `.` (a hidden
+  folder, or `..`, where a folder pattern spells it out with `[[ group_name ]]`
+  or `[[ source_system_name ]]`) or holding characters no generated code can
+  carry is an error. The spelled placeholders replace `/` and `\` with `_`.
+- **Derived technical names** — one rule turns display names into technical
+  names: lowercase, German letters spelled out (`ä`→`ae`, `ö`→`oe`,
+  `ü`→`ue`, `ß`→`ss`, so `Müller Straße` gives `mueller_strasse`), other
+  accents dropped (`Café` gives `cafe`), every run of other characters becomes
+  `_`, repeated `_` collapse to one and none is kept at either end (`Sales (EU)`
+  gives `sales_eu`, not `sales_eu_`: `__` separates the parts of a stage name).
+  Two source systems, or two tables of one system, that give the same technical
+  name are errors (their sources and stages would overwrite each other); two
+  subject areas that do are a warning (their models share a folder and tag).
+  Source system `SAP-ERP` gives the dbt source `sap_erp`, the folder
+  `sap_erp` and the stage `stg__sap_erp__orders`; subject area `Sales & Ops`
+  gives the folder and tag `sales_ops`; project `2024 DWH` gives the dbt project
+  `project_2024_dwh` (dbt project names must start with a letter).
+
+| Code | Entity | Rule | How to Fix |
+|------|--------|------|------------|
+| `NAM_001` | Any | A Data Vault name is not a plain identifier (error, `validate.name.invalid`) | Rename it using only letters, digits and `_`, starting with a letter or `_` |
+| `NAM_002` | Any | Two entity names, or two columns of one stage or satellite, differ only in case (error, `validate.name.case_collision`) | Give them names that differ in more than case |
+| `NAM_003` | Source | A source table or column name only works quoted: special characters, reserved word or mixed case (warning, `validate.name.source_needs_quoting`) | Check the generated stage compiles; rename in the source if it doesn't |
+| `NAM_004` | Any | A Data Vault name is an SQL reserved word (warning, `validate.name.reserved_word`) | Rename it, e.g. add a prefix or suffix |
+| `NAM_005` | Any | A Data Vault name is longer than 63 characters (warning, `validate.name.too_long`) | Shorten it if the project runs on Postgres |
+| `NAM_006` | Source, Hub, Link | A source schema, database, table or column name, a stage's sequence column or a further column of an effectivity satellite has a control or invisible format character, a Jinja marker, leading or trailing whitespace or a quote character (error, `validate.name.invalid_source_name`) | Fix the name in the metadata; it must match the source |
+| `NAM_007` | Source system, subject area | A display name has characters other than letters, digits, spaces, `-`, `_` and `.` (warning, `validate.name.unusual_display_name`) | Rename it, e.g. `Sales & Ops` → `Sales and Ops` |
+| `NAM_008` | Source system, source table, subject area | Two display names give the same technical name: source systems or tables of one system (error), subject areas (warning) (`validate.name.technical_name_collision`) | Rename one of them |
+| `NAM_009` | Source system, subject area | A display name starts with `.` or holds a control or invisible format character or a Jinja marker (error, `validate.name.invalid_display_name`) | Rename it |
+
+Templates rely on these rules, so name errors keep their entities out of the
+output in every error strategy. `fail_fast` stops the run. `best_effort`
+leaves out each entity with a name error and every entity that depends on it
+(the Satellites and Links of a Hub, the Hubs, Links and Satellites loaded from
+a source table, the PITs and reference tables reading them, ...), reports each
+as `validate.name.entity_left_out` (warning) and generates the rest
+(`partial_success`). An invalid stage, raw vault or business vault schema
+leaves nothing to generate.
+
+The import reports the same problems as `entity.invalid_name`,
+`entity.name_case_collision`, `entity.unusual_source_name`,
+`entity.name_reserved_word`, `entity.name_too_long`,
+`entity.invalid_source_name`, `entity.unusual_display_name` and
+`entity.invalid_display_name`. In `best_effort` an import leaves out the
+entities with `entity.invalid_name` or `entity.name_case_collision` and their
+dependents (skips with reason `invalid_name` / `depends_on_skipped`).
+
+---
+
 ### Generation Output Rules
 
 | Code | Entity | Rule | How to Fix |
@@ -84,6 +164,7 @@ turbovault generate --project my_project --skip-validation
 | `YML_001` | Model | SQL model was generated but YAML schema is missing | Check that the corresponding YAML template exists in Django Admin → Model Templates |
 | `TPL_003` | Any model | The template predates something the model needs (warning, `render.template_outdated`): a stage template that doesn't read a pre-stage model or prejoin one; a template that doesn't write the model's stored `config()` settings, its stored tags, or the stored names of the models it references (e.g. a v1 view's v0 table) | Update the template; `python manage.py populate_templates --overwrite` refreshes the workspace's copies (and replaces their customizations) |
 | `PST_001` | Pre-stage | Each dbt generation reminds that the pre-stage's model belongs to the dbt project: TurboVault doesn't generate it, and its stage reads it with `ref()` (warning, `render.prestage.maintained_in_dbt`) | Nothing to fix: generate into the dbt project that contains the model |
+| `PTH_002` | Model | A model's or source's file would be written outside the output folder. Last line of defence behind `MDL_002`, `MDL_003` and `NAM_001`, also with validation skipped (`render.unsafe_path`) | Rename the entity or fix the naming pattern |
 
 ---
 

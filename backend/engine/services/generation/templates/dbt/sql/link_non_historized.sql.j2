@@ -1,7 +1,7 @@
 [# Non-Historized Link Template #]
 [# Generates a non-historized link model using datavault4dbt.nh_link() macro #]
 [# model_config: the config() block; the link's stored settings override these defaults #]
-[[ model_config(materialized=materialization, tags=['link', 'non_historized', 'raw_vault', group]) ]]
+[[ model_config(materialized=materialization, tags=['link', 'non_historized', 'raw_vault', (group | technical_name) if group else none]) ]]
 
 {%- set yaml_metadata -%}
 source_models:
@@ -16,14 +16,14 @@ source_models:
 [% if source.fk_columns %]
       fk_columns:
 [% for fk in source.fk_columns %]
-          - [[ fk ]]
+          - [[ fk | yaml_scalar ]]
 [% endfor %]
 [% endif %]
 [% endfor %]
 link_hashkey: [[ hashkey.hashkey_name ]]
 foreign_hashkeys:
 [% for fk in foreign_hashkeys %]
-    - [[ fk ]]
+    - [[ fk | yaml_scalar ]]
 [% endfor %]
 [# payload: the link's own columns, its dependent child keys first. datavault4dbt's nh_link requires a payload and selects it after the load date and record source #]
 [% if dependent_child_keys or payload_columns %]
@@ -32,7 +32,7 @@ payload:
     - [[ col ]]
 [% endfor %]
 [% for col in payload_columns %]
-    - [[ col ]]
+    - [[ col | yaml_scalar ]]
 [% endfor %]
 [% endif %]
 [% if additional_columns %]

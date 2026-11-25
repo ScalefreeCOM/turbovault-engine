@@ -1,14 +1,14 @@
 [# Non-Historized Satellite Template #]
 [# Generates a satellite model that only keeps the latest record (no history) #]
 [# model_config: the config() block; the satellite's stored settings override these defaults #]
-[[ model_config(materialized=materialization, tags=['satellite', 'non_historized', 'raw_vault', group]) ]]
+[[ model_config(materialized=materialization, tags=['satellite', 'non_historized', 'raw_vault', (group | technical_name) if group else none]) ]]
 
 {%- set yaml_metadata -%}
 source_model: [[ stage_name ]]
 parent_hashkey: [[ parent_hashkey ]]
 src_payload:
 [% for col in columns %]
-    - [[ col.target_column_name if col.target_column_name else col.source_column ]]
+    - [[ (col.target_column_name if col.target_column_name else col.source_column) | yaml_scalar ]]
 [% endfor %]
 [# source_is_single_batch: the stage delivers single batches (delivery method) #]
 [% if source_is_single_batch %]

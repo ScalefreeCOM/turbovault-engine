@@ -5,7 +5,7 @@ models:
   - name: [[ satellite_name ]]
     description: [[ (description or ("Multi-active satellite for " ~ parent_entity)) | yaml_quote ]]
     config:
-      tags: [[ model_tags(['satellite', 'multi_active', 'raw_vault', group]) ]]
+      tags: [[ model_tags(['satellite', 'multi_active', 'raw_vault', (group | technical_name) if group else none]) ]]
     columns:
       - name: [[ parent_hashkey ]]
         description: "Parent entity hash key"
@@ -14,7 +14,7 @@ models:
       - name: [[ hashdiff_name ]]
         description: "Hash diff for change detection"
 [% for column in columns %]
-      - name: [[ column.target_column_name if column.target_column_name else column.source_column ]]
+      - name: [[ (column.target_column_name if column.target_column_name else column.source_column) | yaml_scalar ]]
         description: [[ (column.description or column.source_description or ("Payload column" ~ (" (multi-active key)" if column.is_multi_active_key else ""))) | yaml_quote ]]
 [% endfor %]
       - name: ldts

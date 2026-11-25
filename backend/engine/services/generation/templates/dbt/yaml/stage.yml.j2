@@ -5,7 +5,7 @@ models:
   - name: [[ stage_name ]]
     description: [[ (description or ("Staging model for " ~ source_table ~ " from " ~ source_system)) | yaml_quote ]]
     config:
-      tags: [[ model_tags(['staging', source_system | lower | replace(" ", "_")]) ]]
+      tags: [[ model_tags(['staging', source_system | technical_name]) ]]
     columns:
       - name: rsrc
         description: "Record source identifier"
@@ -21,7 +21,10 @@ models:
 [% endfor %]
 [# Columns documented in the source metadata #]
 [% for column in columns if column.description %]
-      - name: [[ column.column_name ]]
+      - name: [[ column.column_name | yaml_scalar ]]
+[% if column.column_name | needs_identifier_quoting %]
+        quote: true
+[% endif %]
         description: [[ column.description | yaml_quote ]]
 [% endfor %]
 [% for derived_column in derived_columns if derived_column.description %]

@@ -50,6 +50,9 @@ def jinja_literal(value: Any) -> str:
     if isinstance(value, int | float):
         return repr(value)
     if isinstance(value, str):
+        # A plain str: under autoescape a template's concatenated value is
+        # Markup, whose replace() would HTML-escape the escapes added below
+        value = str.__str__(value)
         if "'" in value and '"' not in value and "\\" not in value:
             return f'"{value}"'
         escaped = value.replace("\\", "\\\\").replace("'", "\\'")

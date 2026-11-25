@@ -424,8 +424,8 @@ class ProjectConfiguration(BaseModel):
             "of model (stage, hub, link, satellite, satellite_v1, "
             "effectivity_satellite, record_tracking_satellite, reference_table, "
             "pit, snapshot_control), with [[ group ]], [[ group_name ]], "
-            "[[ source_system ]] and [[ source_system_name ]]. Unset ones keep "
-            "TurboVault's layout"
+            "[[ source_system ]] and [[ source_system_name ]] (the _name ones as "
+            "spelled, with / and \\ as _). Unset ones keep TurboVault's layout"
         ),
     )
     use_model_folders: bool = Field(
