@@ -53,6 +53,7 @@ _LEGACY_CODE_MAP: dict[str, str] = {
     "LNK_002": "validate.link.too_few_hubs",
     "LNK_003": "validate.link.no_sources",
     "LNK_004": "validate.link.nh_without_payload",
+    "LNK_005": "validate.link.no_hashkey_input",
     "SAT_001": "validate.satellite.no_parent",
     "SAT_002": "validate.satellite.no_stage",
     "SAT_003": "validate.satellite.no_columns",

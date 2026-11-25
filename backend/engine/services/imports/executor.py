@@ -363,6 +363,9 @@ class _Executor:
         self._prejoin_extractions: dict[
             tuple[Any, Any, str], PrejoinExtractionColumn
         ] = {}
+        # Extractions left out because another prejoin of their table gives a
+        # stage column the same name: key as above -> that other table's name.
+        self._clashing_extractions: dict[tuple[Any, Any, str], str] = {}
         self._default_snap_control: SnapshotControlTable | None = None
         self._default_snap_logic: SnapshotControlLogic | None = None
         # PIT snapshot logic resolved by (control name, trigger column).
@@ -1167,6 +1170,18 @@ class _Executor:
             (source_table.pk, target_table.pk, col_name.lower())
         )
 
+    def _extraction_clash(
+        self, source_id: str, target_id: str, col_name: str
+    ) -> tuple[str, str] | None:
+        """The two prejoined tables whose columns clash on this staged name, if
+        that is why the extraction was left out (see ``_upsert_prejoin``)."""
+        source = self._source_tables_by_identifier.get(source_id)
+        target = self._source_tables_by_identifier.get(target_id)
+        if source is None or target is None:
+            return None
+        other = self._clashing_extractions.get((source.pk, target.pk, col_name.lower()))
+        return (target.physical_table_name, other) if other is not None else None
+
     def _upsert_prejoin(self, op: CreateOp | UpdateOp) -> None:
         d: DPrejoin = op.payload
 
@@ -1236,6 +1251,13 @@ class _Executor:
         if operator not in PrejoinDefinition.JoinOperator.values:
             operator = PrejoinDefinition.JoinOperator.AND
 
+        # Two tables can be prejoined more than one way: the plan says which
+        # prejoin this is (its tables and join), never the first of the pair.
+        existing = (
+            PrejoinDefinition.objects.filter(pk=op.existing_pk).first()
+            if isinstance(op, UpdateOp)
+            else None
+        )
         obj, created = self._upsert(
             PrejoinDefinition,
             lookup={
@@ -1244,6 +1266,7 @@ class _Executor:
                 "prejoin_target_table": target_table,
             },
             values={"prejoin_operator": operator},
+            existing=existing,
         )
         # A changed join condition replaces the old one rather than
         # accumulating alongside it on re-import.
@@ -1289,6 +1312,43 @@ class _Executor:
             alias = ext_d.alias
             if alias == src_col.source_column_physical_name:
                 alias = None
+            # The stage selects every prejoined column by its name: another
+            # prejoin of this table may not give one the same name.
+            staged = (alias or src_col.source_column_physical_name).lower()
+            taken = next(
+                (
+                    other
+                    for (source_pk, _target_pk, name), other in (
+                        self._prejoin_extractions.items()
+                    )
+                    if source_pk == source_table.pk
+                    and name == staged
+                    and other.prejoin_id != obj.pk
+                ),
+                None,
+            )
+            if taken is not None:
+                self._cache(
+                    self._clashing_extractions,
+                    (source_table.pk, target_table.pk, staged),
+                    taken.prejoin.prejoin_target_table.physical_table_name,
+                )
+                self._record_error(
+                    code=Code.ENTITY_INVALID_CONFIGURATION,
+                    message=(
+                        f"Prejoin '{op.name}' brings in "
+                        f"'{alias or src_col.source_column_physical_name}', a name "
+                        f"another prejoin of '{source_table.physical_table_name}' "
+                        f"already gives "
+                        f"'{taken.prejoin.prejoin_target_table.physical_table_name}."
+                        f"{taken.source_column.source_column_physical_name}': the "
+                        "stage can select only one column by that name."
+                    ),
+                    entity_type="prejoin_extraction_column",
+                    entity_name=f"{op.name}.{ext_d.source_column_name}",
+                    suggestion="Give one of them an alias of its own.",
+                )
+                continue
             ext, _ = self._upsert(
                 PrejoinExtractionColumn,
                 lookup={"prejoin": obj, "source_column": src_col},
@@ -1466,6 +1526,25 @@ class _Executor:
                 source_column_name,
             )
             if ext is None:
+                clash = self._extraction_clash(
+                    source_table_identifier,
+                    prejoin_target_table_identifier,
+                    source_column_name,
+                )
+                if clash is not None:
+                    self._record_error(
+                        code=Code.ENTITY_INVALID_CONFIGURATION,
+                        message=(
+                            f"'{entity_name}' maps to '{source_column_name}', which "
+                            f"the stage can't select: its prejoin to '{clash[0]}' "
+                            f"and its prejoin to '{clash[1]}' both give a column "
+                            "that name."
+                        ),
+                        entity_type=entity_type,
+                        entity_name=entity_name,
+                        suggestion="Give one of the prejoined columns an alias of its own.",
+                    )
+                    return None
                 self._record_error(
                     code=Code.ENTITY_MISSING_REFERENCE,
                     message=(

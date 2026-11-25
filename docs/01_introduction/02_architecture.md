@@ -116,7 +116,8 @@ The CLI should be thin: it should not embed domain logic, only orchestrate servi
 3. **Validation (Optional / Recommended)**
    - Verify that the imported model is well-formed:
      - Each Hub has at least one business key.
-     - Links connect at least two hubs.
+     - Standard links usually connect two or more hubs (one is a warning); a non-historized
+       link may connect none, with a dependent child key to hash.
      - Satellites have a valid parent (Hub or Link) and at least one attribute.
 
 4. **dbt Project Generation**

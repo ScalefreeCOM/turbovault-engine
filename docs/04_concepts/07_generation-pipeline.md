@@ -58,7 +58,7 @@ renderer, and writer specialise per type.
 | `output_type` | Plan emits | Renderer | Writer behaviour |
 |---------------|------------|----------|------------------|
 | `dbt` | One SQL + one YAML file per entity, plus `dbt_project.yml`, `packages.yml`, `sources.yml`. Standard / multi-active satellites also get a `_v1` view when enabled. A [pre-stage](01_domain-model.md#35-pre-stages) gets no file: its model belongs to the dbt project, and its stage reads it with `ref()`. A warning per pre-stage (`render.prestage.maintained_in_dbt`) says to generate into the dbt project that contains the model. | `DbtProjectGenerator` (via a temp directory the writer then relocates). | Writes the tree under `output_path/`; optionally creates a sibling `.zip`. |
-| `sqlmesh` | One Python file per entity (stage, hub, link, satellite), plus `config.yaml`, `config.json`, `requirements.txt`, `README.md`, and `models/__init__.py`. Standard / multi-active satellites also get a `_v1` view when enabled. Unsupported entity types (PITs, reference tables, non-historized links, multi-active / effectivity / non-historized / reference satellites) are skipped with a `warning` issue rather than failing the run. **Prejoins** aren't supported yet either: hash keys, hash diffs and derived columns that read prejoined columns are left out of the stage, and the hubs, links and satellites that use them are skipped with a warning. Nor are **pre-stages** (models of the dbt project, which SQLMesh can't read): each gets a `render.sqlmesh.unsupported.prestage` warning, and the stages reading them and the hubs, links and satellites loaded from those stages are skipped (`render.sqlmesh.prestage_dependent_skipped`). | `render_sqlmesh()` — a pure function that builds artifacts in memory without touching the filesystem. | Writes the tree under `output_path/` (shares the dbt writer path). |
+| `sqlmesh` | One Python file per entity (stage, hub, link, satellite), plus `config.yaml`, `config.json`, `requirements.txt`, `README.md`, and `models/__init__.py`. Standard / multi-active satellites also get a `_v1` view when enabled. Unsupported entity types (PITs, reference tables, non-historized links, multi-active / effectivity / non-historized / reference satellites) are skipped with a `warning` issue rather than failing the run. **Prejoins** aren't supported yet either: hash keys, hash diffs and derived columns that read prejoined columns are left out of the stage, and the hubs, links and satellites that use them are skipped with a warning. Nor are **pre-stages** (models of the dbt project, which SQLMesh can't read): each gets a `render.sqlmesh.unsupported.prestage` warning, and the stages reading them and the hubs, links and satellites loaded from those stages are skipped (`render.sqlmesh.prestage_dependent_skipped`). Settings only the dbt output applies (datavault4dbt parameters such as the high-water mark or the stage options, role-playing hash keys, additional columns; listed in `engine.services.generation.frameworks`) are named per model in a `render.sqlmesh.settings_ignored` warning, and the model is rendered without them. | `render_sqlmesh()` — a pure function that builds artifacts in memory without touching the filesystem. | Writes the tree under `output_path/` (shares the dbt writer path). |
 | `json` | One artifact, regardless of project size. | `JSONExporter`. | Writes a single `.json` file at `output_path`. |
 | `dbml` | One artifact, regardless of project size. | `DBMLExporter`. | Writes a single `.dbml` file at `output_path`. |
 
@@ -176,6 +176,26 @@ report = generate(
     ),
 )
 # report.artifacts[0].content holds the rendered SQL string.
+```
+
+Three functions answer narrower questions the same way, without recording a
+generation run: which dbt models an entity or a whole project generates, with
+each model's path, `config()` block and stored settings, and the project files
+a generation writes. Each takes the `runtime_config` and `options` a caller
+gives `generate()`, so a caller with settings and templates of its own (Studio)
+sees what its generation writes:
+
+```python
+from engine.services.generation import generated_models, project_files, project_models
+
+for model in generated_models(hub, runtime_config=config, options=options):
+    print(model.kind, model.model_name, model.path)   # hub CUSTOMER_H models/30_raw_vault/CUSTOMER_H.sql
+
+for entity in project_models(project, runtime_config=config, options=options):
+    print(entity.entity_type, entity.entity_name, [m.model_name for m in entity.models])
+
+files = project_files(project, runtime_config=config, options=options)
+print(files.dbt_project_yml)
 ```
 
 ---
@@ -537,6 +557,7 @@ validate.stage.duplicate_hashdiff     validate.reference_table.satellite_without
 validate.model.duplicate_name         validate.model.invalid_name        validate.model.invalid_folder
 validate.hub.missing_hashkey          validate.hub.no_business_keys      validate.hub.no_source_tables
 validate.link.missing_hashkey         validate.link.too_few_hubs         validate.link.no_sources
+validate.link.nh_without_payload      validate.link.no_hashkey_input
 validate.satellite.no_parent          validate.satellite.no_stage        validate.satellite.no_columns       validate.satellite.no_hashdiff
 validate.pit.no_satellites            validate.pit.no_snapshot_logic     validate.pit.no_tracked_entity
 validate.snapshot.no_name             validate.snapshot.no_start_date    validate.snapshot.no_logic_patterns

@@ -36,6 +36,14 @@ from engine.models import Project
 from engine.services.generation.folder_config import FolderConfig, GenerationConfig
 from engine.services.generation.generator import DbtProjectGenerator
 from engine.services.generation.pipeline import run_pipeline
+from engine.services.generation.preview import (
+    EntityModels,
+    GeneratedModel,
+    ProjectFiles,
+    generated_models,
+    project_files,
+    project_models,
+)
 from engine.services.generation.profiles_yml import render_profiles_yml
 from engine.services.generation.progress import ProgressCallback
 from engine.services.generation.template_resolver import (
@@ -84,6 +92,14 @@ __all__ = [
     "PipelineStage",
     "ProgressEvent",
     "TemplateOverride",
+    # Previews rendered in memory — the models an entity or project generates
+    # and the project files, for Studio's model and dbt_project.yml views.
+    "generated_models",
+    "project_models",
+    "project_files",
+    "GeneratedModel",
+    "EntityModels",
+    "ProjectFiles",
     # Template validation — reused by Studio's Model Template Editor.
     "validate_template",
     "TemplateValidationResult",

@@ -31,8 +31,9 @@ deep-link errors; the CLI groups them in summary tables.
 | `validate.hub.no_business_keys` | A hub has no business-key columns. | Add at least one business-key column. |
 | `validate.hub.no_source_tables` | A hub has no source mappings (warning). | Map the hub's business keys to at least one source column. |
 | `validate.link.missing_hashkey` | A link has no hashkey column name. | Set a hashkey on the link. |
-| `validate.link.too_few_hubs` | A link references fewer than two hubs (warning). | A link should connect at least two hubs. |
+| `validate.link.too_few_hubs` | A standard link connects fewer than two hubs (warning). One is allowed; a non-historized link may connect any number. | Connect the other hubs the link relates, if any. |
 | `validate.link.no_sources` | A link has no source mappings (warning). | Map the link's foreign hashkeys to source columns. |
+| `validate.link.no_hashkey_input` | A link connects no hubs and has no dependent child keys, so the stage has nothing to hash its hash key from. A non-historized link that records transactions on their own connects no hubs and is hashed from its dependent child keys. | Give the link a dependent child key: the column that identifies each row. |
 | `validate.link.nh_without_payload` | A non-historized link has neither payload columns nor dependent child keys. datavault4dbt's `nh_link` requires a payload. | Give the link a payload column, or a dependent child key (written first in its payload). |
 | `validate.satellite.no_parent` | A satellite has neither a parent hub nor a parent link. | Set `parent_hub` or `parent_link`. |
 | `validate.satellite.no_stage` | A satellite has no associated stage. | Confirm the satellite's source table feeds a stage. |
@@ -79,6 +80,7 @@ deep-link errors; the CLI groups them in summary tables.
 | `render.project_needs_vars` | In an existing dbt project: its `dbt_project.yml` doesn't set variables the project's settings have (`global_vars`). | Add them to its `vars:`. |
 | `render.unsafe_path` | A model or source file would be written outside the output folder. Last line of defence behind validation (`validate.model.invalid_name`, `validate.model.invalid_folder`, `validate.name.invalid`), also with validation skipped. | Rename the entity, or fix the naming pattern. |
 | `render.literal_secret_in_profile` | A secret key in `profiles` — one ending in `password`, `passphrase`, `secret`, `token`, `private_key`, `access_key` or `api_key`, or `pass` / `keyfile_json` — holds a literal value, or an `env_var` reference with a non-empty default (dbt uses the default whenever the variable is unset). Nothing is generated; the value is never echoed. | Reference the secret via `{{ env_var('...') }}` (optionally `\| as_native`), without a default or with an empty one. An inline `keyfile_json` mapping is allowed when its own secret fields are references. |
+| `render.sqlmesh.settings_ignored` | SQLMesh output: a model it renders sets what only the dbt output applies (warning, once per model): datavault4dbt parameters such as the high-water mark, the stage options, columns missing in the source, the v1 view's options, a hash diff alias, role-playing hash keys, additional columns, effectivity or record-tracking satellites. `engine.services.generation.frameworks` lists them. The SQLMesh model is generated without them. | Generate dbt output where they matter, or leave them unset. |
 
 ## Write stage
 

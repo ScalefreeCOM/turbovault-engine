@@ -274,8 +274,9 @@ def test_a_prejoin_of_an_unknown_table_is_an_error(project, workbook_factory):
 
 
 @pytest.mark.django_db
-def test_two_tables_are_prejoined_one_way(project, workbook_factory):
-    second_link = [
+def _second_link(alias: str) -> list:
+    """Another link taking the customer's key through customer_ref = legacy_id."""
+    return [
         "link_order_customer_2",
         "l_oc2",
         "h_cust",
@@ -286,25 +287,105 @@ def test_two_tables_are_prejoined_one_way(project, workbook_factory):
         "crm.customers",
         "legacy_id",
         "customer_no",
-        "customer_no_of_order",
+        alias,
     ]
-    path = workbook_factory(_sheets(ORDER_ROW, _customer_row(), second_link))
+
+
+def test_two_tables_can_be_prejoined_two_ways(project, workbook_factory):
+    """As datavault4dbt's prejoined_columns allow: a role-playing join."""
+    path = workbook_factory(
+        _sheets(ORDER_ROW, _customer_row(), _second_link("customer_no_by_ref"))
+    )
 
     report = _run(project, path)
 
-    # The second link also connects one hub only: that is a warning of its own.
-    [issue] = [
-        issue
-        for issue in _issues(report, "entity.invalid_configuration")
-        if issue.severity == "error"
-    ]
-    assert issue.entity.name == "link_order_customer_2"
-    assert "joins these tables on orders.customer_id = customers.id" in issue.message
-    prejoin = PrejoinDefinition.objects.get(project=project)
+    assert not [i for i in report.issues if i.severity == "error"], report.issues
+    joins = {
+        (
+            tuple(
+                c.source_column_physical_name
+                for c in pj.prejoin_condition_source_column.all()
+            ),
+            tuple(
+                c.source_column_physical_name
+                for c in pj.prejoin_condition_target_column.all()
+            ),
+            tuple(e.prejoin_target_column_alias for e in pj.extraction_columns.all()),
+        )
+        for pj in PrejoinDefinition.objects.filter(project=project)
+    }
+    assert joins == {
+        (("customer_id",), ("id",), ("customer_no_of_order",)),
+        (("customer_ref",), ("legacy_id",), ("customer_no_by_ref",)),
+    }
+    assert _hub_key_columns(project, "link_order_customer_2") == {
+        "hub_customer": "customer_no_by_ref"
+    }
+    names = {e.ref.name for e in report.plan.entities if e.ref.type == "prejoin"}
+    assert names == {
+        "orders->customers (customer_id = id)",
+        "orders->customers (customer_ref = legacy_id)",
+    }
+
+    again = _run(project, path)
+    totals = again.plan.counts.totals
+    assert (totals["create"], totals["update"], totals["delete"]) == (0, 0, 0)
+
+
+def test_a_prejoin_the_file_no_longer_has_goes_with_replace_all_only(
+    project, workbook_factory
+):
+    both = workbook_factory(
+        _sheets(ORDER_ROW, _customer_row(), _second_link("customer_no_by_ref")),
+        filename="both.xlsx",
+    )
+    _run(project, both)
+    first_only = workbook_factory(
+        _sheets(ORDER_ROW, _customer_row()), filename="first.xlsx"
+    )
+
+    merged = _run(project, first_only)
+    assert PrejoinDefinition.objects.filter(project=project).count() == 2
+    replaced = _run(project, first_only, conflict_strategy="replace_all")
+
+    prejoins = {
+        (e.ref.name, e.action)
+        for e in replaced.plan.entities
+        if e.ref.type == "prejoin"
+    }
+    assert prejoins == {
+        ("orders->customers (customer_id = id)", "unchanged"),
+        ("orders->customers (customer_ref = legacy_id)", "delete"),
+    }
     assert [
         c.source_column_physical_name
-        for c in prejoin.prejoin_condition_target_column.all()
-    ] == ["id"]
+        for pj in PrejoinDefinition.objects.filter(project=project)
+        for c in pj.prejoin_condition_source_column.all()
+    ] == ["customer_id"]
+    assert not [i for i in merged.issues if i.severity == "error"]
+
+
+def test_two_prejoins_cant_give_a_stage_column_the_same_name(project, workbook_factory):
+    path = workbook_factory(
+        _sheets(ORDER_ROW, _customer_row(), _second_link("customer_no_of_order"))
+    )
+
+    report = _run(project, path)
+
+    [issue] = [
+        issue
+        for issue in report.issues
+        if issue.severity == "error" and issue.code == "entity.invalid_configuration"
+    ]
+    assert issue.message == (
+        "Link 'link_order_customer_2' takes customers.customer_no as "
+        "'customer_no_of_order', a name another prejoin of 'orders' already gives "
+        "(joined on orders.customer_id = customers.id): the stage can select only "
+        "one column by that name."
+    )
+    # A link's mapping names the column, not the join: not bound to the other one
+    assert PrejoinDefinition.objects.filter(project=project).count() == 1
+    assert "hub_customer" not in _hub_key_columns(project, "link_order_customer_2")
 
 
 @pytest.mark.django_db
@@ -381,13 +462,17 @@ def test_rows_beyond_a_hubs_keys_are_reported(project, workbook_factory):
 
 
 @pytest.mark.django_db
-def test_links_that_connect_too_few_hubs_are_imported_and_reported(
+def test_links_without_the_hubs_or_key_they_need_are_imported_and_reported(
     project, workbook_factory
 ):
-    payload_header = [
+    """A standard link with one hub is allowed, with a warning. A non-historized
+    link may connect any number of hubs, none too, if it has a dependent child
+    key to hash (its row names the link's hash key)."""
+    header = [
         "target_link_table_physical_name",
         "nh_link_identifier",
         "hub_identifier",
+        "target_primary_key_physical_name",
         "target_column_physical_name",
         "source_table_identifier",
         "source_column_physical_name",
@@ -396,10 +481,20 @@ def test_links_that_connect_too_few_hubs_are_imported_and_reported(
         _sheets(
             ORDER_ROW,
             non_historized_link=[
-                payload_header,
-                ["nl_none", "nl_n", None, "amount", "crm.orders", "amount"],
-                ["nl_one", "nl_1", "h_ord", "hk_order", "crm.orders", "order_id"],
-                ["nl_one", "nl_1", None, "amount", "crm.orders", "amount"],
+                header,
+                ["nl_none", "nl_n", None, None, "amount", "crm.orders", "amount"],
+                [
+                    "nl_payment",
+                    "nl_p",
+                    None,
+                    "hk_payment_nl",
+                    "payment_id",
+                    "crm.orders",
+                    "payment_id",
+                ],
+                ["nl_payment", "nl_p", None, None, "amount", "crm.orders", "amount"],
+                ["nl_one", "nl_1", "h_ord", None, "hk_order", "crm.orders", "order_id"],
+                ["nl_one", "nl_1", None, None, "amount", "crm.orders", "amount"],
             ],
         )
     )
@@ -412,18 +507,24 @@ def test_links_that_connect_too_few_hubs_are_imported_and_reported(
     }
     assert messages == {
         "link_order_customer": (
-            "Link 'link_order_customer' connects only one hub; a link connects at "
-            "least two."
+            "Link 'link_order_customer' connects only one hub; a link usually "
+            "connects two or more."
         ),
-        "nl_none": "Non-historized link 'nl_none' connects no hubs, so it has no "
-        "foreign keys.",
+        "nl_none": (
+            "Non-historized link 'nl_none' connects no hubs and has no dependent "
+            "child key, so its hash key has nothing to hash."
+        ),
     }
+    assert all(
+        issue.severity == "warning"
+        for issue in _issues(report, "entity.invalid_configuration")
+    )
     # Imported as the file has them, to complete in the project.
     assert set(
         Link.objects.filter(project=project).values_list(
             "link_physical_name", flat=True
         )
-    ) == {"link_order_customer", "nl_none", "nl_one"}
+    ) == {"link_order_customer", "nl_none", "nl_payment", "nl_one"}
 
 
 def test_the_generation_check_says_how_many_hubs_a_link_connects():
@@ -438,7 +539,7 @@ def test_the_generation_check_says_how_many_hubs_a_link_connects():
 
     [warning] = [w for w in result.warnings if w.code == "LNK_002"]
     assert warning.message == (
-        "A standard Link should connect at least two Hubs; this one connects one"
+        "A standard Link usually connects two or more Hubs; this one connects one"
     )
 
 

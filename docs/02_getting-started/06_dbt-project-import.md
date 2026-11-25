@@ -66,12 +66,12 @@ The dry run imports everything and rolls it back. The CLI shows:
 
 | In the dbt project | In TurboVault |
 |--------------------|---------------|
-| Stage reading a dbt source | That source table, with the stage's record source, load date, derived columns, prejoins and options |
+| Stage reading a dbt source | That source table, with the stage's record source, load date, derived columns, prejoins and options. Entries of `prejoined_columns` with the same join are one prejoin; a table prejoined on other columns too is a second one |
 | Stage reading a model, seed, dbt snapshot or another package's model | A **pre-stage**: a source table whose model stays in the dbt project |
 | `hub`, `ref_hub`, `link`, `nh_link` | Hubs and Links, with their columns mapped to the stage's columns |
 | `sat_v0`, `ma_sat_v0`, `nh_sat`, `ref_sat_v0` and their v1 views | Satellites |
-| `eff_sat_v0`, `rec_track_sat` | Options of their Hub or Link |
-| `control_snap_v0` / `_v1`, `pit`, `ref_table` | Snapshot controls, PITs, reference tables |
+| `eff_sat_v0`, `rec_track_sat` | Options of their Hub or Link: one of each per Hub or Link (a second one is reported) |
+| `control_snap_v0` / `_v1`, `pit`, `ref_table` | Snapshot controls, PITs, reference tables. A PIT that reads an effectivity or record-tracking satellite is imported without it, with a warning |
 | Group tags or subject folders (`models/rdv/<subject>/`) | Groups |
 | Model names, folders, schemas, materializations, tags and further `config()` keys | The model's settings, where they differ from what TurboVault generates |
 

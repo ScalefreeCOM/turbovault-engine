@@ -428,7 +428,8 @@ Pre-generation validation catches common errors:
 | Hub (standard) | Must have hashkey | HUB_001 |
 | Hub | Must have ≥1 business key | HUB_002 |
 | Link | Must have hashkey | LNK_001 |
-| Link | Must reference ≥2 hubs | LNK_002 |
+| Link | Standard: usually ≥2 hubs (1 is a warning) | LNK_002 |
+| Link | No hubs: needs a dependent child key | LNK_005 |
 | Satellite | Must have parent entity | SAT_001 |
 | Model | SQL generated but YAML missing | YML_001 |
 

@@ -22,6 +22,7 @@ writes; it then reports the entity as `update` or `unchanged` (see
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -358,45 +359,93 @@ class _PlanBuilder:
     def _plan_prejoins(self) -> None:
         """Plan prejoin definitions.
 
-        A prejoin has no name of its own; it is identified by the pair of tables
-        it joins, so ``(source table, target table)`` is the natural key here and
-        in the executor.
+        A prejoin has no name of its own. Two tables can be prejoined more than
+        one way (datavault4dbt's prejoined_columns allows it: a customer's
+        billing and shipping country), so a prejoin is identified by its tables
+        and its join columns. One the source describes twice is one: the last
+        description wins (an export repeats it under several stages).
+
+        When the source and the project each prejoin a pair of tables once and
+        on different columns, the join changed: that prejoin is updated, not
+        joined by a second one.
         """
-        # Deduplicate: the same table pair may be described more than once
-        # (e.g. the export repeats it under several stages). Last one wins,
-        # matching the executor's update_or_create.
-        desired: dict[tuple[str, str], DPrejoin] = {}
+        desired: dict[_PrejoinKey, DPrejoin] = {}
         for pj in self.domain.prejoins:
-            desired[(pj.source_table_identifier, pj.target_table_identifier)] = pj
+            desired[_prejoin_key(pj)] = pj
 
         existing_rows = list(
-            PrejoinDefinition.objects.filter(project=self.project).select_related(
+            PrejoinDefinition.objects.filter(project=self.project)
+            .select_related(
                 "source_table__source_system",
                 "prejoin_target_table__source_system",
+            )
+            .prefetch_related(
+                "prejoin_condition_source_column", "prejoin_condition_target_column"
             )
         )
         # Index by both the qualified "{system}|{table}" identifier the JSON
         # parser produces and the bare physical name, so parsers that use plain
         # table identifiers still match instead of duplicating the row.
-        existing_by_key: dict[tuple[str, str], PrejoinDefinition] = {}
+        rows_by_pair: dict[tuple[str, str], list[PrejoinDefinition]] = {}
         for row in existing_rows:
-            for key in _prejoin_keys(
+            for pair in _prejoin_keys(
                 _qualified_name(row.source_table),
                 _qualified_name(row.prejoin_target_table),
             ):
-                existing_by_key.setdefault(key, row)
+                rows_by_pair.setdefault(pair, []).append(row)
 
+        def candidates(key: _PrejoinKey) -> list[PrejoinDefinition]:
+            for pair in _prejoin_keys(key[0], key[1]):
+                if pair in rows_by_pair:
+                    return rows_by_pair[pair]
+            return []
+
+        # The same join first, then a pair prejoined once on both sides.
+        matched: dict[_PrejoinKey, PrejoinDefinition] = {}
         used_pks: set[Any] = set()
-        for (source_id, target_id), d in desired.items():
-            name = _prejoin_display_name(source_id, target_id)
-            existing = next(
+        for key in desired:
+            same_join = next(
                 (
-                    existing_by_key[key]
-                    for key in _prejoin_keys(source_id, target_id)
-                    if key in existing_by_key
+                    row
+                    for row in candidates(key)
+                    if row.pk not in used_pks and _row_join(row) == key[2]
                 ),
                 None,
             )
+            if same_join is not None:
+                matched[key] = same_join
+                used_pks.add(same_join.pk)
+        for key in desired:
+            if key in matched:
+                continue
+            rows = [row for row in candidates(key) if row.pk not in used_pks]
+            unmatched = [k for k in desired if k not in matched and k[:2] == key[:2]]
+            if len(rows) == 1 and len(unmatched) == 1:
+                matched[key] = rows[0]
+                used_pks.add(rows[0].pk)
+
+        # Name the join too where a pair of tables is prejoined more than once:
+        # by the source, or by the source and the project's other prejoins.
+        per_pair = Counter((_bare_name(key[0]), _bare_name(key[1])) for key in desired)
+        per_pair.update(
+            _pair_of(row) for row in existing_rows if row.pk not in used_pks
+        )
+        several = {pair for pair, count in per_pair.items() if count > 1}
+
+        def name_of(source_id: str, target_id: str, join: _Join) -> str:
+            ambiguous = (_bare_name(source_id), _bare_name(target_id)) in several
+            return _prejoin_display_name(
+                source_id, target_id, join if ambiguous else None
+            )
+
+        for key, d in desired.items():
+            source_id, target_id = key[0], key[1]
+            name = name_of(
+                source_id,
+                target_id,
+                (tuple(d.source_join_columns), tuple(d.target_join_columns)),
+            )
+            existing = matched.get(key)
             parent_ref = EntityRef(type="source_table", name=_bare_name(source_id))
             if existing is None:
                 if self.strategy == "update_only":
@@ -419,7 +468,6 @@ class _PlanBuilder:
                     )
                 )
             else:
-                used_pks.add(existing.pk)
                 self._record(
                     UpdateOp(
                         entity_type="prejoin",
@@ -436,9 +484,10 @@ class _PlanBuilder:
                     self._record(
                         DeleteOp(
                             entity_type="prejoin",
-                            name=_prejoin_display_name(
+                            name=name_of(
                                 _qualified_name(row.source_table),
                                 _qualified_name(row.prejoin_target_table),
+                                _row_join_columns(row),
                             ),
                             existing_pk=row.pk,
                         )
@@ -789,5 +838,65 @@ def _prejoin_keys(
     )
 
 
-def _prejoin_display_name(source_id: str, target_id: str) -> str:
-    return f"{_bare_name(source_id)}->{_bare_name(target_id)}"
+# A prejoin's join columns, without order or case: source side, target side.
+_Join = tuple[tuple[str, ...], tuple[str, ...]]
+_JoinSet = tuple[frozenset[str], frozenset[str]]
+# What identifies a prejoin: its source table, its target table, its join.
+_PrejoinKey = tuple[str, str, _JoinSet]
+
+
+def _join_set(source_columns: Any, target_columns: Any) -> _JoinSet:
+    """Join columns compared as the database keeps them: two unordered sets."""
+    return (
+        frozenset(str(c).lower() for c in source_columns),
+        frozenset(str(c).lower() for c in target_columns),
+    )
+
+
+def _prejoin_key(pj: DPrejoin) -> _PrejoinKey:
+    return (
+        pj.source_table_identifier,
+        pj.target_table_identifier,
+        _join_set(pj.source_join_columns, pj.target_join_columns),
+    )
+
+
+def _row_join_columns(row: PrejoinDefinition) -> _Join:
+    return (
+        tuple(
+            sorted(
+                c.source_column_physical_name
+                for c in row.prejoin_condition_source_column.all()
+            )
+        ),
+        tuple(
+            sorted(
+                c.source_column_physical_name
+                for c in row.prejoin_condition_target_column.all()
+            )
+        ),
+    )
+
+
+def _row_join(row: PrejoinDefinition) -> _JoinSet:
+    source, target = _row_join_columns(row)
+    return _join_set(source, target)
+
+
+def _pair_of(row: PrejoinDefinition) -> tuple[str, str]:
+    return (
+        row.source_table.physical_table_name,
+        row.prejoin_target_table.physical_table_name,
+    )
+
+
+def _prejoin_display_name(
+    source_id: str, target_id: str, join: _Join | None = None
+) -> str:
+    """ "orders->customers", with its join where the tables are prejoined twice:
+    "orders->customers (customer_id = id)"."""
+    name = f"{_bare_name(source_id)}->{_bare_name(target_id)}"
+    if join is None:
+        return name
+    source, target = join
+    return f"{name} ({', '.join(source)} = {', '.join(target)})"

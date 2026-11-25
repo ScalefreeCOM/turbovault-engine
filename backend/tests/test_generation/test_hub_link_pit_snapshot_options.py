@@ -612,3 +612,82 @@ def test_a_non_historized_link_without_payload_is_an_error(project, tmp_path):
 
     codes = [issue.code for issue in report.issues if issue.severity == "error"]
     assert "validate.link.nh_without_payload" in codes
+
+
+def _without_hubs(link_name: str) -> None:
+    """Disconnect a link from its hubs (their key mappings go with them)."""
+    from engine.models import LinkHubReference
+
+    LinkHubReference.objects.filter(link__link_physical_name=link_name).delete()
+
+
+def test_a_non_historized_link_without_hubs_is_hashed_from_its_child_keys(
+    project, tmp_path
+):
+    """A non-historized link recording transactions on their own connects no hub:
+    its hash key is hashed from its dependent child keys alone."""
+    from engine.models import Link, LinkColumn, LinkSourceMapping, StagingColumn
+
+    link = _get("Link", link_physical_name="ORDER_CUSTOMER_L")
+    Link.objects.filter(pk=link.pk).update(link_type=Link.LinkType.NON_HISTORIZED)
+    _without_hubs("ORDER_CUSTOMER_L")
+    seller = StagingColumn.objects.get(
+        source_column__source_column_physical_name="O_SELLER"
+    )
+    column = LinkColumn.objects.create(
+        link=link,
+        column_name="SELLER_ID",
+        column_type=LinkColumn.ColumnType.DEPENDENT_CHILD_KEY,
+        sort_order=1,
+    )
+    LinkSourceMapping.objects.create(link_column=column, staging_column=seller)
+
+    report = _generate(project, tmp_path)
+
+    assert report.status == "success", report.issues
+    assert not [i for i in report.issues if i.code.startswith("validate.link")]
+    metadata = _raw_vault(tmp_path, "ORDER_CUSTOMER_L")
+    # datavault4dbt's nh_link takes no foreign hash keys as none
+    assert not metadata["foreign_hashkeys"]
+    assert metadata["payload"] == ["SELLER_ID"]
+    stage = _stage(tmp_path, "orders")
+    assert stage["hashed_columns"]["hk_order_customer_l"] == ["O_SELLER"]
+
+
+def test_a_link_without_hubs_or_child_keys_has_nothing_to_hash(project, tmp_path):
+    from engine.models import Link
+    from engine.services.generation import generate
+
+    _update(
+        "Link",
+        {"link_physical_name": "ORDER_CUSTOMER_L"},
+        link_type=Link.LinkType.NON_HISTORIZED,
+    )
+    _without_hubs("ORDER_CUSTOMER_L")
+    _with_payload("ORDER_CUSTOMER_L", "SELLER_ID", "O_SELLER")
+
+    report = generate(project=project, output_type="dbt", output_path=tmp_path)
+
+    codes = [issue.code for issue in report.issues if issue.severity == "error"]
+    assert "validate.link.no_hashkey_input" in codes
+
+
+def test_a_standard_link_with_one_hub_is_generated_with_a_warning(project, tmp_path):
+    from engine.models import LinkHubReference
+
+    LinkHubReference.objects.filter(
+        link__link_physical_name="ORDER_CUSTOMER_L",
+        hub__hub_physical_name__iexact="CUSTOMER_H",
+    ).delete()
+
+    report = _generate(project, tmp_path)
+
+    assert report.status in ("success", "partial_success"), report.issues
+    [warning] = [i for i in report.issues if i.code == "validate.link.too_few_hubs"]
+    assert warning.severity == "warning"
+    assert warning.message == (
+        "A standard Link usually connects two or more Hubs; this one connects one"
+    )
+    assert _raw_vault(tmp_path, "ORDER_CUSTOMER_L")["foreign_hashkeys"] == [
+        "hk_order_h"
+    ]

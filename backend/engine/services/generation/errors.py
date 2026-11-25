@@ -88,6 +88,7 @@ class Code:
     VALIDATE_LINK_MISSING_HASHKEY = "validate.link.missing_hashkey"
     VALIDATE_LINK_TOO_FEW_HUBS = "validate.link.too_few_hubs"
     VALIDATE_LINK_NH_WITHOUT_PAYLOAD = "validate.link.nh_without_payload"
+    VALIDATE_LINK_NO_HASHKEY_INPUT = "validate.link.no_hashkey_input"
     VALIDATE_LINK_NO_SOURCES = "validate.link.no_sources"
 
     # Validate stage — satellites
@@ -172,6 +173,7 @@ class Code:
     SQLMESH_PREJOIN_DEPENDENT_SKIPPED = "render.sqlmesh.prejoin_dependent_skipped"
     SQLMESH_UNSUPPORTED_PRESTAGE = "render.sqlmesh.unsupported.prestage"
     SQLMESH_PRESTAGE_DEPENDENT_SKIPPED = "render.sqlmesh.prestage_dependent_skipped"
+    SQLMESH_SETTINGS_IGNORED = "render.sqlmesh.settings_ignored"
 
     # Internal
     INTERNAL_BUG = "internal.bug"
