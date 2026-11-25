@@ -68,6 +68,17 @@ states in full: a link's hub references and their key mappings, a
 prejoin's join columns, a reference table's satellite assignments and a
 PIT's satellites. For those, the ones the file no longer lists are removed.
 
+Two tables can be prejoined more than one way, as datavault4dbt's
+`prejoined_columns` allow (a customer's billing and shipping country), so a
+prejoin is identified by its tables and its join columns. When the file and
+the project each prejoin a pair of tables once, on different columns, the
+join changed: that prejoin is updated. With more prejoins on a pair, one the
+file doesn't list is a separate prejoin: kept by `merge`, deleted by
+`replace_all`. The plan then names each with its join, such as
+`orders->customers (customer_id = id)`. Two prejoins of a table can't give a
+stage column the same name: the second one's column is reported and left
+out.
+
 A source system is identified by its schema and database. A new name in
 the file for the same schema renames the system rather than creating a new
 one.
@@ -120,12 +131,11 @@ table, as datavault4dbt's `prejoined_columns` do: the row's
 `source_column_physical_name` joins `prejoin_table_column_name` of the
 prejoined table, which gives `prejoin_extraction_column_name`, named in the
 stage `prejoin_target_column_alias` when there is one. The import creates
-the prejoin, one per pair of tables, and maps the link's column to the
-prejoined one. A row that joins the same two tables on other columns is
-reported, and its column isn't mapped: the Engine keeps one join per pair
-of tables. A row that takes a column an earlier row already takes, under
-another name, maps to it under the earlier name, with a warning: it is the
-same column.
+the prejoin and maps the link's column to the prejoined one. Rows that join
+the same tables on the same columns are one prejoin; on other columns, another
+one (see below). A row that takes a column the same prejoin already takes,
+under another name, maps to it under the earlier name, with a warning: it is
+the same column.
 
 An effectivity satellite (sheet `effectivity_satellite`) sets its parent
 hub's or link's effectivity satellite flag: the Engine generates that
@@ -156,10 +166,10 @@ Even in `best_effort`, the pipeline is sensible about what to skip:
 | A reference table or PIT references a hub, link or satellite that doesn't exist | That reference table or PIT is skipped. |
 | An entity depends on one that was skipped (a satellite of a skipped link, a PIT tracking it) | It is skipped too, with an `entity.depends_on_skipped` warning. |
 | A column mapping points at a missing source table or column | That mapping is skipped; the entity itself is still created. |
-| A link row's prejoin is incomplete, names an unknown table, or joins two tables differently from an earlier row | That mapping is skipped with an error; the link is still created. |
+| A link row's prejoin is incomplete or names an unknown table | That mapping is skipped with an error; the link is still created. |
 | A link row takes a prejoined column an earlier row already takes, under another name | It is mapped to that column under the earlier name, with a warning. |
 | A link connection has more rows than the hub has keys | The rows past the hub's keys are not imported, with a warning naming them. |
-| A link connects fewer hubs than it needs (a standard link fewer than two, a non-historized link none) | The link is imported as the file has it, with a warning, to complete in the project. |
+| A standard link connects one hub or none, or a non-historized link no hub and has no dependent child key | The link is imported as the file has it, with a warning, to complete in the project. |
 | The rows of one PIT track different hubs or links | The PIT is skipped (`invalid_configuration`). |
 | An effectivity satellite's parent hub or link doesn't exist | That effectivity satellite is skipped (`missing_parent`). |
 | A sheet the import doesn't know | The sheet is ignored, with a warning that says how many rows it held. |

@@ -75,6 +75,7 @@ from engine.services.imports.domain import (
     DSourceColumn,
     DSourceSystem,
     DSourceTable,
+    link_hub_problem,
 )
 from engine.services.imports.errors import Code, make_issue
 from engine.services.imports.types import DbtSource, EntityRef, Issue
@@ -241,6 +242,18 @@ def _add_column(columns: dict[str, DSourceColumn], column: DSourceColumn) -> Non
         columns[column.name] = column
 
 
+def _same_join(a: DPrejoin, b: DPrejoin) -> bool:
+    """Whether two prejoins join the same tables on the same columns."""
+    return (
+        a.source_table_identifier == b.source_table_identifier
+        and a.target_table_identifier == b.target_table_identifier
+        and {c.lower() for c in a.source_join_columns}
+        == {c.lower() for c in b.source_join_columns}
+        and {c.lower() for c in a.target_join_columns}
+        == {c.lower() for c in b.target_join_columns}
+    )
+
+
 def _find_column(columns: dict[str, DSourceColumn], name: str) -> DSourceColumn | None:
     """The column of that name: spelled alike, else in any case."""
     exact = columns.get(name)
@@ -312,6 +325,11 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         # Derived columns that only rename a link's dependent child key, as
         # generated links have them (D23): (table identifier, lowercased name)
         self._link_renames: set[tuple[str, str]] = set()
+        # Effectivity and record-tracking satellites: TurboVault generates one of
+        # each per hub or link, from a flag. Model name (lowercased) -> (kind,
+        # parent type, parent name); and the first model of each kind per parent.
+        self._flag_satellites: dict[str, tuple[str, str, str]] = {}
+        self._flag_satellite_models: dict[tuple[str, str, str], str] = {}
 
     # -- entry --------------------------------------------------------------
 
@@ -927,32 +945,62 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                     f"{entry['join_type']} join; TurboVault prejoins are left joins",
                     parameter="prejoined_columns",
                 )
-            columns = []
+            prejoin = DPrejoin(
+                source_table_identifier=stage.identifier,
+                target_table_identifier=target.identifier,
+                operator=str(entry.get("operator") or "AND").upper(),
+                source_join_columns=[
+                    self._column_of(stage.table, c, stage=stage)
+                    for c in entry["this_column_name"]
+                ],
+                target_join_columns=[
+                    self._column_of(target, c) for c in entry["ref_column_name"]
+                ],
+            )
+            # Two entries joining the same tables on the same columns are one
+            # prejoin (TurboVault keeps one per join); on other columns, two.
+            same = next(
+                (known for known in self.domain.prejoins if _same_join(known, prejoin)),
+                None,
+            )
+            if same is None:
+                self.domain.prejoins.append(prejoin)
+            target_prejoin = same or prejoin
             for column, alias in zip(
                 entry["extract_columns"], entry["aliases"], strict=False
             ):
-                columns.append(
+                name = self._column_of(target, column)
+                taken = next(
+                    (
+                        e
+                        for e in target_prejoin.extraction_columns
+                        if e.source_column_name.lower() == name.lower()
+                    ),
+                    None,
+                )
+                if taken is not None:
+                    if (taken.alias or taken.source_column_name).lower() != (
+                        alias.lower()
+                    ):
+                        self._issue(
+                            stage.model,
+                            "warning",
+                            Code.DBT_PARAMETER_UNSUPPORTED,
+                            f"Stage '{stage.model.name}' takes "
+                            f"{target.physical_name}.{name} through one join as "
+                            f"'{taken.alias or taken.source_column_name}' and as "
+                            f"'{alias}'; TurboVault stages it once, as "
+                            f"'{taken.alias or taken.source_column_name}'",
+                            parameter="prejoined_columns",
+                        )
+                    continue
+                target_prejoin.extraction_columns.append(
                     DPrejoinExtractionColumn(
-                        source_column_name=self._column_of(target, column),
+                        source_column_name=name,
                         alias=alias if alias != column else None,
                     )
                 )
                 stage.prejoined[alias.lower()] = alias
-            self.domain.prejoins.append(
-                DPrejoin(
-                    source_table_identifier=stage.identifier,
-                    target_table_identifier=target.identifier,
-                    operator=str(entry.get("operator") or "AND").upper(),
-                    source_join_columns=[
-                        self._column_of(stage.table, c, stage=stage)
-                        for c in entry["this_column_name"]
-                    ],
-                    target_join_columns=[
-                        self._column_of(target, c) for c in entry["ref_column_name"]
-                    ],
-                    extraction_columns=columns,
-                )
-            )
 
     def _prejoin_target(
         self, stage: _Stage, entry: dict[str, Any]
@@ -1222,7 +1270,10 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         non_historized = call.macro == "nh_link"
         link_hashkey = self._plain_value(model, "link_hashkey")
         foreign = [str(fk) for fk in as_list(params.get("foreign_hashkeys"))]
-        if not link_hashkey or not foreign:
+        # A non-historized link may have no foreign hash keys: one recording
+        # transactions on their own connects no hub, and its hash key hashes
+        # columns of its own (imported below as its dependent child keys).
+        if not link_hashkey or not (foreign or non_historized):
             self._issue(
                 model,
                 "error",
@@ -1405,6 +1456,16 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
                 parameter="foreign_hashkeys",
             )
         self._link_columns(model, link, sources, list(dependent.values()), payload)
+        problem = link_hub_problem(link)
+        if problem is not None:
+            self._issue(
+                model,
+                "warning",
+                Code.ENTITY_INVALID_CONFIGURATION,
+                problem,
+                parameter="foreign_hashkeys",
+                entity=EntityRef(type="link", name=link.physical_name),
+            )
         self.links[model.name] = _LinkInfo(
             link=link, model=model, stages=[stage.model.name for stage in stages]
         )
@@ -1948,9 +2009,47 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
             return None
         return candidates[0]
 
+    def _claim_flag_satellite(
+        self, model: DbtModel, kind: str, parent: _HubInfo | _LinkInfo
+    ) -> bool:
+        """Whether ``model`` is its parent's first satellite of this kind.
+
+        TurboVault generates one effectivity and one record-tracking satellite
+        per hub or link, from a flag and with one set of settings. A second one
+        is reported and not imported. Either way a PIT reading it is told that
+        it isn't a satellite of its own (``_map_pit``).
+        """
+        entity = parent.hub if isinstance(parent, _HubInfo) else parent.link
+        entity_type = "hub" if isinstance(parent, _HubInfo) else "link"
+        self._flag_satellites[model.name.lower()] = (
+            kind,
+            entity_type,
+            entity.physical_name,
+        )
+        first = self._flag_satellite_models.setdefault(
+            (kind, entity_type, entity.physical_name), model.name
+        )
+        if first == model.name:
+            return True
+        self._issue(
+            model,
+            "warning",
+            Code.ENTITY_IMPORTED_DIFFERENTLY,
+            f"'{model.name}' is a second {kind} satellite of {entity_type} "
+            f"'{entity.physical_name}': TurboVault generates one per hub or link, "
+            f"with the settings of '{first}'. '{model.name}' is not imported",
+            parameter="tracked_hashkey",
+            entity=EntityRef(type=entity_type, name=entity.physical_name),  # type: ignore[arg-type]
+            suggestion=f"Keep one {kind} satellite per hub or link.",
+        )
+        self._mapped.add(model.unique_id)
+        return False
+
     def _map_effectivity_satellite(self, model: DbtModel) -> None:
         parent = self._tracked(model)
-        if parent is None:
+        if parent is None or not self._claim_flag_satellite(
+            model, "effectivity", parent
+        ):
             return
         params = model.call.params
         entity = parent.hub if isinstance(parent, _HubInfo) else parent.link
@@ -2001,7 +2100,9 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
 
     def _map_record_tracking_satellite(self, model: DbtModel) -> None:
         parent = self._tracked(model)
-        if parent is None:
+        if parent is None or not self._claim_flag_satellite(
+            model, "record-tracking", parent
+        ):
             return
         entity = parent.hub if isinstance(parent, _HubInfo) else parent.link
         entity.create_record_tracking_satellite = True

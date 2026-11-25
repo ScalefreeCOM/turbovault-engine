@@ -46,6 +46,7 @@ from engine.services.imports.domain import (
     DSourceSystem,
     DSourceTable,
     SkipReason,
+    link_hub_problem,
 )
 from engine.services.imports.errors import Code, make_issue
 from engine.services.imports.ir import IRDocument, IRRow
@@ -83,10 +84,13 @@ class _Resolver:
         # The source system name of each table, by the table's identifier.
         self._system_by_table: dict[str, str] = {}
 
-        # Prejoins the link sheets declare, one per pair of tables (the Engine
-        # keeps one join per pair): (source id, target id) -> (prejoin, where
-        # its join was first declared).
-        self._prejoins: dict[tuple[str, str], tuple[DPrejoin, IssueLocation]] = {}
+        # Prejoins the link sheets declare, one per pair of tables and join (two
+        # tables can be prejoined more than one way): (source id, target id,
+        # source join column, target join column), lowercased -> (prejoin,
+        # where its join was first declared).
+        self._prejoins: dict[
+            tuple[str, str, str, str], tuple[DPrejoin, IssueLocation]
+        ] = {}
 
         # Where each resolved link starts in the file: name -> (sheet, row).
         self._link_origin: dict[str, tuple[str, int]] = {}
@@ -295,8 +299,7 @@ class _Resolver:
                         key_mapping.source_column_name,
                     )
         # Prejoins: the join columns on both tables, and what the target gives.
-        for source_id, target_id in self._prejoins:
-            prejoin, _ = self._prejoins[(source_id, target_id)]
+        for (source_id, target_id, _, _), (prejoin, _) in self._prejoins.items():
             for name in prejoin.source_join_columns:
                 self._ensure_source_column(source_id, name)
             for name in prejoin.target_join_columns:
@@ -675,36 +678,30 @@ class _Resolver:
                 )
 
     def _check_link_hubs(self) -> None:
-        """Say which links connect fewer hubs than they need.
+        """Say which links lack the hubs, or the key, they need.
 
-        A standard link relates two or more business objects; one hub connected
-        twice (hierarchical, same-as) counts as two. A non-historized link needs
-        at least one, as the generation's own check (LNK_002) has it. A link the
-        file connects to fewer is imported as the file has it, so it can be
-        completed in the project, but it would generate without the foreign keys
-        it needs.
+        A standard link usually relates two or more business objects; one hub
+        connected twice (hierarchical, same-as) counts as two. One hub is
+        allowed, with a warning; none is reported too. A non-historized link
+        may connect any number, none too: one that records transactions on
+        their own has no hub. Its hash key is then hashed from its dependent
+        child keys alone, so it needs one. Each is imported as the file has it,
+        to complete in the project.
         """
         seen: set[int] = set()
         for link in self.model.links.values():
             if id(link) in seen:
                 continue
             seen.add(id(link))
-            connections = len(link.hub_references)
-            if connections >= (1 if link.link_type == "non_historized" else 2):
+            message = link_hub_problem(link)
+            if message is None:
                 continue
             sheet_name, row_number = self._link_origin.get(
                 link.physical_name, (None, None)
             )
             self._warning(
                 Code.ENTITY_INVALID_CONFIGURATION,
-                (
-                    f"Non-historized link '{link.physical_name}' connects no hubs, "
-                    "so it has no foreign keys."
-                    if link.link_type == "non_historized"
-                    else f"Link '{link.physical_name}' connects "
-                    f"{'no hubs' if connections == 0 else 'only one hub'}; "
-                    "a link connects at least two."
-                ),
+                message,
                 location=(
                     self._loc(sheet_name, row_number, "hub_identifier")
                     if sheet_name
@@ -712,7 +709,10 @@ class _Resolver:
                 ),
                 entity=EntityRef(type="link", name=link.physical_name),
                 suggestion=(
-                    "Name each hub the link connects in hub_identifier, one row "
+                    "Make the column that identifies each row a dependent child key "
+                    "(target_primary_key_physical_name on its row)."
+                    if link.link_type == "non_historized"
+                    else "Name each hub the link connects in hub_identifier, one row "
                     "per key of the hub."
                 ),
             )
@@ -722,14 +722,16 @@ class _Resolver:
         """``{system}|{table}``: how a prejoin names its tables, as JSON exports do."""
         return f"{self._system_by_table[table.identifier]}|{table.physical_name}"
 
-    def _prejoin_checkpoint(self) -> dict[tuple[str, str], int]:
+    def _prejoin_checkpoint(self) -> dict[tuple[str, str, str, str], int]:
         """The prejoins declared so far, with how many columns each extracts."""
         return {
             key: len(prejoin.extraction_columns)
             for key, (prejoin, _) in self._prejoins.items()
         }
 
-    def _prejoin_rollback(self, checkpoint: dict[tuple[str, str], int]) -> None:
+    def _prejoin_rollback(
+        self, checkpoint: dict[tuple[str, str, str, str], int]
+    ) -> None:
         """Forget what was declared since ``checkpoint``."""
         for key in [key for key in self._prejoins if key not in checkpoint]:
             del self._prejoins[key]
@@ -749,9 +751,11 @@ class _Resolver:
         names that staged column, and the target table's identifier says it
         comes from the prejoin.
 
-        Not usable when the prejoin is incomplete, names an unknown table, or
-        contradicts what an earlier row declared: the Engine keeps one join per
-        pair of tables and one staged name per column taken.
+        Rows that join the same tables on the same columns are one prejoin;
+        on other columns, another one. Not usable when the prejoin is
+        incomplete or names an unknown table. A column the same prejoin
+        already takes under another name keeps that name: it has one in the
+        stage.
         """
         source_column = row.get("source_column_physical_name")
         target_ref = row.get("prejoin_table_identifier")
@@ -802,8 +806,49 @@ class _Resolver:
             return False, None, None
 
         location = self._loc(sheet_name, row.row_number, "prejoin_table_column_name")
-        key = (table.identifier, target.identifier)
+        key = (
+            table.identifier,
+            target.identifier,
+            source_column.lower(),
+            join_column.lower(),
+        )
         known = self._prejoins.get(key)
+        # Another prejoin of this table may not give a stage column the same
+        # name: a link's mapping names the column, not the join it comes by.
+        staged = (row.get("prejoin_target_column_alias") or taken).lower()
+        clash = next(
+            (
+                (other_key, other)
+                for other_key, (other, _) in self._prejoins.items()
+                if other_key[0] == table.identifier
+                and other_key != key
+                and any(
+                    (e.alias or e.source_column_name).lower() == staged
+                    for e in other.extraction_columns
+                )
+            ),
+            None,
+        )
+        if clash is not None:
+            other_key, other = clash
+            self._error(
+                Code.ENTITY_INVALID_CONFIGURATION,
+                (
+                    f"Link '{link_name}' takes {target.physical_name}.{taken} as "
+                    f"'{row.get('prejoin_target_column_alias') or taken}', a name "
+                    f"another prejoin of '{table.physical_name}' already gives "
+                    f"(joined on {table.physical_name}.{other.source_join_columns[0]}"
+                    f" = {_bare_table(other.target_table_identifier)}."
+                    f"{other.target_join_columns[0]}): the stage can select only "
+                    "one column by that name."
+                ),
+                location=self._loc(
+                    sheet_name, row.row_number, "prejoin_target_column_alias"
+                ),
+                entity=entity,
+                suggestion="Give the column an alias of its own.",
+            )
+            return False, None, None
         if known is None:
             prejoin = DPrejoin(
                 source_table_identifier=self._qualified(table),
@@ -813,28 +858,7 @@ class _Resolver:
             )
             self._prejoins[key] = (prejoin, location)
         else:
-            prejoin, first = known
-            declared = (
-                [c.lower() for c in prejoin.source_join_columns],
-                [c.lower() for c in prejoin.target_join_columns],
-            )
-            if declared != ([source_column.lower()], [join_column.lower()]):
-                self._error(
-                    Code.ENTITY_INVALID_CONFIGURATION,
-                    (
-                        f"Link '{link_name}' joins {table.physical_name}."
-                        f"{source_column} to {target.physical_name}.{join_column}, "
-                        f"but row {first.row} of sheet '{first.sheet}' joins these "
-                        f"tables on {table.physical_name}."
-                        f"{prejoin.source_join_columns[0]} = {target.physical_name}."
-                        f"{prejoin.target_join_columns[0]}. Two tables are prejoined "
-                        "one way only."
-                    ),
-                    location=location,
-                    entity=entity,
-                    suggestion="Join the two tables on the same columns in every row.",
-                )
-                return False, None, None
+            prejoin = known[0]
 
         alias = row.get("prejoin_target_column_alias") or None
         extraction = next(
@@ -1375,6 +1399,11 @@ class _Resolver:
 
 
 # ----------------------------------------------------------------- utilities
+
+
+def _bare_table(identifier: str) -> str:
+    """ "crm|orders" -> "orders": the table of a prejoin's qualified identifier."""
+    return identifier.split("|", 1)[1] if "|" in identifier else identifier
 
 
 def _rows_phrase(rows: list[IRRow]) -> str:

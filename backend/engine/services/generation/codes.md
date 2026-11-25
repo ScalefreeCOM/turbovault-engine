@@ -31,8 +31,9 @@ deep-link errors; the CLI groups them in summary tables.
 | `validate.hub.no_business_keys` | A hub has no business-key columns. | Add at least one business-key column. |
 | `validate.hub.no_source_tables` | A hub has no source mappings (warning). | Map the hub's business keys to at least one source column. |
 | `validate.link.missing_hashkey` | A link has no hashkey column name. | Set a hashkey on the link. |
-| `validate.link.too_few_hubs` | A link references fewer than two hubs (warning). | A link should connect at least two hubs. |
+| `validate.link.too_few_hubs` | A standard link connects fewer than two hubs (warning). One is allowed; a non-historized link may connect any number. | Connect the other hubs the link relates, if any. |
 | `validate.link.no_sources` | A link has no source mappings (warning). | Map the link's foreign hashkeys to source columns. |
+| `validate.link.no_hashkey_input` | A link connects no hubs and has no dependent child keys, so the stage has nothing to hash its hash key from. A non-historized link that records transactions on their own connects no hubs and is hashed from its dependent child keys. | Give the link a dependent child key: the column that identifies each row. |
 | `validate.link.nh_without_payload` | A non-historized link has neither payload columns nor dependent child keys. datavault4dbt's `nh_link` requires a payload. | Give the link a payload column, or a dependent child key (written first in its payload). |
 | `validate.satellite.no_parent` | A satellite has neither a parent hub nor a parent link. | Set `parent_hub` or `parent_link`. |
 | `validate.satellite.no_stage` | A satellite has no associated stage. | Confirm the satellite's source table feeds a stage. |

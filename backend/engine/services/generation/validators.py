@@ -562,20 +562,36 @@ def _validate_link(link: LinkDefinition) -> ValidationResult:
             code="LNK_001",
         )
 
-    # Links must reference at least 2 hubs (except non-historized links)
-    if link.link_type != "non_historized":
-        hubs = len(link.foreign_hashkeys or [])
-        if hubs < 2:
-            result.add_warning(
-                entity_type="link",
-                entity_name=link.link_name,
-                field="foreign_hashkeys",
-                message=(
-                    "A standard Link should connect at least two Hubs; this one "
-                    f"connects {'none' if hubs == 0 else 'one'}"
-                ),
-                code="LNK_002",
-            )
+    # A standard link usually connects two or more hubs; one is allowed, with
+    # this warning. A non-historized link may connect any number, none too.
+    hubs = len(link.foreign_hashkeys or [])
+    if link.link_type != "non_historized" and hubs < 2:
+        result.add_warning(
+            entity_type="link",
+            entity_name=link.link_name,
+            field="foreign_hashkeys",
+            message=(
+                "A standard Link usually connects two or more Hubs; this one connects "
+                f"{'none' if hubs == 0 else 'one'}"
+            ),
+            code="LNK_002",
+        )
+
+    # The stage hashes a link's hash key from its hubs' business keys and its
+    # dependent child keys. With neither it computes none, and the model would
+    # select a column no stage has: a link without hubs (a non-historized one
+    # recording transactions on their own) needs a dependent child key.
+    if hubs == 0 and not link.dependent_child_keys:
+        result.add_error(
+            entity_type="link",
+            entity_name=link.link_name,
+            field="dependent_child_keys",
+            message=(
+                "Link has no hubs and no dependent child keys, so its hash key has "
+                "nothing to hash"
+            ),
+            code="LNK_005",
+        )
 
     # Link MUST have at least one source table. Without it the generated dbt
     # model has an empty `source_models` block (an invalid datavault4dbt link)

@@ -52,7 +52,8 @@ turbovault generate --project my_project --skip-validation
 | Code | Entity | Rule | How to Fix |
 |------|--------|------|------------|
 | `LNK_001` | Link | Must have a hashkey name set | Set `link_hashkey_name` in Django Admin → Links |
-| `LNK_002` | Link | Must reference at least 2 hubs | Add Hub References in Django Admin → Links (minimum 2 inline rows) |
+| `LNK_002` | Link | A standard link usually references two or more hubs; one is allowed (warning). A non-historized link may reference any number, none too | Add the other Hub References the link relates in Django Admin → Links |
+| `LNK_005` | Link | A link without hubs needs a dependent child key: its hash key is hashed from it (error) | Add a dependent child key column (the column that identifies each row) |
 
 ---
 

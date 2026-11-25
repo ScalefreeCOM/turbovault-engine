@@ -536,6 +536,7 @@ validate.stage.duplicate_hashdiff     validate.reference_table.satellite_without
 validate.model.duplicate_name         validate.model.invalid_name        validate.model.invalid_folder
 validate.hub.missing_hashkey          validate.hub.no_business_keys      validate.hub.no_source_tables
 validate.link.missing_hashkey         validate.link.too_few_hubs         validate.link.no_sources
+validate.link.nh_without_payload      validate.link.no_hashkey_input
 validate.satellite.no_parent          validate.satellite.no_stage        validate.satellite.no_columns       validate.satellite.no_hashdiff
 validate.pit.no_satellites            validate.pit.no_snapshot_logic     validate.pit.no_tracked_entity
 validate.snapshot.no_name             validate.snapshot.no_start_date    validate.snapshot.no_logic_patterns
