@@ -1197,9 +1197,9 @@ counterpart for. The module lists them:
 - `DBT_ONLY_FIELDS`: `DbtOnlyField(model, field, value=None)` entries, e.g. `Satellite.disable_hwm`,
   `HubSourceMapping.stage_hashkey_name`, and `HubColumn.column_type` = `additional_column` (a choice value).
   `DBT_ONLY_BY_MODEL` maps a model to its whole fields; `is_dbt_only(model, field, value=None)` checks one.
-- `DBT_ONLY_SETTINGS`: the `EngineRuntimeConfig` fields only the dbt output applies (project files, folders and
-  materializations, default tags, stage options and delivery method, the names of pre-stages and effectivity or
-  record-tracking satellites).
+- `DBT_ONLY_SETTINGS`: the `EngineRuntimeConfig` fields only the dbt output applies (project files, vars,
+  sources, tests and profile; folders and materializations, default tags, stage options and delivery method, the
+  names of pre-stages and effectivity or record-tracking satellites).
 - Not listed: what both outputs apply (`Satellite.hashdiff_name`, `Satellite.create_v1_view`, `stage_naming`,
   the layer schemas, ...), and entity types the SQLMesh output doesn't render at all (PITs, reference tables,
   snapshot controls, reference Hubs, non-historized Links, Satellites other than standard ones, pre-stages):

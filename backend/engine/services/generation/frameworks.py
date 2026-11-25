@@ -89,12 +89,17 @@ them): ``Satellite.hashdiff_name`` and ``Satellite.create_v1_view``."""
 
 DBT_ONLY_SETTINGS: frozenset[str] = frozenset(
     {
-        # dbt project files and profile
+        # dbt project files, vars, sources, tests and profile
         "dbt_project_name",
         "profile_name",
         "dbt_project_models",
         "dbt_project_settings",
         "dbt_packages",
+        "global_vars",
+        "export_sources",
+        "generate_tests",
+        "generate_profiles_yml",
+        "profiles",
         # Where models go and how dbt builds them
         "folders",
         "use_model_folders",
