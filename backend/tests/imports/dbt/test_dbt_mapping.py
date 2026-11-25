@@ -523,6 +523,52 @@ def test_a_non_historized_link_keeps_its_payload_and_union_strategy(tmp_path):
     ]
 
 
+def test_a_non_historized_link_without_foreign_hash_keys_hashes_its_own_columns(
+    tmp_path,
+):
+    """One recording transactions on their own connects no hub: the columns its
+    hash key hashes are its dependent child keys."""
+    payments = model(
+        "order_payment_nl",
+        dv(
+            "nh_link",
+            """
+            link_hashkey: hk_order_customer_l
+            payload: [AMOUNT]
+            source_models: stg__crm__orders
+            """,
+        ),
+    )
+    domain, issues = map_manifest(shop(tmp_path, payments))
+
+    link = domain.links["order_payment_nl"]
+    assert link.hub_references == []
+    assert [(c.name, c.column_type) for c in link.columns] == [
+        ("ORDER_ID", "dependent_child_key"),
+        ("CUSTOMER_ID", "dependent_child_key"),
+        ("LINE_NO", "dependent_child_key"),
+        ("AMOUNT", "payload"),
+    ]
+    assert not [i for i in issues if i.severity == "error"]
+
+
+def test_a_standard_link_without_foreign_hash_keys_is_left_out(tmp_path):
+    bare = model(
+        "order_l",
+        dv(
+            "link",
+            """
+            link_hashkey: hk_order_customer_l
+            source_models: stg__crm__orders
+            """,
+        ),
+    )
+    domain, issues = map_manifest(shop(tmp_path, bare))
+
+    assert ("link", "order_l") in domain.skipped
+    assert [i.code for i in issues if i.severity == "error"] == ["dbt.value_invalid"]
+
+
 # ---------------------------------------------------------------------------
 # Satellites
 # ---------------------------------------------------------------------------

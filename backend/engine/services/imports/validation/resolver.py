@@ -675,36 +675,30 @@ class _Resolver:
                 )
 
     def _check_link_hubs(self) -> None:
-        """Say which links connect fewer hubs than they need.
+        """Say which links lack the hubs, or the key, they need.
 
-        A standard link relates two or more business objects; one hub connected
-        twice (hierarchical, same-as) counts as two. A non-historized link needs
-        at least one, as the generation's own check (LNK_002) has it. A link the
-        file connects to fewer is imported as the file has it, so it can be
-        completed in the project, but it would generate without the foreign keys
-        it needs.
+        A standard link usually relates two or more business objects; one hub
+        connected twice (hierarchical, same-as) counts as two. One hub is
+        allowed, with a warning; none is reported too. A non-historized link
+        may connect any number, none too: one that records transactions on
+        their own has no hub. Its hash key is then hashed from its dependent
+        child keys alone, so it needs one. Each is imported as the file has it,
+        to complete in the project.
         """
         seen: set[int] = set()
         for link in self.model.links.values():
             if id(link) in seen:
                 continue
             seen.add(id(link))
-            connections = len(link.hub_references)
-            if connections >= (1 if link.link_type == "non_historized" else 2):
+            message = _link_hub_message(link)
+            if message is None:
                 continue
             sheet_name, row_number = self._link_origin.get(
                 link.physical_name, (None, None)
             )
             self._warning(
                 Code.ENTITY_INVALID_CONFIGURATION,
-                (
-                    f"Non-historized link '{link.physical_name}' connects no hubs, "
-                    "so it has no foreign keys."
-                    if link.link_type == "non_historized"
-                    else f"Link '{link.physical_name}' connects "
-                    f"{'no hubs' if connections == 0 else 'only one hub'}; "
-                    "a link connects at least two."
-                ),
+                message,
                 location=(
                     self._loc(sheet_name, row_number, "hub_identifier")
                     if sheet_name
@@ -712,7 +706,10 @@ class _Resolver:
                 ),
                 entity=EntityRef(type="link", name=link.physical_name),
                 suggestion=(
-                    "Name each hub the link connects in hub_identifier, one row "
+                    "Make the column that identifies each row a dependent child key "
+                    "(target_primary_key_physical_name on its row)."
+                    if link.link_type == "non_historized"
+                    else "Name each hub the link connects in hub_identifier, one row "
                     "per key of the hub."
                 ),
             )
@@ -1375,6 +1372,32 @@ class _Resolver:
 
 
 # ----------------------------------------------------------------- utilities
+
+
+def _link_hub_message(link: DLink) -> str | None:
+    """What a link lacks in hubs or key, if anything (see ``_check_link_hubs``)."""
+    connections = len(link.hub_references)
+    if link.link_type == "non_historized":
+        has_child_keys = any(
+            column.column_type == "dependent_child_key" for column in link.columns
+        )
+        if connections == 0 and not has_child_keys:
+            return (
+                f"Non-historized link '{link.physical_name}' connects no hubs and has "
+                "no dependent child key, so its hash key has nothing to hash."
+            )
+        return None
+    if connections == 0:
+        return (
+            f"Link '{link.physical_name}' connects no hubs; a link connects at least "
+            "one."
+        )
+    if connections == 1:
+        return (
+            f"Link '{link.physical_name}' connects only one hub; a link usually "
+            "connects two or more."
+        )
+    return None
 
 
 def _rows_phrase(rows: list[IRRow]) -> str:

@@ -159,7 +159,7 @@ Even in `best_effort`, the pipeline is sensible about what to skip:
 | A link row's prejoin is incomplete, names an unknown table, or joins two tables differently from an earlier row | That mapping is skipped with an error; the link is still created. |
 | A link row takes a prejoined column an earlier row already takes, under another name | It is mapped to that column under the earlier name, with a warning. |
 | A link connection has more rows than the hub has keys | The rows past the hub's keys are not imported, with a warning naming them. |
-| A link connects fewer hubs than it needs (a standard link fewer than two, a non-historized link none) | The link is imported as the file has it, with a warning, to complete in the project. |
+| A standard link connects one hub or none, or a non-historized link no hub and has no dependent child key | The link is imported as the file has it, with a warning, to complete in the project. |
 | The rows of one PIT track different hubs or links | The PIT is skipped (`invalid_configuration`). |
 | An effectivity satellite's parent hub or link doesn't exist | That effectivity satellite is skipped (`missing_parent`). |
 | A sheet the import doesn't know | The sheet is ignored, with a warning that says how many rows it held. |

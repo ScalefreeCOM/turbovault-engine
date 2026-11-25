@@ -381,13 +381,17 @@ def test_rows_beyond_a_hubs_keys_are_reported(project, workbook_factory):
 
 
 @pytest.mark.django_db
-def test_links_that_connect_too_few_hubs_are_imported_and_reported(
+def test_links_without_the_hubs_or_key_they_need_are_imported_and_reported(
     project, workbook_factory
 ):
-    payload_header = [
+    """A standard link with one hub is allowed, with a warning. A non-historized
+    link may connect any number of hubs, none too, if it has a dependent child
+    key to hash (its row names the link's hash key)."""
+    header = [
         "target_link_table_physical_name",
         "nh_link_identifier",
         "hub_identifier",
+        "target_primary_key_physical_name",
         "target_column_physical_name",
         "source_table_identifier",
         "source_column_physical_name",
@@ -396,10 +400,20 @@ def test_links_that_connect_too_few_hubs_are_imported_and_reported(
         _sheets(
             ORDER_ROW,
             non_historized_link=[
-                payload_header,
-                ["nl_none", "nl_n", None, "amount", "crm.orders", "amount"],
-                ["nl_one", "nl_1", "h_ord", "hk_order", "crm.orders", "order_id"],
-                ["nl_one", "nl_1", None, "amount", "crm.orders", "amount"],
+                header,
+                ["nl_none", "nl_n", None, None, "amount", "crm.orders", "amount"],
+                [
+                    "nl_payment",
+                    "nl_p",
+                    None,
+                    "hk_payment_nl",
+                    "payment_id",
+                    "crm.orders",
+                    "payment_id",
+                ],
+                ["nl_payment", "nl_p", None, None, "amount", "crm.orders", "amount"],
+                ["nl_one", "nl_1", "h_ord", None, "hk_order", "crm.orders", "order_id"],
+                ["nl_one", "nl_1", None, None, "amount", "crm.orders", "amount"],
             ],
         )
     )
@@ -412,18 +426,24 @@ def test_links_that_connect_too_few_hubs_are_imported_and_reported(
     }
     assert messages == {
         "link_order_customer": (
-            "Link 'link_order_customer' connects only one hub; a link connects at "
-            "least two."
+            "Link 'link_order_customer' connects only one hub; a link usually "
+            "connects two or more."
         ),
-        "nl_none": "Non-historized link 'nl_none' connects no hubs, so it has no "
-        "foreign keys.",
+        "nl_none": (
+            "Non-historized link 'nl_none' connects no hubs and has no dependent "
+            "child key, so its hash key has nothing to hash."
+        ),
     }
+    assert all(
+        issue.severity == "warning"
+        for issue in _issues(report, "entity.invalid_configuration")
+    )
     # Imported as the file has them, to complete in the project.
     assert set(
         Link.objects.filter(project=project).values_list(
             "link_physical_name", flat=True
         )
-    ) == {"link_order_customer", "nl_none", "nl_one"}
+    ) == {"link_order_customer", "nl_none", "nl_payment", "nl_one"}
 
 
 def test_the_generation_check_says_how_many_hubs_a_link_connects():
@@ -438,7 +458,7 @@ def test_the_generation_check_says_how_many_hubs_a_link_connects():
 
     [warning] = [w for w in result.warnings if w.code == "LNK_002"]
     assert warning.message == (
-        "A standard Link should connect at least two Hubs; this one connects one"
+        "A standard Link usually connects two or more Hubs; this one connects one"
     )
 
 

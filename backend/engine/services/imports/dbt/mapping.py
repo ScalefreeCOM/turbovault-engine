@@ -1222,7 +1222,10 @@ class _Mapper(BusinessVaultMapping, ProjectSettingsMapping):
         non_historized = call.macro == "nh_link"
         link_hashkey = self._plain_value(model, "link_hashkey")
         foreign = [str(fk) for fk in as_list(params.get("foreign_hashkeys"))]
-        if not link_hashkey or not foreign:
+        # A non-historized link may have no foreign hash keys: one recording
+        # transactions on their own connects no hub, and its hash key hashes
+        # columns of its own (imported below as its dependent child keys).
+        if not link_hashkey or not (foreign or non_historized):
             self._issue(
                 model,
                 "error",
