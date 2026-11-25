@@ -372,8 +372,14 @@ class _Executor:
         """Load what the project already has into the lookup caches."""
         for ss in self.project.source_systems.all():
             self._source_systems[(ss.name, ss.schema_name, ss.database_name)] = ss
-        for st in SourceTable.objects.filter(source_system__project=self.project):
+        for st in SourceTable.objects.filter(
+            source_system__project=self.project
+        ).select_related("source_system"):
             self._source_tables_by_identifier.setdefault(st.physical_table_name, st)
+            # The "{system}|{table}" form prejoins name their tables by.
+            self._source_tables_by_identifier.setdefault(
+                f"{st.source_system.name}|{st.physical_table_name}", st
+            )
             self._tables_by_key[(st.source_system_id, st.physical_table_name)] = st
             self._columns_by_table[st.pk] = {}
             self._derived_by_table[st.pk] = {}
@@ -917,10 +923,16 @@ class _Executor:
         )
         self._cache(self._tables_by_key, table_key, obj)
         self._cache(self._table_outcomes, obj.pk, self._current)
-        # Cache under both physical name and identifier for lookups.
+        # Cache under both physical name and identifier for lookups, and as
+        # "{system}|{table}", the form prejoins name their tables by.
         self._cache(self._source_tables_by_identifier, table_d.identifier, obj)
         self._cache_default(
             self._source_tables_by_identifier, table_d.physical_name, obj
+        )
+        self._cache_default(
+            self._source_tables_by_identifier,
+            f"{system.name}|{table_d.physical_name}",
+            obj,
         )
         # The table's rows by name, kept current for a table the source
         # describes twice (e.g. under two identifiers).
@@ -969,7 +981,7 @@ class _Executor:
                     is_missing=col.is_missing,
                 ),
                 create_values={"source_column_datatype": ""},
-                existing=columns.get(col.name),
+                existing=self._column_of(obj, col.name),
                 path=("columns", col.name),
             )
             self._cache(columns, col.name, sc)
@@ -994,18 +1006,39 @@ class _Executor:
         table = self._source_tables_by_identifier.get(table_identifier)
         if table is None:
             return None
-        sc, _ = self._upsert(
-            SourceColumn,
-            lookup={"source_table": table, "source_column_physical_name": col_name},
-            values={},
-            create_values={"source_column_datatype": ""},
-            path=("columns", col_name),
-            # A column the mapping adds is a change to its table.
-            outcome=self._table_outcomes.get(table.pk),
-        )
+        sc = self._column_of(table, col_name)
+        if sc is None:
+            sc, _ = self._upsert(
+                SourceColumn,
+                lookup={"source_table": table, "source_column_physical_name": col_name},
+                values={},
+                create_values={"source_column_datatype": ""},
+                path=("columns", col_name),
+                # A column the mapping adds is a change to its table.
+                outcome=self._table_outcomes.get(table.pk),
+            )
+            self._cache(self._columns_by_table.setdefault(table.pk, {}), col_name, sc)
         self._cache(self._source_columns, (table_identifier, col_name), sc)
         self._cache(self._source_columns, (table.physical_table_name, col_name), sc)
         return sc
+
+    def _column_of(self, table: SourceTable, name: str) -> SourceColumn | None:
+        """The column of ``table`` called ``name``, whatever case it is written in.
+
+        Names that differ only in case are one column: a source that writes
+        ``N_REGIONKEY`` in one sheet and ``n_regionkey`` in another means the
+        same column. The exact spelling comes first, for a project that holds
+        both from before.
+        """
+        columns = self._columns_by_table.get(table.pk, {})
+        exact = columns.get(name)
+        if exact is not None:
+            return exact
+        lowered = name.lower()
+        return next(
+            (column for key, column in columns.items() if key.lower() == lowered),
+            None,
+        )
 
     def _staging_for(
         self, column: SourceColumn | PrejoinExtractionColumn | DerivedColumn, label: str
@@ -1100,6 +1133,9 @@ class _Executor:
 
         Falls back to a case-insensitive match, because column names travel
         through the export as free text and casing is not always preserved.
+        A column of that exact name comes first: a table can hold two names
+        that differ only in case, and binding the other one would change the
+        binding, and the reported changes, on every import.
         """
         sc = self._source_columns.get((table_identifier, col_name))
         if sc is not None:
@@ -1107,13 +1143,17 @@ class _Executor:
         table = self._source_tables_by_identifier.get(table_identifier)
         if table is None:
             return None
+        columns = list(SourceColumn.objects.filter(source_table=table))
         return next(
-            (
-                col
-                for col in SourceColumn.objects.filter(source_table=table)
-                if col.source_column_physical_name.lower() == col_name.lower()
+            (col for col in columns if col.source_column_physical_name == col_name),
+            next(
+                (
+                    col
+                    for col in columns
+                    if col.source_column_physical_name.lower() == col_name.lower()
+                ),
+                None,
             ),
-            None,
         )
 
     def _find_prejoin_extraction(

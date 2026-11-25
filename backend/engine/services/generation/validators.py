@@ -564,12 +564,16 @@ def _validate_link(link: LinkDefinition) -> ValidationResult:
 
     # Links must reference at least 2 hubs (except non-historized links)
     if link.link_type != "non_historized":
-        if not link.foreign_hashkeys or len(link.foreign_hashkeys) < 2:
+        hubs = len(link.foreign_hashkeys or [])
+        if hubs < 2:
             result.add_warning(
                 entity_type="link",
                 entity_name=link.link_name,
                 field="foreign_hashkeys",
-                message="A standard Link should reference at least 1 hub",
+                message=(
+                    "A standard Link should connect at least two Hubs; this one "
+                    f"connects {'none' if hubs == 0 else 'one'}"
+                ),
                 code="LNK_002",
             )
 

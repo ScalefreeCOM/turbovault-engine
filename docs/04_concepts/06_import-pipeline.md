@@ -110,6 +110,39 @@ tells you exactly what was skipped and why.
 **`fail_fast` is available** for strict workflows (CI gates, scripted
 deployments) where you want a clean all-or-nothing outcome.
 
+### Links, prejoins and PITs from a workbook or SQLite file
+
+A link's rows for one hub connection map the hub's keys in order: the
+first row its first key, and so on.
+
+A link row with `prejoin_table_identifier` takes its column from another
+table, as datavault4dbt's `prejoined_columns` do: the row's
+`source_column_physical_name` joins `prejoin_table_column_name` of the
+prejoined table, which gives `prejoin_extraction_column_name`, named in the
+stage `prejoin_target_column_alias` when there is one. The import creates
+the prejoin, one per pair of tables, and maps the link's column to the
+prejoined one. A row that joins the same two tables on other columns is
+reported, and its column isn't mapped: the Engine keeps one join per pair
+of tables. A row that takes a column an earlier row already takes, under
+another name, maps to it under the earlier name, with a warning: it is the
+same column.
+
+An effectivity satellite (sheet `effectivity_satellite`) sets its parent
+hub's or link's effectivity satellite flag: the Engine generates that
+satellite and names it by the project's naming pattern, so the sheet's own
+name and columns are not imported, with an `entity.imported_differently`
+warning. A file with the sheet describes its links' effectivity in full: a
+link it doesn't list gets none. A PIT that lists an effectivity satellite no
+longer tracks it.
+
+Source column names that differ only in case are one column: a file that
+writes `N_REGIONKEY` in one sheet and `n_regionkey` in another means the
+same column, and the import binds both to the one the table has.
+
+A PIT can span several rows of the `pit` sheet. They make one PIT: it
+tracks the one hub or link every row names, and the satellites of all of
+its rows.
+
 ### What counts as "skippable" vs "fatal"
 
 Even in `best_effort`, the pipeline is sensible about what to skip:
@@ -123,6 +156,13 @@ Even in `best_effort`, the pipeline is sensible about what to skip:
 | A reference table or PIT references a hub, link or satellite that doesn't exist | That reference table or PIT is skipped. |
 | An entity depends on one that was skipped (a satellite of a skipped link, a PIT tracking it) | It is skipped too, with an `entity.depends_on_skipped` warning. |
 | A column mapping points at a missing source table or column | That mapping is skipped; the entity itself is still created. |
+| A link row's prejoin is incomplete, names an unknown table, or joins two tables differently from an earlier row | That mapping is skipped with an error; the link is still created. |
+| A link row takes a prejoined column an earlier row already takes, under another name | It is mapped to that column under the earlier name, with a warning. |
+| A link connection has more rows than the hub has keys | The rows past the hub's keys are not imported, with a warning naming them. |
+| A link connects fewer hubs than it needs (a standard link fewer than two, a non-historized link none) | The link is imported as the file has it, with a warning, to complete in the project. |
+| The rows of one PIT track different hubs or links | The PIT is skipped (`invalid_configuration`). |
+| An effectivity satellite's parent hub or link doesn't exist | That effectivity satellite is skipped (`missing_parent`). |
+| A sheet the import doesn't know | The sheet is ignored, with a warning that says how many rows it held. |
 
 Sheet-level structural errors are dropped wholesale because the pipeline
 cannot reliably synthesize partial entities from a sheet with missing
@@ -139,7 +179,8 @@ The skip reasons are:
 - `missing_reference`, `missing_parent`, `missing_source_table` and
   `depends_on_skipped`: something the entity needs is missing.
 - `invalid_configuration`: the entity itself is inconsistent, e.g. a
-  prejoin whose join columns don't line up.
+  prejoin whose join columns don't line up, or a PIT whose rows track
+  different hubs or links.
 - `execute_failed`: writing it failed, e.g. on a database constraint. Each
   entity is written in its own savepoint, so a failure rolls back that
   entity alone.

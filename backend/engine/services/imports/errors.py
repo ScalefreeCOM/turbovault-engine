@@ -108,6 +108,9 @@ class Code:
     ENTITY_MISSING_SOURCE_TABLE = "entity.missing_source_table"
     ENTITY_INVALID_CONFIGURATION = "entity.invalid_configuration"
     ENTITY_DEPENDS_ON_SKIPPED = "entity.depends_on_skipped"
+    # Imported as another kind of entity than the source gives it, e.g. an
+    # effectivity satellite as its parent's effectivity flag.
+    ENTITY_IMPORTED_DIFFERENTLY = "entity.imported_differently"
 
     # Plan stage
     PLAN_WOULD_CREATE = "plan.would_create"

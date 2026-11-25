@@ -243,6 +243,10 @@ def import_metadata(
                 progress=progress,
             )
 
+        # Issues name the file as the caller knows it (Studio, for one, keeps an
+        # upload under a name of its own).
+        if ir_doc is not None and source.display_name:
+            ir_doc.source_name = source.display_name
         timings["parse"] = _ms(t0)
         emit(
             progress,

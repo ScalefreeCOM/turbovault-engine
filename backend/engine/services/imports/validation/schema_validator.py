@@ -31,14 +31,18 @@ def validate_schema(
     issues: list[Issue] = []
 
     # 1. Unknown sheets — warn, don't block.
-    for name in doc.sheets:
+    for name, sheet in doc.sheets.items():
         if name not in SCHEMA_BY_NAME:
+            rows = len(sheet.rows)
             issues.append(
                 make_issue(
                     severity="warning",
                     code=Code.SCHEMA_UNKNOWN_SHEET,
                     stage="validate",
-                    message=f"Sheet '{name}' is not recognized and will be ignored.",
+                    message=(
+                        f"Sheet '{name}' is not recognized and will be ignored "
+                        f"({rows} {'row' if rows == 1 else 'rows'})."
+                    ),
                     location=IssueLocation(file=doc.source_name, sheet=name),
                     suggestion="Remove the sheet or rename it to a recognized name.",
                 )

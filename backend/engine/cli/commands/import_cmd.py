@@ -740,6 +740,20 @@ def _normalize_error(value: str) -> str:
     return mapped
 
 
+def _would_partly_import(report: ImportReport) -> bool:
+    """A dry run that simulated the import to the end, which would apply something.
+
+    The import itself, with the same options, would then partially succeed:
+    the Engine's rule for a real run with errors (`determine_status`), with the
+    simulation standing in for the commit.
+    """
+    totals = report.plan.counts.totals
+    applied = sum(
+        totals.get(action, 0) for action in ("create", "update", "unchanged", "delete")
+    )
+    return report.is_dry_run and report.plan.state == "simulated" and applied > 0
+
+
 def _render_report(report: ImportReport) -> None:
     console.print()
 
@@ -840,6 +854,16 @@ def _render_report(report: ImportReport) -> None:
             f"skipped {totals.get('skip', 0)}, with "
             f"{report.error_count} error(s) and {report.warning_count} warning(s). "
             "See the Issues table above for details on each skipped item."
+        )
+    elif report.status == "validation_failed" and _would_partly_import(report):
+        # A dry run with errors is always validation_failed, but one that
+        # simulated the whole import says what that import would do.
+        print_warning(
+            f"Dry run: the import would partially succeed. It would have "
+            f"{outcome} and skipped {totals.get('skip', 0)}, with "
+            f"{report.error_count} error(s) and {report.warning_count} warning(s). "
+            "Nothing was written. See the Issues table above for what it would "
+            "leave out."
         )
     elif report.status == "validation_failed":
         print_error(f"Import aborted at validation: {report.error_count} error(s).")

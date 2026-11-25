@@ -22,7 +22,7 @@ mapping is dropped, the entity it belongs to stays valid.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, Literal
 
 from engine.services.imports.domain import (
     DPIT,
@@ -35,6 +35,8 @@ from engine.services.imports.domain import (
     DLinkHubSourceMapping,
     DLinkSourceMapping,
     DomainModel,
+    DPrejoin,
+    DPrejoinExtractionColumn,
     DReferenceTable,
     DRefSatAssignment,
     DSatellite,
@@ -78,6 +80,20 @@ class _Resolver:
 
         # Index from any identifier (system|schema, raw name, etc.) to canonical lookup.
         self._table_by_id: dict[str, DSourceTable] = {}
+        # The source system name of each table, by the table's identifier.
+        self._system_by_table: dict[str, str] = {}
+
+        # Prejoins the link sheets declare, one per pair of tables (the Engine
+        # keeps one join per pair): (source id, target id) -> (prejoin, where
+        # its join was first declared).
+        self._prejoins: dict[tuple[str, str], tuple[DPrejoin, IssueLocation]] = {}
+
+        # Where each resolved link starts in the file: name -> (sheet, row).
+        self._link_origin: dict[str, tuple[str, int]] = {}
+
+        # Effectivity satellites, by name and identifier -> name. They become
+        # their parent's flag, so a PIT can't track them.
+        self._effectivity_keys: dict[str, str] = {}
 
         # Map a satellite identifier (e.g. S0001) to its physical name, so PITs
         # can reference satellites by identifier.
@@ -157,13 +173,16 @@ class _Resolver:
         self._resolve_ref_hubs()
         self._resolve_links("standard_link", link_type="standard")
         self._resolve_links("non_historized_link", link_type="non_historized")
+        self._check_link_hubs()
         self._resolve_satellites("standard_satellite", "standard")
         self._resolve_satellites("non_historized_satellite", "non_historized")
         self._resolve_satellites("multiactive_satellite", "multi_active")
         self._resolve_satellites("ref_sat", "reference")
+        self._resolve_effectivity_satellites()
         self._resolve_reference_tables()
         self._resolve_pits()
 
+        self.model.prejoins = [prejoin for prejoin, _ in self._prejoins.values()]
         self._collect_source_columns_from_mappings()
 
     # ------------------------------------------------------------------ sources
@@ -218,6 +237,7 @@ class _Resolver:
             )
             system.tables[identifier] = table
             self._table_by_id[identifier] = table
+            self._system_by_table[identifier] = sys_name
             if phys_name and phys_name != identifier:
                 self._table_by_id.setdefault(phys_name, table)
 
@@ -258,17 +278,31 @@ class _Resolver:
                     self._ensure_source_column(
                         m.source_table_identifier, m.source_column_name
                     )
-        # Link mappings
+        # Link mappings. One fed by a prejoin names a column the prejoin brings
+        # into the stage, not a column of its source table: none is created.
         for link in self.model.links.values():
-            for col in link.columns:
-                for m in col.source_mappings:
+            for link_col in link.columns:
+                for col_mapping in link_col.source_mappings:
+                    if col_mapping.prejoin_target_table_identifier is None:
+                        self._ensure_source_column(
+                            col_mapping.source_table_identifier,
+                            col_mapping.source_column_name,
+                        )
+            for key_mapping in link.hub_source_mappings:
+                if key_mapping.prejoin_target_table_identifier is None:
                     self._ensure_source_column(
-                        m.source_table_identifier, m.source_column_name
+                        key_mapping.source_table_identifier,
+                        key_mapping.source_column_name,
                     )
-            for m in link.hub_source_mappings:
-                self._ensure_source_column(
-                    m.source_table_identifier, m.source_column_name
-                )
+        # Prejoins: the join columns on both tables, and what the target gives.
+        for source_id, target_id in self._prejoins:
+            prejoin, _ = self._prejoins[(source_id, target_id)]
+            for name in prejoin.source_join_columns:
+                self._ensure_source_column(source_id, name)
+            for name in prejoin.target_join_columns:
+                self._ensure_source_column(target_id, name)
+            for extraction in prejoin.extraction_columns:
+                self._ensure_source_column(target_id, extraction.source_column_name)
         # Satellites — also ensure the satellite source table is referenced
         for sat in self.model.satellites.values():
             for col in sat.columns:
@@ -451,13 +485,17 @@ class _Resolver:
                 if not has_hub_id or _empty(r.get("hub_identifier"))
             ]
 
+            checkpoint = self._prejoin_checkpoint()
             if not self._resolve_link_hub_refs(link, link_name, ref_rows, sheet_name):
                 # Without one of its hubs the link has a different grain: left
-                # out, not imported half-connected.
+                # out, not imported half-connected, and so are the prejoins only
+                # it declared.
+                self._prejoin_rollback(checkpoint)
                 self._forget_link(link_name)
                 self._skip("link", link_name, "missing_reference", link_id)
                 continue
             self._resolve_link_payload(link, link_name, payload_rows, sheet_name)
+            self._link_origin.setdefault(link_name, (sheet_name, sample.row_number))
 
             if is_new:
                 self.model.links[link_name] = link
@@ -534,14 +572,14 @@ class _Resolver:
                         c for c in hub.columns if c.column_type == "reference_key"
                     ]
 
-                for idx, r in enumerate(alias_rows):
-                    if idx >= len(bk_cols):
-                        continue
+                # Rows map the hub's keys in order: the first row its first key.
+                for idx, r in enumerate(alias_rows[: len(bk_cols)]):
                     src_table = r.get("source_table_identifier")
                     src_col = r.get("source_column_physical_name")
                     if not src_table or not src_col:
                         continue
-                    if self._find_table(src_table) is None:
+                    table = self._find_table(src_table)
+                    if table is None:
                         self._error(
                             Code.ENTITY_MISSING_SOURCE_TABLE,
                             f"Link '{link_name}' references unknown source table '{src_table}'.",
@@ -551,13 +589,40 @@ class _Resolver:
                             entity=EntityRef(type="link", name=link_name),
                         )
                         continue
+                    usable, prejoin_target, column = self._row_prejoin(
+                        sheet_name, r, link_name, table
+                    )
+                    if not usable or column is None:
+                        continue
                     link.hub_source_mappings.append(
                         DLinkHubSourceMapping(
                             link_hub_ref_index=ref_idx,
                             hub_column_name=bk_cols[idx].name,
                             source_table_identifier=src_table,
-                            source_column_name=src_col,
+                            source_column_name=column,
+                            prejoin_target_table_identifier=prejoin_target,
                         )
+                    )
+                surplus = alias_rows[len(bk_cols) :]
+                if surplus:
+                    keys = len(bk_cols)
+                    self._warning(
+                        Code.ENTITY_INVALID_CONFIGURATION,
+                        (
+                            f"Link '{link_name}' maps {len(alias_rows)} columns to "
+                            f"Hub '{hub.physical_name}', which has {keys} "
+                            f"{'key' if keys == 1 else 'keys'}: "
+                            f"{_rows_phrase(surplus)} "
+                            f"{'is' if len(surplus) == 1 else 'are'} not imported."
+                        ),
+                        location=self._loc(
+                            sheet_name, surplus[0].row_number, "hub_identifier"
+                        ),
+                        entity=EntityRef(type="link", name=link_name),
+                        suggestion=(
+                            "Give the connection one row per key of the Hub, in "
+                            "the order of its keys."
+                        ),
                     )
         return resolved
 
@@ -585,7 +650,8 @@ class _Resolver:
             src_table = r.get("source_table_identifier")
             src_col = r.get("source_column_physical_name")
             if src_table and src_col:
-                if self._find_table(src_table) is None:
+                table = self._find_table(src_table)
+                if table is None:
                     self._error(
                         Code.ENTITY_MISSING_SOURCE_TABLE,
                         f"Link '{link_name}' references unknown source table '{src_table}'.",
@@ -595,12 +661,214 @@ class _Resolver:
                         entity=EntityRef(type="link", name=link_name),
                     )
                     continue
+                usable, prejoin_target, column = self._row_prejoin(
+                    sheet_name, r, link_name, table
+                )
+                if not usable or column is None:
+                    continue
                 existing.source_mappings.append(
                     DLinkSourceMapping(
                         source_table_identifier=src_table,
-                        source_column_name=src_col,
+                        source_column_name=column,
+                        prejoin_target_table_identifier=prejoin_target,
                     )
                 )
+
+    def _check_link_hubs(self) -> None:
+        """Say which links connect fewer hubs than they need.
+
+        A standard link relates two or more business objects; one hub connected
+        twice (hierarchical, same-as) counts as two. A non-historized link needs
+        at least one, as the generation's own check (LNK_002) has it. A link the
+        file connects to fewer is imported as the file has it, so it can be
+        completed in the project, but it would generate without the foreign keys
+        it needs.
+        """
+        seen: set[int] = set()
+        for link in self.model.links.values():
+            if id(link) in seen:
+                continue
+            seen.add(id(link))
+            connections = len(link.hub_references)
+            if connections >= (1 if link.link_type == "non_historized" else 2):
+                continue
+            sheet_name, row_number = self._link_origin.get(
+                link.physical_name, (None, None)
+            )
+            self._warning(
+                Code.ENTITY_INVALID_CONFIGURATION,
+                (
+                    f"Non-historized link '{link.physical_name}' connects no hubs, "
+                    "so it has no foreign keys."
+                    if link.link_type == "non_historized"
+                    else f"Link '{link.physical_name}' connects "
+                    f"{'no hubs' if connections == 0 else 'only one hub'}; "
+                    "a link connects at least two."
+                ),
+                location=(
+                    self._loc(sheet_name, row_number, "hub_identifier")
+                    if sheet_name
+                    else None
+                ),
+                entity=EntityRef(type="link", name=link.physical_name),
+                suggestion=(
+                    "Name each hub the link connects in hub_identifier, one row "
+                    "per key of the hub."
+                ),
+            )
+
+    # --------------------------------------------------------------- prejoins
+    def _qualified(self, table: DSourceTable) -> str:
+        """``{system}|{table}``: how a prejoin names its tables, as JSON exports do."""
+        return f"{self._system_by_table[table.identifier]}|{table.physical_name}"
+
+    def _prejoin_checkpoint(self) -> dict[tuple[str, str], int]:
+        """The prejoins declared so far, with how many columns each extracts."""
+        return {
+            key: len(prejoin.extraction_columns)
+            for key, (prejoin, _) in self._prejoins.items()
+        }
+
+    def _prejoin_rollback(self, checkpoint: dict[tuple[str, str], int]) -> None:
+        """Forget what was declared since ``checkpoint``."""
+        for key in [key for key in self._prejoins if key not in checkpoint]:
+            del self._prejoins[key]
+        for key, extracted in checkpoint.items():
+            del self._prejoins[key][0].extraction_columns[extracted:]
+
+    def _row_prejoin(
+        self, sheet_name: str, row: IRRow, link_name: str, table: DSourceTable
+    ) -> tuple[bool, str | None, str | None]:
+        """Where a link row's column comes from: ``(usable, prejoin target, column)``.
+
+        Without ``prejoin_table_identifier``, from the row's source column.
+        With it, as datavault4dbt's ``prejoined_columns``: the row's source
+        column joins ``prejoin_table_column_name`` of the prejoined table, which
+        gives ``prejoin_extraction_column_name``, named in the stage
+        ``prejoin_target_column_alias`` when there is one. The mapping then
+        names that staged column, and the target table's identifier says it
+        comes from the prejoin.
+
+        Not usable when the prejoin is incomplete, names an unknown table, or
+        contradicts what an earlier row declared: the Engine keeps one join per
+        pair of tables and one staged name per column taken.
+        """
+        source_column = row.get("source_column_physical_name")
+        target_ref = row.get("prejoin_table_identifier")
+        if not target_ref:
+            return True, None, source_column
+        entity = EntityRef(type="link", name=link_name)
+        join_column = row.get("prejoin_table_column_name")
+        taken = row.get("prejoin_extraction_column_name")
+        missing = [
+            column
+            for column, value in (
+                ("prejoin_table_column_name", join_column),
+                ("prejoin_extraction_column_name", taken),
+            )
+            if not value
+        ]
+        if missing or not source_column or not join_column or not taken:
+            self._error(
+                Code.ENTITY_INVALID_CONFIGURATION,
+                (
+                    f"Link '{link_name}' prejoins '{target_ref}' without "
+                    f"{' or '.join(missing) or 'source_column_physical_name'}, "
+                    "so the column it maps can't be brought in."
+                ),
+                location=self._loc(
+                    sheet_name,
+                    row.row_number,
+                    missing[0] if missing else "source_column_physical_name",
+                ),
+                entity=entity,
+                suggestion=(
+                    "Fill in the join column of each table and the column to take "
+                    "from the prejoined one, or clear prejoin_table_identifier."
+                ),
+            )
+            return False, None, None
+        target = self._find_table(target_ref)
+        if target is None:
+            self._error(
+                Code.ENTITY_MISSING_SOURCE_TABLE,
+                f"Link '{link_name}' prejoins unknown source table '{target_ref}'.",
+                location=self._loc(
+                    sheet_name, row.row_number, "prejoin_table_identifier"
+                ),
+                entity=entity,
+                suggestion="Add the source table to the source_data sheet.",
+            )
+            return False, None, None
+
+        location = self._loc(sheet_name, row.row_number, "prejoin_table_column_name")
+        key = (table.identifier, target.identifier)
+        known = self._prejoins.get(key)
+        if known is None:
+            prejoin = DPrejoin(
+                source_table_identifier=self._qualified(table),
+                target_table_identifier=self._qualified(target),
+                source_join_columns=[source_column],
+                target_join_columns=[join_column],
+            )
+            self._prejoins[key] = (prejoin, location)
+        else:
+            prejoin, first = known
+            declared = (
+                [c.lower() for c in prejoin.source_join_columns],
+                [c.lower() for c in prejoin.target_join_columns],
+            )
+            if declared != ([source_column.lower()], [join_column.lower()]):
+                self._error(
+                    Code.ENTITY_INVALID_CONFIGURATION,
+                    (
+                        f"Link '{link_name}' joins {table.physical_name}."
+                        f"{source_column} to {target.physical_name}.{join_column}, "
+                        f"but row {first.row} of sheet '{first.sheet}' joins these "
+                        f"tables on {table.physical_name}."
+                        f"{prejoin.source_join_columns[0]} = {target.physical_name}."
+                        f"{prejoin.target_join_columns[0]}. Two tables are prejoined "
+                        "one way only."
+                    ),
+                    location=location,
+                    entity=entity,
+                    suggestion="Join the two tables on the same columns in every row.",
+                )
+                return False, None, None
+
+        alias = row.get("prejoin_target_column_alias") or None
+        extraction = next(
+            (
+                e
+                for e in prejoin.extraction_columns
+                if e.source_column_name.lower() == taken.lower()
+            ),
+            None,
+        )
+        if extraction is None:
+            prejoin.extraction_columns.append(
+                DPrejoinExtractionColumn(source_column_name=taken, alias=alias)
+            )
+        elif (extraction.alias or "").lower() != (alias or "").lower():
+            # The same join takes the same column: the same values, under the
+            # name the stage already gives them. Mapped to that column, named
+            # as the earlier row has it (the Engine stages a column once).
+            staged = extraction.alias or extraction.source_column_name
+            self._warning(
+                Code.ENTITY_INVALID_CONFIGURATION,
+                (
+                    f"Link '{link_name}' takes {target.physical_name}.{taken} as "
+                    f"'{alias or taken}', but an earlier row takes it as "
+                    f"'{staged}'; the link uses '{staged}', the same column."
+                ),
+                location=self._loc(
+                    sheet_name, row.row_number, "prejoin_target_column_alias"
+                ),
+                entity=entity,
+                suggestion="Give the column the same alias in every row.",
+            )
+            return True, target.identifier, staged
+        return True, target.identifier, alias or taken
 
     # ------------------------------------------------------------------ sats
     def _resolve_satellites(self, sheet_name: str, sat_type: str) -> None:
@@ -757,6 +1025,125 @@ class _Resolver:
                             )
                             seen_cols.add(ma_col)
 
+    # ---------------------------------------------------- effectivity satellites
+    def _resolve_effectivity_satellites(self) -> None:
+        """Each effectivity satellite sets its parent's effectivity flag.
+
+        The Engine generates a hub's or link's effectivity satellite from that
+        flag, named by the project's naming pattern, so the sheet's own name
+        and columns don't carry over: said once per parent. A file with the
+        sheet describes its links' effectivity in full: a link it doesn't list
+        gets none (a hub's flag comes from the standard_hub sheet as before).
+        """
+        sheet = self.doc.get_sheet("effectivity_satellite")
+        if sheet is None:
+            return
+
+        grouped: dict[str, list[IRRow]] = defaultdict(list)
+        for row in sheet.rows:
+            name = row.get("target_satellite_table_physical_name")
+            if name:
+                grouped[name].append(row)
+
+        # Parent (by identity) -> (parent, its effectivity satellites, first row)
+        by_parent: dict[int, tuple[DHub | DLink, list[str], IRRow]] = {}
+        for sat_name, rows in grouped.items():
+            first = rows[0]
+            sat_id = first.get("effectivity_satellite_identifier")
+            for key in (sat_name, sat_id):
+                if key:
+                    self._effectivity_keys[str(key)] = sat_name
+            entity = EntityRef(type="satellite", name=sat_name)
+            parent_id = first.get("parent_identifier")
+            differing = next(
+                (row for row in rows if row.get("parent_identifier") != parent_id),
+                None,
+            )
+            if differing is not None:
+                self._error(
+                    Code.ENTITY_INVALID_CONFIGURATION,
+                    (
+                        f"Effectivity satellite '{sat_name}' names parent "
+                        f"'{parent_id}' in row {first.row_number} but "
+                        f"'{differing.get('parent_identifier')}' in row "
+                        f"{differing.row_number}; it belongs to one hub or link."
+                    ),
+                    location=self._loc(
+                        "effectivity_satellite",
+                        differing.row_number,
+                        "parent_identifier",
+                    ),
+                    entity=entity,
+                    suggestion="Name the same parent in every row of the satellite.",
+                )
+                self._skip("satellite", sat_name, "invalid_configuration", sat_id)
+                continue
+
+            parent: DHub | DLink | None = self.model.hubs.get(
+                parent_id
+            ) or self.model.links.get(parent_id)
+            if parent is None:
+                location = self._loc(
+                    "effectivity_satellite", first.row_number, "parent_identifier"
+                )
+                skipped_parent = self._skipped_name("link", parent_id)
+                if skipped_parent is not None:
+                    self._depends_on_skipped(
+                        "satellite",
+                        sat_name,
+                        f"its parent link '{skipped_parent}'",
+                        location=location,
+                    )
+                    self._skip("satellite", sat_name, "depends_on_skipped", sat_id)
+                    continue
+                self._error(
+                    Code.ENTITY_MISSING_PARENT,
+                    (
+                        f"Effectivity satellite '{sat_name}' parent '{parent_id}' "
+                        "was not defined."
+                    ),
+                    location=location,
+                    entity=entity,
+                    suggestion=(
+                        f"Add a hub or link with identifier or physical name "
+                        f"'{parent_id}', or name an existing one."
+                    ),
+                )
+                self._skip("satellite", sat_name, "missing_parent", sat_id)
+                continue
+            by_parent.setdefault(id(parent), (parent, [], first))[1].append(sat_name)
+
+        for link in self.model.links.values():
+            link.create_effectivity_satellite = False
+        for parent, names, first in by_parent.values():
+            parent.create_effectivity_satellite = True
+            kind: Literal["hub", "link"] = "hub" if isinstance(parent, DHub) else "link"
+            listed = " and ".join(
+                [", ".join(f"'{n}'" for n in names[:-1]), f"'{names[-1]}'"]
+                if len(names) > 1
+                else [f"'{names[0]}'"]
+            )
+            self._warning(
+                Code.ENTITY_IMPORTED_DIFFERENTLY,
+                (
+                    f"Effectivity satellite{'s' if len(names) > 1 else ''} {listed} "
+                    f"{'are' if len(names) > 1 else 'is'} imported as {kind} "
+                    f"'{parent.physical_name}''s effectivity satellite. The Engine "
+                    "names it by the project's naming pattern; the sheet's name "
+                    "and columns are not imported."
+                ),
+                location=self._loc(
+                    "effectivity_satellite",
+                    first.row_number,
+                    "target_satellite_table_physical_name",
+                ),
+                entity=EntityRef(type=kind, name=parent.physical_name),
+                suggestion=(
+                    "Set the effectivity satellite's options on the "
+                    f"{kind} in the project."
+                ),
+            )
+
     # -------------------------------------------------------------- ref tables
     def _resolve_reference_tables(self) -> None:
         sheet = self.doc.get_sheet("ref_table")
@@ -830,73 +1217,181 @@ class _Resolver:
         if sheet is None:
             return
 
+        # A PIT can span several rows of the sheet: read them as one.
+        rows_by_pit: dict[str, list[IRRow]] = defaultdict(list)
         for row in sheet.rows:
             name = row.get("pit_physical_table_name")
-            entity_id = row.get("tracked_entity")
-            if not name or not entity_id:
-                continue
+            if name and row.get("tracked_entity"):
+                rows_by_pit[name].append(row)
 
-            hub = self.model.hubs.get(entity_id)
-            link = self.model.links.get(entity_id) if not hub else None
+        for name, rows in rows_by_pit.items():
+            self._resolve_pit(name, rows)
 
-            if not hub and not link:
-                location = self._loc("pit", row.row_number, "tracked_entity")
-                skipped_link = self._skipped_name("link", entity_id)
-                if skipped_link is not None:
-                    self._depends_on_skipped(
-                        "pit",
-                        name,
-                        f"the link '{skipped_link}' it tracks",
-                        location=location,
-                    )
-                    self._skip("pit", name, "depends_on_skipped")
-                    continue
-                self._error(
-                    Code.ENTITY_MISSING_REFERENCE,
-                    f"PIT '{name}' tracks unknown entity '{entity_id}'.",
-                    location=location,
-                    entity=EntityRef(type="pit", name=name),
-                )
-                self._skip("pit", name, "missing_reference")
-                continue
-
-            sat_keys = _split_list(row.get("satellite_identifiers"))
-            skipped_sat = next(
+    def _resolve_pit(self, name: str, rows: list[IRRow]) -> None:
+        """One PIT from its rows: one entity tracked, the satellites of all rows."""
+        entity = EntityRef(type="pit", name=name)
+        entity_id = rows[0].get("tracked_entity")
+        differing = next(
+            (row for row in rows if row.get("tracked_entity") != entity_id), None
+        )
+        if differing is not None:
+            self._error(
+                Code.ENTITY_INVALID_CONFIGURATION,
                 (
-                    skipped
-                    for key in sat_keys
-                    if (skipped := self._skipped_name("satellite", key)) is not None
+                    f"PIT '{name}' tracks '{entity_id}' in row "
+                    f"{rows[0].row_number} but '{differing.get('tracked_entity')}' "
+                    f"in row {differing.row_number}; a PIT tracks one hub or link."
                 ),
-                None,
+                location=self._loc("pit", differing.row_number, "tracked_entity"),
+                entity=entity,
+                suggestion=(
+                    "Track the same hub or link in every row of the PIT, or give "
+                    "each PIT a name of its own."
+                ),
             )
-            if skipped_sat is not None:
+            self._skip("pit", name, "invalid_configuration")
+            return
+
+        hub = self.model.hubs.get(entity_id)
+        tracked: DHub | DLink | None = hub or self.model.links.get(entity_id)
+        if tracked is None:
+            location = self._loc("pit", rows[0].row_number, "tracked_entity")
+            skipped_link = self._skipped_name("link", entity_id)
+            if skipped_link is not None:
                 self._depends_on_skipped(
                     "pit",
                     name,
-                    f"its satellite '{skipped_sat}'",
-                    location=self._loc("pit", row.row_number, "satellite_identifiers"),
+                    f"the link '{skipped_link}' it tracks",
+                    location=location,
                 )
                 self._skip("pit", name, "depends_on_skipped")
-                continue
-
-            sats = [self._sat_id_to_name.get(s, s) for s in sat_keys]
-            self.model.pits[name] = DPIT(
-                physical_name=name,
-                tracked_entity_name=(hub or link).physical_name,
-                tracked_entity_type="hub" if hub else "link",
-                satellite_names=sats,
-                snapshot_control_name=row.get("snapshot_model_name"),
-                snapshot_logic_column=row.get("snapshot_trigger_column"),
-                dimension_key_column_name=row.get("dimension_key_name"),
-                pit_type=row.get("pit_type"),
-                custom_record_source=row.get("custom_record_source"),
-                group_name=row.get("group_name"),
+                return
+            spread = f" (in {len(rows)} rows)" if len(rows) > 1 else ""
+            self._error(
+                Code.ENTITY_MISSING_REFERENCE,
+                f"PIT '{name}' tracks unknown entity '{entity_id}'{spread}.",
+                location=location,
+                entity=entity,
+                suggestion=(
+                    "Name the hub or link by its identifier or physical name, as "
+                    "the standard_hub or standard_link sheet defines it."
+                ),
             )
-            if row.get("group_name"):
-                self.model.groups.add(row.get("group_name"))
+            self._skip("pit", name, "missing_reference")
+            return
+
+        # The satellites of every row, each once, in the order they first appear.
+        sat_keys: list[str] = []
+        for row in rows:
+            for key in _split_list(row.get("satellite_identifiers")):
+                if key not in sat_keys:
+                    sat_keys.append(key)
+        effectivity = [
+            key
+            for key in sat_keys
+            if key in self._effectivity_keys and key not in self._sat_id_to_name
+        ]
+        if effectivity:
+            sat_keys = [key for key in sat_keys if key not in effectivity]
+            names = sorted({self._effectivity_keys[key] for key in effectivity})
+            self._warning(
+                Code.ENTITY_IMPORTED_DIFFERENTLY,
+                (
+                    f"PIT '{name}' lists effectivity satellite"
+                    f"{'s' if len(names) > 1 else ''} "
+                    f"{', '.join(repr(n) for n in names)}, which "
+                    f"{'are' if len(names) > 1 else 'is'} imported as "
+                    "their parent's effectivity satellite: the PIT tracks "
+                    f"{'them' if len(names) > 1 else 'it'} no more."
+                ),
+                location=self._loc("pit", rows[0].row_number, "satellite_identifiers"),
+                entity=entity,
+                suggestion="Track the PIT's other satellites, or none of these.",
+            )
+        skipped_sat = next(
+            (
+                skipped
+                for key in sat_keys
+                if (skipped := self._skipped_name("satellite", key)) is not None
+            ),
+            None,
+        )
+        if skipped_sat is not None:
+            self._depends_on_skipped(
+                "pit",
+                name,
+                f"its satellite '{skipped_sat}'",
+                location=self._loc("pit", rows[0].row_number, "satellite_identifiers"),
+            )
+            self._skip("pit", name, "depends_on_skipped")
+            return
+
+        settings = {
+            column: self._pit_setting(name, rows, column)
+            for column in (
+                "snapshot_model_name",
+                "snapshot_trigger_column",
+                "dimension_key_name",
+                "pit_type",
+                "custom_record_source",
+                "group_name",
+            )
+        }
+        self.model.pits[name] = DPIT(
+            physical_name=name,
+            tracked_entity_name=tracked.physical_name,
+            tracked_entity_type="hub" if hub else "link",
+            satellite_names=[self._sat_id_to_name.get(s, s) for s in sat_keys],
+            snapshot_control_name=settings["snapshot_model_name"],
+            snapshot_logic_column=settings["snapshot_trigger_column"],
+            dimension_key_column_name=settings["dimension_key_name"],
+            pit_type=settings["pit_type"],
+            custom_record_source=settings["custom_record_source"],
+            group_name=settings["group_name"],
+        )
+        if settings["group_name"]:
+            self.model.groups.add(settings["group_name"])
+
+    def _pit_setting(self, name: str, rows: list[IRRow], column: str) -> str | None:
+        """A PIT setting from its rows: the first value given, said when rows differ."""
+        values = [(row, str(row.get(column))) for row in rows if row.get(column)]
+        if not values:
+            return None
+        first = values[0][1]
+        other = next(((row, v) for row, v in values if v != first), None)
+        if other is not None:
+            self._warning(
+                Code.ENTITY_INVALID_CONFIGURATION,
+                (
+                    f"PIT '{name}' has {column} '{first}' in row "
+                    f"{values[0][0].row_number} but '{other[1]}' in row "
+                    f"{other[0].row_number}; '{first}' is used."
+                ),
+                location=self._loc("pit", other[0].row_number, column),
+                entity=EntityRef(type="pit", name=name),
+                suggestion=f"Give {column} the same value in every row of the PIT.",
+            )
+        return first
 
 
 # ----------------------------------------------------------------- utilities
+
+
+def _rows_phrase(rows: list[IRRow]) -> str:
+    """Row numbers, runs as ranges: "row 7", "rows 4-13", "rows 4-6, 9 and 11"."""
+    numbers = sorted({row.row_number for row in rows})
+    spans: list[str] = []
+    start = previous = numbers[0]
+    for number in [*numbers[1:], None]:
+        if number is not None and number == previous + 1:
+            previous = number
+            continue
+        spans.append(str(start) if start == previous else f"{start}\u2013{previous}")
+        if number is not None:
+            start = previous = number
+    if len(spans) == 1:
+        return f"{'row' if len(numbers) == 1 else 'rows'} {spans[0]}"
+    return f"rows {', '.join(spans[:-1])} and {spans[-1]}"
 
 
 def _empty(val: Any) -> bool:
