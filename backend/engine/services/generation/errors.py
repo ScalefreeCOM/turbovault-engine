@@ -157,6 +157,7 @@ class Code:
     SQLMESH_PREJOIN_DEPENDENT_SKIPPED = "render.sqlmesh.prejoin_dependent_skipped"
     SQLMESH_UNSUPPORTED_PRESTAGE = "render.sqlmesh.unsupported.prestage"
     SQLMESH_PRESTAGE_DEPENDENT_SKIPPED = "render.sqlmesh.prestage_dependent_skipped"
+    SQLMESH_SETTINGS_IGNORED = "render.sqlmesh.settings_ignored"
 
     # Internal
     INTERNAL_BUG = "internal.bug"

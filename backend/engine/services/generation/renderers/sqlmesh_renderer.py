@@ -49,6 +49,7 @@ from engine.services.export.models import (
     SatelliteDefinition,
     StageDefinition,
 )
+from engine.services.generation import frameworks
 from engine.services.generation.errors import Code, make_issue
 from engine.services.generation.renderers.sqlmesh_prejoins import (
     PrejoinSkips,
@@ -207,6 +208,9 @@ def render_sqlmesh(
         if artifact:
             artifacts.append(artifact)
             rendered_hub_names.add(hub.hub_name)
+            _warn_settings_ignored(
+                issues, "hub", hub.hub_name, hub.group, frameworks.hub_settings(hub)
+            )
 
     for link in export.links:
         prestage_stage = prestage_skips.stage_of("link", link.link_name)
@@ -228,6 +232,13 @@ def render_sqlmesh(
         if artifact:
             artifacts.append(artifact)
             rendered_link_names.add(link.link_name)
+            _warn_settings_ignored(
+                issues,
+                "link",
+                link.link_name,
+                link.group,
+                frameworks.link_settings(link),
+            )
 
     for sat in export.satellites:
         prestage_stage = prestage_skips.stage_of("satellite", sat.satellite_name)
@@ -250,12 +261,20 @@ def render_sqlmesh(
         if artifact:
             artifacts.append(artifact)
             rendered_sat_names.add(sat.satellite_name)
-            if sat.satellite_type == "standard" and sat.gets_v1_view(
+            v1_view = sat.satellite_type == "standard" and sat.gets_v1_view(
                 options.generate_satellite_v1_views
-            ):
+            )
+            if v1_view:
                 artifacts.append(
                     _render_satellite_v1(sat, runtime_config, template_resolver)
                 )
+            _warn_settings_ignored(
+                issues,
+                "satellite",
+                sat.satellite_name,
+                sat.group,
+                frameworks.satellite_settings(sat, v1_view=v1_view),
+            )
 
     # --- Stage models (filtered by what was actually rendered above) ---
     hub_key_mappings = _hub_key_mappings_by_stage(export.hubs, rendered_hub_names)
@@ -274,6 +293,9 @@ def render_sqlmesh(
                 hub_key_mappings=hub_key_mappings.get(stage.stage_name, []),
                 prejoin_gaps=prejoin_skips.for_stage(stage.stage_name),
             )
+        )
+        _warn_settings_ignored(
+            issues, "stage", stage.stage_name, None, frameworks.stage_settings(stage)
         )
 
     # --- Unsupported top-level entities ---
@@ -1215,6 +1237,36 @@ def _artifact_once(kind: str, path: str, content: str) -> GeneratedArtifact:
         size_bytes=len(content.encode("utf-8")),
         content=content,
         overwrite=False,
+    )
+
+
+def _warn_settings_ignored(
+    issues: list[Issue],
+    entity_type: str,
+    name: str,
+    group: str | None,
+    settings: list[str],
+) -> None:
+    """Name the dbt-only settings a rendered model sets (see ``frameworks``):
+    the SQLMesh model is rendered without them."""
+    if not settings:
+        return
+    issues.append(
+        make_issue(
+            severity="warning",
+            code=Code.SQLMESH_SETTINGS_IGNORED,
+            stage="render",
+            message=(
+                f"{entity_type.capitalize()} '{name}' sets what the SQLMesh output "
+                "doesn't apply: "
+                f"{', '.join(settings)}."
+            ),
+            entity=EntityRef(type=entity_type, name=name, group=group),
+            suggestion=(
+                "These are datavault4dbt settings: only the dbt output applies "
+                "them. The SQLMesh model is generated without them."
+            ),
+        )
     )
 
 
