@@ -5,44 +5,47 @@ generation, import/export and issue codes that Studio may need to reflect in its
 request that changes something Studio-relevant updates this file.
 
 **Status markers:** **Released** (in an Engine release) · **Merged** (on `main`, not yet released) ·
-**In review** (open pull request) · **In progress** (on the dbt import branch `feat/dbt-project-import`,
-which becomes one pull request) · **Planned** (decided, not implemented; field names may still change; the
-section is completed when the Engine change lands).
+**In review** (open pull request) · **Planned** (decided, not implemented; field names may still change; the
+section is completed when the Engine change lands). Items 1–28 ship in 0.25.0 (release pull request #236).
 
 | # | Change | Status | Studio work |
 |---|--------|--------|-------------|
-| 1 | [Pre-stages](#1-pre-stages) | Merged (Engine PR #232, unreleased); reworked in PR #238 (in review) | Create and edit pre-stages: table type, columns; show the "generate into your dbt project" warning |
-| 2 | [Snapshot control model names](#2-snapshot-control-model-names) | Merged (Engine PR #232, unreleased) | Template editor: new template variables |
-| 3 | [Outdated stage template warning](#3-outdated-stage-template-warning) | Merged (Engine PR #232, unreleased) | Show the warning; keep Studio-stored stage templates current |
-| 4 | [dbt project import](#4-dbt-project-import) | In review (PR #238) | Upload artifacts, pass the project's settings, options, review the report |
-| 5 | [Model names, paths and configs](#5-model-names-paths-and-configs) | In review (PR #238) | Edit a generated model's name, folder, schema, materialization, tags, config; stage/pre-stage naming patterns |
-| 6 | [Hash diff name and alias](#6-hash-diff-name-and-alias) | In review (PR #238) | Two Satellite fields |
-| 7 | [Stage options and missing columns](#7-stage-options-and-missing-columns) | In review (PR #238) | Project defaults, source system and table overrides; flag a column as missing |
-| 8 | [Derived columns that shadow a source column](#8-derived-columns-that-shadow-a-source-column) | In review (PR #238) | Allow a derived column with a source column's name |
-| 9 | [Satellite v1 options](#9-satellite-v1-options) | In review (PR #238) | Satellite fields for its v1 view |
-| 10 | [Hub, Link, PIT and snapshot control options; delivery method](#10-hub-link-pit-and-snapshot-control-options-delivery-method) | In review (PR #238) | Fields on Hubs, Links, mappings, Satellites, source systems/tables, PITs and snapshot controls; two project settings |
+| 1 | [Pre-stages](#1-pre-stages) | Merged (Engine PR #232, reworked in PR #238) | Show pre-stages (table type, columns) and map onto them; show the "generate into your dbt project" warning |
+| 2 | [Snapshot control model names](#2-snapshot-control-model-names) | Merged (Engine PR #232) | Template editor: new template variables |
+| 3 | [Outdated stage template warning](#3-outdated-stage-template-warning) | Merged (Engine PR #232) | Show the warning; keep Studio-stored stage templates current |
+| 4 | [dbt project import](#4-dbt-project-import) | Merged (PR #238) | Upload artifacts, pass the project's settings, options, review the report |
+| 5 | [Model names, paths and configs](#5-model-names-paths-and-configs) | Merged (PR #238) | Edit a generated model's name, folder, schema, materialization, tags, config; stage/pre-stage naming patterns |
+| 6 | [Hash diff name and alias](#6-hash-diff-name-and-alias) | Merged (PR #238) | Two Satellite fields |
+| 7 | [Stage options and missing columns](#7-stage-options-and-missing-columns) | Merged (PR #238) | Project defaults, source system and table overrides; flag a column as missing |
+| 8 | [Derived columns that shadow a source column](#8-derived-columns-that-shadow-a-source-column) | Merged (PR #238) | Allow a derived column with a source column's name |
+| 9 | [Satellite v1 options](#9-satellite-v1-options) | Merged (PR #238) | Satellite fields for its v1 view |
+| 10 | [Hub, Link, PIT and snapshot control options; delivery method](#10-hub-link-pit-and-snapshot-control-options-delivery-method) | Merged (PR #238) | Fields on Hubs, Links, mappings, Satellites, source systems/tables, PITs and snapshot controls; two project settings |
 | 11 | [Custom models](#11-custom-models) | Postponed | List, view and edit custom models |
-| 12 | [Layer folders renumbered](#12-layer-folders-renumbered) | In review (PR #238) | Use the new folder names wherever Studio shows or builds model paths |
-| 13 | [JSON export and import of the new settings; snapshot controls](#13-json-export-and-import-of-the-new-settings-snapshot-controls) | In review (PR #238) | Show the new `snapshot_control` plan entities; keep `generation_config` when Studio builds or edits exports |
-| 14 | [Links select their dependent child keys](#14-links-select-their-dependent-child-keys) | In review (PR #238) | Template editor: new variable `dependent_child_keys`; tell users their links gain columns |
-| 15 | [Snapshot control logic as datavault4dbt reads it](#15-snapshot-control-logic-as-datavault4dbt-reads-it) | In review (PR #238) | Offer the components datavault4dbt computes; show `SNAP_002`; template editor variables |
-| 16 | [An imported dbt_project.yml comes back](#16-an-imported-dbt_projectyml-comes-back) | In review (PR #238) | Store two new project settings and pass them to generation; reconcile with the manual dbt_project.yml |
-| 17 | [Default tags setting](#17-default-tags-setting) | In review (PR #238) | A project switch; the tag field of a model's settings now adds tags |
-| 18 | [Folder structure; model folders setting; layers without schema](#18-folder-structure-model-folders-setting-layers-without-schema) | In review (PR #238) | Folder pattern settings with placeholders; the model folders switch; "no custom schema" per layer |
-| 19 | [Project settings a dbt project suggests; packages](#19-project-settings-a-dbt-project-suggests-packages) | In review (PR #238) | Show the suggestions after a dry run, apply the accepted ones to the project's settings; store the packages |
-| 20 | [Round trip: what a dbt import reads back; generation fixes](#20-round-trip-what-a-dbt-import-reads-back-generation-fixes) | In review (PR #238) | None required; generated output changes in two places (stage hash key order, models without settings) |
-| 21 | [Generating into an existing dbt project](#21-generating-into-an-existing-dbt-project) | In review (PR #238) | Nothing for zip downloads; new generation options and issue codes; the record file in generated output |
-| 22 | [Output attributes of #235, consolidated](#22-output-attributes-of-235-consolidated) | In review (PR #238) | Code written against #235 (on `main`): use `ModelOutput` rows instead of the `generation_config` fields; `--standard-folders` instead of `--standard-paths`; the new template helpers |
-| 23 | [Projects in the admin's dropdowns](#23-projects-in-the-admins-dropdowns) | In review (PR #238) | None (Django admin only); Studio's own pickers should do the same |
+| 12 | [Layer folders renumbered](#12-layer-folders-renumbered) | Merged (PR #238) | Use the new folder names wherever Studio shows or builds model paths |
+| 13 | [JSON export and import of the new settings; snapshot controls](#13-json-export-and-import-of-the-new-settings-snapshot-controls) | Merged (PR #238) | Show the new `snapshot_control` plan entities; keep `generation_config` when Studio builds or edits exports |
+| 14 | [Links select their dependent child keys](#14-links-select-their-dependent-child-keys) | Merged (PR #238) | Template editor: new variable `dependent_child_keys`; tell users their links gain columns |
+| 15 | [Snapshot control logic as datavault4dbt reads it](#15-snapshot-control-logic-as-datavault4dbt-reads-it) | Merged (PR #238) | Offer the components datavault4dbt computes; show `SNAP_002`; template editor variables |
+| 16 | [An imported dbt_project.yml comes back](#16-an-imported-dbt_projectyml-comes-back) | Merged (PR #238) | Store two new project settings and pass them to generation; reconcile with the manual dbt_project.yml |
+| 17 | [Default tags setting](#17-default-tags-setting) | Merged (PR #238) | A project switch; the tag field of a model's settings now adds tags |
+| 18 | [Folder structure; model folders setting; layers without schema](#18-folder-structure-model-folders-setting-layers-without-schema) | Merged (PR #238) | Folder pattern settings with placeholders; the model folders switch; "no custom schema" per layer |
+| 19 | [Project settings a dbt project suggests; packages](#19-project-settings-a-dbt-project-suggests-packages) | Merged (PR #238) | Show the suggestions after a dry run, apply the accepted ones to the project's settings; store the packages |
+| 20 | [Round trip: what a dbt import reads back; generation fixes](#20-round-trip-what-a-dbt-import-reads-back-generation-fixes) | Merged (PR #238) | None required; generated output changes in two places (stage hash key order, models without settings) |
+| 21 | [Generating into an existing dbt project](#21-generating-into-an-existing-dbt-project) | Merged (PR #238) | Nothing for zip downloads; new generation options and issue codes; the record file in generated output |
+| 22 | [Output attributes of #235, consolidated](#22-output-attributes-of-235-consolidated) | Merged (PR #238) | Code written against #235 (on `main`): use `ModelOutput` rows instead of the `generation_config` fields; `--standard-folders` instead of `--standard-paths`; the new template helpers |
+| 23 | [Projects in the admin's dropdowns](#23-projects-in-the-admins-dropdowns) | Merged (PR #238) | None (Django admin only); Studio's own pickers should do the same |
+| 24 | [Progress details](#24-progress-details) | Merged (PR #240) | Optional: a run log and real progress bars from `ProgressEvent.detail` |
+| 25 | [Workbook prejoins and effectivity](#25-workbook-prejoins-and-effectivity) | Merged (PR #241) | Copy for `entity.imported_differently`; tell users that re-importing a workbook with link prejoins changes those links' hash keys |
+| 26 | [Links without hubs; tables prejoined more than one way](#26-links-without-hubs-tables-prejoined-more-than-one-way) | Merged (PR #242) | Allow non-historized Links without Hubs and standard Links with one; copy for `validate.link.no_hashkey_input` and `validate.link.too_few_hubs`; prejoins identified by their join |
+| 27 | [Previews of an entity's or a project's models and project files](#27-previews-of-an-entitys-or-a-projects-models-and-project-files) | In review | Preview models and `dbt_project.yml` with Studio's settings and templates |
+| 28 | [What only the dbt output applies](#28-what-only-the-dbt-output-applies) | In review | Mark dbt-only fields and settings from `frameworks`; show `render.sqlmesh.settings_ignored` |
 
-Background for items 4–23: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
+Background for items 4–23 and 27–28: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
 
 ---
 
 ## 1. Pre-stages
 
-**Status:** Merged with Engine PR #232 (unreleased), then reworked on the dbt import branch (in progress):
-pre-stages no longer store SQL. This section describes the reworked state; [Changes since PR #232](#changes-since-pr-232)
+**Status:** Merged with Engine PR #232, then reworked in PR #238 (merged): pre-stages no longer store SQL. This section describes the reworked state; [Changes since PR #232](#changes-since-pr-232)
 lists the differences. Engine docs: domain model §3.5, generation pipeline, validation rules, JSON import,
 admin guide.
 
@@ -161,14 +164,14 @@ has no `prestage` entry. The single-file outputs (JSON, DBML) still count pre-st
 
 ### Related
 
-- Item 5 (in progress): a pre-stage stores its model's name as a `ModelOutput` of kind `prestage` (name
+- Item 5: a pre-stage stores its model's name as a `ModelOutput` of kind `prestage` (name
   only), so imported pre-stages keep their original names.
 
 ---
 
 ## 2. Snapshot control model names
 
-**Status:** Merged, Engine PR #232 (fix), unreleased.
+**Status:** Merged, Engine PR #232 (fix).
 
 A snapshot control stored with a `_v0` / `_v1` suffix (e.g. `control_snap_v0`) got YAML describing
 `control_snap_v0_v0` / `control_snap_v0_v1`, matching no model, so its tests never ran. The model files were
@@ -184,7 +187,7 @@ named correctly.
 
 ## 3. Outdated stage template warning
 
-**Status:** Merged, Engine PR #232, unreleased.
+**Status:** Merged, Engine PR #232.
 
 Workspace copies of the templates (seeded by `workspace init`, stored as `ModelTemplate` rows) take
 precedence over the bundled files. A stage template copied before pre-stages existed reads every table as a
@@ -199,7 +202,7 @@ dbt source; for a pre-stage, dbt would fail to find that source.
 
 ## 4. dbt project import
 
-**Status:** In review (Engine PR #238), complete for the pull request (spec Phases 2–5). It covers:
+**Status:** Merged (Engine PR #238), spec Phases 2–5. It covers:
 
 - the `DbtSource` in the import pipeline, with artifact detection and its issues, and the CLI;
 - the mapping of stages, pre-stages (also from seeds, snapshots and other packages' models), Hubs, Links,
@@ -324,7 +327,7 @@ warehouse.
 
 ## 5. Model names, paths and configs
 
-**Status:** In review (Engine PR #238). Engine docs: domain model §10, generation pipeline ("Model
+**Status:** Merged (Engine PR #238). Engine docs: domain model §10, generation pipeline ("Model
 names, folders and settings"), validation rules, project schema (naming patterns).
 
 Every generated dbt model can keep its own name, folder, alias, schema, database, materialization, tags and
@@ -459,7 +462,7 @@ Helpers: `engine.models.model_output.model_name_error(name)`, `folder_error(fold
 
 ## 6. Hash diff name and alias
 
-**Status:** In review (Engine PR #238), migration `0024_satellite_and_stage_options`. Engine docs:
+**Status:** Merged (Engine PR #238), migration `0024_satellite_and_stage_options`. Engine docs:
 domain model §7.1.
 
 | Field | Type | Default | Notes |
@@ -479,7 +482,7 @@ domain model §7.1.
 
 ## 7. Stage options and missing columns
 
-**Status:** In review (Engine PR #238), migration `0024_satellite_and_stage_options`. Engine docs:
+**Status:** Merged (Engine PR #238), migration `0024_satellite_and_stage_options`. Engine docs:
 domain model §3.1–3.3, project schema.
 
 | Field | Type | Default | Notes |
@@ -502,7 +505,7 @@ domain model §3.1–3.3, project schema.
 
 ## 8. Derived columns that shadow a source column
 
-**Status:** In review (Engine PR #238). Breaking change to derived columns (unreleased).
+**Status:** Merged (Engine PR #238). Breaking change to derived columns.
 
 - A derived column may take the name of a source column of its table (case-insensitive): it **shadows** it.
   datavault4dbt's stage replaces the source column with the derived value. Property
@@ -520,7 +523,7 @@ domain model §3.1–3.3, project schema.
 
 ## 9. Satellite v1 options
 
-**Status:** In review (Engine PR #238), migration `0024_satellite_and_stage_options`. Engine docs:
+**Status:** Merged (Engine PR #238), migration `0024_satellite_and_stage_options`. Engine docs:
 domain model §7.1.
 
 | Field | Type | Default | Notes |
@@ -540,7 +543,7 @@ domain model §7.1.
 
 ## 10. Hub, Link, PIT and snapshot control options; delivery method
 
-**Status:** In review (Engine PR #238), migration `0025_hub_link_pit_snapshot_options`. Engine docs:
+**Status:** Merged (Engine PR #238), migration `0025_hub_link_pit_snapshot_options`. Engine docs:
 domain model §3.1–3.2 (delivery method), §4.1, §4.3, §5.1, §8.1, §8.3, §9.1; project schema.
 
 ### New fields
@@ -611,7 +614,7 @@ output attributes); show broken references.
 
 ## 12. Layer folders renumbered
 
-**Status:** In review (Engine PR #238). Breaking change.
+**Status:** Merged (Engine PR #238). Breaking change.
 
 Generated dbt projects number their layer folders in tens, leaving room for layers in between:
 
@@ -637,7 +640,7 @@ Generated dbt projects number their layer folders in tens, leaving room for laye
 
 ## 13. JSON export and import of the new settings; snapshot controls
 
-**Status:** In review (Engine PR #238). Engine docs: JSON import ("Options and settings", "Model
+**Status:** Merged (Engine PR #238). Engine docs: JSON import ("Options and settings", "Model
 settings", "Snapshot controls").
 
 A JSON export now restores everything items 5–10 added, and its snapshot controls. Exporting a project and
@@ -707,7 +710,7 @@ changes nothing.
 
 ## 14. Links select their dependent child keys
 
-**Status:** In review (Engine PR #238). Spec D23. Changes generated output.
+**Status:** Merged (Engine PR #238). Spec D23. Changes generated output.
 
 datavault4dbt has no dependent child key concept: a link lists such keys in `foreign_hashkeys` after the hub
 hash keys, as plain columns, and the link hash key hashes them. TurboVault hashed a link's dependent child keys
@@ -733,7 +736,7 @@ into the link hash key but didn't select them, so the link table lacked the colu
 
 ## 15. Snapshot control logic as datavault4dbt reads it
 
-**Status:** In review (Engine PR #238). Spec D24. Changes generated output; fixes snapshot controls that
+**Status:** Merged (Engine PR #238). Spec D24. Changes generated output; fixes snapshot controls that
 datavault4dbt partly ignored.
 
 datavault4dbt's `control_snap_v1` reads `log_logic` intervals: `daily`, `weekly`, `monthly`, `yearly` (computed
@@ -763,7 +766,7 @@ control without a daily rule produced an invalid model.
 
 ## 16. An imported dbt_project.yml comes back
 
-**Status:** In review (Engine PR #238). Spec D20, D25. The import reports the settings in
+**Status:** Merged (Engine PR #238). Spec D20, D25. The import reports the settings in
 `ImportReport.project_settings` (item 4); the CLI writes them into `config.yml` on request.
 
 A project imported from a dbt project keeps that project's `dbt_project.yml`, and generation writes it back, so
@@ -795,7 +798,7 @@ the generated file matches the original in content (comments and formatting asid
 
 ## 17. Default tags setting
 
-**Status:** In review (Engine PR #238). Spec D26.
+**Status:** Merged (Engine PR #238). Spec D26.
 
 - **New project setting `add_default_tags`** (runtime config, `config.yml` `configuration.add_default_tags`),
   default `true`: generated models carry TurboVault's default tags (`hub`, `raw_vault`, the group, ...). Off:
@@ -813,7 +816,7 @@ the generated file matches the original in content (comments and formatting asid
 
 ## 18. Folder structure; model folders setting; layers without schema
 
-**Status:** In review (Engine PR #238). Spec D27. The defaults generate exactly the files they did.
+**Status:** Merged (Engine PR #238). Spec D27. The defaults generate exactly the files they did.
 
 ### Folder patterns (new project setting)
 
@@ -864,7 +867,7 @@ the generated file matches the original in content (comments and formatting asid
 
 ## 19. Project settings a dbt project suggests; packages
 
-**Status:** In review (Engine PR #238). Spec D22, D28 (§8, §8.1). Replaces the first shape of
+**Status:** Merged (Engine PR #238). Spec D22, D28 (§8, §8.1). Replaces the first shape of
 `ProjectSettings` on this branch (`naming`, `dbt_project_name`, ... fields): never released.
 
 A dbt import infers the settings most of the project's models follow and copies the dbt project's own files. It
@@ -928,7 +931,7 @@ differs from the settings it was given.
 
 ## 20. Round trip: what a dbt import reads back; generation fixes
 
-**Status:** In review (Engine PR #238). Spec §12 (Phase 4c). A TurboVault project, generated, parsed by
+**Status:** Merged (Engine PR #238). Spec §12 (Phase 4c). A TurboVault project, generated, parsed by
 dbt and imported, generates the same files again.
 
 ### What a dbt import does differently now
@@ -979,7 +982,7 @@ dbt and imported, generates the same files again.
 
 ## 21. Generating into an existing dbt project
 
-**Status:** In review (Engine PR #238). Spec D17, §9.7.
+**Status:** Merged (Engine PR #238). Spec D17, §9.7.
 
 Generating into an empty folder writes a complete dbt project, as before; Studio's generation into a temporary
 folder for a ZIP download is unchanged. Generating into a folder that holds a dbt project whose
@@ -1028,7 +1031,7 @@ project's models (pre-stages).
 
 ## 22. Output attributes of #235, consolidated
 
-**Status:** In review (Engine PR #238). Spec D29. Relevant if Studio code was written against #235 (merged
+**Status:** Merged (Engine PR #238). Spec D29. Relevant if Studio code was written against #235 (merged
 to `main`, unreleased).
 
 #235 and this branch both implemented issue #442 (per-model output attributes). `main` has #235; this branch
@@ -1057,7 +1060,7 @@ keeps the design the dbt import builds on and takes over #235's format and safet
 
 ## 23. Projects in the admin's dropdowns
 
-**Status:** In review (Engine PR #238). Django admin only; no data model, generation or API change.
+**Status:** Merged (Engine PR #238). Django admin only; no data model, generation or API change.
 
 A workspace holds several projects, and their columns and entities often share names (two projects importing
 the same source). Before, the admin's dropdowns listed every project's items with identical labels, so a Hub
@@ -1079,3 +1082,138 @@ another); the admin now makes it hard to create one by accident.
 
 - Nothing required. Studio's own pickers (input columns, Hubs of a Link, ...) should likewise offer only the
   current project's items.
+
+---
+
+## 24. Progress details
+
+**Status:** Merged (Engine PR #240). No data model change.
+
+`ProgressEvent` (generation and import) has a new field `detail`: small JSON values that say what a stage did.
+
+- Every stage's `done` event carries a summary: generation build (entities by type), validate (errors,
+  warnings), plan (files planned, by entity type), render (files), write (files, bytes); import parse (what was
+  read), validate (errors, warnings), plan (planned actions), execute (entities applied).
+- Generation render and write send one `in_progress` event per file, the import's execute stage one per entity
+  applied: `current` (1-based), `total`, and the file's path or the entity's type, name and action ("Created hub
+  CUSTOMER_H").
+- A `BaseException` raised by the callback stops the run and propagates; during an import's execute it rolls
+  the transaction back. An `Exception` is still ignored.
+- Engine docs: import pipeline, generation pipeline (the `detail` keys of each stage).
+
+### Studio
+
+- Optional: a run log and progress bars with real counts. The `detail` keys are part of the contract.
+
+---
+
+## 25. Workbook prejoins and effectivity
+
+**Status:** Merged (Engine PR #241). **Breaking change** for re-imports (below).
+
+Excel and SQLite imports take what the link, effectivity satellite and PIT sheets say, and report what they
+can't use:
+
+- A link row's `prejoin_*` columns create the prejoin (one per pair of tables and join) and map the link to the
+  prejoined column. **Breaking:** re-importing such a file changes that link's hash key inputs.
+- The `effectivity_satellite` sheet sets each parent Hub's or Link's effectivity satellite flag. New warning
+  `entity.imported_differently`: the sheet's name and columns are not imported; a PIT no longer tracks it.
+- Source column names that differ only in case are one column. Link rows beyond a Hub's keys, Links connecting
+  fewer Hubs than they need, and PIT rows that disagree are reported (`entity.invalid_configuration`).
+- Issues name the file by the source's `display_name`.
+
+### Studio
+
+- Issue copy for `entity.imported_differently`.
+- Release note: re-importing a workbook whose link rows prejoin changes those Links' hash keys.
+
+---
+
+## 26. Links without hubs; tables prejoined more than one way
+
+**Status:** Merged (Engine PR #242).
+
+- A **non-historized Link may connect no Hub**: its hash key is hashed from its dependent child keys alone. A
+  standard Link with one Hub is allowed, with the warning `validate.link.too_few_hubs`. New error
+  `validate.link.no_hashkey_input` (`LNK_005`): a Link with no Hubs and no dependent child keys.
+- **Two tables can be prejoined more than one way** (a customer's billing and shipping country). A prejoin is
+  identified by its tables and join columns; the import names a pair's prejoins by their join
+  (`orders->customers (customer_id = id)`). Two prejoins of a table giving a stage column the same name are an
+  error.
+- **dbt project import:** an nh_link without `foreign_hashkeys` is imported with its hash key's columns as
+  dependent child keys; `prejoined_columns` entries with the same join are one prejoin; a PIT reading an
+  effectivity or record-tracking satellite is imported without it (warning); a second effectivity or
+  record-tracking satellite of one Hub or Link is reported (`entity.imported_differently`).
+
+### Studio
+
+- Allow non-historized Links without Hubs and standard Links with one Hub; copy for both codes.
+- Prejoin pickers: a table may have several prejoins to the same table; tell them apart by their join.
+
+---
+
+## 27. Previews of an entity's or a project's models and project files
+
+**Status:** In review. Module `engine.services.generation.preview`, exported from
+`engine.services.generation`.
+
+Rendered in memory by the stages of a real generation (build, plan, render): nothing is written and no
+generation run is recorded. All three take the `runtime_config` and `options` (`GenerationOptions`) a caller
+gives `generate()`, so the preview matches its generation: Studio passes its settings, `use_db_templates=False`
+and its `templates_override`. Without them, the project's `config.yml` and the database templates apply (the
+admin's "Generated dbt models" view).
+
+| Function | Returns |
+|----------|---------|
+| `generated_models(entity, *, runtime_config=None, options=None)` | `list[GeneratedModel]`: the dbt models of one entity (source table, Hub, Link, Satellite, PIT, reference table, snapshot control) in generation's order of kinds. |
+| `project_models(project, *, runtime_config=None, options=None)` | `list[EntityModels]`: every entity's models, rendering the project once. Entities in generation's order of layers (source tables, snapshot controls, Hubs, Links, Satellites, PITs, reference tables), each type by name. |
+| `project_files(project, *, runtime_config=None, options=None)` | `ProjectFiles(dbt_project_yml, packages_yml)`: the project files as a generation into an empty folder writes them, e.g. to start a hand-edited `dbt_project.yml` from. |
+
+- `GeneratedModel`: `kind` (a `ModelOutput` kind), `model_name`, `path` (the `.sql` file relative to the dbt
+  project; `None` when nothing is generated for it: a pre-stage, a v1 view switched off, an entity the plan
+  skips), `stored` (the stored `ModelOutput` fields that are set), `config_block` (the model's `config()` call).
+- `EntityModels`: `entity_type` (the entity's field on `ModelOutput`: `source_table`, `hub`, `link`,
+  `satellite`, `pit`, `reference_table`, `snapshot_control`), `entity_id`, `entity_name` (physical name; a
+  snapshot control's name), `models`.
+- The options' `entity_selection` doesn't apply: the preview selects. A source table or snapshot control renders
+  the whole project; `generated_models` for many entities is slower than one `project_models`.
+
+### Studio
+
+- Model outputs UI (item 5): the resolved name, path and `config()` next to the stored values, per entity and
+  for the whole project.
+- The manual `dbt_project.yml`: prefill it from `project_files()` instead of rendering the template with
+  Studio's own variables (it then includes the imported settings, the folders and the packages).
+
+---
+
+## 28. What only the dbt output applies
+
+**Status:** In review. Module `engine.services.generation.frameworks`.
+
+Most settings added for the dbt import are datavault4dbt parameters or dbt concepts the SQLMesh output has no
+counterpart for. The module lists them:
+
+- `DBT_ONLY_FIELDS`: `DbtOnlyField(model, field, value=None)` entries, e.g. `Satellite.disable_hwm`,
+  `HubSourceMapping.stage_hashkey_name`, and `HubColumn.column_type` = `additional_column` (a choice value).
+  `DBT_ONLY_BY_MODEL` maps a model to its whole fields; `is_dbt_only(model, field, value=None)` checks one.
+- `DBT_ONLY_SETTINGS`: the `EngineRuntimeConfig` fields only the dbt output applies (project files, vars,
+  sources, tests and profile; folders and materializations, default tags, stage options and delivery method, the
+  names of pre-stages and effectivity or record-tracking satellites).
+- Not listed: what both outputs apply (`Satellite.hashdiff_name`, `Satellite.create_v1_view`, `stage_naming`,
+  the layer schemas, ...), and entity types the SQLMesh output doesn't render at all (PITs, reference tables,
+  snapshot controls, reference Hubs, non-historized Links, Satellites other than standard ones, pre-stages):
+  those are warned about by the SQLMesh renderer as before (`render.sqlmesh.unsupported.*`). `ModelOutput` rows
+  are kept per framework.
+
+New warning **`render.sqlmesh.settings_ignored`**, once per model the SQLMesh output renders that sets any of
+them: "Hub 'hub_customer' sets what the SQLMesh output doesn't apply: high-water mark off, additional columns
+(c_region), sources loading another hash key (role-playing), effectivity satellite." Before, the SQLMesh output
+dropped them silently.
+
+### Studio
+
+- Mark these fields and settings as dbt settings in forms (a section of their own with a "dbt" mark), from the
+  lists rather than a copy; a contract test against them keeps Studio in step.
+- Issue copy for `render.sqlmesh.settings_ignored`.
+
