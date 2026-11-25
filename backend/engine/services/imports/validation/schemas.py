@@ -203,6 +203,27 @@ MULTIACTIVE_SATELLITE = SheetSchema(
     description="Multi-active satellites.",
 )
 
+EFFECTIVITY_SATELLITE = SheetSchema(
+    name="effectivity_satellite",
+    required_columns=(
+        "target_satellite_table_physical_name",
+        "parent_identifier",
+    ),
+    optional_columns=(
+        "effectivity_satellite_identifier",
+        "source_table_identifier",
+        "source_column_physical_name",
+        "target_column_physical_name",
+        "target_column_sort_order",
+        "parent_primary_key_physical_name",
+        "group_name",
+    ),
+    description=(
+        "Effectivity satellites: each becomes its parent hub's or link's "
+        "effectivity satellite flag."
+    ),
+)
+
 REF_SAT = SheetSchema(
     name="ref_sat",
     required_columns=(
@@ -273,6 +294,7 @@ SHEET_SCHEMAS: tuple[SheetSchema, ...] = (
     STANDARD_SATELLITE,
     NON_HISTORIZED_SATELLITE,
     MULTIACTIVE_SATELLITE,
+    EFFECTIVITY_SATELLITE,
     REF_SAT,
     REF_TABLE,
     PIT_SHEET,

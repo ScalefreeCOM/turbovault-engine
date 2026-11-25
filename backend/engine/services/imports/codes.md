@@ -47,6 +47,7 @@ left out is planned as a skip, so `replace_all` keeps the project's copy.
 | `dbt.prestage_maintained_in_dbt` | warning | A stage reads a model, seed, dbt snapshot or another package's model (the message says which): it becomes a pre-stage whose model stays in the dbt project, so the project must be generated into that dbt project. | — |
 | `dbt.setting_suggested` | info | The dbt project suggests a project setting that differs from the project's (one issue each): a value most of its models follow (naming patterns, layer schemas and materializations, the tables' default record source, load date and static part, stage options, the delivery method, default tags, folder patterns), with how many follow it, or a copy of its `dbt_project.yml` and package files. Also in the report's `project_settings.suggestions`, keyed by runtime config field. | Apply it (CLI: `--apply-settings`) so new entities follow the dbt project; importing again stores less on its models. |
 | `dbt.model_not_mapped` | info | A model without a Data Vault call TurboVault maps (marts, Business Vault, unrelated models), or a v1 view of a satellite that isn't imported. It stays in the dbt project. | — |
+| `entity.imported_differently` | *Warning.* An entity is imported as another kind than the source gives it: an effectivity satellite (sheet `effectivity_satellite`) as its parent hub's or link's effectivity satellite flag, whose name follows the project's naming pattern (the sheet's name and columns are not imported); a PIT then no longer tracks it. | Set the effectivity satellite's options on the hub or link. |
 | `entity.depends_on_skipped` | warning | An entity needs a stage, Hub or Link that is left out (its error is reported there). | Fix the first error. |
 
 ## Schema validation
@@ -75,7 +76,7 @@ left out is planned as a skip, so `replace_all` keeps the project's copy.
 | `entity.missing_reference` | A link, reference table or PIT references a hub/link that is not defined. | Add the hub or remove the reference. |
 | `entity.missing_source_column` | A mapping references a source column that does not exist. | Add the column to the source table or fix the mapping. |
 | `entity.missing_source_table` | A mapping references a source table identifier that does not exist. | Add the source table or fix the identifier. |
-| `entity.invalid_configuration` | An entity is internally inconsistent (e.g. satellite with both hub & link parent), or one of its stored model settings (`model_outputs`) can't be stored: an invalid model name or folder, or a name another model has. That setting is left out; the entity is imported. | Correct the entity definition or the model setting. |
+| `entity.invalid_configuration` | An entity is internally inconsistent (e.g. satellite with both hub & link parent), or one of its stored model settings (`model_outputs`) can't be stored: an invalid model name or folder, or a name another model has. That setting is left out; the entity is imported. From a workbook or SQLite file also: a link row's incomplete prejoin, or one that joins two tables on other columns than an earlier row (*error*, that mapping is skipped), a prejoined column an earlier row already takes under another name (*warning*, the link uses that name), link rows beyond a hub's keys (*warning*, those rows are not imported), a link connecting fewer hubs than it needs (*warning*, imported as is), the rows of one PIT tracking different entities (*error*, the PIT is skipped) or giving a setting different values (*warning*, the first is used). | Correct the entity definition or the model setting. |
 | `entity.depends_on_skipped` | *Warning.* An entity is left out because an entity it depends on can't be imported (a satellite of a skipped link, a PIT tracking a skipped satellite). | Fix the problem reported for that entity. |
 
 An entity that can't be imported is left out rather than imported
@@ -88,7 +89,7 @@ half-resolved, and appears in the plan as a skip with one of these
 | `missing_parent` | A satellite's parent hub/link is not defined. |
 | `missing_source_table` | A satellite's or prejoin's source table is not defined. |
 | `depends_on_skipped` | Something the entity depends on was skipped. |
-| `invalid_configuration` | The entity is inconsistent, e.g. a prejoin whose source and target join columns don't line up. |
+| `invalid_configuration` | The entity is inconsistent, e.g. a prejoin whose source and target join columns don't line up, or a PIT whose rows track different hubs or links. |
 | `execute_failed` | Writing the entity failed (see the `execute.*` issue). Only that entity was rolled back. |
 | `skip_snapshots` | A PIT, while the import runs with `skip_snapshots`: it needs a snapshot control. An existing PIT is kept. |
 | `update_only` | The entity is new and the strategy is `update_only`. |

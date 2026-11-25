@@ -169,7 +169,9 @@ def _snapshot(project: Project) -> tuple[set, set]:
             m.link_hub_reference.hub.hub_physical_name,
             m.link_hub_reference.hub_hashkey_alias_in_link or "",
             m.standard_hub_column.column_name,
-            m.staging_column.source_column.source_column_physical_name,
+            # A source column, or one a prejoin brings in (the TPCH model's
+            # nation_test_link takes its Region key from a prejoin).
+            m.staging_column.physical_name,
         )
         for m in LinkHubSourceMapping.objects.filter(
             link_hub_reference__link__project=project
@@ -180,7 +182,7 @@ def _snapshot(project: Project) -> tuple[set, set]:
             m.link_column.link.link_physical_name,
             m.link_column.column_name,
             m.link_column.column_type,
-            m.staging_column.source_column.source_column_physical_name,
+            m.staging_column.physical_name,
         )
         for m in LinkSourceMapping.objects.filter(link_column__link__project=project)
     }
