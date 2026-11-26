@@ -352,6 +352,12 @@ class SettingSuggestion(BaseModel):
     # its dbt_project.yml)
     matching: int | None = None
     total: int | None = None
+    # The project's value it was compared with (its runtime config's, or the
+    # default that applies when the project sets none)
+    current: Any = None
+    # The source file a copied value comes from (``dbt_project.yml``, ``package
+    # files``); None for a value inferred from the models
+    source: str | None = None
 
 
 class ProjectSettings(BaseModel):
@@ -367,11 +373,19 @@ class ProjectSettings(BaseModel):
     ``model_materializations.pit``). Only values that differ from the
     project's are suggested. The import doesn't apply them: the caller does
     (the CLI asks and writes config.yml, Studio offers them).
+
+    ``found`` holds every setting the source tells, the ones the project
+    already follows too, so a caller can show the whole picture: what each
+    convention is, how many models follow it, and whether the project's
+    setting already matches (the key isn't in ``suggestions``).
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    # What differs from the project's settings: what applying would change
     suggestions: dict[str, SettingSuggestion] = Field(default_factory=dict)
+    # Everything the source tells, whether it differs or not
+    found: dict[str, SettingSuggestion] = Field(default_factory=dict)
 
     def is_empty(self) -> bool:
         return not self.suggestions
