@@ -38,7 +38,7 @@ section is completed when the Engine change lands). Items 1–29 ship in 0.25.0 
 | 26 | [Links without hubs; tables prejoined more than one way](#26-links-without-hubs-tables-prejoined-more-than-one-way) | Merged (PR #242) | Allow non-historized Links without Hubs and standard Links with one; copy for `validate.link.no_hashkey_input` and `validate.link.too_few_hubs`; prejoins identified by their join |
 | 27 | [Previews of an entity's or a project's models and project files](#27-previews-of-an-entitys-or-a-projects-models-and-project-files) | Merged (PR #244) | Preview models and `dbt_project.yml` with Studio's settings and templates |
 | 28 | [What only the dbt output applies](#28-what-only-the-dbt-output-applies) | Merged (PR #244) | Mark dbt-only fields and settings from `frameworks`; show `render.sqlmesh.settings_ignored` |
-| 29 | [Every setting a dbt project tells, also the ones that match](#29-every-setting-a-dbt-project-tells-also-the-ones-that-match) | In review | Show what the import found next to the project's settings, matching or not; read `current` and `source` instead of comparing yourself |
+| 29 | [Every setting a dbt project tells, also the ones that match](#29-every-setting-a-dbt-project-tells-also-the-ones-that-match) | In review (PR #245) | Show what the import found next to the project's settings, matching or not; read `current` and `source` instead of comparing yourself |
 
 Background for items 4–23 and 27–28: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
 
@@ -1221,7 +1221,7 @@ dropped them silently.
 
 ## 29. Every setting a dbt project tells, also the ones that match
 
-**Status:** In review. `engine.services.imports.types.ProjectSettings` and `SettingSuggestion`.
+**Status:** In review (PR #245). `engine.services.imports.types.ProjectSettings` and `SettingSuggestion`.
 
 `ProjectSettings.suggestions` lists only what differs from the project's settings (item 19), so a review of the
 dbt project's conventions couldn't show the ones the project already follows. Now:
