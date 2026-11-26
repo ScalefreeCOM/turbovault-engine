@@ -418,13 +418,14 @@ class ProjectSettingsMapping:
     def _project_settings(self) -> ProjectSettings:
         """What the source suggests for the project's settings."""
         self._suggestions: dict[str, SettingSuggestion] = {}
+        self._found: dict[str, SettingSuggestion] = {}
         self._suggest_naming()
         self._suggest_layers()
         self._suggest_source_values()
         self._suggest_tags()
         self._suggest_folders()
         self._suggest_dbt_project()
-        return ProjectSettings(suggestions=self._suggestions)
+        return ProjectSettings(suggestions=self._suggestions, found=self._found)
 
     def _suggest(
         self,
@@ -436,20 +437,26 @@ class ProjectSettingsMapping:
         of: str = "",
         source: str = "",
         origin: str = "",
+        same: bool | None = None,
     ) -> None:
-        """Suggest ``value`` for the runtime config field ``key`` (dotted: an
-        entry of a mapping field) where it differs from the ``current`` one.
+        """Record ``value`` for the runtime config field ``key`` (dotted: an
+        entry of a mapping field), and suggest it where it differs from the
+        ``current`` one (``same`` decides where equality doesn't).
 
         ``found``: what follows it (``of`` what); else it is copied from the
         dbt project's ``source`` file. ``origin`` says why, instead.
         """
-        if value == current:
-            return
-        self._suggestions[key] = SettingSuggestion(
+        suggestion = SettingSuggestion(
             value=value,
             matching=found.matching if found else None,
             total=found.total if found else None,
+            current=current,
+            source=source or None,
         )
+        self._found[key] = suggestion
+        if (value == current) if same is None else same:
+            return
+        self._suggestions[key] = suggestion
         if not origin:
             origin = (
                 f"{found.matching} of {found.total} {of} follow it"
@@ -644,12 +651,12 @@ class ProjectSettingsMapping:
             for table in system.tables.values()
         ]
         single = methods.count("single_batch")
-        if single and not self.config.use_delivery_method:
+        if single:
             # Any table loading single-batch data needs the switch
             self._suggest(
                 "use_delivery_method",
                 True,
-                False,
+                self.config.use_delivery_method,
                 Inferred(value=True, matching=single, total=len(methods)),
                 origin=f"{single} of {len(methods)} tables load single-batch data",
             )
@@ -834,14 +841,14 @@ class ProjectSettingsMapping:
             # A block the project has already, but for layer blocks TurboVault
             # writes anyway, is no difference: the block applied together
             # with the layer settings that make its layer blocks redundant
-            if models_block and models_block != project_yml.without_layers(
-                current_models, layers
-            ):
+            if models_block:
                 self._suggest(
                     "dbt_project_models",
                     models_block,
                     current_models,
                     source=source,
+                    same=models_block
+                    == project_yml.without_layers(current_models, layers),
                 )
             other = project_yml.without_defaults(
                 self._other_project_settings(original),

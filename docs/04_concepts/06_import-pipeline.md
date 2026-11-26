@@ -327,8 +327,9 @@ are the values most of the project's models follow, plus copies of its
 - the dbt project's `dbt_project.yml` and packages
 
 The report lists them in `project_settings.suggestions`, keyed by setting.
-Each one has its value and how many models follow it, and gets a
-`dbt.setting_suggested` info. Models, tables and source systems store only
+Each one has its value, how many models follow it and the project's current
+value, and gets a `dbt.setting_suggested` info. `project_settings.found` lists
+every setting the import tells, also the ones the project already follows. Models, tables and source systems store only
 what differs from the settings the import was given. After you apply the
 suggestions, importing again stores less. The CLI offers to apply them after a
 dry run (`--apply-settings`). `EngineRuntimeConfig.with_settings()` applies

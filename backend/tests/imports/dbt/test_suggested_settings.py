@@ -681,3 +681,102 @@ def test_layer_blocks_the_applied_settings_write_arent_suggested_again(tmp_path)
     # Applied together with the folders and schemas, the stored layer blocks
     # are what TurboVault writes anyway: nothing more to suggest
     assert domain.project_settings.is_empty(), suggestions(domain)
+
+
+# ---------------------------------------------------------------------------
+# Everything found, also what the project already follows (Studio's review)
+
+
+def test_what_the_project_already_follows_is_found_but_not_suggested(tmp_path):
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    stage = {"schema": "staging", "materialized": "table", "folder": "models/stages"}
+    vault = {"schema": "edw", "materialized": "incremental", "folder": "models/rdv"}
+    path = write_manifest(
+        tmp_path,
+        [
+            configured(STG_CUSTOMER, **stage),
+            configured(STG_ORDERS, **stage),
+            configured(CUSTOMER_H, **vault),
+            configured(ORDER_H, **vault),
+            configured(ORDER_CUSTOMER_L, **vault),
+            configured(CUSTOMER_S_V0, **vault),
+            configured(CUSTOMER_S_V1, **{**vault, "materialized": "table"}),
+        ],
+        [CUSTOMER, ORDERS],
+    )
+
+    domain, _ = map_manifest(path, EngineRuntimeConfig())
+
+    settings = domain.project_settings
+    # Raw vault models are incremental, like the project's: found, not suggested
+    matching = settings.found["raw_vault_materialization"]
+    assert (matching.value, matching.current) == ("incremental", "incremental")
+    # The v1 view has a materialization of its own (model_materializations)
+    assert (matching.matching, matching.total) == (4, 4)
+    assert matching.source is None
+    assert "raw_vault_materialization" not in settings.suggestions
+    # What differs is both, with the value it would replace
+    differing = settings.found["rdv_schema"]
+    assert differing == settings.suggestions["rdv_schema"]
+    assert (differing.value, differing.current) == ("edw", "rdv")
+    # Every suggestion is found
+    assert set(settings.suggestions) <= set(settings.found)
+
+    # Applied, nothing differs any more, and everything is still found
+    applied = EngineRuntimeConfig().with_settings(suggestions(domain))
+    domain, _ = map_manifest(path, applied)
+
+    assert domain.project_settings.is_empty()
+    assert set(domain.project_settings.found) == set(settings.found)
+    assert all(
+        found.value == found.current for found in domain.project_settings.found.values()
+    )
+
+
+def test_a_copied_value_says_which_file_it_comes_from(tmp_path):
+    (tmp_path / "packages.yml").write_text(
+        "packages:\n  - package: ScalefreeCOM/datavault4dbt\n    version: 1.9.0\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "dbt_project.yml").write_text(
+        "name: shop\nversion: '1.0.0'\nconfig-version: 2\nprofile: shop\n",
+        encoding="utf-8",
+    )
+    path = write_manifest(tmp_path, [STG_CUSTOMER, STG_ORDERS], [CUSTOMER, ORDERS])
+
+    domain, _ = map_manifest(path)
+
+    found = domain.project_settings.found
+    assert found["dbt_project_name"].source == "dbt_project.yml"
+    assert found["dbt_project_name"].value == "shop"
+    assert found["dbt_packages"].source == "package files"
+    assert found["dbt_packages"].matching is None
+
+
+def test_the_delivery_method_switch_is_found_when_the_project_has_it_on(tmp_path):
+    from engine.services.runtime_config import EngineRuntimeConfig
+
+    from tests.imports.dbt.test_dbt_mapping import dv, model
+
+    single = model(
+        "customer_es",
+        dv(
+            "eff_sat_v0",
+            """
+            source_model: stg__crm__customer
+            tracked_hashkey: hk_customer_h
+            source_is_single_batch: true
+            """,
+        ),
+    )
+    path = write_manifest(
+        tmp_path, [STG_CUSTOMER, STG_ORDERS, CUSTOMER_H, single], [CUSTOMER, ORDERS]
+    )
+
+    domain, _ = map_manifest(path, EngineRuntimeConfig(use_delivery_method=True))
+
+    switch = domain.project_settings.found["use_delivery_method"]
+    assert (switch.value, switch.current) == (True, True)
+    assert (switch.matching, switch.total) == (1, 2)
+    assert "use_delivery_method" not in domain.project_settings.suggestions

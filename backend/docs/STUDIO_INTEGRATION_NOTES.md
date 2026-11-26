@@ -6,7 +6,7 @@ request that changes something Studio-relevant updates this file.
 
 **Status markers:** **Released** (in an Engine release) · **Merged** (on `main`, not yet released) ·
 **In review** (open pull request) · **Planned** (decided, not implemented; field names may still change; the
-section is completed when the Engine change lands). Items 1–28 ship in 0.25.0 (release pull request #236).
+section is completed when the Engine change lands). Items 1–29 ship in 0.25.0 (release pull request #236).
 
 | # | Change | Status | Studio work |
 |---|--------|--------|-------------|
@@ -36,8 +36,9 @@ section is completed when the Engine change lands). Items 1–28 ship in 0.25.0 
 | 24 | [Progress details](#24-progress-details) | Merged (PR #240) | Optional: a run log and real progress bars from `ProgressEvent.detail` |
 | 25 | [Workbook prejoins and effectivity](#25-workbook-prejoins-and-effectivity) | Merged (PR #241) | Copy for `entity.imported_differently`; tell users that re-importing a workbook with link prejoins changes those links' hash keys |
 | 26 | [Links without hubs; tables prejoined more than one way](#26-links-without-hubs-tables-prejoined-more-than-one-way) | Merged (PR #242) | Allow non-historized Links without Hubs and standard Links with one; copy for `validate.link.no_hashkey_input` and `validate.link.too_few_hubs`; prejoins identified by their join |
-| 27 | [Previews of an entity's or a project's models and project files](#27-previews-of-an-entitys-or-a-projects-models-and-project-files) | In review | Preview models and `dbt_project.yml` with Studio's settings and templates |
-| 28 | [What only the dbt output applies](#28-what-only-the-dbt-output-applies) | In review | Mark dbt-only fields and settings from `frameworks`; show `render.sqlmesh.settings_ignored` |
+| 27 | [Previews of an entity's or a project's models and project files](#27-previews-of-an-entitys-or-a-projects-models-and-project-files) | Merged (PR #244) | Preview models and `dbt_project.yml` with Studio's settings and templates |
+| 28 | [What only the dbt output applies](#28-what-only-the-dbt-output-applies) | Merged (PR #244) | Mark dbt-only fields and settings from `frameworks`; show `render.sqlmesh.settings_ignored` |
+| 29 | [Every setting a dbt project tells, also the ones that match](#29-every-setting-a-dbt-project-tells-also-the-ones-that-match) | In review (PR #245) | Show what the import found next to the project's settings, matching or not; read `current` and `source` instead of comparing yourself |
 
 Background for items 4–23 and 27–28: [`07_dbt_project_import_specification.md`](07_dbt_project_import_specification.md).
 
@@ -880,7 +881,8 @@ differs from the settings it was given.
   keyed by `EngineRuntimeConfig` field; a dotted key sets one entry of a mapping field
   (`folders.raw_vault`, `model_materializations.pit`). `SettingSuggestion`: `value` (the field's value, may be
   `null`: e.g. `rdv_schema: null`, no custom schema), `matching` and `total` (how many models, names, tables or
-  stages follow it; both `null` for a value copied from the dbt project's files).
+  stages follow it; both `null` for a value copied from the dbt project's files), `current` and `source`
+  (item 29). `ProjectSettings.found` lists every setting the import tells, the matching ones too (item 29).
 - **Keys:** `hashkey_naming`, `hashdiff_naming`, `satellite_v0_naming`, `satellite_v1_naming`,
   `effectivity_satellite_naming`, `record_tracking_satellite_naming`, `stage_naming`, `prestage_naming`;
   `stage_schema`, `rdv_schema`, `bdv_schema`, `control_schema`; `staging_materialization`,
@@ -1154,7 +1156,7 @@ can't use:
 
 ## 27. Previews of an entity's or a project's models and project files
 
-**Status:** In review. Module `engine.services.generation.preview`, exported from
+**Status:** Merged (PR #244). Module `engine.services.generation.preview`, exported from
 `engine.services.generation`.
 
 Rendered in memory by the stages of a real generation (build, plan, render): nothing is written and no
@@ -1189,7 +1191,7 @@ admin's "Generated dbt models" view).
 
 ## 28. What only the dbt output applies
 
-**Status:** In review. Module `engine.services.generation.frameworks`.
+**Status:** Merged (PR #244). Module `engine.services.generation.frameworks`.
 
 Most settings added for the dbt import are datavault4dbt parameters or dbt concepts the SQLMesh output has no
 counterpart for. The module lists them:
@@ -1217,3 +1219,27 @@ dropped them silently.
   lists rather than a copy; a contract test against them keeps Studio in step.
 - Issue copy for `render.sqlmesh.settings_ignored`.
 
+## 29. Every setting a dbt project tells, also the ones that match
+
+**Status:** In review (PR #245). `engine.services.imports.types.ProjectSettings` and `SettingSuggestion`.
+
+`ProjectSettings.suggestions` lists only what differs from the project's settings (item 19), so a review of the
+dbt project's conventions couldn't show the ones the project already follows. Now:
+
+- **`ProjectSettings.found: dict[str, SettingSuggestion]`**: every setting the import inferred or copied, keyed
+  like `suggestions`, whether it differs or not. Every key of `suggestions` is in `found`, with the same entry. A
+  key in `found` but not in `suggestions` is one the project already follows.
+- **`SettingSuggestion.current`**: the project's value it was compared with (from the runtime config the import
+  was given, or the default that applies when the project sets none, e.g. TurboVault's packages).
+- **`SettingSuggestion.source`**: where a copied value comes from (`dbt_project.yml`, `package files`); `null`
+  for a value inferred from the models, names, tables or stages (`matching` and `total` say how many follow it).
+- `use_delivery_method` is now found while it is on, too; `dbt_project_models` is found whenever the dbt
+  project has a `models:` block, and suggested, as before, only when it differs apart from the layer blocks.
+- Unchanged: `suggestions`, `is_empty()` (still about `suggestions`), the `dbt.setting_suggested` infos and the
+  CLI's `--apply-settings`.
+
+### Studio
+
+- The import review lists `found`: each setting with the value found, "n of m follow it" or the source file,
+  the project's `current` value, and whether it already matches (`key not in suggestions`). Applying the
+  accepted ones is unchanged (`EngineRuntimeConfig.with_settings`).
