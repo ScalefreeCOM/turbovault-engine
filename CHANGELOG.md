@@ -5,6 +5,31 @@ All notable changes to TurboVault Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.24.0...turbovault-engine-v0.25.0) (2026-11-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **import:** a link row with prejoin_* columns now maps the prejoined column, so re-importing such a file changes that link's hash key inputs.
+* **import:** generated dbt models move to the new layer folders. Projects that select models by path, or keep their own dbt_project.yml, must use the new folder names.
+* **generation:** keep imported models' file paths, names and configs on dbt generation ([#235](https://github.com/ScalefreeCOM/turbovault-engine/issues/235))
+
+### Features
+
+* **generation:** keep imported models' file paths, names and configs on dbt generation ([#235](https://github.com/ScalefreeCOM/turbovault-engine/issues/235)) ([076fb7c](https://github.com/ScalefreeCOM/turbovault-engine/commit/076fb7cb2803e0e0bc402ef643e476977a141c64))
+* **generation:** preview models and project files with a caller's settings, and name what SQLMesh drops ([#244](https://github.com/ScalefreeCOM/turbovault-engine/issues/244)) ([c8ce13a](https://github.com/ScalefreeCOM/turbovault-engine/commit/c8ce13a5cd47f176622663d6878fbd04124c29ed))
+* **import:** import datavault4dbt projects and generate back into them ([#238](https://github.com/ScalefreeCOM/turbovault-engine/issues/238)) ([3d4be12](https://github.com/ScalefreeCOM/turbovault-engine/commit/3d4be126ebf8ac735afdf5d6a1cee747479b25ca))
+* **import:** import workbook prejoins and effectivity, report the rest ([#241](https://github.com/ScalefreeCOM/turbovault-engine/issues/241)) ([0a246a3](https://github.com/ScalefreeCOM/turbovault-engine/commit/0a246a3022d10e40a78957d6a12754fdd4679354))
+* **import:** prejoin two tables more than one way ([889e367](https://github.com/ScalefreeCOM/turbovault-engine/commit/889e36753647810582d5d895709b7fd169301b93))
+* **import:** report every setting a dbt project tells, also the ones that match ([#245](https://github.com/ScalefreeCOM/turbovault-engine/issues/245)) ([f7cd1ee](https://github.com/ScalefreeCOM/turbovault-engine/commit/f7cd1ee905282162416c8430efe1b37968ab2141))
+* **links:** allow non-historized links without hubs, and standard links with one hub (with a warning) ([889e367](https://github.com/ScalefreeCOM/turbovault-engine/commit/889e36753647810582d5d895709b7fd169301b93))
+* **progress:** report each file and entity, with counts, as pipelines run ([#240](https://github.com/ScalefreeCOM/turbovault-engine/issues/240)) ([51fd98e](https://github.com/ScalefreeCOM/turbovault-engine/commit/51fd98e6b1d183409fa82bf0ac1ee2dacfd7b96f))
+
+
+### Bug Fixes
+
+* **import:** import a dbt project's PITs that read an effectivity satellite, and report a second one of a hub or link ([889e367](https://github.com/ScalefreeCOM/turbovault-engine/commit/889e36753647810582d5d895709b7fd169301b93))
+
 ## [0.24.0](https://github.com/ScalefreeCOM/turbovault-engine/compare/turbovault-engine-v0.23.0...turbovault-engine-v0.24.0) (2026-11-12)
 
 
